@@ -9,3 +9,5 @@ Fixtures/out/
 xcuserdata/
 .DS_Store
 .swiftpm/
+# Claude Code agent worktrees
+.claude/worktrees/
