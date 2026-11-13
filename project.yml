@@ -1,0 +1,86 @@
+name: Marginal
+options:
+  bundleIdPrefix: software.tactile
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "2"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    GENERATE_INFOPLIST_FILE: YES
+packages:
+  ReaderCore:
+    path: Packages/ReaderCore
+  ReaderStore:
+    path: Packages/ReaderStore
+targets:
+  Marginal:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: ReaderCore
+      - package: ReaderStore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: software.tactile.marginal
+        PRODUCT_NAME: Marginal
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Marginal
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        LSSupportsOpeningDocumentsInPlace: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+  MarginalTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: Marginal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: software.tactile.marginal.tests
+  MarginalUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: Marginal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: software.tactile.marginal.uitests
+schemes:
+  Marginal:
+    build:
+      targets:
+        Marginal: all
+    test:
+      targets:
+        - MarginalTests
+        - MarginalUITests

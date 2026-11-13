@@ -111,7 +111,7 @@ ones even where the mockup draws an approximation.
 | Heading identity | A stable anchor derived from the node's outline path, title and start page, with a fallback match on title plus page | PDF outline items carry no ID, and notes must survive relaunch. |
 | Core logic | A pure-Swift package (`ReaderCore`) with no PDFKit or SwiftData imports | Outline, anchoring, scoping and export are testable with `swift test` in seconds. |
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
-| Minimum OS | iPadOS 18 (confirm against the installed Xcode and simulators in WP0) | Current SwiftData, `inspector`, and PencilKit tool picker behaviour. |
+| Minimum OS | iPadOS 18.0 deployment target, confirmed building with Xcode 27.2 (27B52) against the iOS 27.2 simulator SDK. Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only; iOS 18 behaviour is not exercised here. | Current SwiftData, `inspector`, and PencilKit tool picker behaviour. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before

@@ -1,0 +1,23 @@
+import Testing
+@testable import Marginal
+
+struct LaunchOptionsTests {
+    @Test func parsesContract() {
+        let options = LaunchOptions(arguments: [
+            "app", "-resetState", "-importFixture", "/a.pdf", "-importFixture", "/b.pdf",
+            "-openBook", "Small", "-openPage", "3", "-screen", "reader", "-inkAnyInput",
+            "-markup", "-notesPanel", "section", "-bogus", "x",
+        ])
+        #expect(options.resetState)
+        #expect(options.importFixtures.map(\.path) == ["/a.pdf", "/b.pdf"])
+        #expect(options.openBook == "Small")
+        #expect(options.openPage == 3)
+        #expect(options.screen == .reader)
+        #expect(options.inkAnyInput && options.markup)
+        #expect(options.notesPanel == .section)
+    }
+
+    @Test func defaultsAreEmpty() {
+        #expect(LaunchOptions(arguments: ["app"]) == LaunchOptions())
+    }
+}
