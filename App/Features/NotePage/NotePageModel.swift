@@ -107,6 +107,10 @@ final class NotePageModel {
     private(set) var saveState: SaveState = .loading
     /// Bumped on every change of text or ink (for views that render the note).
     private(set) var revision = 0
+    /// `true` while an editor's text view is editing this note (has keyboard focus). Hosts
+    /// should not switch the editor to another target while this is true (the reader would be
+    /// typing into a note that changes under them); switch when it turns `false`.
+    private(set) var isEditingText = false
 
     /// Short status text for the panel: "Saved", "Saving…", "Edited", "Not saved", or "".
     var statusText: String {
@@ -269,6 +273,11 @@ final class NotePageModel {
         if remoteChangePending { scheduleSave(after: .milliseconds(50)) }
     }
 
+    /// The editor's text view began (`true`) or ended (`false`) editing this note.
+    func setEditingText(_ editing: Bool) {
+        if isEditingText != editing { isEditingText = editing }
+    }
+
     /// The editor finished composing text (marked text committed or ended editing).
     func textEditingDidSettle() {
         if remoteChangePending { scheduleSave(after: .milliseconds(50)) }
@@ -369,7 +378,7 @@ final class NotePageModel {
         let inkPresent = !snapshotInk.isEmpty || hasUnreadableInk
         let id = record?.id ?? noteID ?? UUID()
         let note = Note(id: id, bookID: bookID, target: target, text: snapshotText, hasInk: inkPresent,
-                        bandLayout: snapshotInk.isEmpty ? record?.bandLayout : snapshotInk.layout,
+                        bandLayout: hasUnreadableInk ? record?.bandLayout : (snapshotInk.isEmpty ? nil : snapshotInk.layout),
                         createdAt: record?.createdAt ?? createdAt ?? now, modifiedAt: now)
         if note.isEmpty {
             if let record {

@@ -333,6 +333,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         pendingModel = nil
         if let old = currentModel {
             commitPendingInput(to: old)
+            old.setEditingText(false)
             if old.editor === self { old.editor = nil }
             Task { await old.flush() }
         }
@@ -501,7 +502,12 @@ extension NotePageEditorView: UITextViewDelegate {
         scrollCursorIntoView()
     }
 
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        currentModel?.setEditingText(true)
+    }
+
     func textViewDidEndEditing(_ textView: UITextView) {
+        currentModel?.setEditingText(false)
         currentModel?.textEditingDidSettle()
         session?.markup.reassertToolPicker()
     }

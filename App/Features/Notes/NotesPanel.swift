@@ -68,6 +68,9 @@ struct NotesPanel: View {
         .onChange(of: target, initial: true) { _, newTarget in
             state.show(newTarget, session: session)
         }
+        .onChange(of: state.model?.isEditingText) { _, _ in
+            state.show(target, session: session)
+        }
         .onAppear {
             if state.baseZoom == nil { state.baseZoom = NotePageStyle.defaultZoom(for: dynamicTypeSize) }
         }
@@ -119,6 +122,9 @@ final class NotesPanelNoteState {
 
     func show(_ target: NoteTarget?, session: ReaderSession) {
         guard model?.target != target || model?.bookID != session.book.id else { return }
+        // Never swap the note under the reader while they type in it (e.g. the keyboard scrolled
+        // the page); switch when editing ends.
+        if model?.isEditingText == true { return }
         // The editor view switches to the new model after any stroke in progress and flushes the
         // old one; with no editor on screen, flush it here.
         if let old = model, old.editor == nil { Task { await old.flush() } }
