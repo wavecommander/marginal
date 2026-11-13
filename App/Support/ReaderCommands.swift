@@ -36,7 +36,7 @@ struct ReaderCommands: Commands {
         // Adding ⌃⌘S beside the system item crashes the main-menu build ("Replacement elements
         // contain duplicates"), so the group is replaced, not appended to.
         CommandGroup(replacing: .sidebar) {
-            Button(session?.isContentsVisible == true ? "Hide Contents" : "Show Contents") {
+            Button(session?.isContentsShown == true ? "Hide Contents" : "Show Contents") {
                 session?.toggleContents()
             }
             .keyboardShortcut("s", modifiers: [.command, .control])

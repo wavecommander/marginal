@@ -156,6 +156,9 @@ final class LibraryUITests: XCTestCase {
         XCTAssertTrue(readerToolbar(app).waitForExistence(timeout: 20), app.debugDescription)
         // The Library window is still there.
         XCTAssertTrue(book(app, "small").exists)
+        // Close the new window (a window left open is restored as a hidden window later).
+        app.typeKey("w", modifierFlags: .command)
+        sleep(2)
     }
 
     func testImportButtonPresentsTheFilesPicker() {

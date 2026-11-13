@@ -48,7 +48,6 @@ struct LibraryScreen: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $query, prompt: "Search titles and notes")
         .toolbar { toolbar }
-        .accessibilityIdentifier(AccessibilityID.Library.screen)
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task(id: query) { await updateNoteMatches() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
@@ -165,6 +164,7 @@ struct LibraryScreen: View {
                     .aspectRatio(0.77, contentMode: .fit)
                     .overlay { BookCoverView(book: book) }
                     .bookCoverStyle()
+                    .onDrag { LibraryActivity.itemProvider(bookID: book.id, title: book.title) }
                     .padding(.bottom, 4)
                 Text(book.title)
                     .font(.subheadline.weight(.semibold))
@@ -181,7 +181,6 @@ struct LibraryScreen: View {
         .accessibilityLabel(LibraryLogic.accessibilityLabel(book))
         .accessibilityIdentifier(AccessibilityID.Library.book(book.title))
         .contextMenu { menu(for: book) }
-        .onDrag { LibraryActivity.itemProvider(bookID: book.id, title: book.title) }
     }
 
     @ViewBuilder
