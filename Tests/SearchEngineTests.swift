@@ -140,6 +140,33 @@ struct SearchEngineTests {
         #expect((firstHitAtPagesSearched ?? .max) < 100)
     }
 
+    /// The main actor stays responsive while a full-book search runs and its results are applied:
+    /// a 10 ms heartbeat on the main actor never stalls for long.
+    @Test func mainActorStaysResponsiveDuringASearch() async throws {
+        let fixture = try makeFixture("large.pdf", pages: 1500)
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture)
+        let model = SearchModel(session: session, hitCap: 100_000, pageDelay: .zero)
+        model.debounce = .zero
+        model.query = "the"  // many hits on most pages: the heaviest realistic term
+        var maxGap: Duration = .zero
+        var beats = 0
+        var last = ContinuousClock.now
+        while model.phase == .searching || model.phase == .idle, beats < 20_000 {
+            try await Task.sleep(for: .milliseconds(10))
+            let now = ContinuousClock.now
+            maxGap = max(maxGap, now - last)
+            last = now
+            beats += 1
+            if model.phase == .finished { break }
+        }
+        #expect(model.phase == .finished)
+        #expect(beats > 50)
+        // Generous: includes simulator scheduling noise, far below "blocked".
+        #expect(maxGap < .milliseconds(750), "longest main-actor stall \(maxGap)")
+        model.stop()
+    }
+
     @Test func hitCapStopsAndContinuationResumes() async throws {
         let fixture = try makeFixture("large.pdf", pages: 1500)
         defer { cleanUp(fixture) }

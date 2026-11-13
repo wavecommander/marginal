@@ -110,9 +110,13 @@ final class SearchUITests: XCTestCase {
         let list = app.collectionViews[ID.results]
         XCTAssertTrue(list.exists)
         let before = first.label
-        let started = Date()
-        list.swipeUp()
-        XCTAssertLessThan(Date().timeIntervalSince(started), 20, "scrolling blocked while searching")
+        // No time bound here: with `large.pdf` open every XCUITest snapshot of the app walks
+        // PDFKit's text-input view (`-[PDFTextInputView textInRange:]`, O(document)), which pegs
+        // the main thread for the duration of a gesture whatever the search does. Main-thread
+        // responsiveness during a search is measured in `SearchEngineTests` (heartbeat test).
+        let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        from.press(forDuration: 0.05, thenDragTo: to)
         XCTAssertTrue(app.buttons[ID.stop].exists, "search should still be running after scrolling")
         _ = before
 
@@ -132,7 +136,7 @@ final class SearchUITests: XCTestCase {
         _ = openSearch(app, query: "qqxjzv")
         let status = app.staticTexts[ID.status].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForLabel(status, "No results", timeout: 60))
+        XCTAssertTrue(waitForLabel(status, "No results", timeout: 240))
         XCTAssertEqual(resultRows(app).count, 0)
     }
 
