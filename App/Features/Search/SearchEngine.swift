@@ -249,7 +249,7 @@ nonisolated enum PDFTextSearch {
     /// Searches the PDF at `url` page by page, starting at `startPage`.
     ///
     /// The returned stream yields `SearchEvent`s (batched: the first hit is delivered at once,
-    /// later ones at most every ~60 ms) and finishes after `.finished`. Cancelling the consuming
+    /// later ones at most every ~250 ms (each batch re-renders the result list)) and finishes after `.finished`. Cancelling the consuming
     /// task, or dropping the stream, cancels the search within one page. A run stops at the
     /// first page boundary after `hitCap` hits, so it can exceed the cap by one page's hits.
     ///
@@ -280,7 +280,7 @@ nonisolated enum PDFTextSearch {
         var totalHits = 0
         var lastEmit = ContinuousClock.now - .seconds(1)
         var sentFirst = false
-        let flushInterval = Duration.milliseconds(60)
+        let flushInterval = Duration.milliseconds(250)
         let sleepNanos = pageDelay > .zero ? pageDelay : nil
 
         func flush(pagesSearched: Int, force: Bool) {
