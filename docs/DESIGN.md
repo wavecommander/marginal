@@ -179,9 +179,11 @@ take full advantage of their SDKs.
 - **At the floor the same features use the older system model**: multiple windows through Split
   View, Slide Over and Stage Manager; keyboard shortcuts through the same SwiftUI commands (shown
   in the shortcut overlay instead of a menu bar).
-- **Testing.** Only the iOS 27.0 runtime is installed, so the fallback paths are checked by the
-  compiler and by review, not by running them. Installing an iPadOS 17 or 18 simulator runtime is
-  the way to exercise them and is listed in the WP12 hand-off.
+- **Testing.** Two simulator runtimes are installed: iOS 27.0 and iOS 17.5 (the 17.5 image was
+  downloaded from Apple's developer site by the owner and imported with `xcrun simctl runtime
+  add`; Xcode 27.2 will not download it itself). Every package runs its tests on both, so the
+  floor's fallback paths are exercised and not only compiled. Systems in between (18, 26) are
+  covered by the compiler and by review.
 
 ## Technical decisions
 
@@ -199,7 +201,7 @@ take full advantage of their SDKs.
 | Heading identity | A stable anchor derived from the node's outline path, title and start page, with a fallback match on title plus page | PDF outline items carry no ID, and notes must survive relaunch. |
 | Core logic | A pure-Swift package (`ReaderCore`) with no PDFKit or SwiftData imports | Outline, anchoring, scoping and export are testable with `swift test` in seconds. |
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
-| Minimum OS | iPadOS 17.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 SDK (confirmed: the build targets `arm64-apple-ios17.0-simulator`). Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only; behaviour on 17, 18 and 26 is compiler-checked but not exercised. | The owner wants the lowest system the design allows. 17.0 is the floor because SwiftData and the Observation framework (`@Observable`) start there. |
+| Minimum OS | iPadOS 17.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 SDK (confirmed: the build targets `arm64-apple-ios17.0-simulator`). Tests run on the iOS 27.0 and iOS 17.5 simulator runtimes; behaviour on 18 and 26 is compiler-checked but not exercised. | The owner wants the lowest system the design allows. 17.0 is the floor because SwiftData and the Observation framework (`@Observable`) start there. |
 | Newer-OS features | Availability-gated (`if #available`, `@available`) with a working fallback at the floor; see "OS versions" | Later systems get everything the SDK offers without raising the floor. |
 | Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per reader window; `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |

@@ -55,8 +55,12 @@ adds because of them:
 - **Every package**: the deployment target is iPadOS 17.0 and stays there. An API newer than 17.0
   is used only behind an availability check with a working fallback beside it, kept in one small
   place per feature. Check the real availability in the installed SDK rather than from memory,
-  and list in the report every availability-gated path added and what its fallback does. The
-  fallbacks cannot be run here (only the iOS 27.0 runtime is installed), so keep them simple.
+  and list in the report every availability-gated path added and what its fallback does.
+- **Every package, gate step 4**: run the app's tests a second time on an iPadOS 17.5 simulator
+  (`MARGINAL_SIM=<the 17.5 device the orchestrator assigns> scripts/test.sh --skip-packages`) and,
+  for UI packages, take the same screenshots there. A test that cannot pass at the floor for a
+  reason outside the package (a system difference, a simulator limit) is skipped on that system
+  with an availability check and named in the report, never deleted.
 - **WP2**: one `ModelContainer` shared by all windows; repositories safe to use from several
   windows' sessions at once; a change hub (`InkChangeHub` or similar) that announces page-ink and
   note-ink writes and deletions so other windows can reload that surface.
