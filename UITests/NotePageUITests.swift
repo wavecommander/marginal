@@ -39,16 +39,23 @@ final class NotePageUITests: XCTestCase {
         app.textViews[ID.text].firstMatch
     }
 
+    // Queries are typed and scoped to the note editor: matching `.any` across the whole app
+    // (PDF text included) on every poll floods XCTest's in-app logging, which on iPadOS 17.5 got
+    // the process quarantined and crashed XCTAutomationSupport.
+    private func editor(_ app: XCUIApplication) -> XCUIElement {
+        app.otherElements["notePage.editor"].firstMatch
+    }
+
     private func ink(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any)[ID.ink].firstMatch
+        editor(app).images[ID.ink].firstMatch
     }
 
     private func writingSpace(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any)[ID.writingSpace].firstMatch
+        editor(app).otherElements[ID.writingSpace].firstMatch
     }
 
     private func status(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any)[ID.status].firstMatch
+        app.staticTexts[ID.status].firstMatch
     }
 
     private func wait(_ element: XCUIElement, _ format: String, _ argument: String, timeout: TimeInterval = 10) -> Bool {
@@ -257,13 +264,9 @@ final class NotePageUITests: XCTestCase {
         pagePoint(app, x: 40, y: 25).tap()
         textView(app).typeText("Undo me")
         XCTAssertTrue(wait(textView(app), "value == %@", "Undo me"))
-        let keyboardUndo = app.keyboards.buttons["Undo"].firstMatch
-        if keyboardUndo.waitForExistence(timeout: 3) {
-            keyboardUndo.tap()
-        } else {
-            textView(app).typeKey("z", modifierFlags: .command)
-        }
-        XCTAssertTrue(waitFor(textView(app), "value == nil OR value == ''"), "typing undone")
+        textView(app).typeKey("z", modifierFlags: .command)
+        // iPadOS 27 coalesces the typing into one undo step, 17.5 undoes the last keystroke.
+        XCTAssertTrue(waitFor(textView(app), "value == nil OR value != 'Undo me'"), "typing undone")
         XCTAssertTrue(ink(app).exists, "the stroke stays")
     }
 
