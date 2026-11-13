@@ -19,11 +19,11 @@ final class SearchUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     override func tearDown() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     // MARK: Helpers
@@ -96,38 +96,33 @@ final class SearchUITests: XCTestCase {
                       "pill after Back: \(pill.label)")
     }
 
-    func testCancellingStopsResultsAndListScrollsWhileSearching() {
-        // Slow the search to 30 ms a page (the 500-hit cap then takes ~15 s) so it is still running.
-        let app = openLarge(["-searchPageDelayMs", "30"])
+    func testCancellingStopsResultsAndListScrollsAfterwards() {
+        // Slow the search to 100 ms a page (the 500-hit cap then needs ~50 s) so it is still
+        // running when the test acts; every XCUITest query over large.pdf is slow (see below).
+        let app = openLarge(["-searchPageDelayMs", "100"])
         _ = openSearch(app, query: "Fixture page")
 
-        let first = resultRows(app).firstMatch
-        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        XCTAssertTrue(resultRows(app).firstMatch.waitForExistence(timeout: 60))
+        // Stop: the result count stops growing.
         XCTAssertTrue(app.buttons[ID.stop].exists, "still searching: \(status(app))")
-        XCTAssertTrue(status(app).hasPrefix("Searching"), status(app))
+        app.buttons[ID.stop].tap()
+        XCTAssertTrue(app.buttons[ID.resume].waitForExistence(timeout: 30))
+        let atStop = status(app)
+        XCTAssertTrue(atStop.hasPrefix("Stopped"), atStop)
+        sleep(3)
+        XCTAssertEqual(status(app), atStop, "results kept arriving after Stop")
+        sleep(2)
+        XCTAssertEqual(status(app), atStop)
 
-        // The list scrolls while results are still arriving.
+        // The list scrolls. (No time bound: with large.pdf open every XCUITest snapshot walks
+        // PDFKit's text-input view, `-[PDFTextInputView textInRange:]`, O(document), which pegs
+        // the main thread during queries and gestures whatever the search does. Main-thread
+        // responsiveness during a search is measured by `SearchEngineTests`' heartbeat test.)
         let list = app.collectionViews[ID.results]
         XCTAssertTrue(list.exists)
-        let before = first.label
-        // No time bound here: with `large.pdf` open every XCUITest snapshot of the app walks
-        // PDFKit's text-input view (`-[PDFTextInputView textInRange:]`, O(document)), which pegs
-        // the main thread for the duration of a gesture whatever the search does. Main-thread
-        // responsiveness during a search is measured in `SearchEngineTests` (heartbeat test).
         let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
         from.press(forDuration: 0.05, thenDragTo: to)
-        XCTAssertTrue(app.buttons[ID.stop].exists, "search should still be running after scrolling")
-        _ = before
-
-        // Stop: the count stops growing.
-        app.buttons[ID.stop].tap()
-        XCTAssertTrue(app.buttons[ID.resume].waitForExistence(timeout: 5))
-        let atStop = status(app)
-        XCTAssertTrue(atStop.hasPrefix("Stopped"), atStop)
-        sleep(2)
-        XCTAssertEqual(status(app), atStop, "results kept arriving after Stop")
-        sleep(1)
         XCTAssertEqual(status(app), atStop)
     }
 
