@@ -137,6 +137,7 @@ final class LibraryUITests: XCTestCase {
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { search.tap() }  // first tap can land mid-animation
         search.typeText("larg")
         XCTAssertTrue(book(app, "small").waitForNonExistence(timeout: 10))
         XCTAssertTrue(book(app, "large").exists, app.debugDescription)
