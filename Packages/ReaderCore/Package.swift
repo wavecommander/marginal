@@ -5,7 +5,7 @@ import PackageDescription
 // No PDFKit, SwiftData, UIKit or PencilKit imports are allowed in this package.
 let package = Package(
     name: "ReaderCore",
-    platforms: [.iOS(.v18), .macOS(.v15)],
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "ReaderCore", targets: ["ReaderCore"])
     ],

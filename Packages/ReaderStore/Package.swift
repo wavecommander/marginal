@@ -4,7 +4,7 @@ import PackageDescription
 // Persistence layer (SwiftData models, ink files). WP2 fills this in.
 let package = Package(
     name: "ReaderStore",
-    platforms: [.iOS(.v18), .macOS(.v15)],
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "ReaderStore", targets: ["ReaderStore"])
     ],

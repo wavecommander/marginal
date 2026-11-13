@@ -48,9 +48,15 @@ and WP9 because both of them display the note page it builds.
 
 ## Platform requirements added by the owner (every package)
 
-`docs/DESIGN.md` gained two sections after this plan was written, "Windows and scenes" and "Apple
-Pencil", plus principles 6 and 7. They bind every package. What each package adds because of them:
+`docs/DESIGN.md` gained three sections after this plan was written, "Windows and scenes", "Apple
+Pencil" and "OS versions", plus principles 6 and 7. They bind every package. What each package
+adds because of them:
 
+- **Every package**: the deployment target is iPadOS 17.0 and stays there. An API newer than 17.0
+  is used only behind an availability check with a working fallback beside it, kept in one small
+  place per feature. Check the real availability in the installed SDK rather than from memory,
+  and list in the report every availability-gated path added and what its fallback does. The
+  fallbacks cannot be run here (only the iOS 27.0 runtime is installed), so keep them simple.
 - **WP2**: one `ModelContainer` shared by all windows; repositories safe to use from several
   windows' sessions at once; a change hub (`InkChangeHub` or similar) that announces page-ink and
   note-ink writes and deletions so other windows can reload that surface.

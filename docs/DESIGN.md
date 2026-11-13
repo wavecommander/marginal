@@ -155,6 +155,34 @@ Added by the owner after the first plan.
   cannot (textured inks such as crayon or watercolour). Markdown export images are bitmaps because
   Markdown has no portable vector image; they are rendered at 3x.
 
+## OS versions
+
+Added by the owner after the first plan: run on the lowest system possible, and let later systems
+take full advantage of their SDKs.
+
+- **The floor is iPadOS 17.0.** Every feature in this document works there. Nothing is dropped on
+  an older system; it is only done with the API that system has.
+- **Newer API is adopted behind an availability check**, never by raising the deployment target.
+  The check sits in one small place per feature (a view modifier, a factory, an extension) with
+  the older path beside it, so the newer path is easy to find and the older one easy to delete
+  when the floor rises. The compiler enforces this: an unguarded call to a newer API does not
+  build.
+- **Where the newer path matters** (each agent verifies the real availability against the
+  installed SDK before relying on this list):
+  - *iPadOS 18:* SwiftData `#Unique` and `#Index` (the floor enforces uniqueness in the repository
+    instead), `PKToolPicker` item customisation, newer SwiftUI scroll, zoom-transition and tab
+    APIs.
+  - *iPadOS 26:* the resizable-window model with window controls in the toolbar area, the system
+    menu bar, the current system material and toolbar styling, any newer PencilKit and Pencil Pro
+    API.
+  - *iPadOS 27:* whatever the installed SDK adds for windows, scenes and PencilKit.
+- **At the floor the same features use the older system model**: multiple windows through Split
+  View, Slide Over and Stage Manager; keyboard shortcuts through the same SwiftUI commands (shown
+  in the shortcut overlay instead of a menu bar).
+- **Testing.** Only the iOS 27.0 runtime is installed, so the fallback paths are checked by the
+  compiler and by review, not by running them. Installing an iPadOS 17 or 18 simulator runtime is
+  the way to exercise them and is listed in the WP12 hand-off.
+
 ## Technical decisions
 
 | Area | Decision | Why |
@@ -171,7 +199,8 @@ Added by the owner after the first plan.
 | Heading identity | A stable anchor derived from the node's outline path, title and start page, with a fallback match on title plus page | PDF outline items carry no ID, and notes must survive relaunch. |
 | Core logic | A pure-Swift package (`ReaderCore`) with no PDFKit or SwiftData imports | Outline, anchoring, scoping and export are testable with `swift test` in seconds. |
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
-| Minimum OS | iPadOS 26.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 simulator SDK. Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only. Raised from 18.0 when the windowing requirements were added. | The resizable-window and menu bar model starts with iPadOS 26, and behaviour on older systems could not be tested here. |
+| Minimum OS | iPadOS 17.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 SDK (confirmed: the build targets `arm64-apple-ios17.0-simulator`). Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only; behaviour on 17, 18 and 26 is compiler-checked but not exercised. | The owner wants the lowest system the design allows. 17.0 is the floor because SwiftData and the Observation framework (`@Observable`) start there. |
+| Newer-OS features | Availability-gated (`if #available`, `@available`) with a working fallback at the floor; see "OS versions" | Later systems get everything the SDK offers without raising the floor. |
 | Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per reader window; `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
