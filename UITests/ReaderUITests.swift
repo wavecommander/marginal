@@ -94,6 +94,29 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(pill(again), "Page 1200 of 1500"))
     }
 
+    /// The exact user path: tap the pill, type with the software keyboard up, Return. The page
+    /// must stay on N afterwards (the keyboard's dismissal must not restore the old page), and
+    /// Back returns to page 1. Portrait, so the pill sits above the notes sheet and is tappable.
+    func testPillGoToPageOnSmallDocumentStaysAndBackReturns() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = openSmall()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"))
+        pill(app).tap()
+        let field = app.textFields[ReaderID.goToPageField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("9\n")
+        XCTAssertTrue(waitForLabel(pill(app), "Page 9 of 12"))
+        sleep(3)
+        XCTAssertEqual(pill(app).label, "Page 9 of 12")
+        let back = app.buttons[ReaderID.historyBack].firstMatch
+        XCTAssertTrue(waitForEnabled(back))
+        back.tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"))
+        sleep(2)
+        XCTAssertEqual(pill(app).label, "Page 1 of 12")
+    }
+
     func testSubtitleShowsSectionAfterJump() {
         let app = openLarge()
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
