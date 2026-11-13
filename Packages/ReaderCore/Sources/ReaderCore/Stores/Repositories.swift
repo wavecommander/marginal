@@ -14,7 +14,9 @@ import Foundation
 //
 // Repositories never touch files: deleting a note or a book must be followed by the matching
 // `InkStore` call by the caller (all `InkStore` deletes are idempotent, so a repository that
-// also schedules them does no harm).
+// also schedules them does no harm). `LibraryStore` provides the compound operations that do
+// both, and wraps every repository so each successful mutation posts a `StoreChange`; app code
+// should mutate through `LibraryStore`, never through a raw repository.
 
 /// Errors every repository implementation must report in these situations.
 public enum RepositoryError: Error, Hashable, Sendable {
@@ -123,6 +125,8 @@ public protocol NoteRepository {
 /// Text highlights.
 @MainActor
 public protocol HighlightRepository {
+    /// The highlight with this ID, or `nil`.
+    func highlight(id: UUID) throws -> Highlight?
     /// All highlights of the book, sorted by `Highlight.readingOrder`.
     func highlights(bookID: UUID) throws -> [Highlight]
     /// Highlights on one page, sorted by `Highlight.readingOrder`.
@@ -155,6 +159,8 @@ public protocol BookmarkRepository {
 public protocol HeadingRepository {
     /// The book's user headings, in no particular order (`Outline` orders them).
     func userHeadings(bookID: UUID) throws -> [UserHeading]
+    /// The user heading with this ID, or `nil`.
+    func userHeading(id: UUID) throws -> UserHeading?
     /// Inserts or replaces the user heading with `heading.id` (rename, move).
     /// Throws `.bookNotFound` for an unknown book.
     func save(_ heading: UserHeading) throws

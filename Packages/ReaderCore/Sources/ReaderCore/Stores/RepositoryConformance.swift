@@ -112,6 +112,8 @@ public enum RepositoryConformance {
         try highlights.save(low)
         try highlights.save(high)
         try highlights.save(other)
+        try check(try highlights.highlight(id: high.id) == high, "highlight(id:) must find the saved highlight")
+        try check(try highlights.highlight(id: UUID()) == nil, "highlight(id:) must return nil for an unknown id")
         try check(try highlights.highlights(bookID: bookID, pageIndex: 7).map(\.text) == ["high", "low"], "highlights must be in reading order (top first)")
         try check(try highlights.highlights(bookID: bookID, in: 8...9).map(\.id) == [other.id], "highlights(in:) must filter by page")
         var recoloured = low
@@ -136,6 +138,12 @@ public enum RepositoryConformance {
         heading.title = "Mine, renamed"
         try headings.save(heading)
         try check(try headings.userHeadings(bookID: bookID) == [heading], "save(heading) must upsert by id")
+        try check(try headings.userHeading(id: heading.id) == heading, "userHeading(id:) must find the heading")
+        let doomed = UserHeading(bookID: bookID, title: "Doomed", pageIndex: 31, parent: nil)
+        try headings.save(doomed)
+        try headings.deleteUserHeading(id: doomed.id)
+        try headings.deleteUserHeading(id: doomed.id)
+        try check(try headings.userHeading(id: doomed.id) == nil, "deleteUserHeading must delete, and be idempotent")
 
         // Counts and cascade
         let counts = try books.recordCounts(bookID: bookID)

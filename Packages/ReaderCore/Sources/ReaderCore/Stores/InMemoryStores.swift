@@ -97,6 +97,8 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
 
     // MARK: HighlightRepository
 
+    public func highlight(id: UUID) throws -> Highlight? { highlightsByID[id] }
+
     public func highlights(bookID: UUID) throws -> [Highlight] {
         highlightsByID.values.filter { $0.bookID == bookID }.sorted(by: Highlight.readingOrder)
     }
@@ -149,6 +151,8 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
     public func userHeadings(bookID: UUID) throws -> [UserHeading] {
         headingsByID.values.filter { $0.bookID == bookID }
     }
+
+    public func userHeading(id: UUID) throws -> UserHeading? { headingsByID[id] }
 
     public func save(_ heading: UserHeading) throws {
         try requireBook(heading.bookID)
