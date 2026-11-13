@@ -7,7 +7,12 @@ import SwiftUI
 /// Unknown arguments are ignored. A flag that needs a value is ignored if the value is missing
 /// or malformed.
 ///
-/// Packages implement the behaviour behind each option; WP0 only defines and parses them.
+/// What each option does now (WP4 implements all of them; see `AppEnvironment.runLaunchTasks`
+/// and `WindowRootView`): `-resetState` passes `reset: true` to `LibraryStore.live`;
+/// `-importFixture` imports through `FixtureImporter`; `-openBook` opens that book in place in
+/// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
+/// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
+/// `-alsoOpenWindow` opens a second reader window.
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -44,6 +49,14 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-notesPanel <page|section>`: open the notes inspector on that tab.
     var notesPanel: NotesTab?
 
+    /// `-alsoOpenWindow <title>`: after launch, open a second reader window (its own scene) on
+    /// the book with that title, so UI tests can exercise two windows at once.
+    var alsoOpenWindow: String?
+
+    /// `-selectionMenuProbe`: test-only. Adds a "Probe" action to the PDF text-selection edit
+    /// menu through the same hook WP7 uses, so a UI test can prove the hook works on this OS.
+    var selectionMenuProbe = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -76,6 +89,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let text = value(after: index) { screen = Screen(rawValue: text); index += 1 }
             case "-notesPanel":
                 if let text = value(after: index) { notesPanel = NotesTab(rawValue: text); index += 1 }
+            case "-alsoOpenWindow":
+                if let title = value(after: index) { alsoOpenWindow = title; index += 1 }
+            case "-selectionMenuProbe":
+                selectionMenuProbe = true
             default:
                 break
             }
