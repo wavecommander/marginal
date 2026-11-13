@@ -1,0 +1,405 @@
+import Foundation
+import CoreGraphics
+import SwiftData
+import ReaderCore
+
+/// SwiftData implementation of all five record repositories over one container's `mainContext`.
+///
+/// Semantics are those of `InMemoryRecordStore` (checked by `RepositoryConformance`).
+///
+/// **Durability:** every mutating method ends with `context.save()` before it returns, so a
+/// record is in the SQLite store (WAL) when the call returns; nothing is pending at app
+/// backgrounding. If the save fails the context is rolled back and the error is thrown, so a
+/// failed mutation leaves neither a stored nor a pending change.
+///
+/// **Not posting:** this type posts no changes; wrap it in `LibraryStore`.
+///
+/// Fetches always use predicates (and sort descriptors) on the database; per-book queries never
+/// load other books' rows.
+@MainActor
+final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepository,
+    BookmarkRepository, HeadingRepository {
+    /// Held so the container (and its store) outlives every context use.
+    let container: ModelContainer
+    private var context: ModelContext { container.mainContext }
+
+    init(container: ModelContainer) {
+        self.container = container
+        container.mainContext.autosaveEnabled = false
+    }
+
+    // MARK: Helpers
+
+    /// Runs `body` then saves; rolls back and rethrows if either fails.
+    private func transaction(_ body: () throws -> Void) throws {
+        do {
+            try body()
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    private func requireBook(_ id: UUID) throws {
+        let count = try context.fetchCount(FetchDescriptor<BookModel>(predicate: #Predicate { $0.id == id }))
+        guard count > 0 else { throw RepositoryError.bookNotFound(id) }
+    }
+
+    private static func encode<T: Encodable>(_ value: T) throws -> Data {
+        try JSONEncoder().encode(value)
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data, what: String) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw ReaderStoreError.corruptRecord("\(what): \(error)")
+        }
+    }
+
+    // MARK: Books
+
+    private func value(_ m: BookModel) -> Book {
+        Book(id: m.id, title: m.title, fingerprint: m.fingerprint, fileName: m.fileName, pageCount: m.pageCount,
+             fileSize: m.fileSize, addedAt: m.addedAt, lastOpenedAt: m.lastOpenedAt,
+             lastReadPageIndex: m.lastReadPageIndex)
+    }
+
+    private func bookModel(_ id: UUID) throws -> BookModel? {
+        var d = FetchDescriptor<BookModel>(predicate: #Predicate { $0.id == id })
+        d.fetchLimit = 1
+        return try context.fetch(d).first
+    }
+
+    func allBooks() throws -> [Book] {
+        try context.fetch(FetchDescriptor<BookModel>()).map(value)
+    }
+
+    func book(id: UUID) throws -> Book? {
+        try bookModel(id).map(value)
+    }
+
+    func book(fingerprint: String) throws -> Book? {
+        var d = FetchDescriptor<BookModel>(predicate: #Predicate { $0.fingerprint == fingerprint },
+                                           sortBy: [SortDescriptor(\.addedAt)])
+        d.fetchLimit = 1
+        return try context.fetch(d).first.map(value)
+    }
+
+    func save(_ book: Book) throws {
+        try transaction {
+            if let m = try bookModel(book.id) {
+                m.title = book.title
+                m.fingerprint = book.fingerprint
+                m.fileName = book.fileName
+                m.pageCount = book.pageCount
+                m.fileSize = book.fileSize
+                m.addedAt = book.addedAt
+                m.lastOpenedAt = book.lastOpenedAt
+                m.lastReadPageIndex = book.lastReadPageIndex
+            } else {
+                context.insert(BookModel(book))
+            }
+        }
+    }
+
+    func deleteBook(id: UUID) throws {
+        try transaction {
+            try context.delete(model: NoteModel.self, where: #Predicate { $0.bookID == id })
+            try context.delete(model: HighlightModel.self, where: #Predicate { $0.bookID == id })
+            try context.delete(model: BookmarkModel.self, where: #Predicate { $0.bookID == id })
+            try context.delete(model: UserHeadingModel.self, where: #Predicate { $0.bookID == id })
+            try context.delete(model: BookModel.self, where: #Predicate { $0.id == id })
+        }
+    }
+
+    func recordCounts(bookID: UUID) throws -> BookRecordCounts {
+        BookRecordCounts(
+            notes: try noteCount(bookID: bookID),
+            highlights: try highlightCount(bookID: bookID),
+            bookmarks: try context.fetchCount(FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.bookID == bookID })),
+            userHeadings: try context.fetchCount(FetchDescriptor<UserHeadingModel>(predicate: #Predicate { $0.bookID == bookID }))
+        )
+    }
+
+    // MARK: Notes
+
+    private func value(_ m: NoteModel) throws -> Note {
+        guard let target = NoteTarget(storageKey: m.targetKey) else {
+            throw ReaderStoreError.corruptRecord("note \(m.id) has target key \"\(m.targetKey)\"")
+        }
+        let layout = try m.bandLayoutData.map { try Self.decode(NoteBandLayout.self, from: $0, what: "note \(m.id) band layout") }
+        return Note(id: m.id, bookID: m.bookID, target: target, text: m.text, hasInk: m.hasInk,
+                    bandLayout: layout, createdAt: m.createdAt, modifiedAt: m.modifiedAt)
+    }
+
+    private func noteModel(id: UUID) throws -> NoteModel? {
+        var d = FetchDescriptor<NoteModel>(predicate: #Predicate { $0.id == id })
+        d.fetchLimit = 1
+        return try context.fetch(d).first
+    }
+
+    private func noteModel(bookID: UUID, target: NoteTarget) throws -> NoteModel? {
+        let key = NoteModel.compositeKey(bookID: bookID, targetKey: target.storageKey)
+        var d = FetchDescriptor<NoteModel>(predicate: #Predicate { $0.compositeKey == key })
+        d.fetchLimit = 1
+        return try context.fetch(d).first
+    }
+
+    func note(bookID: UUID, target: NoteTarget) throws -> Note? {
+        try noteModel(bookID: bookID, target: target).map(value)
+    }
+
+    func note(id: UUID) throws -> Note? {
+        try noteModel(id: id).map(value)
+    }
+
+    func notes(bookID: UUID) throws -> [Note] {
+        try context.fetch(FetchDescriptor<NoteModel>(predicate: #Predicate { $0.bookID == bookID })).map(value)
+    }
+
+    func pageNotes(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Note] {
+        let lower = pages.lowerBound, upper = pages.upperBound
+        let d = FetchDescriptor<NoteModel>(
+            predicate: #Predicate { $0.bookID == bookID && $0.pageIndex != nil
+                && ($0.pageIndex ?? 0) >= lower && ($0.pageIndex ?? 0) <= upper },
+            sortBy: [SortDescriptor(\.pageIndex)])
+        return try context.fetch(d).map(value)
+    }
+
+    @discardableResult
+    func save(_ note: Note) throws -> Note? {
+        try requireBook(note.bookID)
+        if let stored = try noteModel(id: note.id), stored.compositeKey != NoteModel.compositeKey(bookID: note.bookID, targetKey: note.target.storageKey) {
+            throw RepositoryError.noteTargetMismatch(noteID: note.id)
+        }
+        let existing = try noteModel(bookID: note.bookID, target: note.target)
+        if note.isEmpty {
+            if let existing {
+                try transaction { context.delete(existing) }
+            }
+            return nil
+        }
+        if let existing, existing.id != note.id {
+            throw RepositoryError.noteTargetOccupied(existingNoteID: existing.id)
+        }
+        let layoutData = try note.bandLayout.map { try Self.encode($0) }
+        try transaction {
+            if let existing {
+                existing.text = note.text
+                existing.hasInk = note.hasInk
+                existing.bandLayoutData = layoutData
+                existing.createdAt = note.createdAt
+                existing.modifiedAt = note.modifiedAt
+            } else {
+                context.insert(NoteModel(id: note.id, bookID: note.bookID, targetKey: note.target.storageKey,
+                                         pageIndex: note.target.pageIndex, text: note.text, hasInk: note.hasInk,
+                                         bandLayoutData: layoutData, createdAt: note.createdAt,
+                                         modifiedAt: note.modifiedAt))
+            }
+        }
+        return note
+    }
+
+    func deleteNote(id: UUID) throws {
+        guard let m = try noteModel(id: id) else { return }
+        try transaction { context.delete(m) }
+    }
+
+    func retarget(noteID: UUID, to target: NoteTarget) throws {
+        guard let m = try noteModel(id: noteID) else { throw RepositoryError.notFound(noteID) }
+        guard m.targetKey != target.storageKey else { return }
+        if let other = try noteModel(bookID: m.bookID, target: target) {
+            throw RepositoryError.noteTargetOccupied(existingNoteID: other.id)
+        }
+        try transaction {
+            m.targetKey = target.storageKey
+            m.pageIndex = target.pageIndex
+            m.compositeKey = NoteModel.compositeKey(bookID: m.bookID, targetKey: target.storageKey)
+        }
+    }
+
+    func noteCount(bookID: UUID) throws -> Int {
+        try context.fetchCount(FetchDescriptor<NoteModel>(predicate: #Predicate { $0.bookID == bookID }))
+    }
+
+    // MARK: Highlights
+
+    private func value(_ m: HighlightModel) throws -> Highlight {
+        guard let color = HighlightColor(rawValue: m.colorRaw) else {
+            throw ReaderStoreError.corruptRecord("highlight \(m.id) has colour \"\(m.colorRaw)\"")
+        }
+        let rects = try Self.decode([CGRect].self, from: m.rectsData, what: "highlight \(m.id) rects")
+        return Highlight(id: m.id, bookID: m.bookID, pageIndex: m.pageIndex, rects: rects, color: color,
+                         text: m.text, createdAt: m.createdAt)
+    }
+
+    /// `Highlight.readingOrder` as database sort keys.
+    private static let readingOrderSort: [SortDescriptor<HighlightModel>] = [
+        SortDescriptor(\.pageIndex),
+        SortDescriptor(\.sortRank),
+        SortDescriptor(\.sortMaxY, order: .reverse),
+        SortDescriptor(\.sortMinX),
+        SortDescriptor(\.createdAt),
+        SortDescriptor(\.idString),
+    ]
+
+    /// Converts rows the database already sorted and applies the exact contract order. The
+    /// database sort does the heavy lifting; the final pass only settles ties, because SwiftData
+    /// does not order the `idString` tie-break the way `String <` does (observed on macOS 27).
+    private func ordered(_ rows: [HighlightModel]) throws -> [Highlight] {
+        try rows.map(value).sorted(by: Highlight.readingOrder)
+    }
+
+    private func highlightModel(id: UUID) throws -> HighlightModel? {
+        var d = FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.id == id })
+        d.fetchLimit = 1
+        return try context.fetch(d).first
+    }
+
+    func highlight(id: UUID) throws -> Highlight? {
+        try highlightModel(id: id).map(value)
+    }
+
+    func highlights(bookID: UUID) throws -> [Highlight] {
+        let d = FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.bookID == bookID },
+                                                sortBy: Self.readingOrderSort)
+        return try ordered(context.fetch(d))
+    }
+
+    func highlights(bookID: UUID, pageIndex: Int) throws -> [Highlight] {
+        let d = FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.bookID == bookID && $0.pageIndex == pageIndex },
+                                                sortBy: Self.readingOrderSort)
+        return try ordered(context.fetch(d))
+    }
+
+    func highlights(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Highlight] {
+        let lower = pages.lowerBound, upper = pages.upperBound
+        let d = FetchDescriptor<HighlightModel>(
+            predicate: #Predicate { $0.bookID == bookID && $0.pageIndex >= lower && $0.pageIndex <= upper },
+            sortBy: Self.readingOrderSort)
+        return try ordered(context.fetch(d))
+    }
+
+    func save(_ highlight: Highlight) throws {
+        try requireBook(highlight.bookID)
+        let rectsData = try Self.encode(highlight.rects)
+        let bounds = highlight.bounds
+        let rank = bounds.isNull ? 1 : 0
+        let maxY = bounds.isNull ? 0 : Double(bounds.maxY)
+        let minX = bounds.isNull ? 0 : Double(bounds.minX)
+        try transaction {
+            if let m = try highlightModel(id: highlight.id) {
+                m.bookID = highlight.bookID
+                m.pageIndex = highlight.pageIndex
+                m.rectsData = rectsData
+                m.colorRaw = highlight.color.rawValue
+                m.text = highlight.text
+                m.createdAt = highlight.createdAt
+                m.sortRank = rank
+                m.sortMaxY = maxY
+                m.sortMinX = minX
+            } else {
+                context.insert(HighlightModel(id: highlight.id, bookID: highlight.bookID, pageIndex: highlight.pageIndex,
+                                              rectsData: rectsData, colorRaw: highlight.color.rawValue,
+                                              text: highlight.text, createdAt: highlight.createdAt,
+                                              sortRank: rank, sortMaxY: maxY, sortMinX: minX))
+            }
+        }
+    }
+
+    func deleteHighlight(id: UUID) throws {
+        guard let m = try highlightModel(id: id) else { return }
+        try transaction { context.delete(m) }
+    }
+
+    func highlightCount(bookID: UUID) throws -> Int {
+        try context.fetchCount(FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.bookID == bookID }))
+    }
+
+    // MARK: Bookmarks
+
+    private func value(_ m: BookmarkModel) -> Bookmark {
+        Bookmark(id: m.id, bookID: m.bookID, pageIndex: m.pageIndex, createdAt: m.createdAt)
+    }
+
+    private func bookmarkModels(bookID: UUID, pageIndex: Int) throws -> [BookmarkModel] {
+        let key = BookmarkModel.compositeKey(bookID: bookID, pageIndex: pageIndex)
+        return try context.fetch(FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.compositeKey == key }))
+    }
+
+    func bookmarks(bookID: UUID) throws -> [Bookmark] {
+        let d = FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.bookID == bookID },
+                                               sortBy: [SortDescriptor(\.pageIndex)])
+        return try context.fetch(d).map(value)
+    }
+
+    func isBookmarked(bookID: UUID, pageIndex: Int) throws -> Bool {
+        let key = BookmarkModel.compositeKey(bookID: bookID, pageIndex: pageIndex)
+        return try context.fetchCount(FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.compositeKey == key })) > 0
+    }
+
+    func setBookmarked(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws {
+        let existing = try bookmarkModels(bookID: bookID, pageIndex: pageIndex)
+        if bookmarked {
+            guard existing.isEmpty else { return }
+            try requireBook(bookID)
+            try transaction {
+                context.insert(BookmarkModel(id: UUID(), bookID: bookID, pageIndex: pageIndex, createdAt: Date()))
+            }
+        } else if !existing.isEmpty {
+            try transaction { for m in existing { context.delete(m) } }
+        }
+    }
+
+    // MARK: User headings
+
+    private func value(_ m: UserHeadingModel) throws -> UserHeading {
+        var parent: HeadingAnchor?
+        if let raw = m.parentRaw {
+            guard let anchor = HeadingAnchor(rawValue: raw) else {
+                throw ReaderStoreError.corruptRecord("user heading \(m.id) has parent \"\(raw)\"")
+            }
+            parent = anchor
+        }
+        return UserHeading(id: m.id, bookID: m.bookID, title: m.title, pageIndex: m.pageIndex, parent: parent,
+                           createdAt: m.createdAt)
+    }
+
+    private func headingModel(id: UUID) throws -> UserHeadingModel? {
+        var d = FetchDescriptor<UserHeadingModel>(predicate: #Predicate { $0.id == id })
+        d.fetchLimit = 1
+        return try context.fetch(d).first
+    }
+
+    func userHeadings(bookID: UUID) throws -> [UserHeading] {
+        try context.fetch(FetchDescriptor<UserHeadingModel>(predicate: #Predicate { $0.bookID == bookID })).map(value)
+    }
+
+    func userHeading(id: UUID) throws -> UserHeading? {
+        try headingModel(id: id).map(value)
+    }
+
+    func save(_ heading: UserHeading) throws {
+        try requireBook(heading.bookID)
+        try transaction {
+            if let m = try headingModel(id: heading.id) {
+                m.bookID = heading.bookID
+                m.title = heading.title
+                m.pageIndex = heading.pageIndex
+                m.parentRaw = heading.parent?.rawValue
+                m.createdAt = heading.createdAt
+            } else {
+                context.insert(UserHeadingModel(id: heading.id, bookID: heading.bookID, title: heading.title,
+                                                pageIndex: heading.pageIndex, parentRaw: heading.parent?.rawValue,
+                                                createdAt: heading.createdAt))
+            }
+        }
+    }
+
+    func deleteUserHeading(id: UUID) throws {
+        guard let m = try headingModel(id: id) else { return }
+        try transaction { context.delete(m) }
+    }
+}
