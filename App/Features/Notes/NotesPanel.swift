@@ -59,12 +59,16 @@ struct NotesPanel: View {
 
                 if let model = state.model {
                     NotePageView(model: model, session: session, zoom: zoomBinding(panelWidth: proxy.size.width))
+                        // The editor insets itself for the keyboard and scrolls the cursor into
+                        // view; SwiftUI's own avoidance would also push the whole panel up.
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
                 } else {
                     Text("No section here").foregroundStyle(.secondary).padding(14)
                     Spacer()
                 }
             }
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onChange(of: target, initial: true) { _, newTarget in
             state.show(newTarget, session: session)
         }
