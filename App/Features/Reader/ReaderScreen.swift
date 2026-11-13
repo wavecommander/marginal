@@ -105,8 +105,11 @@ struct ReaderScreen: View {
 
     private var pageArea: some View {
         ZStack(alignment: pillAtTop ? .top : .bottom) {
+            // The keyboard (go-to-page field, search) must not resize the page: only the pill
+            // moves above it.
             ReaderPDFViewRepresentable(session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.keyboard)
             switch session.loadState {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

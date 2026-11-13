@@ -40,8 +40,20 @@ struct ReaderHost: View {
             Task { await session.suspend() }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase != .active, let session else { return }
-            Task { await session.suspend() }
+            guard let session else { return }
+            if phase == .active {
+                session.markup.reassertToolPicker()
+            } else {
+                Task { await session.suspend() }
+            }
+        }
+        .task(id: session?.id) {
+            // SwiftUI may move the first responder while the reader is pushed; in markup mode
+            // (e.g. `-markup` at launch) take it back for the tool picker once things settle.
+            for delay in [300, 1000] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                session?.markup.reassertToolPicker()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             session?.handleMemoryWarning()

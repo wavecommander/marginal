@@ -93,6 +93,10 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             applyPendingPageIfPossible()
             return
         }
+        // A navigation supersedes any position a pending resize would restore.
+        resizeAnchor = nil
+        resizeGeneration += 1
+        isTrackingSuspended = false
         view.showTop(of: page)
     }
 
@@ -386,11 +390,31 @@ final class ReaderPDFView: PDFView {
     weak var controller: ReaderPDFController?
     private var lastLayoutSize: CGSize = .zero
 
-    /// Scrolls so the top edge of `page` is at the top of the view. (`go(to: PDFPage)` leaves
-    /// the page break above it visible, and PDFKit then reports the previous page as current.)
+    /// Scrolls so the top edge of `page` is at the top of the view. On this SDK neither
+    /// `go(to: PDFPage)` nor `go(to: PDFDestination)` reliably puts the page's top there when the
+    /// page is taller than the view (the previous page stays partly visible and PDFKit reports
+    /// it as current), so after PDFKit has brought the page near, the scroll offset is set
+    /// directly from the page's converted frame.
     func showTop(of page: PDFPage) {
-        let bounds = page.bounds(for: displayBox)
-        go(to: PDFDestination(page: page, at: CGPoint(x: bounds.minX, y: bounds.maxY)))
+        go(to: page)
+        // PDFKit converts rects only for pages it has laid out near the screen, which is the
+        // case once the jump above has been applied: correct on the next turn of the run loop.
+        DispatchQueue.main.async { [weak self, weak page] in
+            guard let self, let page else { return }
+            self.alignTop(of: page)
+        }
+    }
+
+    private func alignTop(of page: PDFPage) {
+        guard visiblePages.contains(page),
+              let scrollView = subviews.compactMap({ $0 as? UIScrollView }).first else { return }
+        let pageRect = convert(page.bounds(for: displayBox), from: page)
+        let inset = scrollView.adjustedContentInset
+        var offset = scrollView.contentOffset
+        offset.y += pageRect.minY - inset.top
+        let maxY = max(-inset.top, scrollView.contentSize.height + inset.bottom - scrollView.bounds.height)
+        offset.y = min(max(offset.y, -inset.top), maxY)
+        scrollView.setContentOffset(offset, animated: false)
     }
 
     override func layoutSubviews() {
