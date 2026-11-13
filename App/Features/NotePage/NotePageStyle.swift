@@ -27,6 +27,16 @@ nonisolated enum NotePageStyle {
     /// Zoom range of the editor (1 = 100%).
     static let zoomRange: ClosedRange<CGFloat> = 1...2
 
+    /// The appearance of the note page itself (paper, text and ink). **Always light**, like the
+    /// PDF page beside it: on the installed SDK PencilKit does not adapt stroke colours to dark
+    /// mode on this canvas (black ink stays black on a dark page, both on a transparent or
+    /// opaque `PKCanvasView` and in `PKDrawing.image` under a dark trait collection — verified on
+    /// the iOS 27.0 simulator), so a dark page would hide the reader's ink. The panel around the
+    /// page follows the system appearance. Exports are light as well.
+    static let pageAppearance: UIUserInterfaceStyle = .light
+    /// The paper colour of the note page.
+    static var paperColor: UIColor { .white }
+
     /// The text font (system, regular, fixed size).
     static var font: UIFont { UIFont.systemFont(ofSize: fontSize) }
 

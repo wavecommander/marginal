@@ -114,7 +114,8 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         scrollView.backgroundColor = .clear
         addSubview(scrollView)
 
-        pageView.backgroundColor = .systemBackground
+        pageView.overrideUserInterfaceStyle = NotePageStyle.pageAppearance
+        pageView.backgroundColor = NotePageStyle.paperColor
         pageView.editor = self
         scrollView.addSubview(pageView)
 
@@ -182,6 +183,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         if window != nil {
             registerSurface()
             applyContentScale()
+            tieBackSwipeToDrawing()
         } else {
             unregisterSurface()
             if let model = currentModel {
@@ -246,10 +248,20 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     private func setZoom(_ value: CGFloat) {
         let clamped = NotePageStyle.clampZoom(value)
         guard abs(scrollView.zoomScale - clamped) > 0.0001 || pageView.bounds.isEmpty else { return }
+        let oldZoom = max(scrollView.zoomScale, 0.01)
+        let oldTop = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         isZoomingProgrammatically = true
         scrollView.setZoomScale(clamped, animated: false)
         isZoomingProgrammatically = false
         layoutPage()
+        // Keep the same part of the page at the top (UIScrollView keeps the centre, which
+        // scrolls the start of the note away when the panel is widened).
+        let inset = scrollView.adjustedContentInset
+        let maxY = max(-inset.top, scrollView.contentSize.height + inset.bottom - scrollView.bounds.height)
+        let y = min(max(oldTop * clamped / oldZoom - inset.top, -inset.top), maxY)
+        let maxX = max(-inset.left, scrollView.contentSize.width + inset.right - scrollView.bounds.width)
+        let x = min(max(scrollView.contentOffset.x, -inset.left), maxX)
+        scrollView.contentOffset = CGPoint(x: x, y: y)
         applyContentScale()
     }
 
@@ -265,6 +277,22 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     private func setContentScale(_ scale: CGFloat, in view: UIView) {
         if view.contentScaleFactor != scale { view.contentScaleFactor = scale }
         for subview in view.subviews { setContentScale(scale, in: subview) }
+    }
+
+    /// iPadOS 26+ lets a horizontal swipe anywhere in a navigation stack go back (the content
+    /// pop gesture). A stroke on the note must never navigate away, so the pop waits for the
+    /// canvas's drawing gesture to fail. (Before iOS 26 only the screen-edge swipe pops, which
+    /// never starts on the note panel.)
+    private func tieBackSwipeToDrawing() {
+        guard #available(iOS 26.0, *) else { return }
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController, let navigation = controller.navigationController {
+                navigation.interactiveContentPopGestureRecognizer?.require(toFail: noteCanvas.drawingGestureRecognizer)
+                return
+            }
+            responder = current.next
+        }
     }
 
     // MARK: Mode and routing

@@ -21,7 +21,7 @@ final class NotePageUITests: XCTestCase {
     // MARK: Helpers
 
     private func launch(fresh: Bool, markup: Bool) -> XCUIApplication {
-        var arguments = ["-openBook", "small", "-notesPanel", "page", "-inkAnyInput"]
+        var arguments = ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-inkAnyInput"]
         if markup { arguments.append("-markup") }
         let app: XCUIApplication
         if fresh {
@@ -56,9 +56,11 @@ final class NotePageUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    /// A point on the note page, in note-page points from the page's top-left (zoom 100%).
+    /// A point on the note page, in note-page points from the page's top-left (any zoom: the
+    /// text view's frame is the page, 320 points wide at 100%).
     private func pagePoint(_ app: XCUIApplication, x: CGFloat, y: CGFloat) -> XCUICoordinate {
-        textView(app).coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: y))
+        let zoom = textView(app).frame.width / 320
+        return textView(app).coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x * zoom, dy: y * zoom))
     }
 
     /// Draws a horizontal finger stroke on the note page (markup mode, `-inkAnyInput`).
@@ -138,28 +140,37 @@ final class NotePageUITests: XCTestCase {
     }
 
     /// Not a check: leaves a marked-up note behind and saves the "Markup · page and note
-    /// together" screenshot (panel widened) to `build/shots/notepage-wide-<OS>.png`.
+    /// together" screenshot (panel widened) to `build/shots/notepage-wide-ios<major>.png`.
     func testScreenshotMarkupPageAndNoteTogether() throws {
-        let app = launch(fresh: true, markup: true)
-        textView(app).tap()
-        textView(app).typeText("Why the determinant shows up\n(A - kI)v = 0 needs a nonzero v, so A - kI has to flatten some direction to zero. That means singular, and singular means det = 0.\n- Degree of the polynomial = size of the matrix.\n- Ex. 5.4: trace 4 = 1 + 3 and det 3 = 1 x 3.")
-        let hide = app.keyboards.buttons["Hide keyboard"]
-        if hide.exists { hide.tap() }
-        // Underline in the second paragraph, a ring in the text, and a sketch in the blank space.
-        drawLine(app, y: 14 + 28 + 22 + 20, from: 150, to: 290)
-        drawLine(app, y: 14 + 28 + 4 * 22 + 17, from: 20, to: 120)
-        pagePoint(app, x: 40, y: 330).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 270, y: 328))
-        pagePoint(app, x: 150, y: 345).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 151, y: 230))
-        pagePoint(app, x: 95, y: 342).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 220, y: 236))
-        pagePoint(app, x: 95, y: 236).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 215, y: 342))
+        let seed = launch(fresh: true, markup: false)
+        textView(seed).tap()
+        textView(seed).typeText("Why the determinant shows up\n(A - kI)v = 0 needs a nonzero v, so A - kI has to flatten some direction to zero. That means singular, and singular means det = 0\n- Degree of the polynomial = size of the matrix\n- Ex. 5.4: trace 4 = 1 + 3 and det 3 = 1 x 3")
+        XCTAssertTrue(wait(status(seed), "label == %@", "Saved"))
+        seed.terminate()
+
+        // Relaunch in markup mode (no keyboard) and mark the note up.
+        let app = launch(fresh: false, markup: true)
+        XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Why the determinant"))
+        // Widen the panel to half the window by dragging its divider (12 pt wide, just left of
+        // the panel; the shell does not expose it to UI tests by identifier on this build).
+        let page = textView(app).frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: page.minX - 11, dy: page.midY))
+        start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: -450, dy: 0)),
+                    withVelocity: 300, thenHoldForDuration: 0.3)
+        // Narrowing the PDF re-fits it and can move the current page: go back to page 1.
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 Linear Systems")).firstMatch
+        if heading.waitForExistence(timeout: 5) { heading.tap() }
+        XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Why the determinant"))
+        drawLine(app, y: 36, from: 14, to: 200)                       // underline the heading line
+        drawLine(app, y: 14 + 28 + 3 * 22 - 3, from: 150, to: 250)    // underline in the second paragraph
+        // A sketch in the blank space: axes and two eigenvector lines.
+        pagePoint(app, x: 40, y: 335).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 280, y: 333))
+        pagePoint(app, x: 160, y: 345).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 161, y: 228))
+        pagePoint(app, x: 100, y: 342).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 230, y: 230))
+        pagePoint(app, x: 100, y: 230).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 225, y: 342))
         XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
 
-        // Widen the panel to half the window by dragging its divider.
-        let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
-        if divider.waitForExistence(timeout: 5) {
-            let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            start.press(forDuration: 0.3, thenDragTo: start.withOffset(CGVector(dx: -400, dy: 0)))
-        }
         sleep(2)
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
@@ -168,7 +179,24 @@ final class NotePageUITests: XCTestCase {
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let version = UIDevice.current.systemVersion.split(separator: ".").first.map(String.init) ?? "os"
-        try shot.pngRepresentation.write(to: directory.appendingPathComponent("notepage-wide-ios\(version).png"))
+        try upright(shot.image).write(to: directory.appendingPathComponent("notepage-wide-ios\(version).png"))
+    }
+
+    /// The screenshot in the interface's landscape orientation (the raw capture is portrait).
+    private func upright(_ image: UIImage) throws -> Data {
+        guard let cgImage = image.cgImage, cgImage.height > cgImage.width else {
+            return try XCTUnwrap(image.pngData())
+        }
+        let size = CGSize(width: cgImage.height, height: cgImage.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let rotated = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            cg.translateBy(x: 0, y: size.height)
+            cg.rotate(by: -.pi / 2)
+            UIImage(cgImage: cgImage).draw(in: CGRect(x: 0, y: 0, width: size.height, height: size.width))
+        }
+        return try XCTUnwrap(rotated.pngData())
     }
 
     func testEmptiedNoteIsGoneAfterRelaunch() {

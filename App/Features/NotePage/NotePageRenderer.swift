@@ -251,7 +251,8 @@ enum NotePageRenderer {
 /// A note drawn read-only at the width SwiftUI offers (Notebook rows, "page notes in this
 /// section"): the same layout as the editor, scaled, never re-wrapped. Text is drawn as glyphs
 /// and ink is rendered from the strokes at the displayed scale (re-rendered when the size
-/// changes, never a scaled bitmap). Follows dark mode. Its height is
+/// changes, never a scaled bitmap). Drawn on light paper in every appearance, like the editor
+/// (`NotePageStyle.pageAppearance`). Its height is
 /// `width × snapshot.size.height / snapshot.size.width`.
 struct NotePageReadOnlyView: View {
     let snapshot: NotePageSnapshot
@@ -301,8 +302,9 @@ final class NotePageReadOnlyUIView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        isOpaque = false
-        backgroundColor = .clear
+        isOpaque = true
+        overrideUserInterfaceStyle = NotePageStyle.pageAppearance
+        backgroundColor = NotePageStyle.paperColor
         contentMode = .redraw
         isUserInteractionEnabled = false
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) {
