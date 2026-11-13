@@ -8,5 +8,8 @@ enum ReaderFeatureWiring {
     static func install(on session: ReaderSession) {
         session.retainFeature(PageInkOverlayProvider(session: session))  // WP6
         session.retainFeature(HighlightController(session: session))     // WP7
+        if session.configuration.markupProbeSurface {
+            session.retainFeature(MarkupProbeSurface(session: session))   // UI tests only
+        }
     }
 }

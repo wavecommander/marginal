@@ -57,6 +57,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// menu through the same hook WP7 uses, so a UI test can prove the hook works on this OS.
     var selectionMenuProbe = false
 
+    /// `-markupProbeSurface`: test-only. Registers a minimal `MarkupSurface` (a real
+    /// `PKCanvasView` that becomes first responder) so UI tests can check the tool picker with a
+    /// registered surface before WP6 exists.
+    var markupProbeSurface = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -93,6 +98,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let title = value(after: index) { alsoOpenWindow = title; index += 1 }
             case "-selectionMenuProbe":
                 selectionMenuProbe = true
+            case "-markupProbeSurface":
+                markupProbeSurface = true
             default:
                 break
             }
