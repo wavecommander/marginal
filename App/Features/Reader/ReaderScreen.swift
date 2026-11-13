@@ -13,6 +13,17 @@ nonisolated enum ReaderLayout {
     }
 
     /// The notes panel width actually used: at least the default, at most half the window.
+    /// Narrow widths show the notes panel as a system sheet with medium/large detents and
+    /// background interaction. iPadOS 26+ presents such a sheet attached to the bottom of a
+    /// regular-width window; earlier systems present it as a centred, modal form sheet that
+    /// ignores detents and blocks the page (seen on iPadOS 17.5), so they get
+    /// `NotesBottomPanel` (an inline panel with the same two heights) instead. The only
+    /// availability check for this feature.
+    static var usesSystemNotesSheet: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     static func notesWidth(requested: Double, windowWidth: CGFloat) -> CGFloat {
         let maximum = max(CGFloat(ReaderSession.defaultNotesPanelWidth), windowWidth / 2)
         return min(max(CGFloat(requested), CGFloat(ReaderSession.defaultNotesPanelWidth)), maximum)
@@ -33,7 +44,7 @@ struct ReaderScreen: View {
                 if wide {
                     wideLayout(width: geometry.size.width)
                 } else {
-                    narrowLayout
+                    narrowLayout(height: geometry.size.height)
                 }
             }
             .onChange(of: wide, initial: true) { _, isWide in
@@ -79,9 +90,15 @@ struct ReaderScreen: View {
         }
     }
 
-    private var narrowLayout: some View {
+    private func narrowLayout(height: CGFloat) -> some View {
         ZStack(alignment: .leading) {
-            pageArea
+            VStack(spacing: 0) {
+                pageArea
+                if !ReaderLayout.usesSystemNotesSheet && session.isNotesVisible {
+                    NotesBottomPanel(session: session, containerHeight: height)
+                        .transition(.move(edge: .bottom))
+                }
+            }
             if session.isContentsOverlayVisible {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
@@ -101,7 +118,9 @@ struct ReaderScreen: View {
 
     /// The pill sits at the bottom of the page (mockup), except at narrow widths while the notes
     /// sheet covers the bottom: then it moves to the top of the page so it stays reachable.
-    private var pillAtTop: Bool { session.isNarrowLayout && session.isNotesVisible }
+    private var pillAtTop: Bool {
+        ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+    }
 
     private var pageArea: some View {
         ZStack(alignment: pillAtTop ? .top : .bottom) {
@@ -126,7 +145,10 @@ struct ReaderScreen: View {
     }
 
     private var notesSheetBinding: Binding<Bool> {
-        Binding(get: { session.isNarrowLayout && session.isNotesVisible && session.closeReason == nil },
+        Binding(get: {
+                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+                        && session.closeReason == nil
+                },
                 set: { if session.isNarrowLayout { session.isNotesVisible = $0 } })
     }
 
@@ -224,6 +246,56 @@ struct ReaderScreen: View {
     }
 }
 
+/// Narrow-width notes panel before iPadOS 26 (see `ReaderLayout.usesSystemNotesSheet`): an
+/// inline panel under the page with a grabber and two heights matching the sheet's detents
+/// (medium: half, large: 85% of the reader). Tap the grabber to switch; drag it up/down to
+/// switch or, below medium, to hide the panel. The page above stays scrollable.
+private struct NotesBottomPanel: View {
+    let session: ReaderSession
+    let containerHeight: CGFloat
+    @State private var isLarge = false
+    @State private var dragOffset: CGFloat = 0
+
+    private var baseHeight: CGFloat { containerHeight * (isLarge ? 0.85 : 0.5) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 40, height: 5)
+                .frame(maxWidth: .infinity, minHeight: 22)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation { isLarge.toggle() } }
+                .gesture(
+                    DragGesture()
+                        .onChanged { dragOffset = $0.translation.height }
+                        .onEnded { value in
+                            let dy = value.translation.height
+                            withAnimation {
+                                if dy < -60 { isLarge = true }
+                                else if dy > 60 && isLarge { isLarge = false }
+                                else if dy > 60 { session.isNotesVisible = false }
+                                dragOffset = 0
+                            }
+                        }
+                )
+                .accessibilityElement()
+                .accessibilityLabel("Notes panel size")
+                .accessibilityValue(isLarge ? "large" : "medium")
+                .accessibilityAdjustableAction { direction in
+                    withAnimation { isLarge = direction == .increment }
+                }
+            NotesPanel(session: session)
+        }
+        .frame(height: max(120, baseHeight - dragOffset))
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: -2)
+        .paneContainer(AccessibilityID.Reader.notesSheet)
+    }
+}
+
 /// Back / Forward through section history. Tap steps once; press and hold lists the entries in
 /// that direction ("section · p. N") and jumps straight to the chosen one. Arrows, not the
 /// chevron of the "‹ Library" back button.
@@ -235,6 +307,26 @@ private struct SectionHistoryButton: View {
 
     var body: some View {
         let entries = direction == .back ? session.history.backList : session.history.forwardList
+        if entries.isEmpty {
+            // `.disabled` on a `Menu(primaryAction:)` has no effect on iPadOS 17: use a button.
+            Button {} label: { label }
+                .disabled(true)
+                .accessibilityIdentifier(identifier)
+        } else {
+            menu(entries)
+        }
+    }
+
+    private var label: some View {
+        Label(direction == .back ? "Back to Previous Section" : "Forward to Next Section",
+              systemImage: direction == .back ? "arrow.backward" : "arrow.forward")
+    }
+
+    private var identifier: String {
+        direction == .back ? AccessibilityID.Reader.historyBack : AccessibilityID.Reader.historyForward
+    }
+
+    private func menu(_ entries: [(index: Int, place: SectionPlace)]) -> some View {
         Menu {
             ForEach(entries, id: \.index) { entry in
                 Button(entry.place.menuTitle) { session.goToHistoryEntry(at: entry.index) }

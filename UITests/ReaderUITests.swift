@@ -52,10 +52,21 @@ final class ReaderUITests: XCTestCase {
     /// Go to Page… through its keyboard shortcut (⌥⌘G) and types into the focused field.
     /// (Querying text fields over `large.pdf` walks PDFKit's page elements and is very slow, and
     /// the pill can sit under the system's "Hidden Windows" chip after multi-window runs.)
+    ///
+    /// iPadOS 17.5 simulator: XCUITest's ⌥-modified `typeKey` never opens the field (⇧⌘ and ⌘
+    /// shortcuts work), so there the pill is tapped instead (no "Hidden Windows" chip on 17).
     private func goToPage(_ app: XCUIApplication, _ number: Int) {
-        app.typeKey("g", modifierFlags: [.command, .option])
-        sleep(1)
+        openGoToPageField(app)
         app.typeText("\(number)\n")
+    }
+
+    private func openGoToPageField(_ app: XCUIApplication) {
+        if #available(iOS 26.0, *) {
+            app.typeKey("g", modifierFlags: [.command, .option])
+        } else {
+            pill(app).tap()
+        }
+        sleep(1)
     }
 
     /// The navigation bar shows `text` (the subtitle on iOS 26+, the title block before).
@@ -273,7 +284,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup
         XCTAssertTrue(app.buttons[ReaderID.markupToggle].waitForExistence(timeout: 5))
-        app.typeKey("g", modifierFlags: [.command, .option])         // Go to Page… (a text field)
+        openGoToPageField(app)                                       // Go to Page… (a text field)
         let field = app.textFields[ReaderID.goToPageField]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("7\n")
