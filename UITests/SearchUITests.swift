@@ -150,6 +150,8 @@ final class SearchUITests: XCTestCase {
         let list = app.descendants(matching: .any)[ID.results].firstMatch
         list.swipeUp()
         list.swipeDown()
+        let hide = app.keyboards.buttons["Hide keyboard"]
+        if hide.exists { hide.tap() }
         try save(app, "search-grouped-landscape")
 
         app.buttons[ID.done].tap()
@@ -165,7 +167,8 @@ final class SearchUITests: XCTestCase {
         let version = UIDevice.current.systemVersion
         let dir = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let png = app.screenshot().pngRepresentation
+        // The raw screen buffer: in landscape the image comes out rotated a quarter turn (see the report).
+        let png = XCUIScreen.main.screenshot().pngRepresentation
         try png.write(to: dir.appendingPathComponent("\(name)-\(version).png"))
     }
 }
