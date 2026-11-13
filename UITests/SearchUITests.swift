@@ -146,6 +146,10 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(resultRows(app).firstMatch.waitForExistence(timeout: 30))
         // Wait for the 500-result cap.
         XCTAssertTrue(app.buttons[ID.resume].waitForExistence(timeout: 60))
+        // Scrolling the list dismisses the keyboard so the results are visible in the shot.
+        let list = app.descendants(matching: .any)[ID.results].firstMatch
+        list.swipeUp()
+        list.swipeDown()
         try save(app, "search-grouped-landscape")
 
         app.buttons[ID.done].tap()
@@ -161,7 +165,7 @@ final class SearchUITests: XCTestCase {
         let version = UIDevice.current.systemVersion
         let dir = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let png = XCUIScreen.main.screenshot().pngRepresentation
+        let png = app.screenshot().pngRepresentation
         try png.write(to: dir.appendingPathComponent("\(name)-\(version).png"))
     }
 }

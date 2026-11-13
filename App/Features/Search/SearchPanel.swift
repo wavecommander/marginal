@@ -147,7 +147,7 @@ struct SearchPanel: View {
         case .finished:
             return model.resultCount == 0 ? "No results" : "\(results) \(noun)"
         case .capped:
-            return "\(results) \(noun) so far; showing the first \(model.textHitCount.formatted()) text matches"
+            return "Showing the first \(model.textHitCount.formatted()) text matches"
         case .stopped(let next):
             let page = PageNumbering.displayNumber(forPageIndex: max(next - 1, 0)).formatted()
             return "Stopped at page \(page) · \(results) \(noun)"
@@ -178,6 +178,7 @@ struct SearchPanel: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollDismissesKeyboard(.interactively)
                 .accessibilityIdentifier(SearchAccessibilityID.results)
                 .onAppear {
                     if let id = model.selectedResultID { proxy.scrollTo(id, anchor: .center) }
