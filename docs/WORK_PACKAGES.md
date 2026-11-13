@@ -46,6 +46,34 @@ and says which model runs each one. It is written for an orchestrating Claude Co
 WP13 was added after the first plan, which is why its number is out of order. It sits before WP8
 and WP9 because both of them display the note page it builds.
 
+## Platform requirements added by the owner (every package)
+
+`docs/DESIGN.md` gained two sections after this plan was written, "Windows and scenes" and "Apple
+Pencil", plus principles 6 and 7. They bind every package. What each package adds because of them:
+
+- **WP2**: one `ModelContainer` shared by all windows; repositories safe to use from several
+  windows' sessions at once; a change hub (`InkChangeHub` or similar) that announces page-ink and
+  note-ink writes and deletions so other windows can reload that surface.
+- **WP3**: "Open in New Window" on a book (context menu and drag out of the grid); several Library
+  windows show the same live list; deleting a book closes the windows showing it; a PDF arriving
+  through "Open in" is imported and shown in a window.
+- **WP4**: the scene architecture. `WindowGroup`s for Library, reader (by book ID) and Notebook
+  (by book ID); one `ReaderSession` and one tool picker per reader window; per-window state
+  restoration; a declared minimum window size; layout from window size only; the menu bar command
+  set with keyboard shortcuts routed to the focused window; a `-alsoOpenWindow <title>` launch
+  argument that opens a second reader window so UI tests can exercise two windows.
+- **WP5, WP7, WP8, WP10**: every view reads and commands its own window's session, never a shared
+  one, and shows changes made in another window on the same book.
+- **WP6, WP13**: system `PKToolPicker` with its standard tools, default drawing policy, nothing
+  that overrides Pencil double-tap, squeeze or hover; reload a surface when the change hub reports
+  a write from another window unless a stroke or edit is in progress; ink only ever stored as
+  `PKDrawing` data.
+- **WP9, WP11**: PDF export draws ink as vector paths where the ink allows it; read-only note
+  views render from the strokes at display scale.
+- **WP12**: two-window UI tests (same book twice: ink, note and highlight made in one window
+  appear in the other; two different books; close and restore a window), a resize pass from the
+  minimum window size to full screen on both simulators, and the menu bar commands.
+
 ## Repository layout (WP0 creates it; later packages own the folders named)
 
 ```

@@ -2,7 +2,7 @@ name: Marginal
 options:
   bundleIdPrefix: software.tactile
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:
@@ -42,7 +42,7 @@ targets:
         CFBundleDisplayName: Marginal
         UILaunchScreen: {}
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown

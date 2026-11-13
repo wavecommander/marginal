@@ -18,6 +18,12 @@ ones even where the mockup draws an approximation.
 4. **Pencil draws, finger scrolls.** Markup never blocks reading.
 5. **A note is a page of its own.** Anything the Pencil can do to a PDF page it can do to a note:
    write over the typed text, circle, underline, highlight, sketch in the blank space.
+6. **A full iPadOS citizen.** The app supports multiple windows and every system windowing mode.
+   Any screen works at any window size, and a reader can keep several windows open at once: two
+   books side by side, a book beside its Notebook, or the same book twice.
+7. **Apple Pencil works the way it does in Apple's own apps.** The app defers to the system for
+   everything the Pencil does (tool picker, preferences, squeeze, double-tap, hover, Scribble)
+   and keeps ink as vector strokes from the canvas to the export.
 
 ## Screens
 
@@ -66,7 +72,8 @@ ones even where the mockup draws an approximation.
 - **Note badges** in Contents mark a heading that has its own note or any page note or highlight
   in its range.
 - **Markup mode** shows the PencilKit tool picker and enables the per-page ink canvases. Drawing
-  policy is Pencil only; fingers scroll and zoom. Leaving the mode hides the picker and makes the
+  policy is the system default (see "Apple Pencil" below): with a Pencil in use only the Pencil
+  draws, and fingers scroll and zoom. Leaving the mode hides the picker and makes the
   ink read-only. Ink saves when a page leaves the screen, on Done, and when the app backgrounds.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
@@ -95,6 +102,59 @@ ones even where the mockup draws an approximation.
   note (text and ink together) saved beside the Markdown file. Notebook export to PDF is the
   faithful format: every note drawn exactly as it looks, ink included.
 
+## Windows and scenes
+
+Added by the owner after the first plan. These rules apply to every screen and every package.
+
+- **Multiple windows.** The app declares multiple-scene support. A window shows the Library, a
+  reader on one book, or one book's Notebook. A Library window opens a book in place (the mockups'
+  "‹ Library" back button); "Open in New Window" is offered wherever a book or a Notebook can be
+  opened (context menu, menu bar, and dragging a book cover out of the Library), and the system's
+  own "New Window" makes another Library window.
+- **Each window is independent.** It has its own reader session: current page, zoom, panels,
+  markup mode, tool picker, undo stack and search. Nothing about one window's state is global.
+- **The same book in two windows stays consistent.** Notes, highlights, bookmarks, user headings
+  and ink are shared data: a change made in one window appears in every other window showing that
+  book without a relaunch. A surface that is mid-stroke or mid-edit is never overwritten by a
+  change arriving from another window; it reconciles when the stroke or edit ends. The book's
+  stored last-read page follows the most recently active window.
+- **Closing and deleting.** A window that goes to the background or is closed saves pending text
+  and ink first. Deleting a book closes every reader and Notebook window showing it.
+- **State restoration.** Each window restores what it was showing (screen, book, page, panels)
+  after the system reclaims it or the app relaunches. Markup mode is not restored.
+- **Any size.** Layout is driven by the window's own size and size class, never by the screen or
+  the device orientation, so full screen, Split View, Slide Over, Stage Manager, freely resized
+  windows and external displays all work. The "narrow width" rule above is about window width.
+  A minimum window size is declared so no layout has to work below it.
+- **System chrome.** Navigation bars and toolbars are the system ones, so window controls and the
+  menu bar get their space without custom layout. Every reader action has a menu bar command with a
+  keyboard shortcut, and commands act on the focused window.
+- **Files and drag and drop.** A PDF opened from Files or another app ("Open in") is imported and
+  shown in a window. PDFs can be dropped onto the Library to import them.
+
+## Apple Pencil
+
+Added by the owner after the first plan.
+
+- **Defer to the system.** PencilKit is the only drawing engine, and the tool picker is the system
+  `PKToolPicker` with its standard tools, not a custom palette (the palette drawn in the mockups
+  stands for it). Whatever the picker and the system already do is left alone and not
+  re-implemented: tool, colour and width selection, the ruler, Pencil double-tap and squeeze
+  following the reader's Pencil settings, hover preview, barrel roll and haptics on Pencil Pro.
+- **Drawing policy is the system default.** Canvases use PencilKit's default drawing policy, which
+  honours the "Only Draw with Apple Pencil" setting and the picker's Draw with Finger switch. With
+  a Pencil in use this is exactly principle 4; a reader with no Pencil can still draw with a
+  finger. The `-inkAnyInput` test switch forces any-input drawing.
+- **Scribble.** Every text input (notes, search, go-to-page, titles) is a standard text control so
+  Scribble works in it without extra code.
+- **Vector ink.** Ink is stored as PencilKit drawings (vector strokes), never as bitmaps, and is
+  re-rendered from the strokes at the size it is shown: canvases stay sharp at any zoom, and
+  read-only views (Notebook, section list) draw from the strokes at their display scale instead of
+  scaling a cached image. PDF exports draw ink as vector paths wherever the stroke's ink can be
+  reproduced faithfully that way, and fall back to a high-resolution image only for inks that
+  cannot (textured inks such as crayon or watercolour). Markdown export images are bitmaps because
+  Markdown has no portable vector image; they are rendered at 3x.
+
 ## Technical decisions
 
 | Area | Decision | Why |
@@ -111,7 +171,11 @@ ones even where the mockup draws an approximation.
 | Heading identity | A stable anchor derived from the node's outline path, title and start page, with a fallback match on title plus page | PDF outline items carry no ID, and notes must survive relaunch. |
 | Core logic | A pure-Swift package (`ReaderCore`) with no PDFKit or SwiftData imports | Outline, anchoring, scoping and export are testable with `swift test` in seconds. |
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
-| Minimum OS | iPadOS 18.0 deployment target, confirmed building with Xcode 27.2 (27B52) against the iOS 27.2 simulator SDK. Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only; iOS 18 behaviour is not exercised here. | Current SwiftData, `inspector`, and PencilKit tool picker behaviour. |
+| Minimum OS | iPadOS 26.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 simulator SDK. Only the iOS 27.0 simulator runtime is installed, so tests run on 27.0 only. Raised from 18.0 when the windowing requirements were added. | The resizable-window and menu bar model starts with iPadOS 26, and behaviour on older systems could not be tested here. |
+| Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per reader window; `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
+| Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |
+| Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
+| Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before
@@ -120,8 +184,8 @@ building on it. This table records intent, not verified signatures.
 ## Not in version 1
 
 iCloud sync, collections or tags in the Library, EPUB, OCR for scanned books, handwriting search,
-automatic heading detection from page text, split view of two pages or two books, sharing single
-notes. The store layout should not rule these out.
+automatic heading detection from page text, an in-window split of two pages or two books (two
+windows cover this), sharing single notes, PaperKit shapes and text boxes on the page. The store layout should not rule these out.
 
 ## Open questions for the owner
 
