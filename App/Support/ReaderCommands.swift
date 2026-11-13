@@ -32,7 +32,10 @@ struct ReaderCommands: Commands {
                 .disabled(window == nil)
         }
 
-        CommandGroup(after: .sidebar) {
+        // Contents is the reader's sidebar: it replaces the system "Show Sidebar" item (⌃⌘S).
+        // Adding ⌃⌘S beside the system item crashes the main-menu build ("Replacement elements
+        // contain duplicates"), so the group is replaced, not appended to.
+        CommandGroup(replacing: .sidebar) {
             Button(session?.isContentsVisible == true ? "Hide Contents" : "Show Contents") {
                 session?.toggleContents()
             }
@@ -41,9 +44,11 @@ struct ReaderCommands: Commands {
             Button(session?.isNotesVisible == true ? "Hide Notes" : "Show Notes") {
                 session?.toggleNotes()
             }
-            .keyboardShortcut("i", modifiers: [.command, .option])
+            .keyboardShortcut("0", modifiers: [.command, .option])
             .disabled(session == nil)
-            Divider()
+        }
+
+        CommandGroup(after: .toolbar) {
             Button("Zoom In") { session?.zoomIn() }
                 .keyboardShortcut("+", modifiers: .command)
                 .disabled(session == nil)
@@ -57,6 +62,10 @@ struct ReaderCommands: Commands {
                 .keyboardShortcut("9", modifiers: .command)
                 .disabled(session == nil)
         }
+
+        // Notes are plain text (design): the system Format menu (Bold ⌘B, Bigger ⌘+, Smaller ⌘-…)
+        // is removed so it can never collide with Zoom In/Out when a text view is focused.
+        CommandGroup(replacing: .textFormatting) {}
 
         CommandMenu("Go") {
             Button("Back to Library") { window?.backToLibrary() }
@@ -88,8 +97,10 @@ struct ReaderCommands: Commands {
         }
 
         CommandMenu("Book") {
+            // ⇧⌘F, not ⌘F: the system Find group (⌘F, ⌘G, ⌘E…) appears while a text field is
+            // first responder, and a duplicate shortcut aborts the main-menu build.
             Button("Find in Book…") { session?.showSearch() }
-                .keyboardShortcut("f", modifiers: .command)
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(session == nil)
             Button(bookmarkTitle) {
                 if let session { BookmarkActions.toggle(session: session) }
