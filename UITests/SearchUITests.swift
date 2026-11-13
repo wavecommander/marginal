@@ -50,20 +50,15 @@ final class SearchUITests: XCTestCase {
         app.staticTexts[ID.status].firstMatch.label
     }
 
-    /// The "Page N of 1,500" pill. Found by its label: in the current shell snapshot the pill
-    /// inherits the container's identifier, and the label formats the total with a separator.
+    /// The "Page N of 1500" pill.
     private func pill(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Page ' AND label CONTAINS ' of '")).firstMatch
+        app.buttons[ID.pagePill].firstMatch
     }
 
     private func waitForLabel(_ element: XCUIElement, _ label: String, timeout: TimeInterval = 15) -> Bool {
-        // Compares ignoring thousands separators ("Page 1,400 of 1,500").
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if element.exists, element.label.replacingOccurrences(of: ",", with: "") == label { return true }
-            Thread.sleep(forTimeInterval: 0.25)
-        } while Date() < deadline
-        return false
+        let predicate = NSPredicate(format: "label == %@", label)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     // MARK: Tests
@@ -78,8 +73,8 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 90), "no result: \(status(app))")
         XCTAssertTrue(row.label.contains("p. 1400"), row.label)
         // The grouped list names the heading that contains page 1,400.
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@",
-                                                                          "search.group.")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*, [0-9]+ results?"))
+            .firstMatch.exists, "no group header")
 
         // At the iPadOS 17 floor a disabled toolbar Menu with a primary action still reports
         // enabled to XCUITest, so the "disabled before" check runs on newer systems only; the
@@ -112,7 +107,7 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(status(app).hasPrefix("Searching"), status(app))
 
         // The list scrolls while results are still arriving.
-        let list = app.descendants(matching: .any)[ID.results].firstMatch
+        let list = app.collectionViews[ID.results]
         XCTAssertTrue(list.exists)
         let before = first.label
         let started = Date()
@@ -152,7 +147,7 @@ final class SearchUITests: XCTestCase {
         if !capped { try save(app, "search-debug-not-capped") }
         XCTAssertTrue(capped, "status: \(status(app))")
         // Scrolling the list dismisses the keyboard so the results are visible in the shot.
-        let list = app.descendants(matching: .any)[ID.results].firstMatch
+        let list = app.collectionViews[ID.results]
         list.swipeUp()
         list.swipeDown()
         let hide = app.keyboards.buttons["Hide keyboard"]
