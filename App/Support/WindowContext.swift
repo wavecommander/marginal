@@ -170,6 +170,7 @@ struct WindowSceneReader: UIViewRepresentable {
 
     func updateUIView(_ uiView: SceneReaderView, context: Context) {
         uiView.onScene = onScene
+        if let scene = uiView.window?.windowScene { onScene(scene) }
     }
 
     final class SceneReaderView: UIView {

@@ -65,6 +65,8 @@ final class ReaderSession: Identifiable {
         var isNotesVisible = true
         var notesTab: NotesTab = .page
         var notesPanelWidth: Double = ReaderSession.defaultNotesPanelWidth
+        /// The window's section history.
+        var history: SectionHistory?
     }
 
     /// How a session starts. Values from launch arguments win over restored state, which wins
@@ -156,9 +158,14 @@ final class ReaderSession: Identifiable {
     private(set) var currentPageIndex: Int
     /// Pages currently on screen, ascending (from `PDFViewVisiblePagesChanged`).
     private(set) var visiblePageIndices: [Int] = []
-    /// Whether `goBack()` / `goForward()` have somewhere to go (PDFKit's history).
-    private(set) var canGoBack = false
-    private(set) var canGoForward = false
+    /// This window's section history (Back/Forward between sections). Recorded by every
+    /// `jump…` call; restored with the window. Read it for the press-and-hold lists
+    /// (`history.backList` / `history.forwardList`); move with `goBack()` / `goForward()` /
+    /// `goToHistoryEntry(at:)`.
+    private(set) var history = SectionHistory()
+    /// Whether Back / Forward have somewhere to go.
+    var canGoBack: Bool { history.canGoBack }
+    var canGoForward: Bool { history.canGoForward }
     /// `true` while the PDF view auto-fits the page width (false after zooming in/out).
     private(set) var isFitWidth = true
 
@@ -255,6 +262,7 @@ final class ReaderSession: Identifiable {
             isNotesVisible = restored.isNotesVisible
             notesTab = restored.notesTab
             notesPanelWidth = max(Self.defaultNotesPanelWidth, restored.notesPanelWidth)
+            if let restoredHistory = restored.history { history = restoredHistory }
         }
         if let tab = configuration.openNotesTab {
             isNotesVisible = true
@@ -317,51 +325,96 @@ final class ReaderSession: Identifiable {
     /// The restorable part of the session's state (for scene storage).
     var restorableState: RestorableState {
         RestorableState(pageIndex: currentPageIndex, isContentsVisible: isContentsVisible,
-                        isNotesVisible: isNotesVisible, notesTab: notesTab, notesPanelWidth: notesPanelWidth)
+                        isNotesVisible: isNotesVisible, notesTab: notesTab, notesPanelWidth: notesPanelWidth,
+                        history: history)
     }
 
-    // MARK: Navigation
+    // MARK: Jumps (record section history)
+    //
+    // Every navigation that is not scrolling, paging or zooming is a *jump* and must go through
+    // one of these: Contents, go to page, bookmarks, thumbnails, search hits, Notebook rows,
+    // notes-panel rows, the level picker, first/last page. Each records section history (design:
+    // "Section history"). Invalid targets return `false` and change nothing.
 
-    /// Goes to a zero-based page. Returns `false` (and does nothing) for an invalid index.
-    /// `currentPageIndex` updates immediately.
+    /// Jumps to a zero-based page.
     @discardableResult
-    func go(toPage pageIndex: Int, animated: Bool = false) -> Bool {
+    func jump(toPage pageIndex: Int) -> Bool {
         guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return false }
-        pdf.go(toPage: pageIndex)
+        recordJump(toPage: pageIndex)
+        moveWithoutRecordingHistory(toPage: pageIndex)
+        return true
+    }
+
+    /// Jumps to a 1-based page number typed by the reader.
+    @discardableResult
+    func jump(toDisplayNumber number: Int) -> Bool {
+        jump(toPage: PageNumbering.pageIndex(forDisplayNumber: number))
+    }
+
+    /// Jumps to a heading's `startPage` (`false` when it has none).
+    @discardableResult
+    func jump(to heading: OutlineNode) -> Bool {
+        guard let page = heading.startPage else { return false }
+        return jump(toPage: page)
+    }
+
+    /// Resolves a stored anchor against the current outline and jumps to its start page.
+    @discardableResult
+    func jump(toHeading anchor: HeadingAnchor) -> Bool {
+        guard let match = outline.resolve(anchor) else { return false }
+        return jump(to: match.node)
+    }
+
+    /// Jumps to rects on a page (page space) and, with `mark`, marks the text under them until
+    /// `pdf.clearMarks()`: for search hits (WP10).
+    @discardableResult
+    func jump(toPage pageIndex: Int, revealing rects: [CGRect], mark: Bool = true) -> Bool {
+        guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return false }
+        recordJump(toPage: pageIndex)
+        pdf.reveal(pageIndex: pageIndex, rects: rects, mark: mark)
         setCurrentPage(pageIndex)
         return true
     }
 
-    /// Goes to a 1-based page number typed by the reader. `false` when out of range.
-    @discardableResult
-    func go(toDisplayNumber number: Int) -> Bool {
-        go(toPage: PageNumbering.pageIndex(forDisplayNumber: number))
+    /// First / last page are jumps.
+    func jumpToFirstPage() { jump(toPage: 0) }
+    func jumpToLastPage() { jump(toPage: pageCount - 1) }
+
+    // MARK: Section history
+
+    /// Back to the previous section, at the page the reader left it on.
+    func goBack() {
+        guard let place = history.back(from: placeOnScreen) else { return }
+        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
     }
 
-    /// Goes to a heading's `startPage`. `false` when the heading has no start page.
-    @discardableResult
-    func go(to heading: OutlineNode) -> Bool {
-        guard let page = heading.startPage else { return false }
-        return go(toPage: page)
+    /// Forward (undoes Back), at the page the reader left it on.
+    func goForward() {
+        guard let place = history.forward(from: placeOnScreen) else { return }
+        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
     }
 
-    /// Resolves a stored anchor against the current outline and goes to its start page.
-    @discardableResult
-    func go(toHeading anchor: HeadingAnchor) -> Bool {
-        guard let match = outline.resolve(anchor) else { return false }
-        return go(to: match.node)
+    /// Straight to an entry of `history.backList` / `history.forwardList` (by its `index`).
+    func goToHistoryEntry(at index: Int) {
+        guard let place = history.goToEntry(at: index, from: placeOnScreen) else { return }
+        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
     }
 
-    func goToNextPage() { go(toPage: min(currentPageIndex + 1, pageCount - 1)) }
-    func goToPreviousPage() { go(toPage: max(currentPageIndex - 1, 0)) }
-    func goToFirstPage() { go(toPage: 0) }
-    func goToLastPage() { go(toPage: pageCount - 1) }
-    /// PDFKit history (destinations visited by jumps).
-    func goBack() { pdf.goBack() }
-    func goForward() { pdf.goForward() }
+    // MARK: Paging (never recorded)
+
+    func goToNextPage() { moveWithoutRecordingHistory(toPage: min(currentPageIndex + 1, pageCount - 1)) }
+    func goToPreviousPage() { moveWithoutRecordingHistory(toPage: max(currentPageIndex - 1, 0)) }
 
     var canGoToNextPage: Bool { currentPageIndex + 1 < pageCount }
     var canGoToPreviousPage: Bool { currentPageIndex > 0 }
+
+    /// **Not for features.** Moves the PDF view without recording section history: only for
+    /// paging, history moves and restoring a position. Features navigate with `jump…`.
+    func moveWithoutRecordingHistory(toPage pageIndex: Int) {
+        guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return }
+        pdf.go(toPage: pageIndex)
+        setCurrentPage(pageIndex)
+    }
 
     // MARK: Zoom
 
@@ -467,11 +520,16 @@ final class ReaderSession: Identifiable {
         if pages != visiblePageIndices { visiblePageIndices = pages }
     }
 
-    /// Called by the PDF bridge after PDFKit's history or scale changes.
-    func pdfReportedNavigationState(canGoBack: Bool, canGoForward: Bool, isFitWidth: Bool) {
-        if self.canGoBack != canGoBack { self.canGoBack = canGoBack }
-        if self.canGoForward != canGoForward { self.canGoForward = canGoForward }
+    /// Called by the PDF bridge after the scale changes.
+    func pdfReportedScale(isFitWidth: Bool) {
         if self.isFitWidth != isFitWidth { self.isFitWidth = isFitWidth }
+    }
+
+    /// Called by the PDF bridge just before PDFKit follows a link inside the PDF to a page: a
+    /// jump (PDFKit moves the view itself).
+    func pdfWillFollowLink(toPage pageIndex: Int) {
+        guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return }
+        recordJump(toPage: pageIndex)
     }
 
     /// Saves `lastReadPageIndex` now if it changed (cancels the pending debounced save). Each
@@ -493,6 +551,17 @@ final class ReaderSession: Identifiable {
     }
 
     // MARK: - Private
+
+    /// The place on screen now (current page and its section).
+    private var placeOnScreen: SectionPlace { SectionPlace(pageIndex: currentPageIndex, in: outline) }
+
+    private func recordJump(toPage pageIndex: Int) {
+        history.recordJump(from: placeOnScreen, to: SectionPlace(pageIndex: pageIndex, in: outline))
+    }
+
+    private func clampedPage(_ pageIndex: Int) -> Int {
+        min(max(pageIndex, 0), max(pageCount - 1, 0))
+    }
 
     private func setCurrentPage(_ pageIndex: Int) {
         guard pageIndex != currentPageIndex else { return }

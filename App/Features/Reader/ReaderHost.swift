@@ -47,7 +47,7 @@ struct ReaderHost: View {
             session?.handleMemoryWarning()
         }
         .onChange(of: window.readerJumpRequests) { _, _ in
-            if let page = window.takeReaderOverrides(for: bookID)?.pageIndex { session?.go(toPage: page) }
+            if let page = window.takeReaderOverrides(for: bookID)?.pageIndex { session?.jump(toPage: page) }
         }
     }
 

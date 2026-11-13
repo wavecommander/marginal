@@ -6,8 +6,8 @@ import SwiftUI
 ///
 /// Shown as the left pane at wide widths and as an overlay at narrow widths (the shell owns
 /// the container, its width and visibility). Read `session.outline`, `session.headingPath`,
-/// `session.notebook` (badges), `session.currentPageIndex`; jump with `session.go(to:)` /
-/// `session.go(toPage:)`. At narrow widths the shell closes the overlay after a jump.
+/// `session.notebook` (badges), `session.currentPageIndex`; jump with `session.jump(to:)` /
+/// `session.jump(toPage:)` (never move the PDF view directly: jumps record section history). At narrow widths the shell closes the overlay after a jump.
 struct ContentsSidebar: View {
     let session: ReaderSession
 
@@ -26,7 +26,7 @@ struct ContentsSidebar: View {
                 }
                 ForEach(session.outline.nodes.prefix(400)) { node in
                     Button {
-                        session.go(to: node)
+                        session.jump(to: node)
                     } label: {
                         HStack {
                             Text(node.title)

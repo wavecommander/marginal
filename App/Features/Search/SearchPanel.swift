@@ -5,7 +5,7 @@ import SwiftUI
 /// The shell presents it in a popover from the toolbar's search button (a sheet at narrow
 /// widths) while `session.isSearchVisible`. Keep search state that must survive closing the
 /// popover in `session.featureState { … }`. Search on your own background `PDFDocument`
-/// (`session.documentURL`), then show a hit with `session.pdf.reveal(pageIndex:rects:mark:)`.
+/// (`session.documentURL`), then show a hit with `session.jump(toPage:revealing:mark:)` (a jump: recorded in section history).
 struct SearchPanel: View {
     let session: ReaderSession
 

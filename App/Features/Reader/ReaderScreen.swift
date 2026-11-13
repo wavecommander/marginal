@@ -139,13 +139,15 @@ struct ReaderScreen: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: .topBarLeading) {
             Button {
                 withAnimation { session.toggleContents() }
             } label: {
                 Label(session.isContentsShown ? "Hide Contents" : "Show Contents", systemImage: "sidebar.leading")
             }
             .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
+            SectionHistoryButton(session: session, direction: .back)
+            SectionHistoryButton(session: session, direction: .forward)
         }
         if session.isMarkupMode {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -214,6 +216,33 @@ struct ReaderScreen: View {
             Label("More", systemImage: "ellipsis.circle")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.more)
+    }
+}
+
+/// Back / Forward through section history. Tap steps once; press and hold lists the entries in
+/// that direction ("section · p. N") and jumps straight to the chosen one. Arrows, not the
+/// chevron of the "‹ Library" back button.
+private struct SectionHistoryButton: View {
+    enum Direction { case back, forward }
+
+    let session: ReaderSession
+    let direction: Direction
+
+    var body: some View {
+        let entries = direction == .back ? session.history.backList : session.history.forwardList
+        Menu {
+            ForEach(entries, id: \.index) { entry in
+                Button(entry.place.menuTitle) { session.goToHistoryEntry(at: entry.index) }
+            }
+        } label: {
+            Label(direction == .back ? "Back to Previous Section" : "Forward to Next Section",
+                  systemImage: direction == .back ? "arrow.backward" : "arrow.forward")
+        } primaryAction: {
+            if direction == .back { session.goBack() } else { session.goForward() }
+        }
+        .disabled(entries.isEmpty)
+        .accessibilityIdentifier(direction == .back ? AccessibilityID.Reader.historyBack
+                                                    : AccessibilityID.Reader.historyForward)
     }
 }
 
@@ -327,7 +356,7 @@ private struct PagePill: View {
 
     private func submit() {
         if let number = Int(text.trimmingCharacters(in: .whitespaces)) {
-            session.go(toDisplayNumber: number)
+            session.jump(toDisplayNumber: number)
         }
         session.isGoToPageVisible = false
         isFieldFocused = false

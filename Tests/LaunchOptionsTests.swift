@@ -6,8 +6,10 @@ struct LaunchOptionsTests {
         let options = LaunchOptions(arguments: [
             "app", "-resetState", "-importFixture", "/a.pdf", "-importFixture", "/b.pdf",
             "-openBook", "Small", "-openPage", "3", "-screen", "reader", "-inkAnyInput",
-            "-markup", "-notesPanel", "section", "-bogus", "x",
+            "-markup", "-notesPanel", "section", "-alsoOpenWindow", "Large", "-selectionMenuProbe", "-bogus", "x",
         ])
+        #expect(options.alsoOpenWindow == "Large")
+        #expect(options.selectionMenuProbe)
         #expect(options.resetState)
         #expect(options.importFixtures.map(\.path) == ["/a.pdf", "/b.pdf"])
         #expect(options.openBook == "Small")

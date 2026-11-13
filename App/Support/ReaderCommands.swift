@@ -72,17 +72,17 @@ struct ReaderCommands: Commands {
             Button("Previous Page") { session?.goToPreviousPage() }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])
                 .disabled(session?.canGoToPreviousPage != true)
-            Button("First Page") { session?.goToFirstPage() }
+            Button("First Page") { session?.jumpToFirstPage() }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
                 .disabled(session == nil)
-            Button("Last Page") { session?.goToLastPage() }
+            Button("Last Page") { session?.jumpToLastPage() }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
                 .disabled(session == nil)
             Divider()
-            Button("Back") { session?.goBack() }
+            Button("Back to Previous Section") { session?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
                 .disabled(session?.canGoBack != true)
-            Button("Forward") { session?.goForward() }
+            Button("Forward to Next Section") { session?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(session?.canGoForward != true)
         }

@@ -19,6 +19,7 @@ struct WindowRootView: View {
     @Environment(\.openWindow) private var openWindow
     @SceneStorage("window.path") private var storedPath: Data?
     @State private var context: WindowContext?
+    @State private var scene: UIWindowScene?
 
     var body: some View {
         ZStack {
@@ -26,7 +27,10 @@ struct WindowRootView: View {
                 WindowContent(context: context, storedPath: $storedPath)
             }
         }
-        .background(WindowSceneReader { scene in context?.scene = scene })
+        .background(WindowSceneReader { scene in
+            if self.scene !== scene { self.scene = scene }
+            context?.scene = scene
+        })
         .onAppear(perform: makeContextIfNeeded)
         .task { await applyLaunchPlanIfFirstWindow() }
     }
@@ -41,6 +45,7 @@ struct WindowRootView: View {
         }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
         context.openWindowAction = openWindow
+        context.scene = scene
         self.context = context
     }
 
@@ -48,9 +53,8 @@ struct WindowRootView: View {
         guard environment.claimLaunchPlan() else { return }
         let plan = await environment.launchPlan()
         guard let context else { return }
-        if environment.launchOptions.resetState {
+        if environment.launchOptions.resetState, let own = (context.scene ?? scene)?.session {
             // A fresh launch shows one window: drop scene sessions restored from earlier runs.
-            let own = context.scene?.session
             for session in UIApplication.shared.openSessions where session !== own {
                 UIApplication.shared.requestSceneSessionDestruction(session, options: nil, errorHandler: nil)
             }

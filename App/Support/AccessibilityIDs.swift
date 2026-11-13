@@ -17,6 +17,10 @@ nonisolated enum AccessibilityID {
 
         // Toolbar
         static let contentsToggle = "reader.toolbar.contents"
+        /// Section history Back ("Back to Previous Section"; press and hold for the list).
+        static let historyBack = "reader.toolbar.historyBack"
+        /// Section history Forward ("Forward to Next Section").
+        static let historyForward = "reader.toolbar.historyForward"
         static let search = "reader.toolbar.search"
         static let bookmark = "reader.toolbar.bookmark"
         static let markupToggle = "reader.toolbar.markup"

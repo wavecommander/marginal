@@ -95,16 +95,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.go(to: page)
     }
 
-    func goBack() {
-        guard isViewLoaded, view.canGoBack else { return }
-        view.goBack(nil)
-    }
-
-    func goForward() {
-        guard isViewLoaded, view.canGoForward else { return }
-        view.goForward(nil)
-    }
-
     // MARK: Zoom
 
     func zoomIn() {
@@ -305,7 +295,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         center.addObserver(self, selector: #selector(pageChanged(_:)), name: .PDFViewPageChanged, object: view)
         center.addObserver(self, selector: #selector(visiblePagesChanged(_:)), name: .PDFViewVisiblePagesChanged, object: view)
         center.addObserver(self, selector: #selector(navigationChanged(_:)), name: .PDFViewScaleChanged, object: view)
-        center.addObserver(self, selector: #selector(navigationChanged(_:)), name: .PDFViewChangedHistory, object: view)
+        center.addObserver(self, selector: #selector(annotationWillHit(_:)), name: .PDFViewAnnotationWillHit, object: view)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
@@ -355,6 +345,14 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         reportNavigationState()
     }
 
+    /// A link inside the PDF is about to be followed: record it as a jump (PDFKit moves).
+    @objc private func annotationWillHit(_ notification: Notification) {
+        guard let annotation = notification.userInfo?["PDFAnnotationHit"] as? PDFAnnotation else { return }
+        let page = annotation.destination?.page ?? (annotation.action as? PDFActionGoTo)?.destination.page
+        guard let page, let index = pageIndex(of: page) else { return }
+        session?.pdfWillFollowLink(toPage: index)
+    }
+
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         let handlers = tapHandlers.compactMap(\.value)
@@ -376,8 +374,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     private func reportNavigationState() {
-        session?.pdfReportedNavigationState(canGoBack: view.canGoBack, canGoForward: view.canGoForward,
-                                            isFitWidth: view.autoScales)
+        session?.pdfReportedScale(isFitWidth: view.autoScales)
     }
 }
 
