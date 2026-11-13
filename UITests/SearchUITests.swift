@@ -81,7 +81,10 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@",
                                                                           "search.group.")).firstMatch.exists)
 
-        XCTAssertFalse(app.buttons[ID.historyBack].isEnabled)
+        // At the iPadOS 17 floor a disabled toolbar Menu with a primary action still reports
+        // enabled to XCUITest, so the "disabled before" check runs on newer systems only; the
+        // Back-returns-to-start check below proves the jump was recorded on every system.
+        if #available(iOS 18, *) { XCTAssertFalse(app.buttons[ID.historyBack].isEnabled) }
         row.tap()
 
         let pill = pill(app)
@@ -145,7 +148,9 @@ final class SearchUITests: XCTestCase {
         _ = openSearch(app, query: "Fixture page")
         XCTAssertTrue(resultRows(app).firstMatch.waitForExistence(timeout: 30))
         // Wait for the 500-result cap.
-        XCTAssertTrue(app.buttons[ID.resume].waitForExistence(timeout: 60))
+        let capped = app.buttons[ID.resume].waitForExistence(timeout: 60)
+        if !capped { try save(app, "search-debug-not-capped") }
+        XCTAssertTrue(capped, "status: \(status(app))")
         // Scrolling the list dismisses the keyboard so the results are visible in the shot.
         let list = app.descendants(matching: .any)[ID.results].firstMatch
         list.swipeUp()
