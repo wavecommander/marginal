@@ -73,7 +73,11 @@ final class LibraryUITests: XCTestCase {
         field.tap()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 10) + "Renamed")
         app.alerts.buttons["Rename"].tap()
-        XCTAssertTrue(book(app, "Renamed").waitForExistence(timeout: 10))
+        if app.alerts.firstMatch.waitForNonExistence(timeout: 3) == false {
+            // The first tap can only dismiss the keyboard's input assistant.
+            app.alerts.buttons["Rename"].tap()
+        }
+        XCTAssertTrue(book(app, "Renamed").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(book(app, "small").exists)
 
         // Delete with the confirmation.
