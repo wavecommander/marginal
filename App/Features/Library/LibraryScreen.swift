@@ -52,7 +52,6 @@ struct LibraryScreen: View {
             }
         }
         .navigationTitle("Library")
-        .accessibilityIdentifier(AccessibilityID.Library.screen)
         .onAppear {
             reload()
             if hubToken == nil {

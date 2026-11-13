@@ -3,15 +3,12 @@
 /// UI tests mirror the strings they use (the test target cannot import the app).
 nonisolated enum AccessibilityID {
     enum Library {
-        static let screen = "library.screen"
         static let importButton = "library.importButton"
         /// One row/cell per book: `library.book.<title>`.
         static func book(_ title: String) -> String { "library.book.\(title)" }
     }
 
     enum Reader {
-        /// The reader's root view (one per reader window).
-        static let screen = "reader.screen"
         static let pdfView = "reader.pdfView"
         static let loading = "reader.loading"
 
