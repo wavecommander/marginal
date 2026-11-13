@@ -41,9 +41,11 @@ nonisolated enum NotePageAccessibilityID {
 ///
 /// ## Markup surface
 /// With a session, the view registers itself as a `MarkupSurface` while it is in a window, and
-/// its text view as the auxiliary responder that keeps the tool picker up while typing. Undo and
-/// redo use the model's `undoManager` (typing and ink in one stack); the canvas's own undo
-/// registration is switched off because the model owns ink undo (it must survive relocation).
+/// its text view as the auxiliary responder that keeps the tool picker up while typing. Ink undo
+/// and redo use the model's `undoManager` (the surface's `markupUndoManager`, so the toolbar
+/// Undo/Redo and ⌘Z through the markup responder act on note ink after a stroke on the note); the
+/// canvas's own undo registration is switched off because the model owns ink undo (it must
+/// survive relocation). Typing undo is the text view's own, while it has focus.
 final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     // MARK: Public
 
@@ -120,7 +122,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         scrollView.addSubview(pageView)
 
         NotePageStyle.configure(textView)
-        textView.undoOwner = self
         textView.delegate = self
         textView.isEditable = false
         textView.accessibilityIdentifier = NotePageAccessibilityID.text
@@ -183,7 +184,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         if window != nil {
             registerSurface()
             applyContentScale()
-            tieBackSwipeToDrawing()
         } else {
             unregisterSurface()
             if let model = currentModel {
@@ -265,34 +265,21 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         applyContentScale()
     }
 
-    /// Renders text and ink at the zoomed resolution (vector re-render, never an upscaled
-    /// bitmap): the zoom transform is applied by the scroll view, so the layers' scale factor is
-    /// raised to `zoom × displayScale` once zooming settles.
+    /// Renders the text at the zoomed resolution (vector re-render, never an upscaled bitmap):
+    /// the zoom transform is applied by the scroll view, so the text layers' scale factor is
+    /// raised to `zoom × displayScale` once zooming settles. Ink is re-rendered sharp by
+    /// PencilKit itself (verified at 183% on iOS 27 and 17.5).
     private func applyContentScale() {
         let scale = max(traitCollection.displayScale, 1) * max(scrollView.zoomScale, 1)
         setContentScale(scale, in: textView)
-        setContentScale(scale, in: noteCanvas)
+        // Not the canvas: PencilKit renders its strokes for the on-screen scale itself, and a
+        // forced scale factor on its layers made it stop drawing after the page was resized at
+        // zoom (iOS 27 simulator, notes sheet with the keyboard up).
     }
 
     private func setContentScale(_ scale: CGFloat, in view: UIView) {
         if view.contentScaleFactor != scale { view.contentScaleFactor = scale }
         for subview in view.subviews { setContentScale(scale, in: subview) }
-    }
-
-    /// iPadOS 26+ lets a horizontal swipe anywhere in a navigation stack go back (the content
-    /// pop gesture). A stroke on the note must never navigate away, so the pop waits for the
-    /// canvas's drawing gesture to fail. (Before iOS 26 only the screen-edge swipe pops, which
-    /// never starts on the note panel.)
-    private func tieBackSwipeToDrawing() {
-        guard #available(iOS 26.0, *) else { return }
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let controller = current as? UIViewController, let navigation = controller.navigationController {
-                navigation.interactiveContentPopGestureRecognizer?.require(toFail: noteCanvas.drawingGestureRecognizer)
-                return
-            }
-            responder = current.next
-        }
     }
 
     // MARK: Mode and routing
@@ -594,14 +581,10 @@ extension NotePageEditorView: UIScribbleInteractionDelegate {
 
 // MARK: - Subviews
 
-/// The note's text view: its undo manager is the note model's, so typing and ink share one stack.
-final class NoteTextView: UITextView {
-    weak var undoOwner: NotePageEditorView?
-
-    override var undoManager: UndoManager? {
-        undoOwner?.markupUndoManager ?? super.undoManager
-    }
-}
+/// The note's text view. Typing undo stays UIKit's own (⌘Z, the keyboard's undo key and the
+/// edit menu while the text view has focus): UIKit's text input does not register typing with an
+/// overridden `undoManager` (verified on iOS 27), so redirecting it would only break it.
+final class NoteTextView: UITextView {}
 
 /// The note's canvas. Its own undo registration goes to a disabled manager: the note model
 /// registers ink undo itself, in band terms, so undo stays correct after the text moves strokes.

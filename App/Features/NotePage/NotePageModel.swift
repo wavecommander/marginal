@@ -85,8 +85,8 @@ final class NotePageModel {
     let target: NoteTarget
     /// The origin attached to every write (the reader window's `session.origin`).
     let origin: ChangeOrigin?
-    /// Undo stack of this note (typing and ink). Returned as the note surface's
-    /// `markupUndoManager`, and used by the editor's text view.
+    /// Undo stack of this note's ink. Returned as the note surface's
+    /// `markupUndoManager` (typing undo stays the text view's own).
     @ObservationIgnored let undoManager: UndoManager
 
     // MARK: State
@@ -528,8 +528,8 @@ final class NotePageModel {
             let current = model.ink
             model.ink = snapshot.relaid(to: model.layout(for: model.text))
             model.registerInkUndo(restoring: current, actionName: actionName)
-            model.editor?.noteModelDidChangeInk(model)
             model.inkDidChange()
+            model.editor?.noteModelDidChangeInk(model)
         }
         undoManager.setActionName(actionName)
     }

@@ -151,13 +151,13 @@ final class NotePageUITests: XCTestCase {
         // Relaunch in markup mode (no keyboard) and mark the note up.
         let app = launch(fresh: false, markup: true)
         XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Why the determinant"))
-        // Widen the panel to half the window by dragging its divider (12 pt wide, just left of
-        // the panel; the shell does not expose it to UI tests by identifier on this build).
-        let page = textView(app).frame
-        let origin = app.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: page.minX - 11, dy: page.midY))
+        // Widen the panel to half the window by dragging its divider.
+        let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
+        XCTAssertTrue(divider.waitForExistence(timeout: 5), "notes divider")
+        let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: -450, dy: 0)),
                     withVelocity: 300, thenHoldForDuration: 0.3)
+        XCTAssertGreaterThan(textView(app).frame.width, 500, "the note zoomed with the wider panel")
         // Narrowing the PDF re-fits it and can move the current page: go back to page 1.
         let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 Linear Systems")).firstMatch
         if heading.waitForExistence(timeout: 5) { heading.tap() }
@@ -172,19 +172,26 @@ final class NotePageUITests: XCTestCase {
         XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
 
         sleep(2)
+        try saveScreenshot("notepage-wide")
+    }
+
+    /// Saves a screenshot to `build/shots/<name>-ios<major>.png` (and attaches it to the result).
+    private func saveScreenshot(_ name: String) throws {
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let version = UIDevice.current.systemVersion.split(separator: ".").first.map(String.init) ?? "os"
-        try upright(shot.image).write(to: directory.appendingPathComponent("notepage-wide-ios\(version).png"))
+        try upright(shot.image).write(to: directory.appendingPathComponent("\(name)-ios\(version).png"))
     }
 
-    /// The screenshot in the interface's landscape orientation (the raw capture is portrait).
+    /// The screenshot in the interface's orientation (the raw capture is always portrait).
     private func upright(_ image: UIImage) throws -> Data {
-        guard let cgImage = image.cgImage, cgImage.height > cgImage.width else {
+        guard let cgImage = image.cgImage, cgImage.height > cgImage.width,
+              XCUIDevice.shared.orientation.isLandscape else {
             return try XCTUnwrap(image.pngData())
         }
         let size = CGSize(width: cgImage.height, height: cgImage.width)
@@ -197,6 +204,87 @@ final class NotePageUITests: XCTestCase {
             UIImage(cgImage: cgImage).draw(in: CGRect(x: 0, y: 0, width: size.height, height: size.width))
         }
         return try XCTUnwrap(rotated.pngData())
+    }
+
+    private func waitFor(_ element: XCUIElement, _ format: String, timeout: TimeInterval = 10) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func done(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["reader.toolbar.done"].firstMatch
+    }
+
+    /// Markup mode always shows the system tool picker: with the note idle, right after a stroke
+    /// on the note, and with the cursor in the note and the keyboard up.
+    func testToolPickerStaysUpWithTheNote() throws {
+        let app = launch(fresh: true, markup: true)
+        XCTAssertTrue(done(app).waitForExistence(timeout: 10))
+        let shown = wait(done(app), "value == %@", "tool picker shown")
+        try saveScreenshot("picker-a-idle")
+        XCTAssertTrue(shown, "picker with the note idle")
+
+        drawLine(app, y: 160)
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
+        let afterStroke = wait(done(app), "value == %@", "tool picker shown")
+        try saveScreenshot("picker-b-after-stroke")
+        XCTAssertTrue(afterStroke, "picker after a stroke on the note")
+
+        pagePoint(app, x: 40, y: 25).tap()
+        textView(app).typeText("Typing with the picker up")
+        XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Typing with the picker up"))
+        let whileTyping = wait(done(app), "value == %@", "tool picker shown")
+        try saveScreenshot("picker-c-typing")
+        XCTAssertTrue(whileTyping, "picker with the cursor in the note")
+    }
+
+    /// The toolbar Undo/Redo act on the note's shared undo stack (ink and typing).
+    func testToolbarUndoRedoActOnTheNote() {
+        let app = launch(fresh: true, markup: true)
+        drawLine(app, y: 160)
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
+        let undo = app.buttons["reader.toolbar.undo"].firstMatch
+        let redo = app.buttons["reader.toolbar.redo"].firstMatch
+        XCTAssertTrue(waitFor(undo, "isEnabled == true"))
+        undo.tap()
+        XCTAssertTrue(waitFor(ink(app), "exists == false"), "undo removed the stroke")
+        XCTAssertTrue(waitFor(redo, "isEnabled == true"))
+        redo.tap()
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5), "redo restored the stroke")
+
+        // Typing undo is the text view's own (⌘Z / the keyboard's undo key while it has focus);
+        // it takes the typing back and leaves the stroke alone.
+        pagePoint(app, x: 40, y: 25).tap()
+        textView(app).typeText("Undo me")
+        XCTAssertTrue(wait(textView(app), "value == %@", "Undo me"))
+        let keyboardUndo = app.keyboards.buttons["Undo"].firstMatch
+        if keyboardUndo.waitForExistence(timeout: 3) {
+            keyboardUndo.tap()
+        } else {
+            textView(app).typeKey("z", modifierFlags: .command)
+        }
+        XCTAssertTrue(waitFor(textView(app), "value == nil OR value == ''"), "typing undone")
+        XCTAssertTrue(ink(app).exists, "the stroke stays")
+    }
+
+    /// Narrow window: the note works in the notes sheet (iPadOS 26+) or the inline bottom panel
+    /// (earlier): drawing, typing with the keyboard up, saving.
+    func testNarrowLayoutNoteEditing() throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = launch(fresh: true, markup: true)
+        let panel = app.descendants(matching: .any)["reader.pane.notesSheet"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 10), "notes sheet or bottom panel")
+        drawLine(app, y: 120)
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5), "stroke in the narrow panel")
+        try saveScreenshot("notepage-narrow")
+        pagePoint(app, x: 40, y: 25).tap()
+        textView(app).typeText("Narrow note")
+        XCTAssertTrue(wait(textView(app), "value == %@", "Narrow note"))
+        XCTAssertTrue(textView(app).isHittable, "the note stays visible above the keyboard")
+        XCTAssertTrue(ink(app).exists, "the stroke is still there")
+        try saveScreenshot("notepage-narrow-typing")
+        XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
     }
 
     func testEmptiedNoteIsGoneAfterRelaunch() {
