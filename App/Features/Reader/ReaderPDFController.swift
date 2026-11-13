@@ -86,13 +86,14 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: Navigation (call through ReaderSession)
 
-    func go(toPage pageIndex: Int) {
+    /// **Not for features**: moves the view without recording section history. Use `session.jump…`.
+    func moveWithoutRecordingHistory(toPage pageIndex: Int) {
         guard hasPositionedInitially, let page = page(at: pageIndex), view.bounds.width > 0 else {
             pendingPageIndex = pageIndex
             applyPendingPageIfPossible()
             return
         }
-        view.go(to: page)
+        view.showTop(of: page)
     }
 
     // MARK: Zoom
@@ -175,16 +176,17 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: Search marking (WP10)
 
+    /// **Not for features** (use `session.jump(toPage:revealing:mark:)`, which records history).
     /// Scrolls `rects` (page space) on `pageIndex` into view and, with `mark`, marks the text
     /// under them until `clearMarks()` (or the next `reveal`). Build the rects on your own
     /// background `PDFDocument`; this re-creates the selection on the on-screen one.
-    func reveal(pageIndex: Int, rects: [CGRect], mark: Bool = true) {
+    func revealWithoutRecordingHistory(pageIndex: Int, rects: [CGRect], mark: Bool = true) {
         guard let page = page(at: pageIndex) else { return }
         let union = rects.reduce(CGRect.null) { $0.union($1) }
         if !union.isNull {
             view.go(to: union.insetBy(dx: -8, dy: -40), on: page)
         } else {
-            view.go(to: page)
+            view.showTop(of: page)
         }
         session?.pdfReportedCurrentPage(pageIndex)
         guard mark else { return }
@@ -263,7 +265,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             if let destination = anchor.destination {
                 self.view.go(to: destination)
             } else if let page = self.page(at: anchor.pageIndex) {
-                self.view.go(to: page)
+                self.view.showTop(of: page)
             }
             self.isTrackingSuspended = false
             self.session?.pdfReportedCurrentPage(anchor.pageIndex)
@@ -323,7 +325,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         DispatchQueue.main.async { [weak self] in
             guard let self, let index = self.pendingPageIndex, let page = self.page(at: index) else { return }
             self.pendingPageIndex = nil
-            self.view.go(to: page)
+            self.view.showTop(of: page)
             self.hasPositionedInitially = true
             self.isTrackingSuspended = false
             self.session?.pdfReportedCurrentPage(index)
@@ -383,6 +385,13 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 final class ReaderPDFView: PDFView {
     weak var controller: ReaderPDFController?
     private var lastLayoutSize: CGSize = .zero
+
+    /// Scrolls so the top edge of `page` is at the top of the view. (`go(to: PDFPage)` leaves
+    /// the page break above it visible, and PDFKit then reports the previous page as current.)
+    func showTop(of page: PDFPage) {
+        let bounds = page.bounds(for: displayBox)
+        go(to: PDFDestination(page: page, at: CGPoint(x: bounds.minX, y: bounds.maxY)))
+    }
 
     override func layoutSubviews() {
         let size = bounds.size

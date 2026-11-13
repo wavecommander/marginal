@@ -228,7 +228,13 @@ final class ReaderSession: Identifiable {
     /// The markup surface registry and the window's one `PKToolPicker`.
     private(set) var markup: ReaderMarkupController!
     /// Off-main page thumbnails from a private `PDFDocument` (created on first use).
-    @ObservationIgnored private(set) lazy var thumbnails = PDFThumbnailRenderer(url: documentURL)
+    var thumbnails: PDFThumbnailRenderer {
+        if let thumbnailsIfCreated { return thumbnailsIfCreated }
+        let renderer = PDFThumbnailRenderer(url: documentURL)
+        thumbnailsIfCreated = renderer
+        return renderer
+    }
+    @ObservationIgnored private var thumbnailsIfCreated: PDFThumbnailRenderer?
 
     // MARK: Private state
 
@@ -319,7 +325,11 @@ final class ReaderSession: Identifiable {
     /// Memory warning: bumps `memoryWarningCount`, flushes ink. PDFKit purges its own caches.
     func handleMemoryWarning() {
         memoryWarningCount += 1
-        Task { await markup.flushAll() }
+        let thumbnails = thumbnailsIfCreated
+        Task {
+            await markup.flushAll()
+            await thumbnails?.purge()
+        }
     }
 
     /// The restorable part of the session's state (for scene storage).
@@ -371,7 +381,7 @@ final class ReaderSession: Identifiable {
     func jump(toPage pageIndex: Int, revealing rects: [CGRect], mark: Bool = true) -> Bool {
         guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return false }
         recordJump(toPage: pageIndex)
-        pdf.reveal(pageIndex: pageIndex, rects: rects, mark: mark)
+        pdf.revealWithoutRecordingHistory(pageIndex: pageIndex, rects: rects, mark: mark)
         setCurrentPage(pageIndex)
         return true
     }
@@ -412,7 +422,7 @@ final class ReaderSession: Identifiable {
     /// paging, history moves and restoring a position. Features navigate with `jump…`.
     func moveWithoutRecordingHistory(toPage pageIndex: Int) {
         guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return }
-        pdf.go(toPage: pageIndex)
+        pdf.moveWithoutRecordingHistory(toPage: pageIndex)
         setCurrentPage(pageIndex)
     }
 

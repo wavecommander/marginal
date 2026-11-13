@@ -235,7 +235,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
 
     /// The responder view moved into a window (called by `MarkupResponderView`).
     func responderViewDidMoveToWindow() {
-        if isMarkup { reassertToolPicker() }
+        guard isMarkup else { return }
+        reassertToolPicker()
+        // The window may not accept a first responder until the current update has finished.
+        DispatchQueue.main.async { [weak self] in self?.reassertToolPicker() }
     }
 
     // MARK: PKToolPickerObserver

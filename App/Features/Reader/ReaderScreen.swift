@@ -51,12 +51,11 @@ struct ReaderScreen: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
-                .accessibilityIdentifier(AccessibilityID.Reader.notesSheet)
+                .paneContainer(AccessibilityID.Reader.notesSheet)
                 .environment(session)
         }
         .environment(session)
         .focusedSceneValue(session)
-        .accessibilityIdentifier(AccessibilityID.Reader.screen)
     }
 
     // MARK: Layouts
@@ -66,8 +65,7 @@ struct ReaderScreen: View {
             if session.isContentsVisible {
                 ContentsSidebar(session: session)
                     .frame(width: ReaderSession.contentsSidebarWidth)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(AccessibilityID.Reader.contentsPane)
+                    .paneContainer(AccessibilityID.Reader.contentsPane)
                 Divider()
             }
             pageArea
@@ -76,8 +74,7 @@ struct ReaderScreen: View {
                 NotesPanel(session: session)
                     .frame(width: ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: width))
                     .background(Color(uiColor: .systemBackground))
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(AccessibilityID.Reader.notesPane)
+                    .paneContainer(AccessibilityID.Reader.notesPane)
             }
         }
     }
@@ -94,8 +91,7 @@ struct ReaderScreen: View {
                     .frame(width: min(320, ReaderSession.contentsSidebarWidth + 20))
                     .background(Color(uiColor: .systemGroupedBackground))
                     .shadow(radius: 12)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(AccessibilityID.Reader.contentsOverlay)
+                    .paneContainer(AccessibilityID.Reader.contentsOverlay)
                     .transition(.move(edge: .leading))
                     .onChange(of: session.currentPageIndex) { _, _ in session.isContentsOverlayVisible = false }
             }
@@ -103,8 +99,12 @@ struct ReaderScreen: View {
         .animation(.default, value: session.isContentsOverlayVisible)
     }
 
+    /// The pill sits at the bottom of the page (mockup), except at narrow widths while the notes
+    /// sheet covers the bottom: then it moves to the top of the page so it stays reachable.
+    private var pillAtTop: Bool { session.isNarrowLayout && session.isNotesVisible }
+
     private var pageArea: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: pillAtTop ? .top : .bottom) {
             ReaderPDFViewRepresentable(session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
             switch session.loadState {
@@ -116,7 +116,7 @@ struct ReaderScreen: View {
                                        description: Text(message))
             case .ready:
                 PagePill(session: session)
-                    .padding(.bottom, 14)
+                    .padding(pillAtTop ? .top : .bottom, 14)
             }
         }
         .frame(maxWidth: .infinity)
@@ -161,6 +161,8 @@ struct ReaderScreen: View {
                 Button("Done") { session.finishMarkup() }
                     .fontWeight(.semibold)
                     .accessibilityIdentifier(AccessibilityID.Reader.done)
+                    // For UI tests: whether the window's tool picker is on screen.
+                    .accessibilityValue(session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden")
             }
         } else {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -306,6 +308,9 @@ private struct PagePill: View {
     @Bindable var session: ReaderSession
     @State private var text = ""
     @FocusState private var isFieldFocused: Bool
+    /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
+    /// that opened it is still closing, must not close it).
+    @State private var hasHadFocus = false
 
     var body: some View {
         let number = PageNumbering.displayNumber(forPageIndex: session.currentPageIndex)
@@ -321,7 +326,7 @@ private struct PagePill: View {
                         .onSubmit(submit)
                         .accessibilityLabel("Go to page")
                         .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
-                    Text("of \(session.pageCount)").foregroundStyle(.white)
+                    Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
                     Button("Cancel") { session.isGoToPageVisible = false }
                         .foregroundStyle(.white)
                 }
@@ -329,17 +334,23 @@ private struct PagePill: View {
                 .frame(minHeight: 44)
                 .onAppear {
                     text = ""
+                    hasHadFocus = false
                     isFieldFocused = true
+                }
+                .task {
+                    // Retry once the presenting menu or popover has finished dismissing.
+                    try? await Task.sleep(for: .milliseconds(400))
+                    if !isFieldFocused { isFieldFocused = true }
                 }
             } else {
                 Button { session.isGoToPageVisible = true } label: {
-                    Text("\(number) of \(session.pageCount)")
+                    Text(verbatim: "\(number) of \(session.pageCount)")
                         .monospacedDigit()
                         .padding(.horizontal, 16)
                         .frame(minHeight: 44)
                 }
                 .foregroundStyle(.white)
-                .accessibilityLabel("Page \(number) of \(session.pageCount)")
+                .accessibilityLabel(Text(verbatim: "Page \(number) of \(session.pageCount)"))
                 .accessibilityHint("Go to page")
                 .accessibilityIdentifier(AccessibilityID.Reader.pagePill)
             }
@@ -347,7 +358,10 @@ private struct PagePill: View {
         .font(.subheadline.weight(.medium))
         .background(Capsule().fill(Color.black.opacity(0.78)))
         .onChange(of: isFieldFocused) { _, focused in
-            if !focused {
+            if focused {
+                hasHadFocus = true
+            } else if hasHadFocus {
+                hasHadFocus = false
                 session.isGoToPageVisible = false
                 session.markup.reassertToolPicker()
             }
@@ -364,9 +378,18 @@ private struct PagePill: View {
 }
 
 private extension View {
+    /// Wraps a pane in its own accessibility container with a fixed identifier, so the
+    /// identifiers inside the pane (owned by later packages) never replace the pane's.
+    func paneContainer(_ identifier: String) -> some View {
+        ZStack { self }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(identifier)
+    }
+
     /// The title with its subtitle (the current section). iPadOS 26+: the system subtitle.
-    /// Earlier: a two-line principal toolbar item. The block's accessibility label is the
-    /// title and its value the subtitle on both paths.
+    /// Earlier: a two-line principal toolbar item (`AccessibilityID.Reader.titleBlock`, one
+    /// combined accessibility element "title, subtitle"). Gated path: the only place that uses
+    /// `navigationSubtitle`.
     @ViewBuilder
     func readerSubtitle(title: String, subtitle: String) -> some View {
         if #available(iOS 26.0, *) {

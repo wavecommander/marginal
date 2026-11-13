@@ -55,6 +55,7 @@ struct WindowRootView: View {
         guard let context else { return }
         if environment.launchOptions.resetState, let own = (context.scene ?? scene)?.session {
             // A fresh launch shows one window: drop scene sessions restored from earlier runs.
+            // Best effort: SpringBoard may report a killed process's sessions as unknown.
             for session in UIApplication.shared.openSessions where session !== own {
                 UIApplication.shared.requestSceneSessionDestruction(session, options: nil, errorHandler: nil)
             }
