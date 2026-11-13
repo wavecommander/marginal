@@ -154,7 +154,12 @@ struct SearchEngineTests {
         #expect(more.count == 100)
     }
 
+    /// Writes `build/search-timings.txt`. Heavy (scans the book four times), so it runs only
+    /// when `build/measure-search` exists.
     @Test func measureTimings() async throws {
+        let flag = Self.fixturesDir.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/measure-search")
+        guard FileManager.default.fileExists(atPath: flag.path) else { return }
         let fixture = try makeFixture("large.pdf", pages: 1500)
         defer { cleanUp(fixture) }
         var lines: [String] = []
