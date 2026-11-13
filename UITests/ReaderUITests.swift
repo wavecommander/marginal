@@ -271,6 +271,18 @@ final class ReaderUITests: XCTestCase {
         // The window not moved still shows a page it had before.
         XCTAssertFalse(Set(after.filter { $0 != "Page 3 of 12" }).isDisjoint(with: before), "\(before) → \(after)")
         XCTAssertEqual(app.state, .runningForeground)
+        // Leave one window behind for later tests (system Close Window, ⌘W).
+        closeFrontWindow(app)
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(app.buttons.matching(identifier: ReaderID.pagePill).count, 1)
+        }
+    }
+
+    /// Closes the focused window with the system Close command (test isolation: a window left
+    /// open would be restored as a "hidden window" on later launches).
+    private func closeFrontWindow(_ app: XCUIApplication) {
+        app.typeKey("w", modifierFlags: .command)
+        sleep(2)
     }
 
     /// Regression for the main-menu crash ("Replacement elements contain duplicates", a reader
@@ -280,6 +292,7 @@ final class ReaderUITests: XCTestCase {
     func testMenuCommandsStayStableAcrossStates() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        sleep(2)  // hardware-key events need the window to have become key
         app.typeKey("a", modifierFlags: [.command, .shift])          // Markup
         XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup
@@ -305,6 +318,7 @@ final class ReaderUITests: XCTestCase {
         app.typeKey("s", modifierFlags: [.command, .control])
         sleep(2)
         XCTAssertEqual(app.state, .runningForeground)
+        closeFrontWindow(app)
 
         let two = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
                                               + ["-openBook", "small", "-alsoOpenWindow", "small"])
@@ -315,6 +329,7 @@ final class ReaderUITests: XCTestCase {
         two.typeKey("l", modifierFlags: [.command, .shift])
         sleep(2)
         XCTAssertEqual(two.state, .runningForeground)
+        closeFrontWindow(two)
     }
 
     /// Markup mode shows the window's system tool picker; Done hides it. Also from launch (-markup).
@@ -333,6 +348,24 @@ final class ReaderUITests: XCTestCase {
         let doneAtLaunch = launched.buttons[ReaderID.done]
         XCTAssertTrue(doneAtLaunch.waitForExistence(timeout: 30))
         XCTAssertTrue(waitForValue(doneAtLaunch, "tool picker shown"))
+    }
+
+    /// With a registered surface that takes first responder (as a canvas does), the picker stays.
+    func testToolPickerStaysWithRegisteredSurface() {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
+                                              + ["-openBook", "small", "-markupProbeSurface"])
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        app.buttons[ReaderID.markupToggle].tap()
+        let done = app.buttons[ReaderID.done]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        sleep(2)  // the probe canvas has become first responder by now
+        XCTAssertTrue(waitForValue(done, "tool picker shown"))
+        let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
+        let suffix = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 18 ? "-ios17" : ""
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: directory.appendingPathComponent("reader-markup-surface\(suffix).png"))
+        done.tap()
+        XCTAssertTrue(app.buttons[ReaderID.markupToggle].waitForExistence(timeout: 5))
     }
 
     private func waitForEnabled(_ element: XCUIElement, _ enabled: Bool = true, timeout: TimeInterval = 5) -> Bool {

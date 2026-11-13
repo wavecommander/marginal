@@ -67,11 +67,15 @@ struct ReaderHost: View {
         guard session == nil, !isMissing else { return }
         guard let book = try? environment.store.books.book(id: bookID) else {
             isMissing = true
+            // Never leave a dead reader on screen: drop this route (an empty reader window
+            // closes, a Library window shows the Library).
+            DispatchQueue.main.async { window.bookWasDeleted(bookID) }
             return
         }
         var configuration = ReaderSession.Configuration()
         configuration.inkAnyInput = environment.launchOptions.inkAnyInput
         configuration.selectionMenuProbe = environment.launchOptions.selectionMenuProbe
+        configuration.markupProbeSurface = environment.launchOptions.markupProbeSurface
         if let storedState {
             configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)
         }

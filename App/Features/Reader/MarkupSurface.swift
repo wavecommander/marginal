@@ -54,11 +54,14 @@ protocol MarkupSurface: AnyObject {
 /// One per reader window (`ReaderSession.markup`): the registry of `MarkupSurface`s, the one
 /// system `PKToolPicker` of the window, and undo/redo routing.
 ///
-/// **Tool picker rules (verified on iOS 27 and 17.5):** a `PKToolPicker` is shown in the window
-/// of the first responder it was made visible for. This controller owns a zero-size
-/// `MarkupResponderView` (inserted by the PDF host view) that becomes first responder in markup
-/// mode, so the picker appears even before any canvas exists. Every registered canvas is also
-/// made visible-for, so the picker stays when a canvas becomes first responder (e.g. lasso).
+/// **Tool picker rules (verified by UI tests on iOS 27.0 and 17.5, with and without a registered
+/// surface):** a `PKToolPicker` is shown in the window of the first responder it was made
+/// visible for. This controller owns a zero-size `MarkupResponderView` (inserted by the PDF host
+/// view) that becomes first responder in markup mode, so the picker appears even before any
+/// canvas exists; surfaces never need to become first responder to show it. Every registered
+/// canvas is also made visible-for, so the picker stays when a canvas becomes first responder
+/// (e.g. lasso). The shell re-asserts the responder after the reader appears, when the scene
+/// becomes active and when its own text fields end editing.
 /// A responder that is *not* registered (the go-to-page field, search field) hides the picker
 /// while it is first responder; when it resigns, call `reassertToolPicker()` (the shell does
 /// this for its own fields). A note's text view (WP13) should be registered with
@@ -220,6 +223,19 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         } else if responderView.isFirstResponder {
             responderView.resignFirstResponder()
         }
+        updateBackSwipe()
+    }
+
+    /// In markup mode the navigation stack's back-swipe gestures are disabled for this window:
+    /// on iPadOS 26+ the full-width `interactiveContentPopGestureRecognizer` otherwise steals
+    /// left-to-right strokes from every canvas (and the edge swipe from strokes starting at the
+    /// left edge). The "‹ Library" button and ⇧⌘L still go back. Surfaces need not handle it.
+    private func updateBackSwipe() {
+        guard let navigationController = responderView.enclosingNavigationController else { return }
+        navigationController.interactivePopGestureRecognizer?.isEnabled = !isMarkup
+        if #available(iOS 26.0, *) {
+            navigationController.interactiveContentPopGestureRecognizer?.isEnabled = !isMarkup
+        }
     }
 
     /// In markup mode, makes the responder view first responder again if no registered
@@ -235,6 +251,7 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
 
     /// The responder view moved into a window (called by `MarkupResponderView`).
     func responderViewDidMoveToWindow() {
+        updateBackSwipe()
         guard isMarkup else { return }
         reassertToolPicker()
         // The window may not accept a first responder until the current update has finished.
@@ -277,6 +294,18 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
 /// surface last drawn on while it is first responder.
 final class MarkupResponderView: UIView {
     weak var controller: ReaderMarkupController?
+
+    /// The navigation controller hosting the reader (for the back-swipe gestures).
+    var enclosingNavigationController: UINavigationController? {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController, let navigation = controller.navigationController {
+                return navigation
+            }
+            responder = current.next
+        }
+        return nil
+    }
 
     override var canBecomeFirstResponder: Bool { true }
 

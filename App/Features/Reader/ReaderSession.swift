@@ -84,6 +84,8 @@ final class ReaderSession: Identifiable {
         var inkAnyInput = false
         /// `-selectionMenuProbe` (UI tests only).
         var selectionMenuProbe = false
+        /// `-markupProbeSurface` (UI tests only): register a `MarkupProbeSurface`.
+        var markupProbeSurface = false
         /// Delay of the debounced `lastReadPageIndex` save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.

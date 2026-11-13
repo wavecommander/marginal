@@ -20,6 +20,8 @@ struct WindowRootView: View {
     @SceneStorage("window.path") private var storedPath: Data?
     @State private var context: WindowContext?
     @State private var scene: UIWindowScene?
+    /// The scene storage as it was when the window appeared (before this run wrote to it).
+    @State private var storedPathAtLaunch: Data?
 
     var body: some View {
         ZStack {
@@ -37,12 +39,16 @@ struct WindowRootView: View {
 
     private func makeContextIfNeeded() {
         guard context == nil else { return }
+        storedPathAtLaunch = storedPath
         var path: [WindowRoute] = []
         if let storedPath, let restored = try? JSONDecoder().decode([WindowRoute].self, from: storedPath) {
-            path = restored.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
+            path = restored
         } else if let initialRoute {
             path = [initialRoute]
         }
+        // A restored window never shows a reader or Notebook of a book that is gone: those
+        // screens are dropped (a reader/Notebook window left empty shows the Library).
+        path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
         context.openWindowAction = openWindow
         context.scene = scene
@@ -50,7 +56,14 @@ struct WindowRootView: View {
     }
 
     private func applyLaunchPlanIfFirstWindow() async {
-        guard environment.claimLaunchPlan() else { return }
+        guard environment.claimLaunchPlan() else {
+            // `-resetState`: a window restored from an earlier run (it has stored state) closes
+            // itself; windows opened during this launch (e.g. `-alsoOpenWindow`) have none.
+            if environment.launchOptions.resetState, storedPathAtLaunch != nil {
+                context?.closeWindow()
+            }
+            return
+        }
         let plan = await environment.launchPlan()
         guard let context else { return }
         if environment.launchOptions.resetState, let own = (context.scene ?? scene)?.session {
