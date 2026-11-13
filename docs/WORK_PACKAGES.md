@@ -72,6 +72,14 @@ adds because of them:
   restoration; a declared minimum window size; layout from window size only; the menu bar command
   set with keyboard shortcuts routed to the focused window; a `-alsoOpenWindow <title>` launch
   argument that opens a second reader window so UI tests can exercise two windows.
+- **Section history** (design, "Behaviour rules"): WP4 builds it. The pure rules live in
+  `ReaderCore` as a value type with tests (record a jump, same-section collapse, back, forward,
+  jump to an entry, truncation, cap, restoration through `Codable`); the session owns one per
+  window and exposes a single jump API; the toolbar gets the Back and Forward buttons with the
+  press-and-hold lists and the ⌘[ / ⌘] commands. **WP5, WP8, WP9, WP10 and any later package**
+  navigate only through the session's jump API, never by moving the PDF view directly, so every
+  jump is recorded. WP12 adds the UI test: jump between three sections, go back twice, forward
+  once, jump again and confirm the forward entries are gone.
 - **WP5, WP7, WP8, WP10**: every view reads and commands its own window's session, never a shared
   one, and shows changes made in another window on the same book.
 - **WP6, WP13**: system `PKToolPicker` with its standard tools, default drawing policy, nothing

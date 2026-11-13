@@ -59,9 +59,33 @@ ones even where the mockup draws an approximation.
   export.
 - **Ink**: one PencilKit drawing per page.
 - **Bookmark**: a flagged page.
+- **Section history**: each reader window's own back and forward trail of the sections the reader
+  has jumped between, like a browser's history but for headings. An entry is a place: a page and
+  the section that page is in.
 
 ## Behaviour rules
 
+- **Section history** (added by the owner after the first plan). The reader toolbar has Back and
+  Forward buttons that step through the sections the reader has jumped between.
+  - A *jump* is any navigation that is not scrolling: choosing a heading in Contents, go to page,
+    a bookmark, a thumbnail, a search hit, a link inside the PDF, a row in the Notebook or in
+    "page notes in this section", the level picker's heading, first or last page. Scrolling,
+    paging to the next or previous page, and zooming are never jumps.
+  - A jump to a different section records the place being left (the page actually on screen at
+    that moment and its section), drops any forward entries, and adds the destination. A jump
+    that lands in the section the reader is already in moves the page without adding an entry.
+    "Section" here is the deepest heading containing the page; a page before the first heading, or
+    any page in a book with no outline, counts as its own place ("Page N").
+  - Back returns to the previous entry at the page the reader left it on, not the section's first
+    page; Forward undoes Back. Before either moves, the current entry is updated to the page on
+    screen, so going back and forward again returns to the same spot.
+  - Pressing and holding either button lists the entries in that direction by section title and
+    page, and choosing one jumps straight to it. The buttons are disabled when there is nothing in
+    their direction, and they are visibly different from the "‹ Library" button.
+  - The history belongs to the window: two windows on one book have separate trails. It is
+    restored with the window and capped at a fixed length (oldest entries drop off). An entry
+    whose heading was deleted or changed keeps working by its page.
+  - Menu bar commands and keyboard shortcuts: Back ⌘[ and Forward ⌘].
 - **Current page** is the page PDFKit reports as current while scrolling. The toolbar subtitle,
   the Contents selection, and the inspector all follow it.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
