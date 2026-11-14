@@ -10,7 +10,10 @@ and says which model runs each one. It is written for an orchestrating Claude Co
   `model` to the package's model, and uses `isolation: "worktree"` for packages that run in
   parallel. It merges each wave, runs the full gate, and reviews the diff before starting the next
   wave. It does not write feature code itself.
-- **Model choice**: Opus where the package sets contracts other packages depend on, bridges
+- **Owner instruction, 13 November 2026: every package launched from now on runs on Opus**,
+  including the ones marked Sonnet below (WP5, WP7, WP8, WP9, WP12 and any follow-up work).
+  Packages already finished on Sonnet stand as they are.
+- **Model choice** (original plan): Opus where the package sets contracts other packages depend on, bridges
   UIKit and SwiftUI under performance pressure, or has failure modes that only show up as subtle
   bugs. Sonnet where the contract already exists and the work is building to it.
 - **Brief for each subagent**: the package section below, `docs/DESIGN.md`, the mockup link, the
