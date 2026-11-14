@@ -96,6 +96,22 @@ ones even where the mockup draws an approximation.
   status bar never sends the reader to the first page. The system's tap-to-scroll-to-top gesture
   is switched off for the PDF: in a book of thousands of pages it loses the reader's place, and
   the first page is one command away (Go › First Page) when it is wanted.
+- **The reader's own headings** (owner requirement). Readers can create section headings of
+  their own in any book, and a PDF with no outline can be given a complete structure this way.
+  - *Adding:* "Add Heading at This Page" is offered from the Contents sidebar (always, and as
+    the main action of its empty state), the reader's More menu, the menu bar with a keyboard
+    shortcut, the notes panel when the current page is in no section, and the text-selection
+    menu ("Add as Heading", which uses the selected text as the title). It asks for a title and
+    where the heading sits: top level, or under any heading that contains the page.
+  - *Editing:* a reader's heading can be renamed, moved to another page, moved to another level
+    or parent, and deleted. Deleting keeps its sub-headings (they move up one level) and its
+    note (which stays in the Notebook as unfiled until it is re-attached). Headings from the PDF
+    itself are read-only.
+  - *Everywhere a heading matters:* a reader's heading behaves exactly like a PDF heading. It
+    has a page range, appears in Contents, the heading path, the toolbar subtitle, the Section
+    note tab and its level picker, the Notebook, search grouping, section history and exports.
+  - Headings are saved with the book, appear in every window showing it, and are marked as the
+    reader's own wherever they are listed.
 - **Current page** is the page PDFKit reports as current while scrolling. The toolbar subtitle,
   the Contents selection, and the inspector all follow it.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
@@ -181,6 +197,21 @@ Added by the owner after the first plan.
   finger. The `-inkAnyInput` test switch forces any-input drawing.
 - **Scribble.** Every text input (notes, search, go-to-page, titles) is a standard text control so
   Scribble works in it without extra code.
+- **Handwriting to text in notes** (owner requirement). Writing in a note with the Pencil and
+  having it become typed text must work, and is treated as a feature to verify, not a side effect:
+  - *Markup mode off:* Scribble works anywhere on the note page, including an empty note and the
+    blank space below the text (the whole page is a writing target, not just the lines that
+    already hold text), with the system's Scribble gestures (scratch out to delete, circle to
+    select, tap and hold to insert).
+  - *Markup mode on:* the Pencil inks by default, as designed. Where the system tool picker
+    offers its handwriting tool (the Scribble pen, iPadOS 18 and later), choosing it writes typed
+    text into the note while every other tool still inks; on older systems the reader leaves
+    markup mode to Scribble.
+  - Nothing in the note page may switch Scribble off, cover the text view with a view that
+    swallows Pencil input outside markup mode, or steal its gestures. The reader's system setting
+    for Scribble is respected.
+  - The simulator cannot Scribble, so this is on the real-device checklist and is confirmed on
+    the owner's iPad before it is called done.
 - **Vector ink.** Ink is stored as PencilKit drawings (vector strokes), never as bitmaps, and is
   re-rendered from the strokes at the size it is shown: canvases stay sharp at any zoom, and
   read-only views (Notebook, section list) draw from the strokes at their display scale instead of
@@ -213,11 +244,12 @@ take full advantage of their SDKs.
 - **At the floor the same features use the older system model**: multiple windows through Split
   View, Slide Over and Stage Manager; keyboard shortcuts through the same SwiftUI commands (shown
   in the shortcut overlay instead of a menu bar).
-- **Testing.** Two simulator runtimes are installed: iOS 27.0 and iOS 17.5 (the 17.5 image was
-  downloaded from Apple's developer site by the owner and imported with `xcrun simctl runtime
-  add`; Xcode 27.2 will not download it itself). Every package runs its tests on both, so the
-  floor's fallback paths are exercised and not only compiled. Systems in between (18, 26) are
-  covered by the compiler and by review.
+- **Testing.** Routine testing is on the iOS 27.0 simulator and the owner's iPad (iPadOS 27).
+  An iOS 17.5 simulator runtime is installed (imported by the owner with `xcrun simctl runtime
+  add`) and was used for every package until 13 November 2026; since then, by owner decision,
+  iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on every build
+  and were last exercised on the packages merged up to that date (reader engine, library, note
+  page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
 
 ## Technical decisions
 
