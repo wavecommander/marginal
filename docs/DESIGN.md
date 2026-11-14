@@ -86,6 +86,12 @@ ones even where the mockup draws an approximation.
     restored with the window and capped at a fixed length (oldest entries drop off). An entry
     whose heading was deleted or changed keeps working by its page.
   - Menu bar commands and keyboard shortcuts: Back ⌘[ and Forward ⌘].
+- **The reading position is stable** (owner feedback from the first device build). Opening or
+  closing the Contents sidebar or the Notes panel, dragging the panel divider, resizing or rotating
+  the window, and showing or hiding the keyboard never move the reader's place in the book: the
+  point of the page at the top of the view stays at the top of the view, exactly, and closing
+  then reopening a panel returns to the identical position with no drift however often it is
+  repeated. Only scrolling, zooming and jumps change the position.
 - **Current page** is the page PDFKit reports as current while scrolling. The toolbar subtitle,
   the Contents selection, and the inspector all follow it.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
