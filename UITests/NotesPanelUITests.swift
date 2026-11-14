@@ -22,7 +22,8 @@ final class NotesPanelUITests: XCTestCase {
         static let writingSpace = "notePage.writingSpace"
         static let pagePill = "reader.pagePill"
         static let historyBack = "reader.toolbar.historyBack"
-        static let done = "reader.toolbar.done"
+        /// Leaving markup mode: the Markup toggle (there is no Done button).
+        static let markupToggle = "reader.toolbar.markup"
         static let divider = "reader.notesDivider"
         static let notesSheet = "reader.pane.notesSheet"
     }
@@ -326,7 +327,7 @@ final class NotesPanelUITests: XCTestCase {
         sleep(2)
         try saveScreenshot("wp8-markup-wide")
         app.buttons[ID.shrink].firstMatch.tap()
-        app.buttons[ID.done].firstMatch.tap()
+        app.buttons[ID.markupToggle].firstMatch.tap()
         if !wait(title(app), "label == %@", "Page 3", timeout: 2) { goToPage(app, 3) }
         sleep(1)
         try saveScreenshot("wp8-page")
