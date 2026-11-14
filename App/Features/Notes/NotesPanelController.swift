@@ -20,8 +20,8 @@ import ReaderCore
 /// ## Never losing work
 /// - **Typing.** A change that only follows the page is deferred while the shown note's text view
 ///   is editing (`NotePageModel.isEditingText`): the keyboard itself scrolls the PDF. The switch
-///   runs as soon as editing ends. Explicit changes (tab, level picker, "This page is in") switch
-///   at once; the editor commits and flushes the old note first.
+///   runs as soon as editing ends. Explicit changes (tab, level picker, a heading requested by
+///   another feature) switch at once; the editor commits and flushes the old note first.
 /// - **Strokes.** The editor (`NotePageEditorView`) keeps a new model pending until a stroke in
 ///   progress ends, so the stroke lands on the note it was drawn on; then it flushes the old one.
 /// - **Models alive.** At most `modelCapacity` models are cached (typically the page note, the
@@ -51,11 +51,10 @@ final class NotesPanelController {
     private(set) var isSwitchDeferred = false
     /// The Section tab's level choice.
     private(set) var selection = NotesSectionSelection()
-    /// The reader's chosen base zoom (`NotesPanelMetrics`), `nil` until they choose one: then the
-    /// default follows Dynamic Type. Remembered for the window's lifetime.
+    /// The base zoom the reader pinched to (`NotesPanelMetrics`), `nil` until they pinch: then
+    /// the default follows Dynamic Type. Remembered for the window's lifetime; the panel drops it
+    /// when Dynamic Type changes.
     var chosenBaseZoom: CGFloat?
-    /// Bumped per note whenever its ink file changes (any window), for read-only renderings.
-    private(set) var inkRevisions: [UUID: Int] = [:]
     /// Heading notes re-attached after the outline loaded (diagnostics, tests).
     private(set) var repairedAnchorCount = 0
     /// Whether the anchor repair has run for this window's outline load.
@@ -68,8 +67,6 @@ final class NotesPanelController {
     @ObservationIgnored private var cache: [NoteTarget: NotePageModel] = [:]
     @ObservationIgnored private var recency: [NoteTarget] = []
     @ObservationIgnored private var lastTab: ReaderSession.NotesTab
-    @ObservationIgnored private var changeToken: StoreChangeObservation?
-    @ObservationIgnored private var snapshots: [SnapshotKey: NotePageSnapshot] = [:]
 
     /// - Parameter makeModel: how a note model is made (tests shorten the autosave delay).
     init(session: ReaderSession, makeModel: (@MainActor (NoteTarget) -> NotePageModel)? = nil) {
@@ -78,11 +75,6 @@ final class NotesPanelController {
         self.makeModel = makeModel ?? { [weak session] target in
             guard let session else { preconditionFailure("notes panel without a session") }
             return NotePageModel(session: session, target: target)
-        }
-        changeToken = session.observeBookChanges(includeOwn: true) { [weak self] event in
-            if case .noteInkChanged(_, let noteID) = event.change {
-                self?.inkRevisions[noteID, default: 0] += 1
-            }
         }
         // A pending `showNotes(.section, heading:)` request is honoured on the next turn: this
         // initialiser runs inside `ReaderSession.init` (`ReaderFeatureWiring`), or, when feature
@@ -109,7 +101,7 @@ final class NotesPanelController {
         refresh(explicit: true)
     }
 
-    /// "This page is in" (or any "open this heading's note"): the Section tab on that heading.
+    /// Any "open this heading's note": the Section tab on that heading.
     func openSectionNote(for heading: OutlineNode) {
         guard let session else { return }
         selection.choose(heading.anchor, atPage: session.currentPageIndex)
@@ -132,28 +124,10 @@ final class NotesPanelController {
 
     // MARK: Deleting (design: "Deleting a note")
 
-    /// Deletes the note of `target` and its ink. When a model of this window holds that note (the
-    /// one on screen, or a cached one with unsaved edits), the model deletes it, so no pending or
-    /// late autosave can re-create it and its editor shows the empty placeholder; otherwise the
-    /// stored note is deleted directly. Attributed to the session's origin, so other windows
-    /// update. Returns `false` when the store failed.
-    @discardableResult
-    func deleteNote(target: NoteTarget) async -> Bool {
-        if let live = cache[target] ?? (model?.target == target ? model : nil) {
-            return await delete(live)
-        }
-        guard let session else { return false }
-        do {
-            if let record = try session.store.notes.note(bookID: session.book.id, target: target) {
-                try await session.store.deleteNote(id: record.id, origin: session.origin)
-            }
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    /// Deletes the note a model shows (the header's Delete Note).
+    /// Deletes the note a model shows (the header's Delete Note). The model deletes it, so no
+    /// pending or late autosave can re-create it and its editor shows the empty placeholder.
+    /// Attributed to the session's origin, so other windows update. Returns `false` when the
+    /// store failed.
     @discardableResult
     func delete(_ model: NotePageModel) async -> Bool {
         do {
@@ -188,22 +162,6 @@ final class NotesPanelController {
 
     /// The models alive now (tests).
     var liveTargets: Set<NoteTarget> { Set(cache.keys) }
-
-    // MARK: Read-only renderings
-
-    struct SnapshotKey: Hashable {
-        var noteID: UUID
-        var modifiedAt: Date
-        var inkRevision: Int
-    }
-
-    /// A cached layout of a stored note for its list row (built on first display).
-    func cachedSnapshot(_ key: SnapshotKey) -> NotePageSnapshot? { snapshots[key] }
-
-    func storeSnapshot(_ snapshot: NotePageSnapshot, for key: SnapshotKey) {
-        if snapshots.count >= 200 { snapshots.removeAll(keepingCapacity: true) }
-        snapshots[key] = snapshot
-    }
 
     // MARK: Deciding
 

@@ -15,27 +15,23 @@ nonisolated enum NotesPanelAccessibilityID {
     static let title = "notesPanel.title"
     /// The "Saved" status (WP13's identifier, kept: label "Saved", "Edited", …, or "Empty").
     static let status = "notePage.status"
-    /// The zoom menu (label "Note zoom, 140 percent"; WP13's identifier, kept).
-    static let zoom = "notePage.zoom"
     /// The shrink button (shown while the pane is wider than its default).
     static let shrink = "notesPanel.shrink"
-    /// One row of the level picker (label = heading title, value "Level N", selected trait).
+    /// The level picker's disclosure row (label "Heading level, <shown heading>", value
+    /// "Collapsed" or "Expanded").
+    static let levelToggle = "notesPanel.levelToggle"
+    /// One row of the expanded level picker (label = heading title, value "Level N", selected
+    /// trait).
     static let level = "notesPanel.level"
-    /// The compact level picker (a menu, in short panels).
-    static let levelMenu = "notesPanel.levelMenu"
     /// The section's page range ("pp. 2–4"): a button that jumps to the heading's first page.
     static let sectionRange = "notesPanel.sectionRange"
     /// One "Highlights on this page" row.
     static let highlight = "notesPanel.highlight"
-    /// One "This page is in" row (label "Section note for <title>").
-    static let pageIsIn = "notesPanel.pageIsIn"
-    /// One "Page notes in this section" row: `notesPanel.pageNote.<display page number>`.
-    static func pageNote(displayNumber: Int) -> String { "notesPanel.pageNote.\(displayNumber)" }
     /// The empty state of the Section note tab (no heading for this page).
     static let sectionEmpty = "notesPanel.sectionEmpty"
     /// "Add Heading at This Page…" (where the page is in no section).
     static let addHeading = "notesPanel.addHeading"
-    /// Delete Note (header button, and the item in a page-note row's context menu).
+    /// Delete Note (the header button).
     static let deleteNote = "notes.deleteNote"
     /// "Open in Notebook".
     static let openNotebook = "notesPanel.openNotebook"
@@ -48,8 +44,8 @@ nonisolated enum NotesPanelAccessibilityID {
 /// ## The rule
 /// - **Following.** With no choice made, the tab shows the deepest heading of the current page's
 ///   heading path (`Outline.deepestHeading(forPage:)`), so it changes as the reader scrolls.
-/// - **Choosing.** Picking a level in the level picker (or a row of "This page is in", or any
-///   other explicit "open this heading's note") *pins* that heading, remembering the page the
+/// - **Choosing.** Picking a level in the level picker (or any other explicit "open this
+///   heading's note") *pins* that heading, remembering the page the
 ///   reader was on.
 /// - **Staying.** The pin holds while the current page stays inside the pinned heading's page
 ///   range: the reader who chose the chapter note keeps it while scrolling through any of the
@@ -118,12 +114,6 @@ struct NotesSectionSelection: Equatable {
         let lineage = outline.lineage(of: heading.anchor)
         return lineage.isEmpty ? [heading] : lineage
     }
-
-    /// The pages whose notes "Page notes in this section" lists: the heading's whole page range,
-    /// nested headings included (`nil` for a heading that contains no page).
-    static func pageNoteRange(of heading: OutlineNode) -> ClosedRange<Int>? {
-        heading.pageRange
-    }
 }
 
 // MARK: - Following without losing work
@@ -138,7 +128,8 @@ nonisolated enum NotesTargetSwitch: Equatable {
     case deferUntilEditingEnds
 
     /// - Parameters:
-    ///   - explicit: the reader asked for the change (tab, level picker, "This page is in" row):
+    ///   - explicit: the reader asked for the change (tab, level picker, a request from another
+    ///     feature):
     ///     always switch (the editor commits and flushes the old note first). Following the page
     ///     (`explicit == false`) never switches under a reader who is typing, because the keyboard
     ///     itself scrolls the PDF and would otherwise swap the note mid-sentence.
@@ -179,6 +170,8 @@ nonisolated enum NotesPanelPresentation: Equatable, Sendable {
 ///   column capped at `narrowMaximumFactor × 330`. At base 100% a portrait 11-inch sheet shows the
 ///   note at 130%, a slim Split View panel (375 wide) at 114%: about the mockup's 420-point-wide
 ///   note, comfortably readable, with room left for highlights.
+/// - **Pinch** is the only way to choose a zoom (design: "Writing room"; there is no zoom button).
+///   A change of Dynamic Type drops the pinched choice, so the note follows the new text size.
 struct NotesPanelMetrics: Equatable {
     static let defaultPaneWidth = CGFloat(ReaderSession.defaultNotesPanelWidth)
     /// Narrow panels at least this wide put the lists in a column beside the note.
@@ -187,8 +180,6 @@ struct NotesPanelMetrics: Equatable {
     static let noteColumnFraction: CGFloat = 0.52
     /// In narrow presentations the width factor is capped here (see the type documentation).
     static let narrowMaximumFactor: CGFloat = 1.3
-    /// Below this panel height the level picker collapses into a menu.
-    static let compactHeight: CGFloat = 560
     /// The lists below the note take at most this share of the panel's height (stacked layout).
     static let lowerRegionMaximumFraction: CGFloat = 0.4
     /// The base zoom is kept within this range (a pane at its widest can need a base below 1).
@@ -208,8 +199,6 @@ struct NotesPanelMetrics: Equatable {
         case .narrow: min(noteColumnWidth, Self.defaultPaneWidth * Self.narrowMaximumFactor)
         }
     }
-    /// The level picker is a menu.
-    var isCompactHeight: Bool { size.height < Self.compactHeight }
     /// The most the stacked lists below the note may take.
     var lowerRegionMaximumHeight: CGFloat { max(96, floor(size.height * Self.lowerRegionMaximumFraction)) }
 
@@ -218,14 +207,11 @@ struct NotesPanelMetrics: Equatable {
         NotePageZoom.zoom(base: base, panelWidth: zoomReferenceWidth)
     }
 
-    /// The base zoom that shows `zoom` here (zoom control, pinch).
+    /// The base zoom that shows `zoom` here (pinch).
     func base(forZoom zoom: CGFloat) -> CGFloat {
         let base = NotePageZoom.base(forZoom: NotePageStyle.clampZoom(zoom), panelWidth: zoomReferenceWidth)
         return min(max(base, Self.baseRange.lowerBound), Self.baseRange.upperBound)
     }
-
-    /// Whole percent for labels.
-    static func percent(_ zoom: CGFloat) -> Int { Int((zoom * 100).rounded()) }
 }
 
 // MARK: - Heading anchors

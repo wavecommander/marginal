@@ -216,7 +216,7 @@ struct NotePageAppearanceTests {
 
     // MARK: Read-only view
 
-    /// "Page notes in this section" and the Notebook: the read-only view re-renders on a live
+    /// The Notebook: the read-only view re-renders on a live
     /// switch (its ink image is keyed by appearance), on the matching paper.
     @Test func readOnlyViewFollowsAppearanceLive() async throws {
         let stroke = Support.stroke(from: CGPoint(x: 20, y: 80), to: CGPoint(x: 300, y: 80), width: 8, color: Self.black)

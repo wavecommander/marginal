@@ -63,8 +63,14 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       Highlight › a colour. Tap the highlight: recolour and delete work. (In markup mode the
       Pencil highlighter is the way; text selection is off by design.)
 - [ ] **Delete Note.** In the notes pane header, Delete Note asks first, then clears the note and
-      its handwriting; the page's ink and highlights stay. Same from a row's context menu in
-      "Page notes in this section" and in the Notebook.
+      its handwriting; the page's ink and highlights stay. Same from a note row's context menu in
+      the Notebook.
+- [ ] **Level picker.** On the Section note tab, the row at the bottom of the pane names the
+      heading; tap it (finger, then the pointer: the row highlights under it) to list the
+      heading path, choose the chapter, and its note shows. Collapse or expand it, quit the app
+      and reopen: it is as you left it. VoiceOver reads the row with "Collapsed" or "Expanded".
+- [ ] **Pinching the note.** Pinch a note to zoom it (100% to 200%), then change the text size
+      (Settings › Display & Brightness › Text Size): the note returns to the zoom that follows the text size.
 - [ ] **Sliding the notes handle shut.** Drag the pane's handle towards the edge past its
       narrowest width: the pane follows the finger and snaps shut on release; the toolbar's
       notes button brings it back at the old width. The reading position does not move.

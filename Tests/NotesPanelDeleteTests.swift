@@ -5,7 +5,7 @@ import Testing
 @testable import Marginal
 
 /// Deleting a note from the notes panel (design: "Deleting a note"): `NotePageModel.deleteNote()`
-/// and `NotesPanelController.deleteNote(target:)`.
+/// and `NotesPanelController.delete(_:)` (the header's Delete Note).
 @MainActor
 struct NotesPanelDeleteTests {
     typealias Support = NotePageTestSupport
@@ -96,7 +96,7 @@ struct NotesPanelDeleteTests {
         #expect(await Support.waitUntil { there.text == "" && there.saveState == .empty })
     }
 
-    @Test func controllerDeletesAListedNoteThroughItsLiveModel() async throws {
+    @Test func controllerDeletesTheShownNoteThroughItsModel() async throws {
         let (store, book) = try Support.makeStore()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
         var configuration = ReaderSession.Configuration()
@@ -105,16 +105,11 @@ struct NotesPanelDeleteTests {
         let controller = NotesPanelController(session: session) { [weak session] target in
             NotePageModel(session: session!, target: target, autosaveDelay: .milliseconds(60))
         }
-        // A note on another page that is not open anywhere: deleted directly.
-        try session.perform { try $0.notes.save(Note(bookID: book.id, target: .page(9), text: "elsewhere")) }
-        #expect(await controller.deleteNote(target: .page(9)))
-        #expect(try store.notes.note(bookID: book.id, target: .page(9)) == nil)
-
         // The open page note with unsaved edits: deleted through its model, nothing re-created.
         let open = try #require(controller.model)
         await open.load()
         open.userDidEditText("Typing")
-        #expect(await controller.deleteNote(target: open.target))
+        #expect(await controller.delete(open))
         try? await Task.sleep(for: .milliseconds(250))
         #expect(try store.notes.note(bookID: book.id, target: open.target) == nil)
         #expect(open.text == "")

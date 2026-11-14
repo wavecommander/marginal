@@ -11,21 +11,20 @@ final class NotesPanelUITests: XCTestCase {
         static let tabs = "notesPanel.tabs"
         static let title = "notesPanel.title"
         static let status = "notePage.status"
-        static let zoom = "notePage.zoom"
         static let shrink = "notesPanel.shrink"
+        static let levelToggle = "notesPanel.levelToggle"
         static let level = "notesPanel.level"
-        static let pageIsIn = "notesPanel.pageIsIn"
-        static func pageNote(_ number: Int) -> String { "notesPanel.pageNote.\(number)" }
+        static let highlight = "notesPanel.highlight"
+        static let openNotebook = "notesPanel.openNotebook"
+        static let addHeading = "notesPanel.addHeading"
         static let editor = "notePage.editor"
         static let text = "notePage.text"
         static let ink = "notePage.ink"
         static let writingSpace = "notePage.writingSpace"
         static let pagePill = "reader.pagePill"
-        static let historyBack = "reader.toolbar.historyBack"
-        /// Leaving markup mode: the Markup toggle (there is no Done button).
-        static let markupToggle = "reader.toolbar.markup"
         static let divider = "reader.notesDivider"
         static let notesSheet = "reader.pane.notesSheet"
+        static let pdfView = "reader.pdfView"
     }
 
     override func setUp() {
@@ -50,14 +49,35 @@ final class NotesPanelUITests: XCTestCase {
         return app
     }
 
+    /// `no-outline.pdf` with the Notebook's debug seed (user headings "5 Eigenvalues and
+    /// Eigenvectors" p15 › "5.1 Invariant Directions" p16 and "5.2 The Characteristic Equation"
+    /// p23; highlights on pp. 4, 10, 19, 25 and 29; page notes on 17 and 25). The seed is applied
+    /// when the Notebook first appears, so this opens it once, then relaunches into the reader.
+    private func launchSeeded(page: Int, tab: String = "page", extra: [String] = [],
+                              orientation: UIDeviceOrientation = .landscapeLeft) -> XCUIApplication {
+        XCUIDevice.shared.orientation = orientation
+        let seed = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.noOutline)
+                                               + ["-screen", "notebook", "-seedNotebook", "-seedNotebookPageInk"])
+        XCTAssertTrue(seed.buttons["notebook.header.3 Matrices and Linear Maps"].firstMatch.waitForExistence(timeout: 30),
+                      "seeded")
+        sleep(1)
+        seed.terminate()
+        let app = XCUIApplication()
+        app.launchArguments = ["-openBook", "no-outline", "-openPage", "\(page)", "-notesPanel", tab] + extra
+        app.launch()
+        XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 30), "reader open")
+        return app
+    }
+
     private func textView(_ app: XCUIApplication) -> XCUIElement { app.textViews[ID.text].firstMatch }
     private func editor(_ app: XCUIApplication) -> XCUIElement { app.otherElements[ID.editor].firstMatch }
     private func ink(_ app: XCUIApplication) -> XCUIElement { editor(app).images[ID.ink].firstMatch }
     private func writingSpace(_ app: XCUIApplication) -> XCUIElement { editor(app).otherElements[ID.writingSpace].firstMatch }
     private func title(_ app: XCUIApplication) -> XCUIElement { app.staticTexts[ID.title].firstMatch }
     private func status(_ app: XCUIApplication) -> XCUIElement { app.staticTexts[ID.status].firstMatch }
-    private func zoom(_ app: XCUIApplication) -> XCUIElement { app.buttons[ID.zoom].firstMatch }
     private func pill(_ app: XCUIApplication) -> XCUIElement { app.buttons[ID.pagePill].firstMatch }
+    private func levelToggle(_ app: XCUIApplication) -> XCUIElement { app.buttons[ID.levelToggle].firstMatch }
+    private func levels(_ app: XCUIApplication) -> XCUIElementQuery { app.buttons.matching(identifier: ID.level) }
 
     private func tab(_ app: XCUIApplication, _ name: String) -> XCUIElement {
         app.segmentedControls[ID.tabs].buttons[name].firstMatch
@@ -86,12 +106,12 @@ final class NotesPanelUITests: XCTestCase {
     }
 
     /// Goes to a page with the page pill's field (a jump).
-    private func goToPage(_ app: XCUIApplication, _ number: Int) {
+    private func goToPage(_ app: XCUIApplication, _ number: Int, of count: Int = 12) {
         pill(app).tap()
         let field = app.textFields["reader.goToPageField"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5), "go-to-page field")
         app.typeText("\(number)\n")
-        XCTAssertTrue(wait(pill(app), "label == %@", "Page \(number) of 12"), "on page \(number)")
+        XCTAssertTrue(wait(pill(app), "label == %@", "Page \(number) of \(count)"), "on page \(number)")
     }
 
     /// Dismisses the software keyboard with its own key (no-op with a hardware keyboard).
@@ -128,9 +148,9 @@ final class NotesPanelUITests: XCTestCase {
         pagePoint(app, x: x0, y: y).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: x1, y: y + 3))
     }
 
+    /// The note's zoom in whole percent, from the note page's width on screen (320 pt at 100%).
     private func percent(_ app: XCUIApplication) -> Int {
-        let label = zoom(app).label  // "Note zoom, 140 percent"
-        return Int(label.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()) ?? 0
+        Int((textView(app).frame.width / 320 * 100).rounded())
     }
 
     // MARK: Tests
@@ -163,39 +183,102 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(wait(textView(again), "value == %@", "Page three note"))
     }
 
-    /// From a page inside a subsection, the chapter's note is one tap up in the level picker, and
-    /// the choice stays while the reader scrolls within the chapter.
+    /// The level picker sits at the bottom of the Section tab, under the note and above "Open in
+    /// Notebook", collapsed to one row naming the shown heading. Expanded, it lists the heading
+    /// path; the chapter's note is one tap up, and the choice stays while the reader scrolls and
+    /// moves within the chapter.
     func testChapterNoteIsReachableThroughTheLevelPicker() {
         let app = launch(fresh: true, page: 3, tab: "section")
         XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
+        let toggle = levelToggle(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "the level picker")
+        XCTAssertEqual(toggle.label, "Heading level, 1.1 Foundations", "names the shown heading")
+        XCTAssertEqual(toggle.value as? String, "Collapsed", "starts collapsed")
+        XCTAssertEqual(levels(app).count, 0, "collapsed: one row")
+        XCTAssertGreaterThanOrEqual(toggle.frame.minY, editor(app).frame.maxY - 1, "under the note")
+        XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
+        let notebook = app.buttons[ID.openNotebook].firstMatch
+        XCTAssertTrue(notebook.exists)
+        XCTAssertGreaterThanOrEqual(notebook.frame.minY, toggle.frame.maxY - 1, "above Open in Notebook")
+
+        toggle.tap()
+        XCTAssertTrue(wait(toggle, "value == %@", "Expanded"))
         let chapter = button(app, ID.level, label: "1 Linear Systems")
         XCTAssertTrue(chapter.waitForExistence(timeout: 5), "the chapter in the level picker")
-        XCTAssertTrue(button(app, ID.level, label: "1.1 Foundations").isSelected)
+        XCTAssertEqual(levels(app).count, 2, "the heading path, shallowest first")
+        XCTAssertLessThan(chapter.frame.minY, button(app, ID.level, label: "1.1 Foundations").frame.minY)
+        XCTAssertTrue(button(app, ID.level, label: "1.1 Foundations").isSelected, "the shown heading is marked")
+        XCTAssertFalse(chapter.isSelected)
+        XCTAssertEqual(chapter.value as? String, "Level 1")
         chapter.tap()
         XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
+        XCTAssertTrue(wait(toggle, "label == %@", "Heading level, 1 Linear Systems"))
+        XCTAssertTrue(button(app, ID.level, label: "1 Linear Systems").isSelected)
         type(app, "Chapter one note")
+        hideKeyboard(app)
+        XCTAssertTrue(wait(button(app, ID.level, label: "1 Linear Systems"), "value == %@", "Level 1, has a note"),
+                      "a mark on the level that has a note")
 
+        // Scrolling the PDF a little (still in chapter 1) keeps the chosen level.
+        let pdf = app.otherElements[ID.pdfView].firstMatch
+        let start = pdf.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -200)))
+        sleep(1)
+        XCTAssertTrue(["Page 3 of 12", "Page 4 of 12"].contains(pill(app).label), pill(app).label)
+        XCTAssertEqual(title(app).label, "1 Linear Systems", "the chosen level stays while scrolling")
         goToPage(app, 4)  // 1.2 Exercises, still in chapter 1
         XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"), "the chosen level stays")
         XCTAssertTrue(wait(textView(app), "value == %@", "Chapter one note"))
         goToPage(app, 6)  // chapter 2: following again
         XCTAssertTrue(wait(title(app), "label == %@", "2.1 Foundations"))
+        XCTAssertTrue(wait(toggle, "label == %@", "Heading level, 2.1 Foundations"))
     }
 
-    /// A page note inside a section is listed under "Page notes in this section"; tapping it jumps
-    /// there and the jump is recorded in section history.
-    func testPageNoteIsListedInItsSectionAndTappingItJumps() {
-        let app = launch(fresh: true, page: 3)
-        type(app, "Foundations detail")
-        goToPage(app, 1)
-        tab(app, "Section note").tap()
-        XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
-        let row = app.buttons[ID.pageNote(3)].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "page 3's note under chapter 1")
-        XCTAssertEqual(row.value as? String, "Foundations detail")
-        row.tap()
-        XCTAssertTrue(wait(pill(app), "label == %@", "Page 3 of 12"), "jumped to the page")
-        XCTAssertTrue(waitForEnabled(app.buttons[ID.historyBack].firstMatch), "the jump is in section history")
+    /// The level picker's expanded or collapsed state is remembered across launches.
+    func testLevelPickerStateIsRememberedAcrossLaunches() {
+        let app = launch(fresh: true, page: 6, tab: "section")
+        XCTAssertTrue(wait(title(app), "label == %@", "2.1 Foundations"))
+        XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5))
+        XCTAssertEqual(levelToggle(app).value as? String, "Collapsed")
+        levelToggle(app).tap()
+        XCTAssertTrue(wait(levelToggle(app), "value == %@", "Expanded"))
+        app.terminate()
+
+        let expanded = launch(fresh: false, page: 6, tab: "section")
+        XCTAssertTrue(levelToggle(expanded).waitForExistence(timeout: 10))
+        XCTAssertEqual(levelToggle(expanded).value as? String, "Expanded", "remembered")
+        XCTAssertTrue(button(expanded, ID.level, label: "2 Vector Spaces").waitForExistence(timeout: 5))
+        levelToggle(expanded).tap()
+        XCTAssertTrue(wait(levelToggle(expanded), "value == %@", "Collapsed"))
+        XCTAssertTrue(button(expanded, ID.level, label: "2 Vector Spaces").waitForNonExistence(timeout: 5))
+        expanded.terminate()
+
+        let collapsed = launch(fresh: false, page: 6, tab: "section")
+        XCTAssertTrue(levelToggle(collapsed).waitForExistence(timeout: 10))
+        XCTAssertEqual(levelToggle(collapsed).value as? String, "Collapsed", "remembered")
+        XCTAssertEqual(levels(collapsed).count, 0)
+    }
+
+    /// The Page note tab holds the note and, only while the page has highlights, "Highlights on
+    /// this page" under it. With none, the note reaches the bottom of the panel. There is no
+    /// level picker or "This page is in" list on this tab.
+    func testPageTabShowsHighlightsOnlyWhenThePageHasThem() {
+        let app = launchSeeded(page: 25)
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 25"))
+        let highlight = app.buttons[ID.highlight].firstMatch
+        XCTAssertTrue(highlight.waitForExistence(timeout: 10), "p. 25's highlights")
+        XCTAssertEqual(app.buttons.matching(identifier: ID.highlight).count, 2)
+        XCTAssertGreaterThanOrEqual(highlight.frame.minY, editor(app).frame.maxY - 1, "under the note")
+        XCTAssertFalse(levelToggle(app).exists)
+        XCTAssertFalse(app.staticTexts["This page is in"].exists)
+        let listBottom = app.buttons.matching(identifier: ID.highlight).element(boundBy: 1).frame.maxY
+
+        goToPage(app, 17, of: 40)  // a page note, no highlights
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 17"))
+        XCTAssertTrue(highlight.waitForNonExistence(timeout: 5), "no highlights, no list")
+        XCTAssertFalse(app.staticTexts["Highlights on this page"].exists)
+        XCTAssertGreaterThanOrEqual(editor(app).frame.maxY, listBottom - 1,
+                                    "the note takes the space the list had: no divider, no empty region")
     }
 
     /// Widening the pane zooms the note without re-wrapping it; the shrink button restores both.
@@ -210,15 +293,14 @@ final class NotesPanelUITests: XCTestCase {
 
         dragDivider(app, by: -220)
         XCTAssertTrue(app.buttons[ID.shrink].firstMatch.waitForExistence(timeout: 5), "shrink button while widened")
-        let wideZoom = percent(app)
-        XCTAssertGreaterThan(wideZoom, 140, "the note zoomed with the wider pane")
+        XCTAssertGreaterThan(percent(app), 140, "the note zoomed with the wider pane")
         let wideWidth = textView(app).frame.width
-        XCTAssertEqual(wideWidth / width, CGFloat(wideZoom) / 100, accuracy: 0.03)
         let wideRatio = (writingSpace(app).frame.minY - textView(app).frame.minY) / wideWidth
         XCTAssertEqual(wideRatio, ratio, accuracy: 0.004, "same line breaks: the text block scaled, not reflowed")
 
         app.buttons[ID.shrink].firstMatch.tap()
-        XCTAssertTrue(wait(zoom(app), "label == %@", "Note zoom, 100 percent"))
+        for _ in 0..<20 where abs(textView(app).frame.width - width) > 1 { usleep(250_000) }
+        XCTAssertEqual(percent(app), 100)
         XCTAssertEqual(textView(app).frame.width, width, accuracy: 1)
         XCTAssertFalse(app.buttons[ID.shrink].firstMatch.exists)
     }
@@ -231,17 +313,20 @@ final class NotesPanelUITests: XCTestCase {
                       || app.descendants(matching: .any)[ID.notesSheet].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(wait(title(app), "label == %@", "Page 3"))
         XCTAssertTrue(tab(app, "Section note").exists)
-        XCTAssertTrue(zoom(app).exists)
         type(app, "Narrow page note")
         hideKeyboard(app)
-        let section = button(app, ID.pageIsIn, label: "Section note for 1.1 Foundations")
-        XCTAssertTrue(section.waitForExistence(timeout: 5), "This page is in")
-        XCTAssertTrue(wait(section, "isHittable == true", "", timeout: 5) || section.isHittable, "below the note")
         try saveScreenshot("wp8-narrow-page")
-        section.tap()
+        tab(app, "Section note").tap()
         XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
-        XCTAssertTrue(tab(app, "Section note").isSelected)
+        let toggle = levelToggle(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "the level picker")
+        XCTAssertTrue(wait(toggle, "isHittable == true", "", timeout: 5) || toggle.isHittable, "below the note")
+        toggle.tap()
+        let chapter = button(app, ID.level, label: "1 Linear Systems")
+        XCTAssertTrue(chapter.waitForExistence(timeout: 5))
         try saveScreenshot("wp8-narrow-section")
+        chapter.tap()
+        XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
     }
 
     /// Delete Note: disabled on an empty note; deleting asks first, leaves the placeholder, and the
@@ -269,20 +354,20 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual((textView(again).value as? String) ?? "", "")
     }
 
-    /// A book with no outline: the Section tab's empty state and "This page is in" offer "Add
-    /// Heading at This Page…" (the Contents sidebar presents the sheet).
+    /// A book with no outline: the Section tab's empty state offers "Add Heading at This Page…"
+    /// (the Contents sidebar presents the sheet). The Page tab holds only the note.
     func testAddHeadingIsOfferedWhereThePageIsInNoSection() {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.noOutline)
                                               + ["-openBook", "no-outline", "-openPage", "3", "-notesPanel", "section"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30), "reader open")
-        let add = app.buttons["notesPanel.addHeading"].firstMatch
+        let add = app.buttons[ID.addHeading].firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 15), "offered in the Section tab's empty state")
         XCTAssertFalse(textView(app).exists, "no section, so no section note")
+        XCTAssertFalse(levelToggle(app).exists, "no heading, no level picker")
         tab(app, "Page note").tap()
         XCTAssertTrue(wait(title(app), "label == %@", "Page 3"))
-        XCTAssertTrue(app.buttons["notesPanel.addHeading"].firstMatch.waitForExistence(timeout: 5),
-                      "offered under This page is in")
+        XCTAssertTrue(add.waitForNonExistence(timeout: 5), "the Page tab holds only the note")
     }
 
     /// Markup mode: a finger stroke (`-inkAnyInput`) on the page note survives a tab switch and a
@@ -307,41 +392,53 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual(ink(again).value as? String, "1 stroke")
     }
 
-    /// Not a check: seeds notes and saves the WP8 screenshots (`build/shots/wp8-*-ios<major>.png`):
-    /// the widened panel in markup mode, the page note, and the section note with its level picker
-    /// and page notes drawn with ink.
+    /// Not a check: saves the WP8 screenshots (`build/shots/wp8-*-ios<major>.png`) on the seeded
+    /// book: the Page note tab with and without highlights, the Section note tab with the level
+    /// picker collapsed and expanded, both tabs in the widened pane, and both in the narrow-window
+    /// sheet. Appearance is the simulator's (`xcrun simctl ui <udid> appearance dark`).
     func testScreenshots() throws {
-        let seed = launch(fresh: true, page: 2)
-        type(seed, "Motivation: guessing a solution does not scale past 2 x 2.")
-        goToPage(seed, 3)
-        type(seed, "Why elimination works\nEach row operation is invertible, so the solution set never changes.\n- Pivot columns = basic variables")
-        seed.terminate()
-
-        let app = launch(fresh: false, page: 3, extra: ["-markup", "-inkAnyInput"])
-        XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Why elimination"))
-        drawLine(app, y: 14 + 28 + 22 + 11, from: 150, to: 290)
-        pagePoint(app, x: 60, y: 260).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 260, y: 300))
-        XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
-        dragDivider(app, by: -260)
-        if !wait(title(app), "label == %@", "Page 3", timeout: 2) { goToPage(app, 3) }
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = launchSeeded(page: 25)
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 25"))
+        XCTAssertTrue(app.buttons[ID.highlight].firstMatch.waitForExistence(timeout: 10))
         sleep(2)
-        try saveScreenshot("wp8-markup-wide")
-        app.buttons[ID.shrink].firstMatch.tap()
-        app.buttons[ID.markupToggle].firstMatch.tap()
-        if !wait(title(app), "label == %@", "Page 3", timeout: 2) { goToPage(app, 3) }
-        sleep(1)
+        try saveScreenshot("wp8-page-highlights")
+        goToPage(app, 17, of: 40)
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 17"))
+        sleep(2)
         try saveScreenshot("wp8-page")
 
+        goToPage(app, 25, of: 40)
         tab(app, "Section note").tap()
-        button(app, ID.level, label: "1 Linear Systems").tap()
-        XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
-        type(app, "Big idea: a linear system is one matrix equation Ax = b.")
-        hideKeyboard(app)
-        XCTAssertTrue(app.buttons[ID.pageNote(3)].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
+        XCTAssertTrue(wait(title(app), "label == %@", "5.2 The Characteristic Equation"))
+        XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5))
         sleep(2)
         try saveScreenshot("wp8-section")
+        levelToggle(app).tap()
+        XCTAssertTrue(wait(levelToggle(app), "value == %@", "Expanded"))
+        sleep(1)
+        try saveScreenshot("wp8-section-levels")
+
+        dragDivider(app, by: -260)
+        XCTAssertTrue(app.buttons[ID.shrink].firstMatch.waitForExistence(timeout: 5))
+        sleep(2)
+        try saveScreenshot("wp8-wide-section")
+        tab(app, "Page note").tap()
+        sleep(2)
+        try saveScreenshot("wp8-wide-page")
+        app.buttons[ID.shrink].firstMatch.tap()
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(app.descendants(matching: .any)[ID.notesSheet].firstMatch.waitForExistence(timeout: 10))
+        sleep(3)
+        try saveScreenshot("wp8-sheet-page")
+        tab(app, "Section note").tap()
+        XCTAssertTrue(wait(title(app), "label == %@", "5.2 The Characteristic Equation"))
+        sleep(2)
+        try saveScreenshot("wp8-sheet-section")
+        levelToggle(app).tap()  // leave it collapsed for the next run
     }
+
 
     // MARK: Screenshots
 

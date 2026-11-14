@@ -8,14 +8,16 @@ import SwiftUI
 /// detents (narrow windows, iPadOS 26+) or as the inline bottom panel (narrow windows, earlier
 /// systems). Everything here is laid out from the panel's own size (`NotesPanelMetrics`).
 ///
-/// - **Page note:** "Page 312", the "Saved" status, the note editor, "Highlights on this page",
-///   and "This page is in" (the page's heading path; a row opens the Section tab on it).
-/// - **Section note:** the level picker over the heading path, the heading's title and pages, the
-///   note editor, and "Page notes in this section" drawn with their ink.
-/// - **Header:** the tab picker, the zoom control (100%–200%; pinch works too), and the shrink
-///   button while the pane is wider than its default.
+/// Laid out as the design's "Notes panel layout" rule says:
+/// - **Header:** the tab picker, Delete Note, and the shrink button while the pane is wider than
+///   its default; then the title and the "Saved" status.
+/// - **Page note:** "Page 312", the note editor, and "Highlights on this page" only while the page
+///   has any (with none, the note takes the whole panel).
+/// - **Section note:** the heading's title and pages, the note editor, then the collapsible level
+///   picker over the heading path and "Open in Notebook" at the bottom.
 ///
-/// Which note is shown, deferral while typing, the level choice and the zoom live in the
+/// The note is zoomed by pinching it (100%–200%; there is no zoom button) and by widening the
+/// pane. Which note is shown, deferral while typing, the level choice and the zoom live in the
 /// window's `NotesPanelController`. One `NotePageView` stays on screen; it is given a new model
 /// when the target changes.
 struct NotesPanel: View {
@@ -25,6 +27,14 @@ struct NotesPanel: View {
     @Environment(WindowContext.self) private var window: WindowContext?
     /// The note the reader asked to delete (confirmation shown while set).
     @State private var deleteCandidate: NotePageModel?
+    /// The shown page's highlights (Page note tab; empty on the Section tab).
+    @State private var highlights: [Highlight] = []
+
+    private struct HighlightsKey: Equatable {
+        /// `nil` on the Section tab.
+        var page: Int?
+        var revision: Int
+    }
 
     init(session: ReaderSession) {
         self.session = session
@@ -47,6 +57,15 @@ struct NotesPanel: View {
         // own avoidance would also push the whole panel up.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .onAppear { controller.refresh() }
+        // Loaded here, not in the list, so the region under the note can go when there are none.
+        // Re-read whenever highlights change in any window (`revisions.highlights`).
+        .task(id: highlightsKey) {
+            guard let page = highlightsKey.page else { highlights = []; return }
+            highlights = (try? session.store.highlights.highlights(bookID: session.book.id, pageIndex: page)) ?? []
+        }
+        // A pinched zoom is dropped when the text size changes, so the note follows Dynamic Type
+        // again (there is no zoom menu to return to the default).
+        .onChange(of: dynamicTypeSize) { controller.chosenBaseZoom = nil }
         .alert("Delete This Note?", isPresented: Binding(get: { deleteCandidate != nil },
                                                          set: { if !$0 { deleteCandidate = nil } }),
                presenting: deleteCandidate) { model in
@@ -76,7 +95,6 @@ struct NotesPanel: View {
                 Spacer(minLength: 0)
                 if let model = controller.model {
                     deleteButton(model)
-                    zoomMenu(metrics)
                 }
                 if metrics.presentation == .pane && session.notesPanelWidth > ReaderSession.defaultNotesPanelWidth + 0.5 {
                     shrinkButton
@@ -84,14 +102,13 @@ struct NotesPanel: View {
             }
             switch session.notesTab {
             case .page: pageTitle
-            case .section: sectionHeader(metrics)
+            case .section: sectionHeader
             }
         }
-        // The header (tabs, Delete Note, zoom, title, level picker) sits above the note in a
-        // 330 pt pane and cannot scroll: at the largest text sizes its titles were cut to
-        // "5.2…", the tabs to "Page…" / "Sectio…" and the zoom wrapped to "200 / %". Capped
-        // like toolbar controls; the note itself and the lists below keep the full size, and
-        // VoiceOver reads the same labels.
+        // The header (tabs, Delete Note, title) sits above the note in a 330 pt pane and cannot
+        // scroll: at the largest text sizes its titles were cut to "5.2…" and the tabs to
+        // "Page…" / "Sectio…". Capped like toolbar controls; the note itself and the region
+        // below it keep the full size, and VoiceOver reads the same labels.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 
@@ -111,13 +128,8 @@ struct NotesPanel: View {
     }
 
     @ViewBuilder
-    private func sectionHeader(_ metrics: NotesPanelMetrics) -> some View {
+    private var sectionHeader: some View {
         if let heading = controller.shownHeading {
-            let levels = NotesSectionSelection.levels(showing: heading, page: session.currentPageIndex,
-                                                      outline: session.outline)
-            NotesLevelPicker(levels: levels, selected: heading.anchor, isCompact: metrics.isCompactHeight,
-                             hasNote: { session.notebook?.section(for: $0)?.note != nil },
-                             choose: { controller.chooseLevel($0) })
             VStack(alignment: .leading, spacing: 2) {
                 // At accessibility text sizes the page range goes under the title, which
                 // otherwise had no room left beside it.
@@ -150,7 +162,7 @@ struct NotesPanel: View {
             .accessibilityIdentifier(NotesPanelAccessibilityID.title)
     }
 
-    /// "pp. 310–328": jumps to the heading's first page (the level picker's heading, as a jump).
+    /// "pp. 310–328": jumps to the heading's first page (the shown heading's, as a jump).
     @ViewBuilder
     private func pagesButton(_ heading: OutlineNode) -> some View {
         if let text = Self.pagesText(heading), heading.startPage != nil {
@@ -221,38 +233,10 @@ struct NotesPanel: View {
         controller.chosenBaseZoom ?? NotePageStyle.defaultZoom(for: dynamicTypeSize)
     }
 
+    /// The zoom on screen; pinching the note writes the reader's choice back.
     private func zoomBinding(_ metrics: NotesPanelMetrics) -> Binding<CGFloat> {
         Binding(get: { metrics.zoom(base: baseZoom) },
                 set: { controller.chosenBaseZoom = metrics.base(forZoom: $0) })
-    }
-
-    private func zoomMenu(_ metrics: NotesPanelMetrics) -> some View {
-        let percent = NotesPanelMetrics.percent(metrics.zoom(base: baseZoom))
-        return Menu {
-            ForEach([100, 125, 140, 150, 175, 200], id: \.self) { value in
-                Button {
-                    controller.chosenBaseZoom = metrics.base(forZoom: CGFloat(value) / 100)
-                } label: {
-                    if value == percent {
-                        Label("\(value)%", systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: "\(value)%")
-                    }
-                }
-            }
-            Divider()
-            Button("Match Text Size") { controller.chosenBaseZoom = nil }
-        } label: {
-            Text(verbatim: "\(percent)%")
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 6)
-                .frame(minWidth: 44, minHeight: 44)
-        }
-        .accessibilityLabel("Note zoom, \(percent) percent")
-        .accessibilityIdentifier(NotesPanelAccessibilityID.zoom)
     }
 
     private var shrinkButton: some View {
@@ -269,30 +253,46 @@ struct NotesPanel: View {
 
     // MARK: Content
 
+    private var highlightsKey: HighlightsKey {
+        HighlightsKey(page: session.notesTab == .page ? controller.shownPage ?? session.currentPageIndex : nil,
+                      revision: session.revisions.highlights)
+    }
+
+    /// Whether anything goes under (or beside) the note: on the Page tab only while the page has
+    /// highlights.
+    private var hasLowerRegion: Bool {
+        switch session.notesTab {
+        case .page: !highlights.isEmpty
+        case .section: controller.shownHeading != nil || window != nil
+        }
+    }
+
     @ViewBuilder
     private func content(_ metrics: NotesPanelMetrics) -> some View {
+        let columns = metrics.usesColumns && hasLowerRegion
         // One layout value for both arrangements keeps the editor's identity (and so its
-        // UIKit view) when the panel switches between stacked and two-column.
+        // UIKit view) when the panel switches between stacked and two-column, and when the
+        // region under the note comes and goes.
         let layout = metrics.usesColumns
             ? AnyLayout(HStackLayout(alignment: .top, spacing: 0))
             : AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
         layout {
             editorArea(metrics)
-                .frame(width: metrics.usesColumns ? metrics.noteColumnWidth : nil)
-                .frame(maxWidth: metrics.usesColumns ? nil : .infinity, maxHeight: .infinity)
-            if metrics.usesColumns {
+                .frame(width: columns ? metrics.noteColumnWidth : nil)
+                .frame(maxWidth: columns ? nil : .infinity, maxHeight: .infinity)
+            if columns {
                 Divider()
                 ScrollView(.vertical) {
-                    lists(rowWidth: metrics.size.width - metrics.noteColumnWidth - 40)
+                    lowerRegion
                         .padding(.horizontal, 20)
                         .padding(.bottom, 16)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            } else if hasLowerRegion {
                 Divider()
                 NotesBoundedScroll(maximumHeight: metrics.lowerRegionMaximumHeight) {
-                    lists(rowWidth: metrics.size.width - 28)
+                    lowerRegion
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
                 }
@@ -311,18 +311,21 @@ struct NotesPanel: View {
         }
     }
 
-    @ViewBuilder
-    private func lists(rowWidth: CGFloat) -> some View {
+    /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker and
+    /// "Open in Notebook".
+    private var lowerRegion: some View {
         VStack(alignment: .leading, spacing: 6) {
             switch session.notesTab {
             case .page:
-                let page = controller.shownPage ?? session.currentPageIndex
-                NotesHighlightsSection(session: session, pageIndex: page)
-                NotesPageIsInSection(session: session, controller: controller, pageIndex: page)
+                NotesHighlightsSection(session: session, highlights: highlights)
             case .section:
                 if let heading = controller.shownHeading {
-                    NotesSectionPageNotes(session: session, controller: controller, heading: heading,
-                                          rowWidth: max(rowWidth, 120))
+                    NotesLevelPicker(levels: NotesSectionSelection.levels(showing: heading, page: session.currentPageIndex,
+                                                                          outline: session.outline),
+                                     shown: heading,
+                                     hasNote: { session.notebook?.section(for: $0)?.note != nil },
+                                     choose: { controller.chooseLevel($0) })
+                        .padding(.top, 12)
                 }
                 if let window {
                     Button { window.openNotebook(bookID: session.book.id) } label: {
