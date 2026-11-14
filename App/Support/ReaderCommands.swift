@@ -109,6 +109,9 @@ struct ReaderCommands: Commands {
             Button("Previous Result") { activeSearch?.selectPrevious() }
                 .keyboardShortcut("g", modifiers: [.command, .control, .shift])
                 .disabled(activeSearch == nil)
+            Button("Add Heading at This Page…") { session?.requestAddHeading() }
+                .keyboardShortcut("h", modifiers: [.command, .option])
+                .disabled(session == nil)
             Button(bookmarkTitle) {
                 if let session { BookmarkActions.toggle(session: session) }
             }

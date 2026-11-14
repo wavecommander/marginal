@@ -355,6 +355,7 @@ final class ReaderUITests: XCTestCase {
         sleep(2)  // hardware-key events need the window to have become key
         app.typeKey("g", modifierFlags: [.command, .control])         // Next Result (no search: disabled)
         app.typeKey("g", modifierFlags: [.command, .control, .shift]) // Previous Result (disabled)
+        app.typeKey("h", modifierFlags: [.command, .option])          // Add Heading at This Page…
         app.typeKey("a", modifierFlags: [.command, .shift])          // Markup
         XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup

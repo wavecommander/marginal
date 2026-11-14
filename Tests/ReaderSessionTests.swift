@@ -291,6 +291,26 @@ struct ReaderSessionTests {
         #expect(session.requestedSectionHeading == nil && session.notesTab == .page)
     }
 
+    @Test func addHeadingRequestCarriesPageAndTitleAndShowsContents() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        session.pdfReportedCurrentPage(4)
+        session.isContentsVisible = false
+        session.requestAddHeading()
+        #expect(session.pendingAddHeadingRequest?.pageIndex == 4)
+        #expect(session.pendingAddHeadingRequest?.suggestedTitle == nil)
+        #expect(session.isContentsVisible)
+        session.isNarrowLayout = true
+        session.requestAddHeading(atPage: 7, suggestedTitle: "  Eigenvalues \n")
+        #expect(session.isContentsOverlayVisible)
+        let request = session.takeAddHeadingRequest()
+        #expect(request?.pageIndex == 7 && request?.suggestedTitle == "Eigenvalues")
+        #expect(session.pendingAddHeadingRequest == nil)
+        session.requestAddHeading(atPage: 999)  // out of range: the current page
+        #expect(session.pendingAddHeadingRequest?.pageIndex == 4)
+    }
+
     // MARK: Markup
 
     @Test func markupRoutesUndoToLastActiveSurfaceAndFlushes() async throws {
