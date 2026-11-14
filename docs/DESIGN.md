@@ -253,6 +253,33 @@ Added by the owner after the first plan. These rules apply to every screen and e
 - **Files and drag and drop.** A PDF opened from Files or another app ("Open in") is imported and
   shown in a window. PDFs can be dropped onto the Library to import them.
 
+## Icon, accent and launch screen
+
+Added by the owner (TSOFT-215, 14 November 2026).
+
+- **App icon.** An Icon Composer file, `App/AppIcon.icon` (a sheet of paper with text lines, a
+  yellow highlight and a red margin mark on a coral gradient; a near-black background in Dark
+  Mode). It is a resource of the app target and `ASSETCATALOG_COMPILER_APPICON_NAME` names it;
+  there is no `AppIcon.appiconset`. The system draws the Default, Dark, Clear and Tinted Home
+  Screen styles from its layers. For the iPadOS 17 floor, Xcode flattens it into 1024 px Any,
+  Dark and Tinted renditions in `Assets.car` plus `AppIcon60x60@2x.png` and
+  `AppIcon76x76@2x~ipad.png` in the bundle.
+- **Accent.** `AccentColor` is raspberry: `#9C3656` in Light Mode, `#F4A3BE` in Dark Mode. Every
+  control, selection and link-style text takes it through the system tint; nothing in `App/`
+  hard-codes another blue. Highlight colours, ink, the bookmark red and destructive red are
+  separate and do not follow it.
+- **Text and icons on an accent fill use `OnAccent`** (white in Light Mode, black in Dark Mode).
+  The dark accent is light, so white on it is 1.9:1; `OnAccent` gives 6.8:1 (light) and 10.8:1
+  (dark). This applies to `.borderedProminent` buttons, whose label the system draws white on
+  any tint, and to the Pages grid's note/highlight flags. The toolbar's Markup toggle needs
+  nothing: the system draws its selected glyph white on the light accent and near-black on the
+  dark one. Accent text on the app's backgrounds and on the 14–15% accent selection fills
+  measures 4.96:1 or more in both appearances.
+- **Launch screen.** `UILaunchScreen` shows the `LaunchBackground` colour, `#F6F2EA` (light) and
+  `#181612` (dark), with nothing on it. The first screen's background is the system one (white
+  or `#F2F2F7` in Light Mode, black in Dark Mode), and the system cross-fades to it in about a
+  quarter of a second; the two differ only slightly (1.0–1.16:1).
+
 ## Apple Pencil
 
 Added by the owner after the first plan.

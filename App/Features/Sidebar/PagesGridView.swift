@@ -153,7 +153,7 @@ private struct PageThumbnailCell: View {
                 if marks.contains(.highlight) { Image(systemName: "highlighter") }
             }
             .font(.caption2)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(.onAccent))
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background(Capsule().fill(Color.accentColor))

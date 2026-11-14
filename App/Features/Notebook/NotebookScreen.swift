@@ -271,6 +271,7 @@ private struct NotebookContent: View {
                     } actions: {
                         Button("Open Book") { window.openReader(bookID: model.bookID) }
                             .buttonStyle(.borderedProminent)
+                            .foregroundStyle(Color(.onAccent))
                     }
                 } else if filter.isSearching {
                     ContentUnavailableView.search(text: filter.trimmedQuery)

@@ -141,6 +141,7 @@ struct LibraryScreen: View {
         } actions: {
             Button("Import PDF") { showImporter = true }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(Color(.onAccent))
                 .accessibilityIdentifier("library.emptyImportButton")
         }
         .accessibilityIdentifier("library.emptyState")

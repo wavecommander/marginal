@@ -296,6 +296,7 @@ private struct EmptyContentsView: View {
                 actions.addHeading(page)
             }
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color(.onAccent))
             .accessibilityIdentifier(SidebarAccessibilityID.emptyAddHeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
