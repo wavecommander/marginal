@@ -63,6 +63,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-seedNotebookLateNote` (DEBUG): also add a page note about four seconds after seeding.
     var seedNotebookLateNote = false
 
+    /// `-seedNotebookPageInk` (DEBUG): with `-seedNotebook`, also put page ink on a few pages
+    /// (see `NotebookDebugSeed.seedPageInk`).
+    var seedNotebookPageInk = false
+
     /// `-notebookDebugWidth <points>` (DEBUG): the Notebook lays itself out at most this wide.
     var notebookDebugWidth: Double?
 
@@ -126,6 +130,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 seedNotebook = true
             case "-seedNotebookLateNote":
                 seedNotebookLateNote = true
+            case "-seedNotebookPageInk":
+                seedNotebookPageInk = true
             case "-notebookDebugWidth":
                 if let text = value(after: index) {
                     index += 1
