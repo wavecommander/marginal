@@ -5,10 +5,12 @@ import ReaderCore
 /// The sidebar's per-window state (one per `ReaderSession`, kept in `session.featureState`, so
 /// it survives hiding the sidebar, switching tabs and rebuilding the outline): the Contents
 /// expansion and its flattened visible rows, current-section tracking, the bookmark list, page
-/// marks for the Pages grid, and the thumbnail loader.
+/// marks for the Pages grid (notes and highlights; ink is not flagged: owner decision, ink
+/// navigation lives in the Notebook), and the thumbnail loader.
 ///
 /// It reads only its own window's session and reacts to changes through observation of the
-/// session (`outline`, `headingPath`, `history`, `notebook`, `revisions`, `memoryWarningCount`);
+/// session (`outline`, `headingPath`, `history`, `notebook`, `revisions.bookmarks`,
+/// `memoryWarningCount`, `pendingAddHeadingRequest`);
 /// it never subscribes to `store.hub`. It never moves the PDF: the only navigation is
 /// `session.jump(…)` from an explicit tap.
 @Observable
@@ -69,8 +71,6 @@ final class ContentsSidebarModel {
     private(set) var bookmarkedPages: Set<Int> = []
     /// Pages with a page note or highlights.
     private(set) var pageMarks: [Int: PageMarks] = [:]
-    /// Pages with ink.
-    private(set) var inkedPages: Set<Int> = []
     /// Thumbnails for the Pages grid and the Bookmarks list.
     @ObservationIgnored let thumbnails: ThumbnailLoader
 
@@ -84,7 +84,6 @@ final class ContentsSidebarModel {
     @ObservationIgnored private var pendingReveal: HeadingAnchor?
     @ObservationIgnored private var scrollSerial = 0
     @ObservationIgnored private var started = false
-    @ObservationIgnored private var inkTask: Task<Void, Never>?
     @ObservationIgnored private var lastMemoryWarningCount = 0
 
     init(session: ReaderSession, thumbnails: ThumbnailLoader? = nil) {
@@ -110,7 +109,6 @@ final class ContentsSidebarModel {
         track({ ($0.session.headingPath, $0.session.history) }, then: { $0.sectionDidChange() })
         track({ $0.session.notebook }, then: { $0.notebookDidChange() })
         track({ $0.session.revisions.bookmarks }, then: { $0.reloadBookmarks() })
-        track({ $0.session.revisions.pageInk }, then: { $0.reloadInkedPages() })
         lastMemoryWarningCount = session.memoryWarningCount
         track({ $0.session.memoryWarningCount }, then: { $0.memoryWarningDidChange() })
         track({ $0.session.pendingAddHeadingRequest }, then: { $0.takeAddHeadingRequest() })
@@ -240,18 +238,6 @@ final class ContentsSidebarModel {
         if sorted != bookmarks {
             bookmarks = sorted
             bookmarkedPages = Set(sorted.map(\.pageIndex))
-        }
-    }
-
-    private func reloadInkedPages() {
-        inkTask?.cancel()
-        let store = session.store
-        let bookID = session.book.id
-        inkTask = Task { [weak self] in
-            let pages = (try? await store.inkedPageIndices(bookID: bookID)) ?? []
-            guard !Task.isCancelled, let self else { return }
-            let set = Set(pages)
-            if set != self.inkedPages { self.inkedPages = set }
         }
     }
 

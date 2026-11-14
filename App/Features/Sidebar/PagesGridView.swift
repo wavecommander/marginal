@@ -5,7 +5,8 @@ import SwiftUI
 /// The Pages tab: a lazy grid of thumbnails for the whole book. Only cells on (or near) screen
 /// exist; each loads its thumbnail through the window's `ThumbnailLoader` in a task that is
 /// cancelled when the cell scrolls away. The current page is marked and scrolled into view when
-/// the tab opens; bookmarked, noted, highlighted and inked pages are flagged. Tapping jumps.
+/// the tab opens; bookmarked, noted and highlighted pages are flagged (ink is not: owner decision, ink
+/// navigation lives in the Notebook). Tapping jumps.
 struct PagesGridView: View {
     let session: ReaderSession
     let model: ContentsSidebarModel
@@ -74,7 +75,6 @@ private struct PageThumbnailCell: View {
         let isCurrent = session.currentPageIndex == pageIndex
         let isBookmarked = model.bookmarkedPages.contains(pageIndex)
         let marks = model.pageMarks[pageIndex] ?? []
-        let isInked = model.inkedPages.contains(pageIndex)
 
         Button { session.jump(toPage: pageIndex) } label: {
             VStack(spacing: 5) {
@@ -88,7 +88,7 @@ private struct PageThumbnailCell: View {
                         }
                     }
                     .overlay(alignment: .bottomLeading) {
-                        flags(marks: marks, isInked: isInked)
+                        flags(marks: marks)
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 4)
@@ -107,8 +107,7 @@ private struct PageThumbnailCell: View {
         .hoverEffect(.lift)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Page \(number)")
-        .accessibilityValue(accessibilityValue(isCurrent: isCurrent, isBookmarked: isBookmarked, marks: marks,
-                                               isInked: isInked))
+        .accessibilityValue(accessibilityValue(isCurrent: isCurrent, isBookmarked: isBookmarked, marks: marks))
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
         .accessibilityIdentifier(SidebarAccessibilityID.page(number))
@@ -147,12 +146,11 @@ private struct PageThumbnailCell: View {
     }
 
     @ViewBuilder
-    private func flags(marks: ContentsSidebarModel.PageMarks, isInked: Bool) -> some View {
-        if !marks.isEmpty || isInked {
+    private func flags(marks: ContentsSidebarModel.PageMarks) -> some View {
+        if !marks.isEmpty {
             HStack(spacing: 3) {
                 if marks.contains(.note) { Image(systemName: "note.text") }
                 if marks.contains(.highlight) { Image(systemName: "highlighter") }
-                if isInked { Image(systemName: "pencil.tip") }
             }
             .font(.caption2)
             .foregroundStyle(.white)
@@ -163,14 +161,12 @@ private struct PageThumbnailCell: View {
         }
     }
 
-    private func accessibilityValue(isCurrent: Bool, isBookmarked: Bool, marks: ContentsSidebarModel.PageMarks,
-                                    isInked: Bool) -> String {
+    private func accessibilityValue(isCurrent: Bool, isBookmarked: Bool, marks: ContentsSidebarModel.PageMarks) -> String {
         var parts: [String] = []
         if isCurrent { parts.append("current page") }
         if isBookmarked { parts.append("bookmarked") }
         if marks.contains(.note) { parts.append("has a note") }
         if marks.contains(.highlight) { parts.append("has highlights") }
-        if isInked { parts.append("has ink") }
         return parts.joined(separator: ", ")
     }
 }

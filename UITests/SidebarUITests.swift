@@ -378,9 +378,9 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue((Self.heading(app, suggested).value as? String ?? "").contains("page 2"))
     }
 
-    /// The shell's entry points: More ▸ "Add Heading at This Page…" and Book ▸ ⌥⌘H both open the
-    /// sidebar's sheet (switching to the Contents tab) at the current page.
-    func testAddHeadingFromMoreMenuAndShortcut() {
+    /// The shell's More ▸ "Add Heading at This Page…" opens the sidebar's sheet (switching to
+    /// the Contents tab) at the current page. (Book ▸ ⌥⌘H: `testAddHeadingFromKeyboardShortcut`.)
+    func testAddHeadingFromMoreMenu() {
         let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "6"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 6 of 40", timeout: 40))
         Self.selectTab(app, "Pages")
@@ -395,7 +395,6 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(Self.tab(app, "Contents").isSelected, "the request shows Contents")
         XCTAssertTrue((Self.heading(app, "From More").value as? String ?? "").contains("page 6"))
         XCTAssertEqual(Self.pill(app).label, "Page 6 of 40", "adding never moves the PDF")
-
     }
 
     /// Book ▸ "Add Heading at This Page…" by its shortcut ⌥⌘H. Skipped (not failed) when the
@@ -412,6 +411,53 @@ final class SidebarUITests: XCTestCase {
         }
         Self.fillHeadingSheet(app, title: "From Shortcut")
         XCTAssertTrue((Self.heading(app, "From Shortcut").value as? String ?? "").contains("page 12"))
+    }
+
+    /// The notes panel's "Add Heading at This Page…" (offered while the page is in no section)
+    /// with the sidebar hidden: the request shows the sidebar on Contents and opens its sheet;
+    /// the new heading is in Contents and becomes the Section tab's heading without a relaunch.
+    func testAddHeadingFromTheNotesPanelShowsTheSidebar() {
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "8", "-notesPanel", "section"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 8 of 40", timeout: 40))
+        // Hide the sidebar, leaving it on another tab.
+        Self.selectTab(app, "Bookmarks")
+        let tabs = app.segmentedControls[SidebarID.tabs].firstMatch
+        app.buttons[ReaderID.contentsToggle].firstMatch.tap()
+        XCTAssertTrue(Self.waitFor(tabs, "exists == false"), "sidebar hidden")
+
+        let add = app.buttons["notesPanel.addHeading"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 15), "offered by the Section tab while the page is in no section")
+        add.tap()
+        XCTAssertTrue(tabs.waitForExistence(timeout: 10), "the request shows the sidebar")
+        Self.fillHeadingSheet(app, title: "From Notes")
+        XCTAssertTrue(Self.tab(app, "Contents").isSelected, "the request shows Contents")
+        XCTAssertTrue((Self.heading(app, "From Notes").value as? String ?? "").contains("page 8"))
+        XCTAssertEqual(Self.pill(app).label, "Page 8 of 40", "adding never moves the PDF")
+        // The notes panel picks the new heading up at once.
+        XCTAssertTrue(Self.waitForLabel(app.staticTexts["notesPanel.title"].firstMatch, "From Notes"),
+                      "the Section tab shows the new heading")
+        XCTAssertFalse(add.exists, "the page is in a section now")
+    }
+
+    /// Narrow width (portrait): the notes panel is a sheet and Contents an overlay. Its "Add
+    /// Heading at This Page…" opens the add-heading sheet and the heading is added.
+    func testAddHeadingFromTheNotesSheetAtNarrowWidth() {
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .portrait }
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "9", "-notesPanel", "section"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 9 of 40", timeout: 40))
+        let add = app.buttons["notesPanel.addHeading"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 15), "offered in the notes sheet")
+        add.tap()
+        let field = app.textFields[SidebarID.addHeadingTitle].firstMatch
+        if !field.waitForExistence(timeout: 10) {
+            try? XCUIScreen.main.screenshot().pngRepresentation
+                .write(to: Fixtures.repoRoot.appendingPathComponent("build/shots/debug-narrow-notes-add-heading.png"))
+            XCTFail("the add-heading sheet did not open from the narrow notes sheet")
+            return
+        }
+        Self.fillHeadingSheet(app, title: "Narrow Heading")
+        XCTAssertTrue((Self.heading(app, "Narrow Heading").value as? String ?? "").contains("page 9"))
+        XCTAssertEqual(Self.pill(app).label, "Page 9 of 40", "adding never moves the PDF")
     }
 
     // MARK: Bookmarks
