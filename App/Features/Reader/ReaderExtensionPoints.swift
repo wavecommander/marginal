@@ -7,6 +7,24 @@ import UIKit
 // editing. Every callback runs on the main actor. `pageIndex` is zero-based. "Page space" is
 // PDFKit page space: points, origin at the lower-left of the page's media box, y up, unrotated
 // (the space of `PDFSelection.bounds(for:)`, `PDFPage.bounds(for:)` and stored `Highlight.rects`).
+//
+// Accessibility: where a feature's elements must live to be exposed.
+//
+// The PDF view (`session.pdf.view`) does not expose PDFKit's document view to accessibility:
+// it is a text input spanning the whole book, and reading it makes PDFKit extract every page's
+// text on the main thread (9.7 s for `large.pdf`, per query). Its accessibility children are,
+// in this order, recomputed on every query:
+//   1. the on-screen page views, in reading order (PDFKit's own page text);
+//   2. every other **direct subview** of `session.pdf.view` that is not PDFKit's own view and
+//      not a `UITextInput`, in subview order.
+// So to expose elements over the page (handwriting, highlights, probes), add one container view
+// as a direct subview of `session.pdf.view`, non-interactive (`isUserInteractionEnabled =
+// false`) unless it must take touches, with `isAccessibilityElement = false` and its elements
+// in `accessibilityElements`, framed in its own coordinates wherever the content is now. The
+// PDF view posts a layout-changed notification when such a view is added or removed. Elements
+// placed anywhere else are not reached: subviews of a page view or page overlay (PDFKit exposes
+// only its page text there), and subviews of PDFKit's scroll or document view. A hidden view
+// (`isHidden` or `accessibilityElementsHidden`) is skipped. Example: `PageInkAccessibilityView`.
 
 /// WP6: supplies one overlay view per displayed page (page ink canvases).
 ///

@@ -528,6 +528,14 @@ final class ReaderPDFView: PDFView {
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
         applyPDFKitPolicies()
+        if !isPDFKitChrome(subview) { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+    }
+
+    override func willRemoveSubview(_ subview: UIView) {
+        super.willRemoveSubview(subview)
+        if !isPDFKitChrome(subview) {
+            DispatchQueue.main.async { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+        }
     }
 
     /// The per-view policies PDFKit's own views need, re-applied whenever PDFKit may have
@@ -543,10 +551,18 @@ final class ReaderPDFView: PDFView {
     /// client that reads it as a text element (its value, or `text(in:)` over its full range,
     /// as UIKit's text-element accessibility does) makes PDFKit build a selection over every
     /// page on the main thread: measured 9.7 s and 3.4 M characters for `large.pdf` in one call,
-    /// repeated per query. So the PDF view's accessibility children are the page views on
-    /// screen, in reading order, instead of the document view: VoiceOver reads the visible
-    /// pages through PDFKit's own page accessibility, scrolls through the scroll view, and no
-    /// accessibility query reaches the whole-document text range. Sighted text selection,
+    /// repeated per query. So the PDF view's accessibility children are, in this order:
+    ///
+    /// 1. the page views on screen, in reading order (instead of the document view): VoiceOver
+    ///    reads the visible pages through PDFKit's own page accessibility;
+    /// 2. every other direct subview of the PDF view that is not PDFKit's own machinery, in
+    ///    subview order: the accessibility containers features add (page ink's
+    ///    `PageInkAccessibilityView`, highlights, the markup probe surface…). See
+    ///    "Accessibility" in `ReaderExtensionPoints.swift`.
+    ///
+    /// No accessibility query reaches the whole-document text range. The list is computed on
+    /// every query, so subviews added or removed later are picked up (and a layout-changed
+    /// notification is posted when a feature view comes or goes). Sighted text selection,
     /// highlights and the edit menu are untouched (they never go through accessibility).
     private var visiblePageViews: [UIView] {
         guard let documentView else { return [] }
@@ -556,10 +572,27 @@ final class ReaderPDFView: PDFView {
             .sorted { $0.frame.minY < $1.frame.minY }
     }
 
+    /// PDFKit's own views (its scroll view, the document view and anything containing it) as
+    /// opposed to views a feature added.
+    private func isPDFKitChrome(_ view: UIView) -> Bool {
+        if Bundle(for: type(of: view)) == Bundle(for: PDFView.self) { return true }
+        if let documentView, documentView === view || documentView.isDescendant(of: view) { return true }
+        return false
+    }
+
+    /// Feature-added direct subviews (see `accessibilityElements`), never a text input.
+    private var featureAccessibilityViews: [UIView] {
+        subviews.filter {
+            !isPDFKitChrome($0) && !($0 is UITextInput) && !$0.isHidden && !$0.accessibilityElementsHidden
+        }
+    }
+
     override var accessibilityElements: [Any]? {
         get {
             let pages = visiblePageViews
-            return pages.isEmpty ? super.accessibilityElements : pages
+            let features = featureAccessibilityViews
+            if pages.isEmpty && features.isEmpty { return super.accessibilityElements }
+            return pages + features
         }
         set { super.accessibilityElements = newValue }
     }
