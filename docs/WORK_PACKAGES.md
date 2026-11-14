@@ -8,8 +8,8 @@ and says which model runs each one. It is written for an orchestrating Claude Co
 
 - **Orchestrator** (the main session): spawns one subagent per package with the Agent tool, sets
   `model` to the package's model, and uses `isolation: "worktree"` for packages that run in
-  parallel. It merges each wave, runs the full gate, and reviews the diff before starting the next
-  wave. It does not write feature code itself.
+  parallel. It merges each package after its targeted tests, reviews the diff, and runs the full
+  gate only at integration points (see below). It does not write feature code itself.
 - **Owner instruction, 13 November 2026: every package launched from now on runs on Opus**,
   including the ones marked Sonnet below (WP5, WP7, WP8, WP9, WP12 and any follow-up work).
   Packages already finished on Sonnet stand as they are.
@@ -18,7 +18,13 @@ and says which model runs each one. It is written for an orchestrating Claude Co
   bugs. Sonnet where the contract already exists and the work is building to it.
 - **Brief for each subagent**: the package section below, `docs/DESIGN.md`, the mockup link, the
   files it owns, and the gate commands. Tell it which earlier packages are merged.
-- **Gate** (every package, before it reports done):
+- **Testing scope (owner instruction, 14 November 2026).** A package does not run the full gate.
+  Before it reports done, it builds, and runs only the tests for the region it changed, named
+  with `-only-testing:`: its own unit tests and UI test class, plus another feature's class only
+  when the change touches code that feature depends on (a shell change runs the UI classes of
+  the features built on the part it changed). The full gate below is very expensive; the
+  orchestrator runs it once at an integration point, after several packages have been merged.
+- **Full gate** (the orchestrator, at integration points):
   1. `scripts/build.sh` builds the app for the chosen iPad simulator with no warnings promoted
      from its own files.
   2. `scripts/test.sh` passes: `swift test` in `Packages/ReaderCore`, then `xcodebuild test` on the
