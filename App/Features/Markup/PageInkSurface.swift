@@ -107,7 +107,7 @@ final class PageInkSurface: NSObject, MarkupSurface {
         canvas.contentSize = geometry.size
         super.init()
         canvas.delegate = self
-        canvas.drawingPolicy = markup?.drawingPolicy ?? .default
+        // The drawing policy is set by `ReaderMarkupController.register` (never here).
         overlay?.attach(self)
         updateInteraction()
     }

@@ -10,9 +10,30 @@ import UIKit
 ///   session's markup controller when PDFKit shows the overlay, and finishes it (save now,
 ///   unregister, detach the canvas) when PDFKit ends the overlay. The overlay owns the surface,
 ///   and this provider keeps only weak references, so nothing per page outlives PDFKit's overlay.
-/// - Ink space, zoom and gestures: see `PageInkGeometry` and `PageInkSurface`.
+/// - Ink space and zoom: see `PageInkGeometry`. PDFKit zooms by scaling an ancestor of the
+///   overlays; PencilKit re-renders its strokes for the on-screen scale itself (vector, sharp
+///   at 4×; verified by zoomed screenshots), so no scale factor is forced on the canvas.
 /// - Another window's write of a displayed page (`pageInkChanged` from another origin) is
 ///   handed to that page's surface, which reconciles (see `PageInkMerge`).
+///
+/// ## Touches (verified on the iOS 27.0 and 17.5 simulators; Pencil cases by forcing a
+/// Pencil-only policy in an experiment, as the simulator cannot make Pencil touches)
+/// - **Reading mode:** overlays and canvases take no touches (`isUserInteractionEnabled =
+///   false`, and the overlay never returns itself from `hitTest`): scrolling, zoom, text
+///   selection, link taps, the highlight menu and the bridge's tap handlers work as if there
+///   were no overlay. Ink stays visible and read-only.
+/// - **Markup mode** (PDFKit's `isInMarkupMode` is on, set by the shell, so overlays are hit-
+///   tested): the canvas takes the touch.
+///   - Pencil-only (the `.default` policy with "Only Draw with Apple Pencil" on, i.e. a paired
+///     Pencil): the Pencil draws; one finger scrolls the PDF, two fingers scroll, a pinch zooms
+///     (the drawing recogniser ignores finger touches and PDFKit's scroll view gets them).
+///   - Finger drawing allowed (`-inkAnyInput`, or `.default` with the setting off): one finger
+///     draws; two fingers scroll and a pinch zooms, and neither leaves a stroke.
+///   - **Finger text selection does not work in markup mode** under either policy: PDFKit
+///     disables its text interaction while `isInMarkupMode` is on, and with it off a touch
+///     that lands on any overlay view still never starts a selection; moving PencilKit's
+///     drawing recogniser off the canvas (so fingers could miss the overlay) stops the Pencil
+///     drawing. Text selection (and so making highlights) works in reading mode.
 @MainActor
 final class PageInkOverlayProvider: ReaderPageOverlayProviding {
     private weak var session: ReaderSession?
@@ -74,9 +95,9 @@ final class PageInkOverlayProvider: ReaderPageOverlayProviding {
     private let accessibilityView = PageInkAccessibilityView(frame: .zero)
 
     private func installAccessibilityView(in pdfView: UIView) {
+        if accessibilityView.frame != pdfView.bounds { accessibilityView.frame = pdfView.bounds }
         guard accessibilityView.superview !== pdfView else { return }
         accessibilityView.surfaces = { [weak self] in self?.liveSurfaces ?? [:] }
-        accessibilityView.frame = pdfView.bounds
         pdfView.addSubview(accessibilityView)
     }
 
