@@ -84,7 +84,7 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         sleep(1)
         if !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { field.tap() }
-        field.typeText(title)
+        replaceText(field, with: title)
         if let placement {
             // The placement picker's rows (in the sheet's form), not the sidebar's heading rows.
             let predicate = NSPredicate(format: "label BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
@@ -112,11 +112,21 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         let field = alert.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        let current = field.value as? String ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
-        field.typeText(title)
+        replaceText(field, with: title)
         alert.buttons["Rename"].tap()
         if !heading(app, title).waitForExistence(timeout: 5) { dumpHeadings(app, "after rename to \(title)") }
+    }
+
+    /// Replaces a focused field's text and checks it arrived (XCUITest's typing can drop
+    /// characters while the simulator is busy); retries up to three times.
+    static func replaceText(_ field: XCUIElement, with text: String) {
+        for _ in 0..<3 {
+            field.typeKey("a", modifierFlags: .command)
+            field.typeText(XCUIKeyboardKey.delete.rawValue)
+            field.typeText(text)
+            if waitFor(field, "value == %@", text, timeout: 3) { return }
+        }
+        XCTFail("could not type “\(text)” (field shows “\(field.value ?? "nil")”)")
     }
 
     /// The navigation bar shows `text` (the subtitle on iOS 26+, the title block before).
