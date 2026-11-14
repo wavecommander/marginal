@@ -8,11 +8,7 @@ import ReaderCore
 enum BookmarkActions {
     /// Whether the session's current page is bookmarked.
     static func isBookmarked(session: ReaderSession) -> Bool {
-        // The shell reads this from the toolbar and the menu bar for every reader window, so it
-        // is the earliest WP5 code each session reaches: install the "Add as Heading" selection
-        // item here too (idempotent). See `SidebarHeadingActions.install(on:)`.
-        SidebarHeadingActions.install(on: session)
-        return isBookmarked(page: session.currentPageIndex, session: session)
+        isBookmarked(page: session.currentPageIndex, session: session)
     }
 
     /// Adds or removes the bookmark on the session's current page.

@@ -637,11 +637,17 @@ final class SidebarUITests: XCTestCase {
         let app = Self.open(Fixtures.large, "large", ["-sidebarDebugStats", "-sidebarAutoScroll"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 1 of 1500", timeout: 40))
         Self.selectTab(app, "Pages")
-        // 2 × 250 steps × ≥16 ms ≈ 8–15 s after a 3 s settle; no queries meanwhile.
-        sleep(30)
+        // 2 × 250 steps × ≥16 ms ≈ 8–15 s after a 3 s settle; no queries meanwhile. Then poll
+        // for the end (the figures are frozen at "done", so late queries cannot change them).
+        sleep(20)
         let stats = app.buttons[SidebarID.debugStats].firstMatch
         XCTAssertTrue(stats.waitForExistence(timeout: 10))
-        let value = stats.value as? String ?? ""
+        var value = stats.value as? String ?? ""
+        let deadline = Date().addingTimeInterval(20)
+        while !value.contains("phase done"), Date() < deadline {
+            sleep(1)
+            value = stats.value as? String ?? ""
+        }
         let figures = Self.parse(value)
         let report = "auto-scroll 1,500 pages down and up: \(value)"
         print(report)

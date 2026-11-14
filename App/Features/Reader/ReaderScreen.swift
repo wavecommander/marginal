@@ -307,6 +307,7 @@ private struct NotesBottomPanel: View {
                 .frame(width: 40, height: 5)
                 .frame(maxWidth: .infinity, minHeight: 22)
                 .contentShape(Rectangle())
+                .hoverEffect(.highlight)
                 .onTapGesture { withAnimation { isLarge.toggle() } }
                 .gesture(
                     DragGesture()

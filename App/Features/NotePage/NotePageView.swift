@@ -7,7 +7,7 @@ import UIKit
 /// - `model`: the note shown. Pass a different model to switch targets; a stroke in progress
 ///   finishes on the old note first, which is then flushed.
 /// - `session`: the reader window's session (markup mode, the shared tool picker, undo routing,
-///   flush on Done/background/close). `nil` only outside a reader (previews, tests).
+///   flush on leaving markup mode, background and close). `nil` only outside a reader (previews, tests).
 /// - `zoom`: 1 = 100%, clamped to 1...2. Pinching writes it back. Widening the panel should
 ///   change `zoom` (`NotePageZoom.zoom(...)`), never the page's width: the page is always
 ///   `NotePageStyle.pageWidth` points wide before zoom, so line breaks never change.

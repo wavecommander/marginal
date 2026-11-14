@@ -87,6 +87,12 @@ struct NotesPanel: View {
             case .section: sectionHeader(metrics)
             }
         }
+        // The header (tabs, Delete Note, zoom, title, level picker) sits above the note in a
+        // 330 pt pane and cannot scroll: at the largest text sizes its titles were cut to
+        // "5.2…", the tabs to "Page…" / "Sectio…" and the zoom wrapped to "200 / %". Capped
+        // like toolbar controls; the note itself and the lists below keep the full size, and
+        // VoiceOver reads the same labels.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 
     private var pageTitle: some View {
@@ -113,14 +119,19 @@ struct NotesPanel: View {
                              hasNote: { session.notebook?.section(for: $0)?.note != nil },
                              choose: { controller.chooseLevel($0) })
             VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(heading.title)
-                        .font(.title3.bold())
-                        .lineLimit(3)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier(NotesPanelAccessibilityID.title)
-                    Spacer(minLength: 8)
-                    pagesButton(heading)
+                // At accessibility text sizes the page range goes under the title, which
+                // otherwise had no room left beside it.
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionTitle(heading)
+                        pagesButton(heading)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        sectionTitle(heading)
+                        Spacer(minLength: 8)
+                        pagesButton(heading)
+                    }
                 }
                 HStack {
                     deferredCaption
@@ -129,6 +140,14 @@ struct NotesPanel: View {
                 }
             }
         }
+    }
+
+    private func sectionTitle(_ heading: OutlineNode) -> some View {
+        Text(heading.title)
+            .font(.title3.bold())
+            .lineLimit(3)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(NotesPanelAccessibilityID.title)
     }
 
     /// "pp. 310–328": jumps to the heading's first page (the level picker's heading, as a jump).
@@ -227,6 +246,8 @@ struct NotesPanel: View {
             Text(verbatim: "\(percent)%")
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 6)
                 .frame(minWidth: 44, minHeight: 44)
         }

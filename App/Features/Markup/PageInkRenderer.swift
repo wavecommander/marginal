@@ -1,8 +1,8 @@
 import PencilKit
 import UIKit
 
-/// Draws a page's stored ink into a `CGContext` from its strokes (for the Notebook, thumbnails,
-/// and later an annotated export). Nothing is cached: every call renders at the scale it is
+/// Draws a page's stored ink into a `CGContext` from its strokes (for the Notebook's handwriting
+/// previews and its PDF export; page thumbnails do not show ink). Nothing is cached: every call renders at the scale it is
 /// given, so the result is sharp at any size.
 ///
 /// **Vector where the ink allows** (the note page's rule, `NotePageRenderer.export(for:)`):

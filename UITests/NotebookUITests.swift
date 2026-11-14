@@ -201,6 +201,57 @@ final class NotebookUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [headingPage], timeout: 15), .completed, pill.label)
     }
 
+    /// A heading note's row opens the reader at the heading with that note in the notes panel
+    /// (Section tab), not just at the page.
+    func testTappingAHeadingNoteRowOpensItsSectionNote() {
+        let app = launch()
+        select(app, scope: "5 Eigenvalues and Eigenvectors")
+        let note = row(app, ID.headingNote("5 Eigenvalues and Eigenvectors"))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.tap()
+        let pill = app.buttons["reader.pagePill"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 30))
+        let page = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Page 15 of 40"), object: pill)
+        XCTAssertEqual(XCTWaiter().wait(for: [page], timeout: 15), .completed, pill.label)
+        let sectionTab = app.segmentedControls["notesPanel.tabs"].buttons["Section note"].firstMatch
+        XCTAssertTrue(sectionTab.waitForExistence(timeout: 15), "notes panel open")
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: sectionTab)
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, "Section tab selected")
+        let title = app.staticTexts["notesPanel.title"].firstMatch
+        let titled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "5 Eigenvalues and Eigenvectors"),
+                                               object: title)
+        XCTAssertEqual(XCTWaiter().wait(for: [titled], timeout: 10), .completed, title.label)
+        XCTAssertTrue(app.textViews["notePage.text"].firstMatch.waitForExistence(timeout: 10))
+    }
+
+    /// Delete Note on a row (context menu): confirms with the notes panel's wording, then the row
+    /// goes and the note does not come back.
+    func testDeleteNoteFromARow() {
+        let app = launch()
+        let note = row(app, ID.pageNote(5))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.press(forDuration: 1.0)
+        let delete = app.buttons["notebook.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "Delete Note in the context menu")
+        delete.tap()
+        let alert = app.alerts["Delete This Note?"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "confirmation")
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Ink on the PDF page and highlights are not affected"))
+            .firstMatch.exists, "the notes panel's message")
+        // Cancel keeps it.
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(waitForAbsence(alert))
+        XCTAssertTrue(note.exists, "cancel keeps the note")
+        // Again, and delete.
+        note.press(forDuration: 1.0)
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(waitForAbsence(note, timeout: 10), "row removed")
+        XCTAssertTrue(row(app, ID.pageNote(1)).exists, "other notes stay")
+    }
+
     func testExportMarkdownAndPDFPresentTheShareSheet() {
         let app = launch()
         export(app, "Markdown")

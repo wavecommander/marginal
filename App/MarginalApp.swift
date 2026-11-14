@@ -10,6 +10,10 @@ import SwiftUI
 struct MarginalApp: App {
     @State private var environment = AppEnvironment.makeLive()
 
+    init() {
+        PerfMarks.mark("appInit")
+    }
+
     var body: some Scene {
         WindowGroup(id: WindowID.library) {
             WindowRootView(kind: .library, initialRoute: nil)
@@ -20,7 +24,7 @@ struct MarginalApp: App {
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
             WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },
-                           initialPageIndex: value?.pageIndex)
+                           initialPageIndex: value?.pageIndex, initialNotesHeading: value?.notesHeading)
                 .environment(environment)
                 .environment(\.launchOptions, environment.launchOptions)
         }

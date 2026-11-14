@@ -38,7 +38,11 @@ final class LibraryUITests: XCTestCase {
     private func openContextMenu(_ app: XCUIApplication, of title: String) {
         let cell = book(app, title)
         XCTAssertTrue(cell.waitForExistence(timeout: 20))
-        cell.press(forDuration: 1.0)
+        // On the title under the cover, not the cover: the cover also carries the drag that
+        // opens a book in a new window, and a long press there starts a drag lift that keeps
+        // the app from ever reporting idle to XCUITest while the menu is up (each following
+        // query then waited out XCUITest's 60 s animation timeout, twice per menu).
+        cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.93)).press(forDuration: 1.0)
     }
 
     // MARK: Tests

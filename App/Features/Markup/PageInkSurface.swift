@@ -103,7 +103,7 @@ final class PageInkSurface: NSObject, MarkupSurface {
         self.markup = markup
         self.saveDelay = saveDelay
         self.overlay = overlay
-        canvas = PageInkCanvasView(frame: CGRect(origin: .zero, size: geometry.size))
+        canvas = PageInkCanvasView(frame: CGRect(origin: .zero, size: geometry.size), bookID: context.bookID)
         canvas.contentSize = geometry.size
         super.init()
         canvas.delegate = self
@@ -403,14 +403,22 @@ final class PageInkCanvasView: PKCanvasView {
     /// this override every canvas of the window would share the window's).
     let pageUndoManager = UndoManager()
 
-    nonisolated private static let liveCounter = OSAllocatedUnfairLock(initialState: 0)
+    /// The book whose page this canvas shows; counts are kept per book so a test can measure its
+    /// own reader while other tests' readers run in the same process.
+    nonisolated let bookID: UUID
+
+    nonisolated private static let liveCounter = OSAllocatedUnfairLock(initialState: [UUID: Int]())
 
     /// Number of page canvases alive in the process (tests and diagnostics).
-    nonisolated static var liveCount: Int { liveCounter.withLock { $0 } }
+    nonisolated static var liveCount: Int { liveCounter.withLock { $0.values.reduce(0, +) } }
 
-    override init(frame: CGRect) {
+    /// Number of page canvases alive for one book's pages (tests and diagnostics).
+    nonisolated static func liveCount(bookID: UUID) -> Int { liveCounter.withLock { $0[bookID] ?? 0 } }
+
+    init(frame: CGRect, bookID: UUID) {
+        self.bookID = bookID
         super.init(frame: frame)
-        Self.liveCounter.withLock { $0 += 1 }
+        Self.liveCounter.withLock { $0[bookID, default: 0] += 1 }
         backgroundColor = .clear
         isOpaque = false
         isScrollEnabled = false
@@ -428,7 +436,11 @@ final class PageInkCanvasView: PKCanvasView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     deinit {
-        Self.liveCounter.withLock { $0 -= 1 }
+        let bookID = bookID
+        Self.liveCounter.withLock { counts in
+            counts[bookID, default: 0] -= 1
+            if counts[bookID] == 0 { counts[bookID] = nil }
+        }
     }
 
     override var undoManager: UndoManager? { pageUndoManager }

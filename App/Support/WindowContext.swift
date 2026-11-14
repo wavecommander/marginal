@@ -24,6 +24,9 @@ nonisolated struct ReaderWindowValue: Codable, Hashable, Sendable {
     /// Zero-based page to open at, applied once when the window is first created (a restored
     /// window keeps its own page). `nil`: the book's last-read page.
     var pageIndex: Int?
+    /// A heading whose note the new window shows in the notes panel (Section tab), applied once
+    /// like `pageIndex`.
+    var notesHeading: HeadingAnchor?
 }
 
 /// A screen shown in place in a window (pushed on its navigation stack).
@@ -73,12 +76,15 @@ final class WindowContext {
 
     // MARK: In place
 
-    /// Opens the reader on `bookID` in this window (pushing it), optionally at a page.
-    func openReader(bookID: UUID, pageIndex: Int? = nil) {
-        if let pageIndex { pendingOverrides[bookID] = ReaderOverrides(pageIndex: pageIndex) }
+    /// Opens the reader on `bookID` in this window (pushing it), optionally at a page, and
+    /// optionally with the notes panel on the Section tab showing `notesHeading`'s note.
+    func openReader(bookID: UUID, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
+        if pageIndex != nil || notesHeading != nil {
+            pendingOverrides[bookID] = ReaderOverrides(pageIndex: pageIndex, notesHeading: notesHeading)
+        }
         if case .reader(let current)? = path.last, current == bookID {
             // Already showing it: the host picks up the override.
-            if pageIndex != nil { readerJumpRequests += 1 }
+            if pageIndex != nil || notesHeading != nil { readerJumpRequests += 1 }
             return
         }
         path.append(.reader(bookID: bookID))
@@ -118,8 +124,9 @@ final class WindowContext {
     /// Opens a new reader window on the book (always a new window, even for the same book), at
     /// `pageIndex` when given (applied once; not a section-history jump), else at the book's
     /// last-read page.
-    func openReaderInNewWindow(bookID: UUID, pageIndex: Int? = nil) {
-        openWindowAction?(id: WindowID.reader, value: ReaderWindowValue(bookID: bookID, pageIndex: pageIndex))
+    func openReaderInNewWindow(bookID: UUID, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
+        openWindowAction?(id: WindowID.reader,
+                          value: ReaderWindowValue(bookID: bookID, pageIndex: pageIndex, notesHeading: notesHeading))
     }
 
     /// Opens (or focuses) the Notebook window of the book.

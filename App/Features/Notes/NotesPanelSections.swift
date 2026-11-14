@@ -111,7 +111,10 @@ struct NotesHighlightsSection: View {
     }
 
     var body: some View {
-        Group {
+        // A stack, not a `Group`: a `Group`'s modifiers go to its children, so with no
+        // highlights yet there was nothing to run the `.task` that loads them, and the section
+        // never appeared.
+        VStack(alignment: .leading, spacing: 0) {
             if !highlights.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     NotesSectionHeader("Highlights on this page")

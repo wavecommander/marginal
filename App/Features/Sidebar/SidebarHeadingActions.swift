@@ -9,11 +9,9 @@ import UIKit
 /// (switching the sidebar to the Contents tab).
 @MainActor
 enum SidebarHeadingActions {
-    /// Registers the window's "Add as Heading" text-selection menu item. Idempotent; called from
-    /// the sidebar and from `BookmarkActions` (which the toolbar and menu bar read), because the
-    /// shell's `ReaderFeatureWiring` (not this package's file) has no sidebar line yet. The exact
-    /// shell change that makes this unconditional: in `ReaderFeatureWiring.install(on:)` add
-    /// `SidebarHeadingActions.install(on: session)`.
+    /// Registers the window's "Add as Heading" text-selection menu item. Idempotent; called by
+    /// `ReaderFeatureWiring.install(on:)` when the window's session is made, and again by the
+    /// sidebar (for sessions made without features, as in unit tests).
     static func install(on session: ReaderSession) {
         let provider = session.featureState { HeadingSelectionMenuProvider(session: session) }
         provider.registerIfNeeded()

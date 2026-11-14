@@ -79,6 +79,7 @@ struct SearchPanel: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.highlight)
                 .accessibilityLabel("Clear search")
                 .accessibilityIdentifier(SearchAccessibilityID.clear)
             }
@@ -318,6 +319,7 @@ private struct SearchResultRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(spokenKind), \(pageLabel). \(result.snippet.text)")

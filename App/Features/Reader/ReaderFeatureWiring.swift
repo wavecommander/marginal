@@ -13,6 +13,12 @@ enum ReaderFeatureWiring {
         // only reads the session's page and tab, subscribes to the store hub, makes (does not
         // load) the page note's model, and defers anything else until the outline has loaded.
         _ = NotesPanelController.forSession(session)
+        // WP5: "Add as Heading" in the text-selection menu works before (or without) the sidebar
+        // being shown. Safe this early: it only creates a small provider holding the session
+        // weakly and appends it to the PDF bridge's selection-menu providers (as highlights do
+        // above); the menu is built only when a selection exists. Idempotent with the sidebar's
+        // own call.
+        SidebarHeadingActions.install(on: session)
         if session.configuration.markupProbeSurface {
             session.retainFeature(MarkupProbeSurface(session: session))   // UI tests only
         }

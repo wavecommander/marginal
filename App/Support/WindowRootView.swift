@@ -17,6 +17,9 @@ struct WindowRootView: View {
     /// The page a new reader window opens at (`ReaderWindowValue.pageIndex`); used only when the
     /// window has no restored state.
     var initialPageIndex: Int? = nil
+    /// The heading whose note a new reader window shows (`ReaderWindowValue.notesHeading`);
+    /// used only when the window has no restored state.
+    var initialNotesHeading: HeadingAnchor? = nil
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow
@@ -41,6 +44,7 @@ struct WindowRootView: View {
     }
 
     private func makeContextIfNeeded() {
+        PerfMarks.mark("firstWindow")
         guard context == nil else { return }
         storedPathAtLaunch = storedPath
         var path: [WindowRoute] = []
@@ -49,14 +53,16 @@ struct WindowRootView: View {
         } else if let initialRoute {
             path = [initialRoute]
         }
-        let opensAtPage: (bookID: UUID, page: Int)? = if storedPath == nil, let initialPageIndex,
-            case .reader(let bookID)? = initialRoute { (bookID, initialPageIndex) } else { nil }
+        let opensAt: (bookID: UUID, overrides: ReaderOverrides)? =
+            if storedPath == nil, initialPageIndex != nil || initialNotesHeading != nil, case .reader(let bookID)? = initialRoute {
+                (bookID, ReaderOverrides(pageIndex: initialPageIndex, notesHeading: initialNotesHeading))
+            } else { nil }
         // A restored window never shows a reader or Notebook of a book that is gone: those
         // screens are dropped (a reader/Notebook window left empty shows the Library).
         path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
-        if let opensAtPage {
-            context.setReaderOverrides(ReaderOverrides(pageIndex: opensAtPage.page), for: opensAtPage.bookID)
+        if let opensAt {
+            context.setReaderOverrides(opensAt.overrides, for: opensAt.bookID)
         }
         context.openWindowAction = openWindow
         context.scene = scene

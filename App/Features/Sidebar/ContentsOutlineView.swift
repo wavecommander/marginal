@@ -89,6 +89,13 @@ private struct ContentsRowView: View {
 
     @ScaledMetric(relativeTo: .body) private var indentStep: CGFloat = 16
     @ScaledMetric(relativeTo: .body) private var chevronWidth: CGFloat = 22
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// At accessibility text sizes the badge and page number go under the title (side by side
+    /// they left the title no width at all in a 280 pt sidebar), and indentation stops growing
+    /// with the text so deep headings keep room for their titles.
+    private var isLargeText: Bool { dynamicTypeSize.isAccessibilitySize }
+    private var indent: CGFloat { isLargeText ? min(indentStep, 20) : indentStep }
 
     var body: some View {
         let node = row.node
@@ -101,29 +108,38 @@ private struct ContentsRowView: View {
         HStack(spacing: 2) {
             disclosure
             Button { model.select(node) } label: {
-                HStack(spacing: 6) {
+                let layout = isLargeText ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                                         : AnyLayout(HStackLayout(spacing: 6))
+                layout {
                     HStack(spacing: 5) {
                         Text(node.title)
                             .font(.body)
                             .fontWeight(isCurrent || row.depth == 0 ? .semibold : .regular)
                             .foregroundStyle(isCurrent || isOnPath ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                            .lineLimit(3)
+                            .lineLimit(isLargeText ? nil : 3)
                             .multilineTextAlignment(.leading)
-                        if node.isUserHeading {
+                        if node.isUserHeading && !isLargeText {
                             ReaderHeadingMark()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if hasBadge {
-                        Image(systemName: "note.text")
-                            .font(.footnote)
-                            .foregroundStyle(.tint)
-                            .accessibilityHidden(true)
+                    HStack(spacing: 6) {
+                        if node.isUserHeading && isLargeText {
+                            ReaderHeadingMark()
+                        }
+                        if hasBadge {
+                            Image(systemName: "note.text")
+                                .font(.footnote)
+                                .foregroundStyle(.tint)
+                                .accessibilityHidden(true)
+                        }
+                        Text(pageText)
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     }
-                    Text(pageText)
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 }
                 .padding(.vertical, 6)
                 .frame(minHeight: 40)
@@ -138,7 +154,7 @@ private struct ContentsRowView: View {
             .accessibilityActions { accessibilityActions }
             .accessibilityIdentifier(SidebarAccessibilityID.heading(node.title))
         }
-        .padding(.leading, CGFloat(row.depth) * indentStep)
+        .padding(.leading, CGFloat(row.depth) * indent)
         .padding(.trailing, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -256,6 +272,9 @@ private struct AddHeadingFooter: View {
         .hoverEffect(.highlight)
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+        // Pinned under the list: at the largest text sizes it otherwise wrapped to five lines
+        // and took a third of the sidebar. Capped like a toolbar item; VoiceOver is unaffected.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .disabled(session.loadState != .ready)
         .accessibilityIdentifier(SidebarAccessibilityID.addHeading)
     }
