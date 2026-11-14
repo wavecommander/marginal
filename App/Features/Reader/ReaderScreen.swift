@@ -216,16 +216,23 @@ struct ReaderScreen: View {
 
     /// The only switch for markup mode: outlined while off, filled (and selected) while on.
     /// Turning it off does everything leaving markup does (flushes every surface).
+    ///
+    /// A `Toggle`, not a `Button` with `.accessibilityAddTraits(.isSelected)`: SwiftUI turns a
+    /// toolbar `Button` into a bar button item that keeps only its title, image, identifier and
+    /// enabled state, so traits and values added to it never reach VoiceOver or XCUITest
+    /// (measured on iPadOS 27 with the button grouped, alone, with and without the More menu).
+    /// A button-style `Toggle` becomes a bar item with a selection state, which UIKit exposes as
+    /// the Selected trait. The label also says the state ("Done with Markup" while on). Tests
+    /// read the tool picker's visibility from `ReaderStateProbe` (`-exposeMarkupState`).
     private var markupToggle: some View {
         let isOn = session.isMarkupMode
-        return Button { session.toggleMarkup() } label: {
+        return Toggle(isOn: Binding(get: { session.isMarkupMode },
+                                    set: { on in if on != session.isMarkupMode { session.toggleMarkup() } })) {
             Label(isOn ? "Done with Markup" : "Markup",
                   systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
         }
+        .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-        // For UI tests: whether the window's tool picker is on screen (markup mode only).
-        .accessibilityValue(isOn ? (session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden") : "")
     }
 
     /// The search button and the anchor of the search popover, in both modes.
@@ -242,12 +249,13 @@ struct ReaderScreen: View {
         }
     }
 
+    /// The label says the state ("Hide Notes" while shown); an accessibility value here would not
+    /// reach VoiceOver (see `markupToggle`). Tests read it from `ReaderStateProbe`.
     private var notesToggle: some View {
         Button { withAnimation { session.toggleNotes() } } label: {
             Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "note.text")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.notesToggle)
-        .accessibilityValue(session.isNotesVisible ? "shown" : "hidden")
     }
 
     private var moreMenu: some View {

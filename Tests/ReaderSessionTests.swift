@@ -348,6 +348,106 @@ struct ReaderSessionTests {
         #expect(await waitUntil { page.flushes >= 1 })
         #expect(note.flushes == 0)  // unregistered
     }
+
+    /// The markup responder's undo manager (`MarkupRoutingUndoManager`, what the tool picker's
+    /// Undo/Redo buttons and ⌘Z use) follows the surface last drawn on, acts on it, and tells a
+    /// listener of its own notifications the state it will find (canUndo true after a stroke,
+    /// false once everything is undone), with itself as the object.
+    @Test func routingUndoManagerActsOnTheRoutedSurfaceAndNotifiesAsItself() async throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        let markup: ReaderMarkupController = session.markup
+        let proxy = try #require(markup.responderView.undoManager)
+        #expect(proxy === markup.routingUndoManager)
+        let page = CountingSurface(id: "page-1")
+        let note = CountingSurface(id: "note-1")
+        markup.register(page)
+        markup.register(note)
+        session.setMode(.markup)
+
+        // A listener of the proxy (object: the proxy), as the tool picker is: what it reads in
+        // each notification, read as the notification is posted.
+        var heard: [(name: Notification.Name, undo: Bool, redo: Bool)] = []
+        let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange,
+                                          .NSUndoManagerDidRedoChange]
+        let tokens = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: proxy, queue: nil) { notification in
+                let posted = notification.name
+                MainActor.assumeIsolated { heard.append((posted, proxy.canUndo, proxy.canRedo)) }
+            }
+        }
+        defer { tokens.forEach { NotificationCenter.default.removeObserver($0) } }
+        #expect(!proxy.canUndo && !proxy.canRedo)
+
+        // Two strokes on the page.
+        page.stroke(markup)
+        page.stroke(markup)
+        #expect(proxy.canUndo && !proxy.canRedo)
+        #expect(await waitUntil { heard.last?.undo == true }, "a listener hears canUndo after a stroke")
+
+        // Undo through the proxy acts on the page.
+        let before = heard.count
+        proxy.undo()
+        #expect(page.value == 1 && proxy.canUndo && proxy.canRedo)
+        #expect(heard.dropFirst(before).contains { $0.name == .NSUndoManagerDidUndoChange })
+        proxy.undo()
+        #expect(page.value == 0 && !proxy.canUndo && proxy.canRedo)
+        #expect(await waitUntil { heard.last.map { !$0.undo && $0.redo } == true },
+                "a listener hears canUndo false once everything is undone")
+
+        // Redo through the proxy.
+        proxy.redo()
+        #expect(page.value == 1 && proxy.canUndo && proxy.canRedo)
+        #expect(heard.contains { $0.name == .NSUndoManagerDidRedoChange })
+        proxy.redo()
+        #expect(page.value == 2 && !proxy.canRedo)
+
+        // A stroke on the note routes the proxy to the note at once, and the listener is told.
+        note.stroke(markup)
+        #expect(await waitUntil { heard.last.map { $0.undo && !$0.redo } == true })
+        proxy.undo()
+        #expect(note.value == 0 && page.value == 2)
+        #expect(await waitUntil { heard.last.map { !$0.undo && $0.redo } == true })
+
+        // The note leaves: the proxy falls back to the page (canUndo, nothing to redo).
+        markup.unregister(note)
+        #expect(proxy.canUndo && !proxy.canRedo)
+        #expect(await waitUntil { heard.last.map { $0.undo && !$0.redo } == true })
+    }
+}
+
+/// A surface whose strokes add one to `value`, with symmetric undo and redo (as PencilKit's).
+@MainActor
+private final class CountingSurface: MarkupSurface {
+    let markupSurfaceID: String
+    let canvasView = PKCanvasView()
+    let undo = UndoManager()
+    private(set) var value = 0
+
+    init(id: String) {
+        markupSurfaceID = id
+        undo.groupsByEvent = false
+    }
+
+    var markupUndoManager: UndoManager? { undo }
+    func markupModeDidChange(_ isMarkup: Bool) {}
+    func flushPendingMarkup() async {}
+
+    /// A stroke as a canvas reports it: begin, the undo step registered, end.
+    func stroke(_ markup: ReaderMarkupController) {
+        markup.surfaceDidBeginStroke(self)
+        undo.beginUndoGrouping()
+        set(value + 1)
+        undo.endUndoGrouping()
+        markup.surfaceDidEndStroke(self)
+    }
+
+    private func set(_ newValue: Int) {
+        let old = value
+        value = newValue
+        undo.registerUndo(withTarget: self) { target in target.set(old) }
+    }
 }
 
 @MainActor

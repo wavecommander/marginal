@@ -21,7 +21,8 @@ final class NotePageUITests: XCTestCase {
     // MARK: Helpers
 
     private func launch(fresh: Bool, markup: Bool) -> XCUIApplication {
-        var arguments = ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-inkAnyInput"]
+        var arguments = ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-inkAnyInput",
+                         "-exposeMarkupState"]
         if markup { arguments.append("-markup") }
         let app: XCUIApplication
         if fresh {
@@ -218,46 +219,57 @@ final class NotePageUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    /// The toolbar's Markup toggle; in markup mode its value says whether the picker is shown.
-    private func markupToggle(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons["reader.toolbar.markup"].firstMatch
+    /// The `-exposeMarkupState` probe (`ReaderStateProbe`): markup, tool picker and undo state
+    /// as `key=value` tokens (toolbar items carry no accessibility value to XCUITest).
+    private func markupState(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["reader.markupState"].firstMatch
     }
+
+    private func pickerShown(_ app: XCUIApplication) -> Bool {
+        wait(markupState(app), "value CONTAINS %@", "picker=shown")
+    }
+
+    /// Ink undo / redo the way the tool picker's own buttons do it: `undo()` / `redo()` on the
+    /// markup responder's undo manager (probe buttons; synthesized ⌘Z after a touch is often
+    /// lost on the iPadOS 27 simulator).
+    private func undoInk(_ app: XCUIApplication) { app.buttons["reader.markupUndo"].firstMatch.tap() }
+    private func redoInk(_ app: XCUIApplication) { app.buttons["reader.markupRedo"].firstMatch.tap() }
 
     /// Markup mode always shows the system tool picker: with the note idle, right after a stroke
     /// on the note, and with the cursor in the note and the keyboard up.
     func testToolPickerStaysUpWithTheNote() throws {
         let app = launch(fresh: true, markup: true)
-        XCTAssertTrue(markupToggle(app).waitForExistence(timeout: 10))
-        let shown = wait(markupToggle(app), "value == %@", "tool picker shown")
+        XCTAssertTrue(markupState(app).waitForExistence(timeout: 10))
+        let shown = pickerShown(app)
         try saveScreenshot("picker-a-idle")
         XCTAssertTrue(shown, "picker with the note idle")
 
         drawLine(app, y: 160)
         XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
-        let afterStroke = wait(markupToggle(app), "value == %@", "tool picker shown")
+        let afterStroke = pickerShown(app)
         try saveScreenshot("picker-b-after-stroke")
         XCTAssertTrue(afterStroke, "picker after a stroke on the note")
 
         pagePoint(app, x: 40, y: 25).tap()
         textView(app).typeText("Typing with the picker up")
         XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Typing with the picker up"))
-        let whileTyping = wait(markupToggle(app), "value == %@", "tool picker shown")
+        let whileTyping = pickerShown(app)
         try saveScreenshot("picker-c-typing")
         XCTAssertTrue(whileTyping, "picker with the cursor in the note")
     }
 
     /// Ink undo/redo act on the note after a stroke on it. At regular width they are the tool
-    /// picker's own buttons (not reliably addressable from XCTest), so this uses ⌘Z / ⇧⌘Z, which
-    /// go through the same routed undo manager; typing undo stays the text view's own.
+    /// picker's own buttons (not reliably addressable from XCTest), so this makes the call they
+    /// make, on the markup responder's routed undo manager; typing undo stays the text view's own.
     func testUndoRedoActOnTheNote() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("hardware-key events are unreliable on the iPadOS 17.5 simulator") }
         let app = launch(fresh: true, markup: true)
         drawLine(app, y: 160)
         XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["reader.toolbar.undo"].exists, "no toolbar Undo at regular width")
-        app.typeKey("z", modifierFlags: .command)
+        undoInk(app)
         XCTAssertTrue(waitFor(ink(app), "exists == false"), "undo removed the stroke")
-        app.typeKey("z", modifierFlags: [.command, .shift])
+        redoInk(app)
         XCTAssertTrue(ink(app).waitForExistence(timeout: 5), "redo restored the stroke")
 
         // Typing undo is the text view's own (⌘Z / the keyboard's undo key while it has focus);

@@ -402,19 +402,23 @@ final class ReaderUITests: XCTestCase {
     /// Markup mode shows the window's system tool picker; tapping the Markup toggle again hides
     /// it. Also from launch (-markup).
     func testMarkupModeShowsToolPicker() {
-        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
+                                              + ["-openBook", "small", "-exposeMarkupState"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         toggle.tap()
-        XCTAssertTrue(waitForValue(toggle, "tool picker shown"))
+        XCTAssertTrue(waitForSelected(toggle, true), "markup on")
+        XCTAssertTrue(waitForState(app, "picker=shown"))
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, false), "markup off")
+        XCTAssertTrue(waitForState(app, "picker=hidden"))
 
         let launched = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
-                                                   + ["-openBook", "small", "-markup"])
+                                                   + ["-openBook", "small", "-markup", "-exposeMarkupState"])
         let toggleAtLaunch = launched.buttons[ReaderID.markupToggle].firstMatch
         XCTAssertTrue(toggleAtLaunch.waitForExistence(timeout: 30))
-        XCTAssertTrue(waitForValue(toggleAtLaunch, "tool picker shown"))
+        XCTAssertTrue(waitForSelected(toggleAtLaunch, true), "markup on at launch")
+        XCTAssertTrue(waitForState(launched, "picker=shown"))
     }
 
     /// The Markup toggle is the only switch (design, "Markup controls"): the same button in
@@ -446,13 +450,14 @@ final class ReaderUITests: XCTestCase {
     /// With a registered surface that takes first responder (as a canvas does), the picker stays.
     func testToolPickerStaysWithRegisteredSurface() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
-                                              + ["-openBook", "small", "-markupProbeSurface"])
+                                              + ["-openBook", "small", "-markupProbeSurface", "-exposeMarkupState"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, true))
         sleep(2)  // the probe canvas has become first responder by now
-        XCTAssertTrue(waitForValue(toggle, "tool picker shown"))
+        XCTAssertTrue(waitForState(app, "responder=surface"), "the probe canvas is first responder")
+        XCTAssertTrue(waitForState(app, "picker=shown"))
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         let suffix = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 18 ? "-ios17" : ""
         try? XCUIScreen.main.screenshot().pngRepresentation
@@ -473,8 +478,11 @@ final class ReaderUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func waitForValue(_ element: XCUIElement, _ value: String, timeout: TimeInterval = 10) -> Bool {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: element)
+    /// Waits for the `-exposeMarkupState` probe (`reader.markupState`) to hold `token` (e.g.
+    /// "picker=shown"). Toolbar items carry no accessibility value to XCUITest on iPadOS 26+.
+    private func waitForState(_ app: XCUIApplication, _ token: String, timeout: TimeInterval = 10) -> Bool {
+        let probe = app.buttons["reader.markupState"].firstMatch
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", token), object: probe)
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 

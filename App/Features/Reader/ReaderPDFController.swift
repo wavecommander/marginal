@@ -256,6 +256,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return probe
     }()
 
+    /// Test hook (`-exposeMarkupState`): `ReaderStateProbe`'s elements, empty otherwise.
+    private(set) lazy var markupStateProbes: [UIView] = {
+        guard let session, session.configuration.exposesMarkupState else { return [] }
+        return ReaderStateProbe.makeViews(session: session)
+    }()
+
     private func updateSelectionProbe() {
         guard let selectionProbe else { return }
         let selection = view.currentSelection
@@ -741,7 +747,8 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ReaderPDFHostView {
         ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView,
-                          probes: [session.pdf.anchorProbe, session.pdf.selectionProbe].compactMap { $0 })
+                          probes: [session.pdf.anchorProbe, session.pdf.selectionProbe].compactMap { $0 }
+                              + session.pdf.markupStateProbes)
     }
 
     func updateUIView(_ uiView: ReaderPDFHostView, context: Context) {}
@@ -750,7 +757,7 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 final class ReaderPDFHostView: UIView {
     private let controller: ReaderPDFController
     private let responderView: UIView
-    /// Test-hook elements (`-exposeViewportAnchor`, `-exposeSelection`).
+    /// Test-hook elements (`-exposeViewportAnchor`, `-exposeSelection`, `-exposeMarkupState`).
     private let probes: [UIView]
 
     init(controller: ReaderPDFController, responderView: UIView, probes: [UIView]) {
@@ -784,7 +791,8 @@ final class ReaderPDFHostView: UIView {
             addSubview(responderView)
         }
         for (index, probe) in probes.enumerated() where probe.superview !== self {
-            probe.frame = CGRect(x: CGFloat(index) * 2, y: 0, width: 2, height: 2)
+            // Big enough for XCUITest to tap (the undo / redo probes), clear of the page's centre.
+            probe.frame = CGRect(x: CGFloat(index) * 12, y: 0, width: 10, height: 10)
             addSubview(probe)
         }
     }

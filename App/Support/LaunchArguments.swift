@@ -83,6 +83,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// label of a `reader.selectionProbe` element (value: its pages and the last Select All time).
     var exposeSelection = false
 
+    /// `-exposeMarkupState`: test-only. Adds `ReaderStateProbe`'s elements to the reader: markup,
+    /// tool picker, notes and undo state as an accessibility value (toolbar items do not carry
+    /// values to XCUITest), and buttons that undo / redo through the markup responder.
+    var exposeMarkupState = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -139,6 +144,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeViewportAnchor = true
             case "-exposeSelection":
                 exposeSelection = true
+            case "-exposeMarkupState":
+                exposeMarkupState = true
             default:
                 break
             }

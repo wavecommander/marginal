@@ -90,6 +90,8 @@ final class ReaderSession: Identifiable {
         var exposesViewportAnchor = false
         /// `-exposeSelection` (UI tests only): publish the text selection for accessibility.
         var exposesSelection = false
+        /// `-exposeMarkupState` (UI tests only): add `ReaderStateProbe`'s elements.
+        var exposesMarkupState = false
         /// Delay of the debounced `lastReadPageIndex` save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.
