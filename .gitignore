@@ -11,3 +11,5 @@ xcuserdata/
 .swiftpm/
 # Claude Code agent worktrees
 .claude/worktrees/
+# Local signing settings (team ID); see Config/Local.xcconfig.example
+Config/Local.xcconfig

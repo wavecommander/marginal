@@ -1,4 +1,9 @@
-# Marginal (working title): design
+# Tactile Texts: design
+
+The app's name is **Tactile Texts** (owner decision, 14 November 2026): that is the name on the
+Home Screen, in the menu bar, in exported files' metadata and on the App Store. "Marginal" was
+the working title and remains the internal name only: the repository, the Xcode target, scheme
+and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marginal`).
 
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
@@ -133,6 +138,10 @@ ones even where the mockup draws an approximation.
   without leaving markup mode.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and has a zoom
   control (100% to 200%, also pinch). Widening zooms the note page; it does not re-wrap it.
+  The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
+  the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
+  and snapping shut on release; a short slide that stops above the narrowest width just resizes.
+  The toolbar's notes button brings the pane back at the width it had before.
 - **Ink follows the text it annotates.** Each stroke belongs to the paragraph it was drawn over,
   or to the blank space after the text. When typing above makes a paragraph move down or up, its
   strokes move with it. Re-wrapping inside a paragraph does not move that paragraph's own strokes;
@@ -146,6 +155,14 @@ ones even where the mockup draws an approximation.
   ink canvas is active, so in markup mode the reader marks text by hand with the picker's
   highlighter pen, and leaves markup mode to make a text highlight. Existing highlights stay
   visible in markup mode.
+- **Select All selects the paragraph** (owner requirement). In the reader, Select All (the edit
+  menu item and ⌘A) never selects the whole book: PDFKit's default tries to select every page,
+  which on a book of thousands of pages is slow and useless. With text selected, Select All
+  grows the selection to the whole paragraph that contains it, on that page; if the selection
+  already covers a paragraph, or spans several, it grows to the whole paragraphs it touches and
+  no further. With nothing selected it does nothing in the PDF. Paragraphs are found from the
+  page's own text layout (line spacing and indentation), page by page, never by reading other
+  pages. Select All inside a text field or a note keeps its normal meaning.
 - **Ink is navigable like highlights and bookmarks** (owner requirement). Whatever the Pencil
   puts on a page, highlighter strokes and drawings alike, is something the reader can find and
   return to, not only something they see when they happen to scroll past it:
@@ -155,6 +172,22 @@ ones even where the mockup draws an approximation.
   - Contents note badges count pages with ink, as they count page notes and highlights;
   - each of these jumps to the page through the reader's jump API, so section history records
     it; and the lists update as ink is added or erased, in any window.
+- **The notes pane follows the system appearance** (owner requirement). In Dark Mode the whole
+  notes pane is dark, including the note page itself: dark paper, light typed text, and ink that
+  stays legible, using PencilKit's own light and dark ink rendering so a stroke drawn in one
+  appearance reads correctly in the other (black ink shows light on dark paper and returns to
+  black in Light Mode; the stored strokes are never changed by switching appearance). The pane
+  switches live with the system setting. This replaces the first build's choice to keep the note
+  page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
+  appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
+  the PDF draws them.
+- **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
+  note it is showing, page note or section note: a Delete Note action in the note's header,
+  disabled while the note is empty. It asks for confirmation, saying what will go (the typed
+  text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
+  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
+  note's row in "Page notes in this section" and in the Notebook. The change shows in every
+  window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts.
@@ -299,7 +332,8 @@ windows cover this), sharing single notes, PaperKit shapes and text boxes on the
 
 ## Open questions for the owner
 
-1. App name ("Marginal" is a placeholder) and bundle identifier.
+1. ~~App name and bundle identifier.~~ Settled: the app is "Tactile Texts", bundle identifier
+   `software.tactile.marginal`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
 3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?
