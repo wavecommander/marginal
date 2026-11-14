@@ -92,6 +92,10 @@ ones even where the mockup draws an approximation.
   point of the page at the top of the view stays at the top of the view, exactly, and closing
   then reopening a panel returns to the identical position with no drift however often it is
   repeated. Only scrolling, zooming and jumps change the position.
+- **No scroll-to-top** (owner feedback). Tapping the book's title, the navigation bar or the
+  status bar never sends the reader to the first page. The system's tap-to-scroll-to-top gesture
+  is switched off for the PDF: in a book of thousands of pages it loses the reader's place, and
+  the first page is one command away (Go › First Page) when it is wanted.
 - **Current page** is the page PDFKit reports as current while scrolling. The toolbar subtitle,
   the Contents selection, and the inspector all follow it.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
