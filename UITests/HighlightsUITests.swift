@@ -48,7 +48,8 @@ final class HighlightsUITests: XCTestCase {
         return last
     }
 
-    /// A body line of page 3 (PDFKit exposes the page text one line per static text).
+    /// The page-text element holding `text` (PDFKit exposes page text one paragraph per static
+    /// text; the phrase is a one-line paragraph).
     private func line(_ app: XCUIApplication, containing text: String) -> XCUIElement {
         let lines = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text))
         let hittable = (0..<lines.count).map { lines.element(boundBy: $0) }.first { $0.isHittable }
@@ -225,12 +226,18 @@ final class HighlightsUITests: XCTestCase {
         let app = launch()
         select(from: "the", to: "margins", onLineContaining: "amber fox", app: app)
         try chooseHighlight("Yellow", app: app)
-        select(from: "therefore", to: "observe", onLineContaining: "Inverse then hence", app: app)
-        try chooseHighlight("Green", app: app)
-        select(from: "kernel", to: "independent", onLineContaining: "Eigenvalue we kernel", app: app)
-        try chooseHighlight("Blue", app: app)
-        select(from: "product", to: "reduction", onLineContaining: "Obtain show product", app: app)
-        try chooseHighlight("Pink", app: app)
+        // The other paragraphs are justified and exposed as one element each, so a long press
+        // selects their first word (top-left of the element).
+        for (start, colour) in [("Inverse then hence", "Green"), ("Eigenvalue we kernel", "Blue"),
+                                ("Obtain show product", "Pink")] {
+            let paragraph = line(app, containing: start)
+            XCTAssertTrue(paragraph.waitForExistence(timeout: 10))
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: paragraph.frame.minX + 12, dy: paragraph.frame.minY + 6))
+                .press(forDuration: 1.2)
+            sleep(1)
+            try chooseHighlight(colour, app: app)
+        }
         XCTAssertTrue(waitFor { self.highlights(app, page: 3).count == 4 }, "found \(highlights(app, page: 3).count)")
         sleep(1)
         try save("highlights-four-colours")
