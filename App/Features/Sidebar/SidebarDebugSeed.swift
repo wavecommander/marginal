@@ -14,7 +14,35 @@ enum SidebarDebugSeed {
     static let argument = "-seedSidebar"
     static var isRequested: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
 
+    /// `-seedSidebarHeadings`: when the book has no user headings, builds a reader's outline
+    /// through `UserHeadingEditor` (as the add sheet does), for the hand-built outline
+    /// screenshot on `no-outline.pdf`: "1 Getting Started" (p. 1) › "1.1 Setting Up" (p. 3),
+    /// "1.2 First Steps" (p. 6); "2 Working with Data" (p. 10) › "2.1 Tables" (p. 12) ›
+    /// "2.1.1 Sorting" (p. 13); "3 Reference" (p. 25).
+    static let headingsArgument = "-seedSidebarHeadings"
+
+    static func seedHeadingsIfRequested(session: ReaderSession) {
+        guard ProcessInfo.processInfo.arguments.contains(headingsArgument),
+              ((try? session.store.headings.userHeadings(bookID: session.book.id)) ?? []).isEmpty else { return }
+        let bookID = session.book.id
+        func heading(_ title: String, _ page: Int, under parent: UserHeading?, _ order: TimeInterval) -> UserHeading {
+            UserHeading(bookID: bookID, title: title, pageIndex: page - 1, parent: parent?.anchor,
+                        createdAt: Date(timeIntervalSinceReferenceDate: 800_000_000 + order))
+        }
+        let one = heading("1 Getting Started", 1, under: nil, 1)
+        let two = heading("2 Working with Data", 10, under: nil, 4)
+        let tables = heading("2.1 Tables", 12, under: two, 5)
+        let all = [one, heading("1.1 Setting Up", 3, under: one, 2), heading("1.2 First Steps", 6, under: one, 3),
+                   two, tables, heading("2.1.1 Sorting", 13, under: tables, 6), heading("3 Reference", 25, under: nil, 7)]
+        try? session.perform { store in
+            for item in all where PageNumbering.isValid(item.pageIndex, pageCount: session.book.pageCount) {
+                try store.headings.save(item)
+            }
+        }
+    }
+
     static func seedIfRequested(session: ReaderSession) {
+        seedHeadingsIfRequested(session: session)
         guard isRequested else { return }
         let bookID = session.book.id
         guard ((try? session.store.notes.noteCount(bookID: bookID)) ?? 0) == 0 else { return }

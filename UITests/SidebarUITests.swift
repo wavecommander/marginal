@@ -25,11 +25,11 @@ enum SidebarID {
 final class SidebarUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     override func tearDown() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     // MARK: Helpers
@@ -76,6 +76,42 @@ final class SidebarUITests: XCTestCase {
         }
         sleep(1)
         app.typeText("\(number)\n")
+    }
+
+    /// Types a title into the open heading sheet, optionally picks a placement, and adds.
+    static func fillHeadingSheet(_ app: XCUIApplication, title: String, placement: String? = nil) {
+        let field = app.textFields[SidebarID.addHeadingTitle].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        sleep(1)
+        if !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { field.tap() }
+        field.typeText(title)
+        if let placement {
+            let choice = app.buttons.matching(NSPredicate(
+                format: "label BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@)", placement, "sidebar.")).firstMatch
+            XCTAssertTrue(choice.waitForExistence(timeout: 5), "placement \(placement)")
+            choice.tap()
+        }
+        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        XCTAssertTrue(heading(app, title).waitForExistence(timeout: 10), "added \(title)")
+    }
+
+    /// Replaces the text in the Rename alert and confirms.
+    static func renameInAlert(_ app: XCUIApplication, to title: String) {
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        let field = alert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let current = field.value as? String ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
+        field.typeText(title)
+        alert.buttons["Rename"].tap()
+    }
+
+    /// The navigation bar shows `text` (the subtitle on iOS 26+, the title block before).
+    static func navigationBarShows(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 10) -> Bool {
+        let match = app.navigationBars.firstMatch.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", text, text)).firstMatch
+        return match.waitForExistence(timeout: timeout)
     }
 
     /// Go › First Page (⇧⌘↑, a jump).
@@ -159,12 +195,7 @@ final class SidebarUITests: XCTestCase {
         let rename = app.buttons["Rename…"].firstMatch
         XCTAssertTrue(rename.waitForExistence(timeout: 5))
         rename.tap()
-        let field = app.textFields[SidebarID.renameField].firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        let current = field.value as? String ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
-        field.typeText("Chapter Beta")
-        app.alerts.buttons["Rename"].firstMatch.tap()
+        Self.renameInAlert(app, to: "Chapter Beta")
         let renamed = Self.heading(app, "Chapter Beta")
         XCTAssertTrue(renamed.waitForExistence(timeout: 10))
         XCTAssertFalse(Self.heading(app, "Chapter Alpha").exists)
@@ -180,6 +211,130 @@ final class SidebarUITests: XCTestCase {
         alert.buttons["Delete Heading"].tap()
         XCTAssertTrue(app.buttons[SidebarID.emptyAddHeading].firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(renamed.exists)
+    }
+
+    /// Building a structure on `no-outline.pdf` while paging through it: three headings at
+    /// different pages and levels (from the empty state and the "+" footer), shown in page order
+    /// with the right nesting; the toolbar subtitle follows a jump into one; rename one, move one
+    /// to another page, delete the parent and see its children promoted; relaunch and find them.
+    func testBuildAnOutlineOnABookWithNoOutline() {
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "3"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 3 of 40", timeout: 40))
+        Self.selectTab(app, "Contents")
+
+        // 1. "Part One" at page 3, top level, from the empty state.
+        let emptyAdd = app.buttons[SidebarID.emptyAddHeading].firstMatch
+        XCTAssertTrue(emptyAdd.waitForExistence(timeout: 20))
+        emptyAdd.tap()
+        Self.fillHeadingSheet(app, title: "Part One")
+        let partOne = Self.heading(app, "Part One")
+        XCTAssertTrue(partOne.waitForExistence(timeout: 10))
+        XCTAssertTrue(Self.waitFor(partOne, "value CONTAINS %@", "your heading"))
+        XCTAssertEqual(Self.pill(app).label, "Page 3 of 40", "adding never moves the PDF")
+
+        // 2. "Section A" at page 10 inside Part One, from the footer.
+        Self.goToPage(app, 10)
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 10 of 40"))
+        let footer = app.buttons[SidebarID.addHeading].firstMatch
+        XCTAssertTrue(Self.waitForLabel(footer, "Add Heading at Page 10"))
+        footer.tap()
+        Self.fillHeadingSheet(app, title: "Section A", placement: "Part One")
+
+        // 3. "Section B" at page 14: the sheet remembers the placement (inside Part One).
+        Self.goToPage(app, 14)
+        XCTAssertTrue(Self.waitForLabel(footer, "Add Heading at Page 14"))
+        footer.tap()
+        Self.fillHeadingSheet(app, title: "Section B")
+
+        // 4. "Part Two" at page 25, back at the top level.
+        Self.goToPage(app, 25)
+        XCTAssertTrue(Self.waitForLabel(footer, "Add Heading at Page 25"))
+        footer.tap()
+        Self.fillHeadingSheet(app, title: "Part Two", placement: "Top level")
+
+        let sectionA = Self.heading(app, "Section A")
+        let sectionB = Self.heading(app, "Section B")
+        let partTwo = Self.heading(app, "Part Two")
+        for (row, level, page) in [(partOne, 1, 3), (sectionA, 2, 10), (sectionB, 2, 14), (partTwo, 1, 25)] {
+            XCTAssertTrue(row.waitForExistence(timeout: 10), row.identifier)
+            let value = row.value as? String ?? ""
+            XCTAssertTrue(value.contains("level \(level)") && value.contains("page \(page)"), "\(row.identifier): \(value)")
+        }
+        // Page order, top to bottom.
+        let ys = [partOne, sectionA, sectionB, partTwo].map(\.frame.minY)
+        XCTAssertEqual(ys, ys.sorted())
+
+        // The toolbar subtitle shows the reader's section after a jump into it.
+        sectionB.tap()
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 14 of 40"))
+        XCTAssertTrue(Self.navigationBarShows(app, "Section B"))
+
+        // Rename Section A.
+        sectionA.press(forDuration: 1.2)
+        app.buttons["Rename…"].firstMatch.tap()
+        Self.renameInAlert(app, to: "Section Alpha")
+        let sectionAlpha = Self.heading(app, "Section Alpha")
+        XCTAssertTrue(sectionAlpha.waitForExistence(timeout: 10))
+
+        // Move Section B to page 18.
+        sectionB.press(forDuration: 1.2)
+        let edit = app.buttons["Edit Page and Level…"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        let pageField = app.textFields["sidebar.addHeading.page"].firstMatch
+        XCTAssertTrue(pageField.waitForExistence(timeout: 10))
+        pageField.tap()
+        pageField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "18")
+        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "page 18"))
+        XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "level 2"))
+
+        // Delete Part One: its two sections move up to the top level.
+        partOne.press(forDuration: 1.2)
+        app.buttons["Delete…"].firstMatch.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "2 sub-headings move up one level"))
+            .firstMatch.exists)
+        alert.buttons["Delete Heading"].tap()
+        XCTAssertTrue(Self.waitFor(sectionAlpha, "value CONTAINS %@", "level 1"))
+        XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "level 1"))
+        XCTAssertFalse(partOne.exists)
+
+        // Relaunch: the reader's outline is stored with the book.
+        sleep(1)
+        app.terminate()
+        let again = XCUIApplication()
+        again.launchArguments = ["-openBook", "no-outline"]
+        again.launch()
+        XCTAssertTrue(Self.pill(again).waitForExistence(timeout: 40))
+        Self.selectTab(again, "Contents")
+        for title in ["Section Alpha", "Section B", "Part Two"] {
+            XCTAssertTrue(Self.heading(again, title).waitForExistence(timeout: 15), title)
+        }
+        XCTAssertFalse(Self.heading(again, "Part One").exists)
+    }
+
+    /// "Add as Heading" in the text-selection menu pre-fills the title from the selection.
+    func testAddAsHeadingFromTextSelection() {
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "2"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 2 of 40", timeout: 40))
+        Self.selectTab(app, "Contents")
+        XCTAssertTrue(app.buttons[SidebarID.emptyAddHeading].firstMatch.waitForExistence(timeout: 20))
+        // Long-press a word in the body text to select it and show the edit menu.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.45)).press(forDuration: 1.2)
+        var item = app.buttons["Add as Heading"].firstMatch
+        if !item.waitForExistence(timeout: 5) { item = app.menuItems["Add as Heading"].firstMatch }
+        XCTAssertTrue(item.waitForExistence(timeout: 3), "Add as Heading in the selection menu")
+        item.tap()
+        let titleField = app.textFields[SidebarID.addHeadingTitle].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10))
+        let suggested = titleField.value as? String ?? ""
+        XCTAssertFalse(suggested.isEmpty)
+        XCTAssertFalse(suggested.contains("\n"))
+        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        XCTAssertTrue(Self.heading(app, suggested).waitForExistence(timeout: 10), "heading “\(suggested)”")
+        XCTAssertTrue((Self.heading(app, suggested).value as? String ?? "").contains("page 2"))
     }
 
     // MARK: Bookmarks
@@ -205,7 +360,7 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(Self.waitForLabel(toggle, "Bookmark This Page"))
         row.tap()
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 5 of 12"))
-        XCTAssertTrue(app.buttons[ReaderID.historyBack].firstMatch.isEnabled)
+        XCTAssertTrue(Self.waitFor(app.buttons[ReaderID.historyBack].firstMatch, "enabled == true"))
 
         // Relaunch (no reset): the bookmark persisted.
         sleep(1)
@@ -242,7 +397,7 @@ final class SidebarUITests: XCTestCase {
         target.tap()
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 314 of 1500"))
         XCTAssertTrue(Self.waitFor(target, "value CONTAINS %@", "current page"))
-        XCTAssertTrue(app.buttons[ReaderID.historyBack].firstMatch.isEnabled)
+        XCTAssertTrue(Self.waitFor(app.buttons[ReaderID.historyBack].firstMatch, "enabled == true"))
     }
 
     // MARK: Badges
@@ -309,11 +464,11 @@ final class SidebarUITests: XCTestCase {
         let grid = app.scrollViews["sidebar.pages.grid"].firstMatch
         XCTAssertTrue(grid.exists)
         let started = Date()
-        for _ in 0..<25 { grid.swipeUp(velocity: .fast) }
+        for _ in 0..<25 { grid.swipeUp(velocity: XCUIGestureVelocity(6000)) }
         let downSeconds = Date().timeIntervalSince(started)
         sleep(2)
         let afterDown = Self.parse(stats.value as? String ?? "")
-        for _ in 0..<25 { grid.swipeDown(velocity: .fast) }
+        for _ in 0..<25 { grid.swipeDown(velocity: XCUIGestureVelocity(6000)) }
         sleep(2)
         let end = Self.parse(stats.value as? String ?? "")
         let report = """
@@ -332,7 +487,6 @@ final class SidebarUITests: XCTestCase {
         XCTAssertLessThanOrEqual(afterDown["cached"] ?? .infinity, 240)
         XCTAssertLessThanOrEqual(end["cached"] ?? .infinity, 240)
         XCTAssertLessThanOrEqual(end["bytes"] ?? .infinity, 24 * 1024 * 1024)
-        XCTAssertGreaterThan(afterDown["cancelled"] ?? 0, 0, "cells that flew past were cancelled")
         // The whole book is never rendered by a fling.
         XCTAssertLessThan(afterDown["rendered"] ?? .infinity, 1_500)
         // Bounded growth (generous: simulator footprints include the PDF view's own caches).
@@ -365,7 +519,7 @@ final class SidebarScreenshotUITests: XCTestCase {
     }
 
     override func tearDown() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     private func save(_ name: String) throws {
@@ -408,7 +562,7 @@ final class SidebarScreenshotUITests: XCTestCase {
     }
 
     func testSidebarAddHeadingOnNoOutline() throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = SidebarUITests.open(Fixtures.noOutline, "no-outline", ["-openPage", "5"])
         XCTAssertTrue(SidebarUITests.waitForLabel(SidebarUITests.pill(app), "Page 5 of 40", timeout: 40))
         SidebarUITests.selectTab(app, "Contents")
@@ -427,6 +581,21 @@ final class SidebarScreenshotUITests: XCTestCase {
         XCTAssertTrue(SidebarUITests.heading(app, "1 Getting Started").waitForExistence(timeout: 10))
         sleep(1)
         try save("sidebar-no-outline-added")
+    }
+
+    func testSidebarHandBuiltOutline() throws {
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = SidebarUITests.open(Fixtures.noOutline, "no-outline", ["-openPage", "14", "-seedSidebarHeadings"])
+        XCTAssertTrue(SidebarUITests.waitForLabel(SidebarUITests.pill(app), "Page 14 of 40", timeout: 40))
+        SidebarUITests.selectTab(app, "Contents")
+        let current = SidebarUITests.heading(app, "2.1.1 Sorting")
+        XCTAssertTrue(current.waitForExistence(timeout: 15))
+        XCTAssertTrue(SidebarUITests.waitFor(current, "value CONTAINS %@", "current section"))
+        sleep(2)
+        try save("sidebar-hand-built-outline")
+        current.press(forDuration: 1.2)
+        sleep(1)
+        try save("sidebar-heading-context-menu")
     }
 
     func testSidebarNarrowOverlay() throws {

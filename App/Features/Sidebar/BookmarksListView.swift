@@ -61,7 +61,7 @@ private struct BookmarkRow: View {
 
     var body: some View {
         let number = PageNumbering.displayNumber(forPageIndex: bookmark.pageIndex)
-        let section = session.outline.deepestHeading(forPage: bookmark.pageIndex)?.title
+        let section = session.outline.deepestHeading(forPage: bookmark.pageIndex)
         let isCurrent = session.currentPageIndex == bookmark.pageIndex
         Button { session.jump(toPage: bookmark.pageIndex) } label: {
             HStack(spacing: 12) {
@@ -72,10 +72,13 @@ private struct BookmarkRow: View {
                         .fontWeight(isCurrent ? .semibold : .regular)
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     if let section {
-                        Text(section)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                        HStack(spacing: 4) {
+                            Text(section.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            if section.isUserHeading { ReaderHeadingMark() }
+                        }
                     }
                 }
                 Spacer(minLength: 0)
@@ -91,7 +94,8 @@ private struct BookmarkRow: View {
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Page \(number)")
-        .accessibilityValue([section, isCurrent ? "current page" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([section.map { $0.isUserHeading ? "\($0.title), your heading" : $0.title },
+                             isCurrent ? "current page" : nil].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: "Remove Bookmark") {
             BookmarkActions.setBookmarked(false, page: bookmark.pageIndex, session: session)

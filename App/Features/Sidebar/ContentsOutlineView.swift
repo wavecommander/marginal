@@ -48,8 +48,8 @@ private struct ContentsList: View {
                                 Button(role: .destructive) { actions.delete(row.node) } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
-                                Button { actions.rename(row.node) } label: {
-                                    Label("Rename", systemImage: "pencil")
+                                Button { actions.edit(row.node) } label: {
+                                    Label("Edit", systemImage: "pencil")
                                 }
                             }
                         }
@@ -94,6 +94,7 @@ private struct ContentsRowView: View {
         let node = row.node
         let isCurrent = model.currentRow == row.anchor
         let isOnPath = model.currentPath.contains(row.anchor)
+        let isSelected = model.selectedHeading == row.anchor
         let counts = session.notebook?.counts(for: row.anchor)
         let hasBadge = counts?.hasBadge ?? false
 
@@ -101,13 +102,18 @@ private struct ContentsRowView: View {
             disclosure
             Button { model.select(node) } label: {
                 HStack(spacing: 6) {
-                    Text(node.title)
-                        .font(.body)
-                        .fontWeight(isCurrent || row.depth == 0 ? .semibold : .regular)
-                        .foregroundStyle(isCurrent || isOnPath ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 5) {
+                        Text(node.title)
+                            .font(.body)
+                            .fontWeight(isCurrent || row.depth == 0 ? .semibold : .regular)
+                            .foregroundStyle(isCurrent || isOnPath ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                        if node.isUserHeading {
+                            ReaderHeadingMark()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     if hasBadge {
                         Image(systemName: "note.text")
                             .font(.footnote)
@@ -137,6 +143,11 @@ private struct ContentsRowView: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isCurrent ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
+        .overlay(
+            // The heading just added or edited stays selected until the reader moves on.
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .contextMenu { contextMenu }
     }
@@ -174,7 +185,14 @@ private struct ContentsRowView: View {
             Button(row.isExpanded ? "Collapse" : "Expand") { model.toggle(row.anchor) }
         }
         if node.isEditable {
+            Button("Edit") { actions.edit(node) }
             Button("Rename") { actions.rename(node) }
+            if UserHeadingEditor.neighbourPlacement(node, up: true, outline: session.outline) != nil {
+                Button("Move Up a Level") { actions.move(node, true) }
+            }
+            if let down = UserHeadingEditor.neighbourPlacement(node, up: false, outline: session.outline) {
+                Button("Move Under \(down.title)") { actions.move(node, false) }
+            }
             Button("Delete") { actions.delete(node) }
         }
     }
@@ -191,6 +209,15 @@ private struct ContentsRowView: View {
         if node.isEditable {
             Divider()
             Button { actions.rename(node) } label: { Label("Rename…", systemImage: "pencil") }
+            Button { actions.edit(node) } label: { Label("Edit Page and Level…", systemImage: "slider.horizontal.3") }
+            if UserHeadingEditor.neighbourPlacement(node, up: true, outline: session.outline) != nil {
+                Button { actions.move(node, true) } label: { Label("Move Up a Level", systemImage: "arrow.left") }
+            }
+            if let down = UserHeadingEditor.neighbourPlacement(node, up: false, outline: session.outline) {
+                Button { actions.move(node, false) } label: {
+                    Label("Move Under “\(down.title)”", systemImage: "arrow.right")
+                }
+            }
             Button(role: .destructive) { actions.delete(node) } label: { Label("Delete…", systemImage: "trash") }
         }
     }

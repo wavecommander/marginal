@@ -14,6 +14,16 @@ import ReaderCore
 @Observable
 @MainActor
 final class ContentsSidebarModel {
+    /// The add/edit heading sheet to show.
+    struct HeadingSheetRequest: Identifiable, Equatable {
+        enum Mode: Equatable {
+            case add(pageIndex: Int, title: String)
+            case edit(anchor: HeadingAnchor)
+        }
+        let id = UUID()
+        let mode: Mode
+    }
+
     /// A request for the Contents list to scroll a row into view (the view performs it).
     struct ScrollRequest: Equatable {
         let anchor: HeadingAnchor
@@ -39,6 +49,18 @@ final class ContentsSidebarModel {
     private(set) var currentRow: HeadingAnchor?
     /// The latest scroll request for the Contents list.
     private(set) var scrollRequest: ScrollRequest?
+
+    // MARK: The reader's headings
+
+    /// The add/edit heading sheet to show (any entry point sets it; the sidebar presents it).
+    var headingSheet: HeadingSheetRequest?
+    /// The heading just added or edited: revealed and shown selected in Contents until the reader
+    /// taps a heading or adds another.
+    private(set) var selectedHeading: HeadingAnchor?
+    /// The placement used last in this window (the sheet re-applies it).
+    @ObservationIgnored private(set) var lastPlacement: HeadingPlacementMemory?
+    /// Increases when a heading was added or edited, so the sidebar can switch to Contents.
+    private(set) var headingSaveCount = 0
 
     // MARK: Pages and bookmarks
 
@@ -103,7 +125,30 @@ final class ContentsSidebarModel {
 
     /// The reader tapped a heading: jump through the session (records section history).
     func select(_ node: OutlineNode) {
+        selectedHeading = nil
         session.jump(to: node)
+    }
+
+    // MARK: The reader's headings
+
+    /// Opens the add-heading sheet at a zero-based page with an optional suggested title.
+    func presentAddHeading(atPage pageIndex: Int, title: String = "") {
+        let page = PageNumbering.isValid(pageIndex, pageCount: session.pageCount) ? pageIndex : session.currentPageIndex
+        headingSheet = HeadingSheetRequest(mode: .add(pageIndex: page, title: title))
+    }
+
+    /// Opens the edit sheet (title, page, placement) for a reader's heading.
+    func presentEdit(_ node: OutlineNode) {
+        guard node.isEditable else { return }
+        headingSheet = HeadingSheetRequest(mode: .edit(anchor: node.anchor))
+    }
+
+    /// The sheet saved a heading: remember the placement, reveal and select it.
+    func headingSaved(_ anchor: HeadingAnchor, placement: HeadingParentChoice, isNew: Bool) {
+        if isNew { lastPlacement = HeadingPlacementMemory(parent: placement.anchor, childLevel: placement.childLevel) }
+        selectedHeading = anchor
+        headingSaveCount += 1
+        revealWhenAvailable(anchor)
     }
 
     /// The reader tapped a disclosure chevron.
@@ -118,11 +163,15 @@ final class ContentsSidebarModel {
         toggle(anchor)
     }
 
-    /// Reveal a heading once it exists in the outline (after adding it): its ancestors open and
-    /// the list scrolls to it.
+    /// Reveal a heading in the outline the session builds next (after adding or moving it): its
+    /// ancestors open and the list scrolls to it. If it is already in the current outline it is
+    /// revealed now too.
     func revealWhenAvailable(_ anchor: HeadingAnchor) {
         pendingReveal = anchor
-        applyPendingReveal()
+        if !session.outline.lineage(of: anchor).isEmpty {
+            applyPendingReveal()
+            pendingReveal = anchor  // again after the rebuild (its place may have changed)
+        }
     }
 
     // MARK: Contents: list callbacks

@@ -1,26 +1,57 @@
 import ReaderCore
 import SwiftUI
 
-/// "Add Heading at Page N": a title (a standard text field, so Scribble works), the page
-/// (defaults to N), and where it goes: "Top level" or inside one of the headings that contain the
-/// page (the core's recommended choices), defaulting to the same level as the page's current
-/// section. Saves through `UserHeadingEditor.add` (`session.perform`).
-struct AddHeadingSheet: View {
+/// The one sheet for the reader's own headings.
+///
+/// - **Add** ("Add Heading at Page N" from Contents, its empty state, a thumbnail, the
+///   selection menu's "Add as Heading", or `SidebarHeadingActions`): a title (a standard text
+///   field, so Scribble works; pre-filled from a selection), the page (defaults to N), and the
+///   placement: top level or under any heading that contains the page. The placement defaults
+///   to the one used last in this window when it fits the page, else the deepest heading that
+///   contains the page, else top level.
+/// - **Edit** a reader's heading: rename, move to another page, change level/parent (promote to
+///   top level, or demote under any heading containing the page). The heading itself and its
+///   sub-headings are never offered as its parent.
+///
+/// Saving never moves the PDF; the new or edited heading is revealed and selected in Contents.
+struct HeadingSheet: View {
     let session: ReaderSession
-    let onAdded: (HeadingAnchor) -> Void
+    let model: ContentsSidebarModel
+    let request: ContentsSidebarModel.HeadingSheetRequest
 
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
+    @State private var title: String
     @State private var pageText: String
     @State private var parent: HeadingParentChoice
     @State private var errorMessage: String?
     @FocusState private var titleFocused: Bool
 
-    init(session: ReaderSession, initialPageIndex: Int, onAdded: @escaping (HeadingAnchor) -> Void) {
+    /// The edited heading (`nil` when adding).
+    private let editing: HeadingAnchor?
+
+    init(session: ReaderSession, model: ContentsSidebarModel, request: ContentsSidebarModel.HeadingSheetRequest) {
         self.session = session
-        self.onAdded = onAdded
-        _pageText = State(initialValue: "\(PageNumbering.displayNumber(forPageIndex: initialPageIndex))")
-        _parent = State(initialValue: UserHeadingEditor.defaultParent(outline: session.outline, pageIndex: initialPageIndex))
+        self.model = model
+        self.request = request
+        let outline = session.outline
+        switch request.mode {
+        case .add(let pageIndex, let suggested):
+            editing = nil
+            _title = State(initialValue: suggested)
+            _pageText = State(initialValue: "\(PageNumbering.displayNumber(forPageIndex: pageIndex))")
+            let choices = UserHeadingEditor.parentChoices(outline: outline, pageIndex: pageIndex)
+            _parent = State(initialValue: UserHeadingEditor.rememberedParent(model.lastPlacement, choices: choices)
+                ?? UserHeadingEditor.defaultParent(outline: outline, pageIndex: pageIndex))
+        case .edit(let anchor):
+            editing = anchor
+            let node = outline.node(for: anchor)
+            let page = node?.startPage ?? session.currentPageIndex
+            _title = State(initialValue: node?.title ?? "")
+            _pageText = State(initialValue: "\(PageNumbering.displayNumber(forPageIndex: page))")
+            let choices = UserHeadingEditor.parentChoices(outline: outline, pageIndex: page, excluding: anchor)
+            _parent = State(initialValue: choices.first { $0.anchor == node?.parentAnchor }
+                ?? UserHeadingEditor.defaultParent(outline: outline, pageIndex: page, excluding: anchor))
+        }
     }
 
     /// The zero-based page typed, if valid.
@@ -31,11 +62,12 @@ struct AddHeadingSheet: View {
     }
 
     private var choices: [HeadingParentChoice] {
-        UserHeadingEditor.parentChoices(outline: session.outline, pageIndex: pageIndex ?? 0)
+        UserHeadingEditor.parentChoices(outline: session.outline, pageIndex: pageIndex ?? 0, excluding: editing)
     }
 
     private var canSave: Bool {
         pageIndex != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && choices.contains(parent)
     }
 
     var body: some View {
@@ -68,24 +100,22 @@ struct AddHeadingSheet: View {
                 Section {
                     Picker("Place", selection: $parent) {
                         ForEach(choices) { choice in
-                            Text(choice.title)
-                                .padding(.leading, CGFloat(choice.childLevel - 1) * 14)
-                                .tag(choice)
+                            HeadingChoiceLabel(choice: choice).tag(choice)
                         }
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
                     .accessibilityIdentifier(SidebarAccessibilityID.addHeadingParent)
                 } header: {
-                    Text("Place inside")
+                    Text("Place")
                 } footer: {
-                    Text("The new heading will be at level \(parent.childLevel).")
+                    Text("Level \(parent.childLevel). A heading can go at the top level or under any heading that contains its page.")
                 }
                 if let errorMessage {
                     Section { Text(errorMessage).foregroundStyle(.red) }
                 }
             }
-            .navigationTitle("Add Heading")
+            .navigationTitle(editing == nil ? "Add Heading" : "Edit Heading")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -93,28 +123,63 @@ struct AddHeadingSheet: View {
                         .accessibilityIdentifier(SidebarAccessibilityID.addHeadingCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add", action: save)
+                    Button(editing == nil ? "Add" : "Save", action: save)
                         .disabled(!canSave)
                         .accessibilityIdentifier(SidebarAccessibilityID.addHeadingSave)
                 }
             }
         }
         .onChange(of: pageIndex) { _, newPage in
-            // Keep the choice only if it still contains the new page.
-            guard let newPage, !choices.contains(parent) else { return }
-            parent = UserHeadingEditor.defaultParent(outline: session.outline, pageIndex: newPage)
+            // Keep the placement while it still contains the new page.
+            guard let newPage else { return }
+            let newChoices = UserHeadingEditor.parentChoices(outline: session.outline, pageIndex: newPage, excluding: editing)
+            guard !newChoices.contains(parent) else { return }
+            parent = newChoices.first { $0.childLevel == parent.childLevel }
+                ?? UserHeadingEditor.defaultParent(outline: session.outline, pageIndex: newPage, excluding: editing)
         }
-        .onAppear { titleFocused = true }
+        .onAppear { if editing == nil { titleFocused = true } }
     }
 
     private func save() {
         guard canSave, let pageIndex else { return }
         do {
-            let anchor = try UserHeadingEditor.add(title: title, pageIndex: pageIndex, parent: parent, session: session)
-            onAdded(anchor)
+            if let editing {
+                try UserHeadingEditor.update(editing, title: title, pageIndex: pageIndex, parent: parent, session: session)
+                model.headingSaved(editing, placement: parent, isNew: false)
+            } else {
+                let anchor = try UserHeadingEditor.add(title: title, pageIndex: pageIndex, parent: parent, session: session)
+                model.headingSaved(anchor, placement: parent, isNew: true)
+            }
             dismiss()
         } catch {
             errorMessage = "The heading could not be saved."
         }
+    }
+}
+
+/// A placement choice, indented by level, with the reader's own headings marked.
+private struct HeadingChoiceLabel: View {
+    let choice: HeadingParentChoice
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(choice.title)
+            if choice.isUserHeading {
+                ReaderHeadingMark()
+            }
+        }
+        .padding(.leading, CGFloat(choice.childLevel - 1) * 14)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(choice.isUserHeading ? "\(choice.title), your heading" : choice.title)
+    }
+}
+
+/// The subtle mark of a heading the reader added (VoiceOver says "your heading" on the row).
+struct ReaderHeadingMark: View {
+    var body: some View {
+        Image(systemName: "person.crop.circle")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
     }
 }

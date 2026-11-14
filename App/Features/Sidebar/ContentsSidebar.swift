@@ -14,12 +14,14 @@ enum SidebarTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the tabs ask the sidebar to present (sheets and alerts live at the sidebar's root so
-/// they survive switching tabs).
+/// What the tabs ask the sidebar to do with headings (sheets and alerts live at the sidebar's
+/// root so they survive switching tabs).
 @MainActor
 struct SidebarActions {
     var addHeading: (_ pageIndex: Int) -> Void
+    var edit: (_ node: OutlineNode) -> Void
     var rename: (_ node: OutlineNode) -> Void
+    var move: (_ node: OutlineNode, _ up: Bool) -> Void
     var delete: (_ node: OutlineNode) -> Void
 }
 
@@ -33,13 +35,13 @@ struct SidebarActions {
 ///   `ContentsSidebarModel` (`session.featureState`), the selected tab in scene storage.
 /// - Navigates only through `session.jump(…)` (section history), never the PDF view; showing,
 ///   hiding or switching tabs never touches the reading position.
+/// - Presents the one heading sheet for every add/edit entry point (`model.headingSheet`).
 struct ContentsSidebar: View {
     let session: ReaderSession
     private let model: ContentsSidebarModel
 
     /// Remembered per window (scene) and restored with it.
     @SceneStorage("sidebar.tab") private var tabRaw = SidebarTab.contents.rawValue
-    @State private var addHeadingRequest: AddHeadingRequest?
     @State private var renaming: OutlineNode?
     @State private var renameText = ""
     @State private var deleting: PendingDeletion?
@@ -47,6 +49,7 @@ struct ContentsSidebar: View {
     init(session: ReaderSession) {
         self.session = session
         self.model = session.featureState { ContentsSidebarModel(session: session) }
+        SidebarHeadingActions.install(on: session)
     }
 
     private var tab: Binding<SidebarTab> {
@@ -54,11 +57,19 @@ struct ContentsSidebar: View {
     }
 
     private var actions: SidebarActions {
-        SidebarActions(
-            addHeading: { page in addHeadingRequest = AddHeadingRequest(pageIndex: page) },
+        let model = model
+        let session = session
+        return SidebarActions(
+            addHeading: { page in model.presentAddHeading(atPage: page) },
+            edit: { node in model.presentEdit(node) },
             rename: { node in
                 renameText = node.title
                 renaming = node
+            },
+            move: { node, up in
+                if (try? UserHeadingEditor.move(node, up: up, session: session)) != nil {
+                    model.headingSaved(node.anchor, placement: .topLevel, isNew: false)
+                }
             },
             delete: { node in
                 guard let summary = try? UserHeadingEditor.deletionSummary(node.anchor, session: session) else { return }
@@ -90,17 +101,23 @@ struct ContentsSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
         .onAppear { model.start() }
-        .sheet(item: $addHeadingRequest) { request in
-            AddHeadingSheet(session: session, initialPageIndex: request.pageIndex) { anchor in
-                model.revealWhenAvailable(anchor)
-            }
+        .onChange(of: model.headingSaveCount) { _, _ in
+            // A heading was added or edited: show it in Contents.
+            if tab.wrappedValue != .contents { tab.wrappedValue = .contents }
+        }
+        .sheet(item: sheetBinding) { request in
+            HeadingSheet(session: session, model: model, request: request)
         }
         .alert("Rename Heading", isPresented: renamingBinding, presenting: renaming) { node in
             TextField("Title", text: $renameText)
                 .accessibilityIdentifier(SidebarAccessibilityID.renameField)
             Button("Cancel", role: .cancel) {}
-            Button("Rename") { try? UserHeadingEditor.rename(node.anchor, to: renameText, session: session) }
-                .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Rename") {
+                if (try? UserHeadingEditor.rename(node.anchor, to: renameText, session: session)) != nil {
+                    model.headingSaved(node.anchor, placement: .topLevel, isNew: false)
+                }
+            }
+            .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .alert(deleting.map { "Delete “\($0.summary.title)”?" } ?? "", isPresented: deletingBinding,
                presenting: deleting) { pending in
@@ -115,6 +132,10 @@ struct ContentsSidebar: View {
         .accessibilityIdentifier(SidebarAccessibilityID.root)
     }
 
+    private var sheetBinding: Binding<ContentsSidebarModel.HeadingSheetRequest?> {
+        Binding(get: { model.headingSheet }, set: { model.headingSheet = $0 })
+    }
+
     private var renamingBinding: Binding<Bool> {
         Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
     }
@@ -122,11 +143,6 @@ struct ContentsSidebar: View {
     private var deletingBinding: Binding<Bool> {
         Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
     }
-}
-
-private struct AddHeadingRequest: Identifiable {
-    let id = UUID()
-    let pageIndex: Int
 }
 
 private struct PendingDeletion {
