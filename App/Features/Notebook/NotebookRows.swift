@@ -93,7 +93,8 @@ struct NotebookRowView: View {
                 Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target) }
             }
         }
-        .accessibilityElement(children: .ignore)
+        // Modifiers on the button itself (no wrapping element): one element per row, read as
+        // section, page and note text, with handwriting announced.
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(target == nil ? "" : "Opens the book at this page")
         .accessibilityAddTraits(row.isHeader ? .isHeader : [])
@@ -232,7 +233,7 @@ struct NotebookRowView: View {
         let text = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
         switch (text.isEmpty, note.hasInk) {
         case (true, true): return "Handwritten note."
-        case (false, true): return text + ". Has handwriting."
+        case (false, true): return text + (text.last.map { ".!?".contains($0) } == true ? "" : ".") + " Has handwriting."
         default: return text
         }
     }

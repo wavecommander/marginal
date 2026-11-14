@@ -74,6 +74,7 @@ private struct NotebookContent: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var rows: [NotebookFeedRow] = []
     @State private var entries: [NotebookScopeEntry] = []
     @State private var feedVersion = 0
@@ -283,7 +284,7 @@ private struct NotebookContent: View {
                     HStack(spacing: 6) {
                         Text(entry.title)
                             .fontWeight(entry.level <= 1 ? .semibold : .regular)
-                            .lineLimit(2)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 5 : 2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text("\(entry.count)")
                             .font(.footnote)
