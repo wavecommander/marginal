@@ -220,29 +220,30 @@ struct NotesPageIsInSection: View {
 
     private func row(_ node: OutlineNode, depth: Int) -> some View {
         let noted = session.notebook?.section(for: node.anchor)?.note != nil
-        return Button { controller.openSectionNote(for: node) } label: {
-            HStack(spacing: 8) {
-                Text(node.title)
-                    .font(.subheadline.weight(.medium))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // The row is one element with its own label; never a bare title element.
-                    .accessibilityHidden(true)
-                if noted {
-                    Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
-                }
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        // UI automation still lists the row's text as a child element even though VoiceOver sees
+        // one element (iOS 27), so the text carries the row's label too: no bare "<title>" element
+        // for other features' title queries to hit.
+        return HStack(spacing: 8) {
+            Text(node.title)
+                .font(.subheadline.weight(.medium))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Section note for \(node.title)")
+            if noted {
+                Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
             }
-            .padding(.leading, CGFloat(depth) * 14)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, CGFloat(depth) * 14)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
         .hoverEffect(.highlight)
+        .onTapGesture { controller.openSectionNote(for: node) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Section note for \(node.title)")
         .accessibilityValue(noted ? "Has a note" : "")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { controller.openSectionNote(for: node) }
         .accessibilityIdentifier(NotesPanelAccessibilityID.pageIsIn)
     }
 }
