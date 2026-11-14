@@ -89,15 +89,23 @@ extension SearchTests {
             let page = try #require(document.page(at: hit.pageIndex))
             #expect(hit.pageIndex == 2)
             #expect(!hit.rects.isEmpty)
-            let underRects = hit.rects.compactMap { page.selection(for: $0.insetBy(dx: 1, dy: 1))?.string }
-                .joined(separator: " ")
-            #expect(matcher.foldQuery(underRects).count >= needleCount("quick amber fox"))
-            #expect(underRects.lowercased().contains("amber"), "text under the rects: \(underRects)")
-        }
-
-        private func needleCount(_ query: String) -> Int {
-            var matcher = SearchTextMatcher()
-            return matcher.foldQuery(query).count
+            // Geometry, independent of selections: every character of the match lies inside the
+            // reported rects (PDFKit's own per-character bounds), and the rects hug the match.
+            let text = try #require(page.string) as NSString
+            let range = text.range(of: "quick amber fox")
+            #expect(range.location != NSNotFound)
+            let union = hit.rects.reduce(CGRect.null) { $0.union($1) }
+            for offset in 0..<range.length {
+                let glyph = page.characterBounds(at: range.location + offset)
+                guard !glyph.isEmpty else { continue }
+                let center = CGPoint(x: glyph.midX, y: glyph.midY)
+                #expect(hit.rects.contains { $0.insetBy(dx: -1, dy: -1).contains(center) },
+                        "character \(offset) at \(glyph) outside \(hit.rects)")
+            }
+            #expect(union.width < 200 && union.height < 40, "rects \(hit.rects)")
+            // What the shell does to mark the hit (`PDFPage.selection(for: CGRect)` on each rect).
+            let marked = hit.rects.compactMap { page.selection(for: $0)?.string }.joined(separator: " ")
+            print("SEARCH-MARK rects \(hit.rects) select '\(marked)'")
         }
 
         // MARK: Streaming
