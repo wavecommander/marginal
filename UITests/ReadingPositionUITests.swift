@@ -129,7 +129,8 @@ final class ReadingPositionUITests: XCTestCase {
             from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: -200, dy: 0)))
             assertSamePosition(start, settledAnchor(app), "\(label) divider widened")
             let back = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            back.press(forDuration: 0.1, thenDragTo: back.withOffset(CGVector(dx: 400, dy: 0)))
+            // Back to the narrowest width (no further: sliding past it closes the pane).
+            back.press(forDuration: 0.1, thenDragTo: back.withOffset(CGVector(dx: 200, dy: 0)))
             assertSamePosition(start, settledAnchor(app), "\(label) divider back")
         }
     }
@@ -218,6 +219,93 @@ final class ReadingPositionUITests: XCTestCase {
         assertSamePosition(start, settledAnchor(app), "status bar tap, PDF alone")
         XCTAssertFalse(app.buttons["reader.toolbar.historyBack"].firstMatch.isEnabled, "no history entry")
         XCTAssertEqual(app.buttons["reader.pagePill"].firstMatch.label, pillBefore)
+    }
+
+    /// Design "Writing room": sliding the notes handle to the pane's own edge closes the pane
+    /// (a slow slide that stops just past the narrowest width only resizes); the reading position
+    /// holds through every drag and the snap; the toolbar button reopens the pane at the width it
+    /// had before the closing slide began. Also checks the handle's 44 pt hit area.
+    func testSlidingTheNotesHandleShutClosesThePane() {
+        let app = launch(Fixtures.small, "small")
+        scrollPage(app, by: 0.3)
+        let start = settledAnchor(app)
+        let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        func width() -> Int { Int((divider.value as? String ?? "").split(separator: " ").first ?? "") ?? -1 }
+        func handle(dx: CGFloat = 0) -> XCUICoordinate {
+            divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: dx, dy: 0))
+        }
+        let narrowest = width()
+        XCTAssertEqual(narrowest, 330)
+
+        // The hit area: a drag starting 16 pt left of the 12 pt strip, on the pill's level, widens.
+        handle(dx: -16).press(forDuration: 0.3, thenDragTo: handle(dx: -136), withVelocity: 300,
+                              thenHoldForDuration: 0.3)
+        let widened = width()
+        XCTAssertGreaterThan(widened, narrowest + 80, "a drag next to the strip did not move the handle")
+        assertSamePosition(start, settledAnchor(app), "handle widened")
+
+        // A slow slide that stops just past the narrowest width resizes, it does not close.
+        handle().press(forDuration: 0.3, thenDragTo: handle(dx: CGFloat(widened - narrowest) + 16), withVelocity: 60,
+                       thenHoldForDuration: 0.5)
+        sleep(1)
+        XCTAssertTrue(divider.exists, "a slow slide near the narrowest width closed the pane")
+        XCTAssertEqual(width(), narrowest)
+        assertSamePosition(start, settledAnchor(app), "slow slide to the narrowest width")
+
+        // Widen again, then slide the handle all the way to the window's edge.
+        handle().press(forDuration: 0.3, thenDragTo: handle(dx: -100), withVelocity: 300, thenHoldForDuration: 0.3)
+        let before = width()
+        XCTAssertGreaterThan(before, narrowest + 50)
+        let edge = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: 0.5))
+        let from = handle()
+        from.press(forDuration: 0.3, thenDragTo: edge, withVelocity: 600, thenHoldForDuration: 0.1)
+        let notesToggle = app.buttons["reader.toolbar.notes"].firstMatch
+        let deadline = Date().addingTimeInterval(5)
+        while divider.exists && Date() < deadline { usleep(250_000) }
+        XCTAssertFalse(divider.exists, "the pane did not close")
+        XCTAssertEqual(notesToggle.value as? String, "hidden")
+        assertSamePosition(start, settledAnchor(app), "slid shut")
+
+        // The toolbar button brings it back at the width from before the closing slide.
+        notesToggle.tap()
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        XCTAssertEqual(width(), before, "reopened at another width")
+        assertSamePosition(start, settledAnchor(app), "reopened")
+        XCTAssertFalse(app.buttons["reader.toolbar.historyBack"].firstMatch.isEnabled, "no history entry")
+    }
+
+    /// In markup mode the handle resizes and slides the pane shut without inking the page or the note.
+    func testSlidingTheNotesHandleInMarkupModeDrawsNothing() {
+        let app = launch(Fixtures.small, "small", ["-markup"])
+        XCTAssertTrue(app.buttons["reader.toolbar.done"].waitForExistence(timeout: 10))
+        let start = settledAnchor(app)
+        let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        func handle(dx: CGFloat = 0) -> XCUICoordinate {
+            divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: dx, dy: 0))
+        }
+        func assertNoInk(_ context: String) {
+            let pageInk = app.images.matching(NSPredicate(format: "identifier BEGINSWITH %@", "pageInk.ink.")).count
+            XCTAssertEqual(pageInk, 0, "\(context): a stroke on the page")
+            XCTAssertFalse(app.images["notePage.ink"].exists, "\(context): a stroke in the note")
+        }
+        handle(dx: -16).press(forDuration: 0.3, thenDragTo: handle(dx: -136), withVelocity: 300, thenHoldForDuration: 0.3)
+        handle(dx: 16).press(forDuration: 0.3, thenDragTo: handle(dx: 76), withVelocity: 300, thenHoldForDuration: 0.3)
+        sleep(1)
+        assertNoInk("resized")
+        handle().press(forDuration: 0.3,
+                       thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: 0.5)),
+                       withVelocity: 600, thenHoldForDuration: 0.1)
+        let deadline = Date().addingTimeInterval(5)
+        while divider.exists && Date() < deadline { usleep(250_000) }
+        XCTAssertFalse(divider.exists, "the pane did not close in markup mode")
+        assertSamePosition(start, settledAnchor(app), "markup: slid shut")
+        app.buttons["reader.toolbar.notes"].firstMatch.tap()
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        sleep(1)
+        assertNoInk("closed and reopened")
+        XCTAssertTrue(app.buttons["reader.toolbar.done"].exists, "markup mode ended")
     }
 
     func testNarrowPanelsKeepPosition() {
