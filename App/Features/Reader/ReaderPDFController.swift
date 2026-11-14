@@ -220,6 +220,51 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.clearSelection()
     }
 
+    /// The PDF's Select All (design: "Select All selects the paragraph"): grows the selection
+    /// to the whole paragraphs it touches on each of its pages, from each page's own layout
+    /// (`ParagraphSelection`). Nothing happens without a selection. The scroll position is kept
+    /// and nothing is recorded in section history.
+    func selectParagraphs() {
+        guard isViewLoaded, let selection = view.currentSelection, !selection.pages.isEmpty else { return }
+        let start = CFAbsoluteTimeGetCurrent()
+        guard let grown = ParagraphSelection.expanding(selection, displayBox: view.displayBox) else { return }
+        let offset = scrollView?.contentOffset
+        view.setCurrentSelection(grown, animate: false)
+        if let offset, let scrollView, scrollView.contentOffset != offset {
+            scrollView.setContentOffset(offset, animated: false)
+        }
+        lastSelectAllDuration = CFAbsoluteTimeGetCurrent() - start
+        updateSelectionProbe()
+    }
+
+    /// How long the last Select All took (seconds), for the test hook.
+    private(set) var lastSelectAllDuration: CFTimeInterval?
+
+    /// Test hook (`-exposeSelection`): an accessibility element whose label is the current
+    /// selection's text and whose value is "pages P; ms T" (the selection's page indices and the
+    /// last Select All's time).
+    private(set) lazy var selectionProbe: UIView? = {
+        guard session?.configuration.exposesSelection == true else { return nil }
+        let probe = UIView()
+        probe.isAccessibilityElement = true
+        probe.accessibilityTraits = .button
+        probe.accessibilityIdentifier = AccessibilityID.Reader.selectionProbe
+        probe.accessibilityLabel = "none"
+        NotificationCenter.default.addObserver(forName: .PDFViewSelectionChanged, object: view, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateSelectionProbe() }
+        }
+        return probe
+    }()
+
+    private func updateSelectionProbe() {
+        guard let selectionProbe else { return }
+        let selection = view.currentSelection
+        selectionProbe.accessibilityLabel = selection?.string ?? "none"
+        let pages = selection?.pages.compactMap { pageIndex(of: $0) }.map(String.init).joined(separator: ",") ?? ""
+        let ms = lastSelectAllDuration.map { String(format: "%.1f", $0 * 1000) } ?? "-"
+        selectionProbe.accessibilityValue = "pages \(pages); ms \(ms)"
+    }
+
     // MARK: Annotations (WP7). The file on disk is never written; these live in memory only.
 
     /// Adds an annotation to a page of the on-screen document (shown immediately).
@@ -528,6 +573,14 @@ final class ReaderPDFView: PDFView {
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
         applyPDFKitPolicies()
+        if !isPDFKitChrome(subview) { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+    }
+
+    override func willRemoveSubview(_ subview: UIView) {
+        super.willRemoveSubview(subview)
+        if !isPDFKitChrome(subview) {
+            DispatchQueue.main.async { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+        }
     }
 
     /// The per-view policies PDFKit's own views need, re-applied whenever PDFKit may have
@@ -535,6 +588,29 @@ final class ReaderPDFView: PDFView {
     func applyPDFKitPolicies() {
         disableScrollsToTop()
         hideTextInputProxies()
+        if let documentView { PDFSelectAllRouting.install(on: documentView) }
+    }
+
+    // MARK: Select All ("Select All selects the paragraph")
+
+    /// Select All is offered only with a text selection (it then selects its paragraphs).
+    var canSelectParagraphs: Bool {
+        guard let selection = currentSelection else { return false }
+        return !selection.pages.isEmpty
+    }
+
+    /// The PDF's Select All: grows the selection to its paragraphs (never the whole document).
+    func selectParagraphs() {
+        controller?.selectParagraphs()
+    }
+
+    override func selectAll(_ sender: Any?) {
+        selectParagraphs()
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(selectAll(_:)) { return canSelectParagraphs }
+        return super.canPerformAction(action, withSender: sender)
     }
 
     // MARK: Accessibility
@@ -543,10 +619,18 @@ final class ReaderPDFView: PDFView {
     /// client that reads it as a text element (its value, or `text(in:)` over its full range,
     /// as UIKit's text-element accessibility does) makes PDFKit build a selection over every
     /// page on the main thread: measured 9.7 s and 3.4 M characters for `large.pdf` in one call,
-    /// repeated per query. So the PDF view's accessibility children are the page views on
-    /// screen, in reading order, instead of the document view: VoiceOver reads the visible
-    /// pages through PDFKit's own page accessibility, scrolls through the scroll view, and no
-    /// accessibility query reaches the whole-document text range. Sighted text selection,
+    /// repeated per query. So the PDF view's accessibility children are, in this order:
+    ///
+    /// 1. the page views on screen, in reading order (instead of the document view): VoiceOver
+    ///    reads the visible pages through PDFKit's own page accessibility;
+    /// 2. every other direct subview of the PDF view that is not PDFKit's own machinery, in
+    ///    subview order: the accessibility containers features add (page ink's
+    ///    `PageInkAccessibilityView`, highlights, the markup probe surface…). See
+    ///    "Accessibility" in `ReaderExtensionPoints.swift`.
+    ///
+    /// No accessibility query reaches the whole-document text range. The list is computed on
+    /// every query, so subviews added or removed later are picked up (and a layout-changed
+    /// notification is posted when a feature view comes or goes). Sighted text selection,
     /// highlights and the edit menu are untouched (they never go through accessibility).
     private var visiblePageViews: [UIView] {
         guard let documentView else { return [] }
@@ -556,10 +640,27 @@ final class ReaderPDFView: PDFView {
             .sorted { $0.frame.minY < $1.frame.minY }
     }
 
+    /// PDFKit's own views (its scroll view, the document view and anything containing it) as
+    /// opposed to views a feature added.
+    private func isPDFKitChrome(_ view: UIView) -> Bool {
+        if Bundle(for: type(of: view)) == Bundle(for: PDFView.self) { return true }
+        if let documentView, documentView === view || documentView.isDescendant(of: view) { return true }
+        return false
+    }
+
+    /// Feature-added direct subviews (see `accessibilityElements`), never a text input.
+    private var featureAccessibilityViews: [UIView] {
+        subviews.filter {
+            !isPDFKitChrome($0) && !($0 is UITextInput) && !$0.isHidden && !$0.accessibilityElementsHidden
+        }
+    }
+
     override var accessibilityElements: [Any]? {
         get {
             let pages = visiblePageViews
-            return pages.isEmpty ? super.accessibilityElements : pages
+            let features = featureAccessibilityViews
+            if pages.isEmpty && features.isEmpty { return super.accessibilityElements }
+            return pages + features
         }
         set { super.accessibilityElements = newValue }
     }
@@ -586,8 +687,9 @@ final class ReaderPDFView: PDFView {
         var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) } + documentView.subviews.map { ($0, 1) }
         while !queue.isEmpty {
             let (current, depth) = queue.removeFirst()
-            if current is UITextInput, current !== documentView, !current.accessibilityElementsHidden {
-                current.accessibilityElementsHidden = true
+            if current is UITextInput, current !== documentView {
+                if !current.accessibilityElementsHidden { current.accessibilityElementsHidden = true }
+                PDFSelectAllRouting.install(on: current)
             }
             guard depth < 3, current !== documentView else { continue }
             queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
@@ -639,7 +741,7 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ReaderPDFHostView {
         ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView,
-                          anchorProbe: session.pdf.anchorProbe)
+                          probes: [session.pdf.anchorProbe, session.pdf.selectionProbe].compactMap { $0 })
     }
 
     func updateUIView(_ uiView: ReaderPDFHostView, context: Context) {}
@@ -648,14 +750,19 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 final class ReaderPDFHostView: UIView {
     private let controller: ReaderPDFController
     private let responderView: UIView
-    private let anchorProbe: UIView?
+    /// Test-hook elements (`-exposeViewportAnchor`, `-exposeSelection`).
+    private let probes: [UIView]
 
-    init(controller: ReaderPDFController, responderView: UIView, anchorProbe: UIView?) {
+    init(controller: ReaderPDFController, responderView: UIView, probes: [UIView]) {
         self.controller = controller
         self.responderView = responderView
-        self.anchorProbe = anchorProbe
+        self.probes = probes
         super.init(frame: .zero)
         adopt()
+    }
+
+    convenience init(controller: ReaderPDFController, responderView: UIView, anchorProbe: UIView?) {
+        self.init(controller: controller, responderView: responderView, probes: [anchorProbe].compactMap { $0 })
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -676,9 +783,9 @@ final class ReaderPDFHostView: UIView {
             responderView.frame = .zero
             addSubview(responderView)
         }
-        if let anchorProbe, anchorProbe.superview !== self {
-            anchorProbe.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
-            addSubview(anchorProbe)
+        for (index, probe) in probes.enumerated() where probe.superview !== self {
+            probe.frame = CGRect(x: CGFloat(index) * 2, y: 0, width: 2, height: 2)
+            addSubview(probe)
         }
     }
 }

@@ -38,6 +38,8 @@ struct ReaderScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// The search panel is on screen (from its appearance until its dismissal has finished).
     @State private var isSearchPanelOnScreen = false
+    /// The notes pane's width while its handle slides it shut (below its narrowest width).
+    @State private var notesCollapsingWidth: CGFloat?
 
     var body: some View {
         GeometryReader { geometry in
@@ -83,9 +85,15 @@ struct ReaderScreen: View {
             }
             pageArea
             if session.isNotesVisible {
-                NotesDivider(session: session, windowWidth: width)
+                let notesWidth = ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: width)
+                NotesDivider(session: session, windowWidth: width, collapsingWidth: $notesCollapsingWidth)
+                    .zIndex(1)  // the handle's hit area overlaps the page and the note
+                // While the handle slides the pane shut, the pane (laid out at its narrowest
+                // width, so the note does not re-wrap) is cut from its leading edge.
                 NotesPanel(session: session)
-                    .frame(width: ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: width))
+                    .frame(width: notesWidth)
+                    .frame(width: notesCollapsingWidth ?? notesWidth, alignment: .leading)
+                    .clipped()
                     .background(Color(uiColor: .systemBackground))
                     .paneContainer(AccessibilityID.Reader.notesPane)
             }
@@ -183,40 +191,44 @@ struct ReaderScreen: View {
             SectionHistoryButton(session: session, direction: .back)
             SectionHistoryButton(session: session, direction: .forward)
         }
-        if session.isMarkupMode {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                // Find works in markup mode too (⇧⌘F or this button); markup stays on.
-                searchButton
+        // One toolbar in both modes (design, "Markup controls"). Find works in markup mode too
+        // (⇧⌘F or the search button); markup stays on.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            searchButton
+            if !session.isNarrowLayout {
+                BookmarkButton(session: session)
+            }
+            // Ink undo/redo are the system tool picker's own buttons, except at compact width,
+            // where the picker has none.
+            if session.isMarkupMode && horizontalSizeClass == .compact {
                 Button { session.markup.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!session.markup.canUndo)
                     .accessibilityIdentifier(AccessibilityID.Reader.undo)
                 Button { session.markup.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!session.markup.canRedo)
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
-                notesToggle
-                Button("Done") { session.finishMarkup() }
-                    .fontWeight(.semibold)
-                    .accessibilityIdentifier(AccessibilityID.Reader.done)
-                    // For UI tests: whether the window's tool picker is on screen.
-                    .accessibilityValue(session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden")
             }
-        } else {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                searchButton
-                if !session.isNarrowLayout {
-                    BookmarkButton(session: session)
-                }
-                Button { session.setMode(.markup) } label: {
-                    Label("Markup", systemImage: "pencil.tip.crop.circle")
-                }
-                .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
-                notesToggle
-                moreMenu
-            }
+            markupToggle
+            notesToggle
+            moreMenu
         }
     }
 
-    /// The search button and the anchor of the search popover, in both toolbars.
+    /// The only switch for markup mode: outlined while off, filled (and selected) while on.
+    /// Turning it off does everything leaving markup does (flushes every surface).
+    private var markupToggle: some View {
+        let isOn = session.isMarkupMode
+        return Button { session.toggleMarkup() } label: {
+            Label(isOn ? "Done with Markup" : "Markup",
+                  systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+        }
+        .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        // For UI tests: whether the window's tool picker is on screen (markup mode only).
+        .accessibilityValue(isOn ? (session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden") : "")
+    }
+
+    /// The search button and the anchor of the search popover, in both modes.
     private var searchButton: some View {
         Button { session.isSearchVisible = true } label: {
             Label("Search Book and Notes", systemImage: "magnifyingglass")
@@ -381,11 +393,27 @@ private struct BookmarkButton: View {
 }
 
 /// The draggable divider before the notes panel (wide layout). Dragging left widens the panel
-/// up to half the window; VoiceOver can adjust it.
+/// up to half the window; dragging right narrows it, and past its narrowest width the pane
+/// follows the finger towards its own edge and, on release, snaps shut (as the toolbar's notes
+/// button closes it) or springs back (design: "Writing room"). VoiceOver can adjust it and has
+/// a "Close notes" action.
 private struct NotesDivider: View {
     let session: ReaderSession
     let windowWidth: CGFloat
+    /// The pane's live width below its narrowest width, `nil` otherwise.
+    @Binding var collapsingWidth: CGFloat?
+    /// The pane's width when the current drag began.
     @State private var startWidth: Double?
+
+    /// Collapse thresholds, as fractions of the narrowest width (330 pt): released more than
+    /// 40 % of the way shut it closes, like the system sidebar's "past the middle-ish" snap; a
+    /// flick closes from 24 pt past the narrowest width when its predicted end is 80 % shut.
+    /// A slow slide that ends within 24 pt of the narrowest width never closes.
+    static let closeFraction: CGFloat = 0.4
+    static let flickFraction: CGFloat = 0.8
+    static let flickMinimumDistance: CGFloat = 24
+
+    private var minimumWidth: CGFloat { CGFloat(ReaderSession.defaultNotesPanelWidth) }
 
     var body: some View {
         ZStack {
@@ -397,17 +425,16 @@ private struct NotesDivider: View {
         .background(Color(uiColor: .systemBackground))
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
-        .gesture(
-            DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                .onChanged { value in
-                    let start = startWidth ?? Double(ReaderLayout.notesWidth(requested: session.notesPanelWidth,
-                                                                             windowWidth: windowWidth))
-                    startWidth = start
-                    let proposed = start - Double(value.translation.width)
-                    session.notesPanelWidth = Double(ReaderLayout.notesWidth(requested: proposed, windowWidth: windowWidth))
-                }
-                .onEnded { _ in startWidth = nil }
-        )
+        .gesture(drag)
+        // The pill's comfortable hit area (44 x 96 pt): it overlaps the page and the note only
+        // around the pill, so their edges keep their touches everywhere else.
+        .overlay {
+            Color.clear
+                .frame(width: 44, height: 96)
+                .contentShape(Rectangle())
+                .gesture(drag)
+                .accessibilityHidden(true)
+        }
         .accessibilityElement()
         .accessibilityLabel("Notes panel width")
         .accessibilityValue("\(Int(session.notesPanelWidth)) points")
@@ -416,7 +443,47 @@ private struct NotesDivider: View {
             session.notesPanelWidth = Double(ReaderLayout.notesWidth(requested: session.notesPanelWidth + step,
                                                                      windowWidth: windowWidth))
         }
+        .accessibilityAction(named: "Close notes") { session.isNotesVisible = false }
         .accessibilityIdentifier(AccessibilityID.Reader.notesDivider)
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .onChanged { value in
+                let start = startWidth ?? Double(ReaderLayout.notesWidth(requested: session.notesPanelWidth,
+                                                                         windowWidth: windowWidth))
+                startWidth = start
+                let proposed = CGFloat(start) - value.translation.width
+                if proposed < minimumWidth {
+                    session.notesPanelWidth = Double(minimumWidth)
+                    collapsingWidth = max(0, proposed)
+                } else {
+                    collapsingWidth = nil
+                    session.notesPanelWidth = Double(ReaderLayout.notesWidth(requested: Double(proposed),
+                                                                             windowWidth: windowWidth))
+                }
+            }
+            .onEnded { value in
+                guard let start = startWidth else { return }
+                startWidth = nil
+                let overshoot = minimumWidth - (CGFloat(start) - value.translation.width)
+                let predicted = minimumWidth - (CGFloat(start) - value.predictedEndTranslation.width)
+                let closes = overshoot > Self.closeFraction * minimumWidth
+                    || (overshoot > Self.flickMinimumDistance && predicted > Self.flickFraction * minimumWidth)
+                if closes {
+                    // Slide the rest of the way shut, then close exactly as the toolbar's notes
+                    // button does; reopening brings back the width from before this drag.
+                    withAnimation(.snappy(duration: 0.22)) {
+                        collapsingWidth = 0
+                    } completion: {
+                        session.isNotesVisible = false
+                        collapsingWidth = nil
+                        session.notesPanelWidth = start
+                    }
+                } else if collapsingWidth != nil {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { collapsingWidth = nil }
+                }
+            }
     }
 }
 

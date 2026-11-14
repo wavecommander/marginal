@@ -79,6 +79,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// the view, and the scale) as the accessibility value of a `reader.viewportAnchor` element.
     var exposeViewportAnchor = false
 
+    /// `-exposeSelection`: test-only. Publishes the PDF's text selection as the accessibility
+    /// label of a `reader.selectionProbe` element (value: its pages and the last Select All time).
+    var exposeSelection = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -133,6 +137,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 markupProbeSurface = true
             case "-exposeViewportAnchor":
                 exposeViewportAnchor = true
+            case "-exposeSelection":
+                exposeSelection = true
             default:
                 break
             }

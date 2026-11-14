@@ -63,7 +63,7 @@ final class NotebookPDFWriter {
         var box = CGRect(origin: .zero, size: pageSize)
         let info: [CFString: Any] = [
             kCGPDFContextTitle: "\(self.bookTitle) Notebook",
-            kCGPDFContextCreator: "Marginal",
+            kCGPDFContextCreator: "Tactile Texts",
         ]
         guard let context = CGContext(url as CFURL, mediaBox: &box, info as CFDictionary) else {
             throw CocoaError(.fileWriteUnknown)

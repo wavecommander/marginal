@@ -93,7 +93,7 @@ struct ReaderSessionTests {
         #expect(await waitUntil { session.notebook != nil })
         let beta = try #require(session.outline.nodes.first { $0.title == "2 Vector Spaces" })
         #expect(session.notebook?.hasBadge(beta.anchor) == false)
-        try session.perform { try $0.notes.save(Note(bookID: fixture.book.id, target: .page(6), text: "hi")) }
+        _ = try session.perform { try $0.notes.save(Note(bookID: fixture.book.id, target: .page(6), text: "hi")) }
         #expect(await waitUntil { session.notebook?.hasBadge(beta.anchor) == true })
     }
 

@@ -12,6 +12,8 @@ nonisolated enum AccessibilityID {
         static let pdfView = "reader.pdfView"
         /// Test hook (`-exposeViewportAnchor`): value "page N x X y Y scale S" (page space).
         static let viewportAnchor = "reader.viewportAnchor"
+        /// Test hook (`-exposeSelection`): label = selected text, value "pages P; ms T".
+        static let selectionProbe = "reader.selectionProbe"
         static let loading = "reader.loading"
 
         // Toolbar
@@ -25,9 +27,9 @@ nonisolated enum AccessibilityID {
         static let markupToggle = "reader.toolbar.markup"
         static let notesToggle = "reader.toolbar.notes"
         static let more = "reader.toolbar.more"
+        /// Undo / Redo of ink: only in markup mode at compact width (elsewhere the tool picker has them).
         static let undo = "reader.toolbar.undo"
         static let redo = "reader.toolbar.redo"
-        static let done = "reader.toolbar.done"
         /// The title block (fallback toolbar title before iOS 26; label = title, value = subtitle).
         static let titleBlock = "reader.toolbar.title"
 

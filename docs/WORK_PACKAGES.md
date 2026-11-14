@@ -1,4 +1,4 @@
-# Marginal: work packages
+# Tactile Texts (code name Marginal): work packages
 
 Read `docs/DESIGN.md` first. This file splits the build into packages sized for one subagent each
 and says which model runs each one. It is written for an orchestrating Claude Code session
@@ -8,8 +8,8 @@ and says which model runs each one. It is written for an orchestrating Claude Co
 
 - **Orchestrator** (the main session): spawns one subagent per package with the Agent tool, sets
   `model` to the package's model, and uses `isolation: "worktree"` for packages that run in
-  parallel. It merges each wave, runs the full gate, and reviews the diff before starting the next
-  wave. It does not write feature code itself.
+  parallel. It merges each package after its targeted tests, reviews the diff, and runs the full
+  gate only at integration points (see below). It does not write feature code itself.
 - **Owner instruction, 13 November 2026: every package launched from now on runs on Opus**,
   including the ones marked Sonnet below (WP5, WP7, WP8, WP9, WP12 and any follow-up work).
   Packages already finished on Sonnet stand as they are.
@@ -18,7 +18,13 @@ and says which model runs each one. It is written for an orchestrating Claude Co
   bugs. Sonnet where the contract already exists and the work is building to it.
 - **Brief for each subagent**: the package section below, `docs/DESIGN.md`, the mockup link, the
   files it owns, and the gate commands. Tell it which earlier packages are merged.
-- **Gate** (every package, before it reports done):
+- **Testing scope (owner instruction, 14 November 2026).** A package does not run the full gate.
+  Before it reports done, it builds, and runs only the tests for the region it changed, named
+  with `-only-testing:`: its own unit tests and UI test class, plus another feature's class only
+  when the change touches code that feature depends on (a shell change runs the UI classes of
+  the features built on the part it changed). The full gate below is very expensive; the
+  orchestrator runs it once at an integration point, after several packages have been merged.
+- **Full gate** (the orchestrator, at integration points):
   1. `scripts/build.sh` builds the app for the chosen iPad simulator with no warnings promoted
      from its own files.
   2. `scripts/test.sh` passes: `swift test` in `Packages/ReaderCore`, then `xcodebuild test` on the
@@ -216,7 +222,7 @@ PencilKit over PDFKit has the least forgiving interplay in the app: overlay life
 scale, gesture routing, and saving without stalls.
 
 - Overlay provider that gives each visible page a canvas, loads its drawing, and saves when the
-  page leaves the screen, on Done, and on backgrounding.
+  page leaves the screen, on leaving markup mode, and on backgrounding.
 - Page canvases register as `MarkupSurface`s with the session's shared tool picker (WP4), shown
   only in markup mode; Pencil-only policy with the `-inkAnyInput` test switch; undo and redo
   through the session; ink read-only outside markup mode.
@@ -299,7 +305,8 @@ handwriting, which is the worst failure the app can have.
 ### WP14 · Ink navigation · Opus
 
 Added by the owner on 13 November 2026 (design rule "Ink is navigable like highlights and
-bookmarks"). Cuts across packages that are already merged, so it runs after WP5, WP8 and WP9.
+bookmarks"). Narrowed by the owner on 14 November 2026: ink navigation lives in the Notebook
+only, so there is no sidebar or Pages-grid part and it does not depend on WP5.
 
 - `ReaderCore`: the Notebook tree carries pages with ink (from `InkStore.inkedPageIndices`):
   per-page flag, counts rolled up to headings, badges include ink; Markdown export mentions them.
@@ -308,10 +315,8 @@ bookmarks"). Cuts across packages that are already merged, so it runs after WP5,
 - Notebook screen and exports: a row per inked page with a preview of the ink over its page
   (`PageInkRenderer`), a "Handwriting" type filter, tap to open the reader there; the PDF
   export draws the preview, ink as vector where the renderer allows.
-- Sidebar: pages with ink listed alongside bookmarks and flagged in the Pages grid.
-- **Done when** a UI test draws on a page, finds that page in the Notebook and in the sidebar,
-  jumps to it from both, erases the ink and sees both entries disappear; unit tests cover the
-  tree, counts and badges.
+- **Done when** a UI test draws on a page, finds that page in the Notebook, jumps to it from
+  there, erases the ink and sees the entry disappear; unit tests cover the tree and counts.
 
 ### WP12 · Integration, performance and polish · Opus
 

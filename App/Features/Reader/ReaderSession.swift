@@ -88,6 +88,8 @@ final class ReaderSession: Identifiable {
         var markupProbeSurface = false
         /// `-exposeViewportAnchor` (UI tests only): publish the reading anchor for accessibility.
         var exposesViewportAnchor = false
+        /// `-exposeSelection` (UI tests only): publish the text selection for accessibility.
+        var exposesSelection = false
         /// Delay of the debounced `lastReadPageIndex` save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.
@@ -453,7 +455,7 @@ final class ReaderSession: Identifiable {
     }
 
     func toggleMarkup() { setMode(isMarkupMode ? .reading : .markup) }
-    /// The Done button: flush ink and return to reading.
+    /// Leaves markup mode (flushes ink and returns to reading); the Markup toggle does the same.
     func finishMarkup() { setMode(.reading) }
 
     /// The drawing policy every canvas must use (`.default`; `.anyInput` under `-inkAnyInput`).

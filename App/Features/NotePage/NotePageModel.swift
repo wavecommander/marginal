@@ -294,6 +294,53 @@ final class NotePageModel {
         await enqueue { await self.performSave() }
     }
 
+    /// Deletes the note (design: "Deleting a note"): cancels any pending autosave, then, after any
+    /// load or save already queued, deletes the stored record and its ink file
+    /// (`LibraryStore.deleteNote`, attributed to `origin`) and resets this model to the empty
+    /// placeholder of the same target, discarding unsaved text and strokes. The editor showing it
+    /// is told to show the empty page and stays ready for a new note. A note never saved is simply
+    /// cleared. Added by WP8.
+    /// - Throws: the store's error; the model then keeps its content and shows "Not saved".
+    func deleteNote() async throws {
+        debounceTask?.cancel()
+        debounceTask = nil
+        var failure: (any Error)?
+        await enqueue {
+            do {
+                if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
+                    try await self.store.deleteNote(id: record.id, origin: self.origin)
+                }
+            } catch {
+                failure = error
+                self.saveState = .failed(String(describing: error))
+                return
+            }
+            self.debounceTask?.cancel()
+            self.debounceTask = nil
+            let empty = NoteInk(layout: self.layout(for: ""))
+            self.text = ""
+            self.ink = empty
+            self.strokeCount = 0
+            self.noteID = nil
+            self.createdAt = nil
+            self.isStored = false
+            self.hasUnreadableInk = false
+            self.remoteChangePending = false
+            self.baseText = ""
+            self.baseInk = empty
+            self.baseInkData = nil
+            self.baseRecordID = nil
+            self.inkGeneration += 1
+            self.baseInkGeneration = self.inkGeneration
+            self.undoManager.removeAllActions()
+            self.revision += 1
+            self.saveState = .empty
+            self.editor?.noteModelDidReplaceText(self)
+            self.editor?.noteModelDidChangeInk(self)
+        }
+        if let failure { throw failure }
+    }
+
     /// `true` while text or ink differ from what was last stored.
     var hasUnsavedChanges: Bool {
         text != baseText || inkGeneration != baseInkGeneration

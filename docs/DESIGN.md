@@ -1,4 +1,9 @@
-# Marginal (working title): design
+# Tactile Texts: design
+
+The app's name is **Tactile Texts** (owner decision, 14 November 2026): that is the name on the
+Home Screen, in the menu bar, in exported files' metadata and on the App Store. "Marginal" was
+the working title and remains the internal name only: the repository, the Xcode target, scheme
+and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marginal`).
 
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
@@ -31,7 +36,7 @@ ones even where the mockup draws an approximation.
 | --- | --- |
 | Library | Imported books in a grid with progress, search, sort, Import PDF, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
-| Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. |
+| Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
 | Reader · section note | Notes inspector on "Section note": a level picker over the heading path, the heading's note, and the page notes that fall inside that heading. |
 | Notebook · all notes by heading | Every note and highlight for one book, laid out along the outline, filterable, exportable. |
@@ -124,7 +129,13 @@ ones even where the mockup draws an approximation.
 - **Markup mode** shows the PencilKit tool picker and enables the per-page ink canvases. Drawing
   policy is the system default (see "Apple Pencil" below): with a Pencil in use only the Pencil
   draws, and fingers scroll and zoom. Leaving the mode hides the picker and makes the
-  ink read-only. Ink saves when a page leaves the screen, on Done, and when the app backgrounds.
+  ink read-only. Ink saves when a page leaves the screen, on leaving markup mode, and when the app backgrounds.
+- **Markup controls.** The toolbar's Markup button is the only switch for the mode, and it is
+  always in the same place: outlined while markup is off, filled while it is on, and tapping it
+  toggles. There is no Done button, and the rest of the toolbar is the same in both modes. Undo
+  and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
+  they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
+  system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in
@@ -133,6 +144,10 @@ ones even where the mockup draws an approximation.
   without leaving markup mode.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and has a zoom
   control (100% to 200%, also pinch). Widening zooms the note page; it does not re-wrap it.
+  The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
+  the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
+  and snapping shut on release; a short slide that stops above the narrowest width just resizes.
+  The toolbar's notes button brings the pane back at the width it had before.
 - **Ink follows the text it annotates.** Each stroke belongs to the paragraph it was drawn over,
   or to the blank space after the text. When typing above makes a paragraph move down or up, its
   strokes move with it. Re-wrapping inside a paragraph does not move that paragraph's own strokes;
@@ -146,15 +161,40 @@ ones even where the mockup draws an approximation.
   ink canvas is active, so in markup mode the reader marks text by hand with the picker's
   highlighter pen, and leaves markup mode to make a text highlight. Existing highlights stay
   visible in markup mode.
+- **Select All selects the paragraph** (owner requirement). In the reader, Select All (the edit
+  menu item and ⌘A) never selects the whole book: PDFKit's default tries to select every page,
+  which on a book of thousands of pages is slow and useless. With text selected, Select All
+  grows the selection to the whole paragraph that contains it, on that page; if the selection
+  already covers a paragraph, or spans several, it grows to the whole paragraphs it touches and
+  no further. With nothing selected it does nothing in the PDF. Paragraphs are found from the
+  page's own text layout (line spacing and indentation), page by page, never by reading other
+  pages. Select All inside a text field or a note keeps its normal meaning.
 - **Ink is navigable like highlights and bookmarks** (owner requirement). Whatever the Pencil
   puts on a page, highlighter strokes and drawings alike, is something the reader can find and
   return to, not only something they see when they happen to scroll past it:
   - every page with ink is listed in the Notebook under its section, with a preview of the ink
     on its page, filterable as its own type, and included in the Notebook's PDF export;
-  - the sidebar lists pages with ink alongside bookmarks, and flags them in the Pages grid;
-  - Contents note badges count pages with ink, as they count page notes and highlights;
-  - each of these jumps to the page through the reader's jump API, so section history records
-    it; and the lists update as ink is added or erased, in any window.
+  - tapping such a row jumps to the page through the reader's jump API, so section history
+    records it; and the Notebook updates as ink is added or erased, in any window.
+  - *Owner decision, 14 November 2026: ink navigation lives in the Notebook.* The earlier plan
+    to also list inked pages in the sidebar, flag them in the Pages grid and count them in
+    Contents badges is dropped.
+- **The notes pane follows the system appearance** (owner requirement). In Dark Mode the whole
+  notes pane is dark, including the note page itself: dark paper, light typed text, and ink that
+  stays legible, using PencilKit's own light and dark ink rendering so a stroke drawn in one
+  appearance reads correctly in the other (black ink shows light on dark paper and returns to
+  black in Light Mode; the stored strokes are never changed by switching appearance). The pane
+  switches live with the system setting. This replaces the first build's choice to keep the note
+  page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
+  appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
+  the PDF draws them.
+- **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
+  note it is showing, page note or section note: a Delete Note action in the note's header,
+  disabled while the note is empty. It asks for confirmation, saying what will go (the typed
+  text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
+  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
+  note's row in "Page notes in this section" and in the Notebook. The change shows in every
+  window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts.
@@ -210,7 +250,8 @@ Added by the owner after the first plan.
   finger. The `-inkAnyInput` test switch forces any-input drawing.
 - **Scribble.** Every text input (notes, search, go-to-page, titles) is a standard text control so
   Scribble works in it without extra code.
-- **Handwriting to text in notes** (owner requirement). Writing in a note with the Pencil and
+- **Handwriting to text in notes** (owner requirement; *confirmed working as is by the owner on
+  14 November 2026, no further work planned*). Writing in a note with the Pencil and
   having it become typed text must work, and is treated as a feature to verify, not a side effect:
   - *Markup mode off:* Scribble works anywhere on the note page, including an empty note and the
     blank space below the text (the whole page is a writing target, not just the lines that
@@ -299,7 +340,8 @@ windows cover this), sharing single notes, PaperKit shapes and text boxes on the
 
 ## Open questions for the owner
 
-1. App name ("Marginal" is a placeholder) and bundle identifier.
+1. ~~App name and bundle identifier.~~ Settled: the app is "Tactile Texts", bundle identifier
+   `software.tactile.marginal`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
 3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?

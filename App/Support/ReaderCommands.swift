@@ -4,7 +4,8 @@ import SwiftUI
 /// command acts on the **focused window's** session (`focusedSceneValue`) and is disabled when
 /// no reader is focused. Undo/Redo of markup are the system Edit ▸ Undo/Redo (⌘Z / ⇧⌘Z): in
 /// markup mode the first responder is the session's `MarkupResponderView`, whose `undoManager`
-/// is the surface last drawn on.
+/// (`MarkupRoutingUndoManager`) acts on the surface last drawn on; the tool picker's own
+/// Undo/Redo buttons use the same manager.
 struct ReaderCommands: Commands {
     @FocusedValue(ReaderSession.self) private var session
     @FocusedValue(WindowContext.self) private var window

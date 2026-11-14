@@ -1,0 +1,10 @@
+// Signing defaults for every target. Simulator builds need no signing, so it is off by default
+// and a fresh clone builds without an Apple developer team.
+//
+// To run on a device, or to build from the Xcode window with signing, copy
+// Config/Local.xcconfig.example to Config/Local.xcconfig (git-ignored) and put your team ID in it.
+// scripts/device.sh passes the same settings on the command line and needs no local file.
+CODE_SIGNING_ALLOWED = NO
+CODE_SIGNING_REQUIRED = NO
+
+#include? "Local.xcconfig"
