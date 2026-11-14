@@ -38,7 +38,7 @@ ones even where the mockup draws an approximation.
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
 | Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
-| Reader · section note | Notes inspector on "Section note": a level picker over the heading path, the heading's note, and the page notes that fall inside that heading. |
+| Reader · section note | Notes inspector on "Section note": the heading's note, with the level picker (the heading path) in a collapsible list under it. The mockup's level picker at the top and its list of page notes inside the heading were removed by the owner (see "Notes panel layout"). |
 | Notebook · all notes by heading | Every note and highlight for one book, laid out along the outline, filterable, exportable. |
 | Portrait · notes sheet | Narrow widths: the inspector becomes a resizable bottom sheet and the page stays scrollable behind it. |
 
@@ -73,17 +73,21 @@ ones even where the mockup draws an approximation.
 - **Section history** (added by the owner after the first plan). The reader toolbar has Back and
   Forward buttons that step through the sections the reader has jumped between.
   - A *jump* is any navigation that is not scrolling: choosing a heading in Contents, go to page,
-    a bookmark, a thumbnail, a search hit, a link inside the PDF, a row in the Notebook or in
-    "page notes in this section", the level picker's heading, first or last page. Scrolling,
+    a bookmark, a thumbnail, a search hit, a link inside the PDF, a row in the Notebook, the level picker's heading, first or last
+    page. Scrolling,
     paging to the next or previous page, and zooming are never jumps.
   - A jump to a different section records the place being left (the page actually on screen at
     that moment and its section), drops any forward entries, and adds the destination. A jump
     that lands in the section the reader is already in moves the page without adding an entry.
     "Section" here is the deepest heading containing the page; a page before the first heading, or
     any page in a book with no outline, counts as its own place ("Page N").
-  - Back returns to the previous entry at the page the reader left it on, not the section's first
-    page; Forward undoes Back. Before either moves, the current entry is updated to the page on
-    screen, so going back and forward again returns to the same spot.
+  - Back returns to the previous entry at the exact place the reader left it: the same point of
+    the same page at the top of the view, not the top of that page and not the section's first
+    page. Forward undoes Back in the same way. Before either moves, the current entry is updated
+    to the place on screen, so going back and forward again, any number of times and with jumps
+    in between, always returns to the spot the reader left (owner bug report TSOFT-214,
+    14 November 2026: after Back then Forward, following a link and going Back did not return to
+    the page the reader had been on).
   - Pressing and holding either button lists the entries in that direction by section title and
     page, and choosing one jumps straight to it. The buttons are disabled when there is nothing in
     their direction, and they are visibly different from the "‹ Library" button.
@@ -142,8 +146,9 @@ ones even where the mockup draws an approximation.
   any text field (Scribble, selection) and note ink is read-only. A finger always scrolls, and a
   finger tap in a note places the text cursor in either mode, so typing and inking can alternate
   without leaving markup mode.
-- **Writing room.** The notes panel can be dragged wider, up to half the screen, and has a zoom
-  control (100% to 200%, also pinch). Widening zooms the note page; it does not re-wrap it.
+- **Writing room.** The notes panel can be dragged wider, up to half the screen, and the note
+  is zoomed by pinching it (100% to 200%). There is no zoom button (owner decision,
+  14 November 2026: pinching is enough). Widening zooms the note page; it does not re-wrap it.
   The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
   the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
   and snapping shut on release; a short slide that stops above the narrowest width just resizes.
@@ -153,8 +158,22 @@ ones even where the mockup draws an approximation.
   strokes move with it. Re-wrapping inside a paragraph does not move that paragraph's own strokes;
   the lasso tool is the fix for that case. Deleting a paragraph leaves its strokes in place,
   attached to the paragraph before it.
-- **Notes shown elsewhere keep their ink.** The Notebook and the "page notes in this section" list
-  render a note with its ink. Editing and inking happen in the notes panel.
+- **Notes shown elsewhere keep their ink.** The Notebook renders a note with its ink. Editing
+  and inking happen in the notes panel.
+- **Notes panel layout** (owner decisions, 14 November 2026; TSOFT-217 and TSOFT-218). The panel
+  is the tabs, the note's title, the note, and as little else as possible:
+  - *Header:* the Page note / Section note tabs, Delete Note, the shrink control when the pane
+    is widened, then the title (the page number, or the heading's title and page range) and the
+    save status. No zoom button, and no level picker here.
+  - *Page note tab, under the note:* "Highlights on this page", only while the page has any.
+    There is no "This page is in" list: the toolbar subtitle, the Contents sidebar and the
+    Section note tab already say where the page sits.
+  - *Section note tab, under the note:* the level picker, at the bottom of the panel. It is the
+    heading path, shallowest first, with the shown heading marked and a mark on each level that
+    has a note; choosing a level shows that heading's note. It can be collapsed to a single row
+    that names the shown heading, it starts collapsed, and the choice is remembered. Below it,
+    "Open in Notebook". There is no "Page notes in this section" list: the Notebook lists a
+    section's page notes.
 - **Highlights** are made from a text selection through the edit menu (colour choices). Tapping
   a highlight offers recolour and delete. **Text highlights are made with a finger, outside
   markup mode** (owner decision for now): on the current SDK text cannot be selected while the
@@ -185,15 +204,14 @@ ones even where the mockup draws an approximation.
   appearance reads correctly in the other (black ink shows light on dark paper and returns to
   black in Light Mode; the stored strokes are never changed by switching appearance). The pane
   switches live with the system setting. This replaces the first build's choice to keep the note
-  page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
-  appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
+  page light in Dark Mode. Read-only notes in the Notebook follow the appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
   the PDF draws them.
 - **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
   note it is showing, page note or section note: a Delete Note action in the note's header,
   disabled while the note is empty. It asks for confirmation, saying what will go (the typed
   text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
   removes the note and its ink and leaves the empty placeholder. The same action is offered on a
-  note's row in "Page notes in this section" and in the Notebook. The change shows in every
+  note's row in the Notebook. The change shows in every
   window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
