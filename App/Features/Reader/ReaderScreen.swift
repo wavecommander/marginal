@@ -36,8 +36,18 @@ struct ReaderScreen: View {
     @Bindable var session: ReaderSession
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// Search panels on screen (each counts from its appearance until its dismissal has
+    /// finished). A count, not a flag: when search reopens while the last panel is still going,
+    /// the new panel's appearance and the old one's disappearance can come in either order.
+    @State private var searchPanelsOnScreen = 0
+    /// Re-presentations the search watchdog has tried since search was last asked for.
+    @State private var searchPresentationRetries = 0
+    /// `represent()` has lowered `isSearchVisible` for one turn of the run loop; the notes
+    /// sheet must not start coming back in that gap.
+    @State private var isRepresentingSearch = false
+
     /// The search panel is on screen (from its appearance until its dismissal has finished).
-    @State private var isSearchPanelOnScreen = false
+    private var isSearchPanelOnScreen: Bool { searchPanelsOnScreen > 0 }
     /// The search button's frame in the reader's coordinates, as last measured. Kept after search
     /// closes so the popover does not move while it is dismissed.
     @State private var searchAnchor = CGRect.zero
@@ -65,6 +75,15 @@ struct ReaderScreen: View {
         // The search popover hangs from the reader, pointing at the toolbar's search button (see
         // `SearchAnchorReader`), so the button is never its source. It presents once the button
         // has been measured for this opening.
+        //
+        // A closing popover takes a moment to go, and it cannot open again until it has gone.
+        // Raising `isSearchVisible` in that window (a tap, ⇧⌘F) left SwiftUI treating the old
+        // popover as presented, so nothing showed and later taps were no change. The closing
+        // window is marked (`isSearchDismissing`), a request in it is queued
+        // (`ReaderSession.showSearch`), and the queued request opens search once the old panel
+        // has disappeared. UIKit can also drop a presentation asked for while another one
+        // animates (the narrow notes sheet coming back, say): the watchdog below re-asks every
+        // quarter second until the panel appears, and after a few seconds clears the flag.
         .background(SearchAnchorReader(isActive: session.isSearchVisible) { frame in
             searchAnchor = frame
             isSearchAnchored = true
@@ -72,11 +91,52 @@ struct ReaderScreen: View {
         .popover(isPresented: searchPopoverBinding, attachmentAnchor: .rect(.rect(searchAnchor)), arrowEdge: .top) {
             SearchPanel(session: session)
                 .environment(session)
-                .onAppear { isSearchPanelOnScreen = true }
-                .onDisappear { isSearchPanelOnScreen = false }
+                .onAppear {
+                    searchPanelsOnScreen += 1
+                    searchPresentationRetries = 0
+                }
+                .onDisappear {
+                    searchPanelsOnScreen = max(0, searchPanelsOnScreen - 1)
+                    guard searchPanelsOnScreen == 0 else { return }
+                    session.isSearchDismissing = false
+                    if session.isSearchReopenQueued {
+                        session.isSearchReopenQueued = false
+                        session.isSearchVisible = true
+                    }
+                }
         }
         .onChange(of: session.isSearchVisible) { _, visible in
-            if !visible { isSearchAnchored = false }
+            guard !visible else { return }
+            isSearchAnchored = false
+            if isSearchPanelOnScreen, !isRepresentingSearch { session.isSearchDismissing = true }
+        }
+        .task(id: session.isSearchDismissing) {
+            // A backstop in case the closing popover never reports its disappearance.
+            guard session.isSearchDismissing else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, session.isSearchDismissing else { return }
+            session.isSearchDismissing = false
+            searchPanelsOnScreen = 0
+            if session.isSearchReopenQueued {
+                session.isSearchReopenQueued = false
+                session.isSearchVisible = true
+            }
+        }
+        .task(id: session.isSearchVisible) {
+            guard session.isSearchVisible else { return }
+            // Each re-ask restarts this task (the flag drops and rises), so this is a poll.
+            // The first check comes after a presentation has had time to start (onAppear
+            // arrives about 0.1 s after the request).
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, session.isSearchVisible, !isSearchPanelOnScreen else { return }
+            if searchPresentationRetries < 12 {
+                searchPresentationRetries += 1
+                represent()
+            } else {
+                // Something else holds the screen: drop the request so the button works later.
+                searchPresentationRetries = 0
+                session.isSearchVisible = false
+            }
         }
         .navigationTitle(session.book.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -187,10 +247,12 @@ struct ReaderScreen: View {
         // down) hides the notes. The note page saves on disappearing, so nothing is lost.
         Binding(get: {
                     ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
-                        && !session.isSearchVisible && !isSearchPanelOnScreen && session.closeReason == nil
+                        && !session.isSearchVisible && !isSearchPanelOnScreen && !isRepresentingSearch
+                        && !session.isSearchReopenQueued && session.closeReason == nil
                 },
                 set: { shown in
-                    guard session.isNarrowLayout, !session.isSearchVisible, !isSearchPanelOnScreen else { return }
+                    guard session.isNarrowLayout, !session.isSearchVisible, !isSearchPanelOnScreen,
+                          !isRepresentingSearch, !session.isSearchReopenQueued else { return }
                     session.isNotesVisible = shown
                 })
     }
@@ -262,12 +324,33 @@ struct ReaderScreen: View {
     }
 
     /// The search button, in both modes. The search popover points at it but is not attached to
-    /// it (see `SearchAnchorReader`).
+    /// it (see `SearchAnchorReader`, and the popover in `body` for the closing window and the
+    /// watchdog).
     private var searchButton: some View {
-        Button { session.isSearchVisible = true } label: {
+        Button { openSearch() } label: {
             Label(SearchAnchorReader.searchTitle, systemImage: "magnifyingglass")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.search)
+    }
+
+    private func openSearch() {
+        searchPresentationRetries = 0
+        if session.isSearchVisible && !isSearchPanelOnScreen && !session.isSearchDismissing {
+            represent()  // a dropped presentation: nothing is on screen
+        } else {
+            session.showSearch()
+        }
+    }
+
+    /// Lowers `isSearchVisible` and raises it on the next turn of the run loop, so SwiftUI sees
+    /// a change and presents the popover again.
+    private func represent() {
+        isRepresentingSearch = true
+        session.isSearchVisible = false
+        DispatchQueue.main.async {
+            session.isSearchVisible = true
+            isRepresentingSearch = false
+        }
     }
 
     /// The label says the state ("Hide Notes" while shown); an accessibility value here would not

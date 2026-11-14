@@ -216,6 +216,13 @@ final class ReaderSession: Identifiable {
     var notesPanelWidth: Double = ReaderSession.defaultNotesPanelWidth
     /// The search UI (WP10) is shown.
     var isSearchVisible = false
+    /// The search popover is closing (its dismissal is still animating) and has not
+    /// gone yet. Set by the shell. Asking for search in this window is queued, not dropped:
+    /// raising `isSearchVisible` then makes SwiftUI keep the closing popover as if presented,
+    /// which leaves search stuck shut.
+    var isSearchDismissing = false
+    /// Search was asked for while the popover was closing; the shell opens it once it has gone.
+    var isSearchReopenQueued = false
     /// The go-to-page field is shown (the page pill was tapped, or Go to Page… was chosen).
     var isGoToPageVisible = false
 
@@ -534,7 +541,14 @@ final class ReaderSession: Identifiable {
         defer { requestedSectionHeading = nil }
         return requestedSectionHeading
     }
-    func showSearch() { isSearchVisible = true }
+    /// Opens search, or queues it while the popover is still closing (see `isSearchDismissing`).
+    func showSearch() {
+        if isSearchDismissing {
+            isSearchReopenQueued = true
+        } else {
+            isSearchVisible = true
+        }
+    }
     func showGoToPage() { isGoToPageVisible = true }
 
     // MARK: Store access
