@@ -21,6 +21,9 @@ nonisolated enum WindowID {
 nonisolated struct ReaderWindowValue: Codable, Hashable, Sendable {
     var bookID: UUID
     var instanceID = UUID()
+    /// Zero-based page to open at, applied once when the window is first created (a restored
+    /// window keeps its own page). `nil`: the book's last-read page.
+    var pageIndex: Int?
 }
 
 /// A screen shown in place in a window (pushed on its navigation stack).
@@ -112,9 +115,11 @@ final class WindowContext {
 
     // MARK: Other windows
 
-    /// Opens a new reader window on the book (always a new window, even for the same book).
-    func openReaderInNewWindow(bookID: UUID) {
-        openWindowAction?(id: WindowID.reader, value: ReaderWindowValue(bookID: bookID))
+    /// Opens a new reader window on the book (always a new window, even for the same book), at
+    /// `pageIndex` when given (applied once; not a section-history jump), else at the book's
+    /// last-read page.
+    func openReaderInNewWindow(bookID: UUID, pageIndex: Int? = nil) {
+        openWindowAction?(id: WindowID.reader, value: ReaderWindowValue(bookID: bookID, pageIndex: pageIndex))
     }
 
     /// Opens (or focuses) the Notebook window of the book.

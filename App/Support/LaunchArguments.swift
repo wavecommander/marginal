@@ -53,6 +53,19 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// the book with that title, so UI tests can exercise two windows at once.
     var alsoOpenWindow: String?
 
+    /// `-alsoOpenWindowPage <n>`: the 1-based page that `-alsoOpenWindow`'s window opens at.
+    var alsoOpenWindowPage: Int?
+
+    /// `-seedNotebook` (DEBUG, Notebook UI tests): seed the opened Notebook's book with the
+    /// deterministic notes, highlights and headings described in `NotebookDebugSeed`.
+    var seedNotebook = false
+
+    /// `-seedNotebookLateNote` (DEBUG): also add a page note about four seconds after seeding.
+    var seedNotebookLateNote = false
+
+    /// `-notebookDebugWidth <points>` (DEBUG): the Notebook lays itself out at most this wide.
+    var notebookDebugWidth: Double?
+
     /// `-selectionMenuProbe`: test-only. Adds a "Probe" action to the PDF text-selection edit
     /// menu through the same hook WP7 uses, so a UI test can prove the hook works on this OS.
     var selectionMenuProbe = false
@@ -100,6 +113,20 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let text = value(after: index) { notesPanel = NotesTab(rawValue: text); index += 1 }
             case "-alsoOpenWindow":
                 if let title = value(after: index) { alsoOpenWindow = title; index += 1 }
+            case "-alsoOpenWindowPage":
+                if let text = value(after: index) {
+                    index += 1
+                    if let page = Int(text), page >= 1 { alsoOpenWindowPage = page }
+                }
+            case "-seedNotebook":
+                seedNotebook = true
+            case "-seedNotebookLateNote":
+                seedNotebookLateNote = true
+            case "-notebookDebugWidth":
+                if let text = value(after: index) {
+                    index += 1
+                    if let width = Double(text), width > 0 { notebookDebugWidth = width }
+                }
             case "-selectionMenuProbe":
                 selectionMenuProbe = true
             case "-markupProbeSurface":

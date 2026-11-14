@@ -473,6 +473,25 @@ final class ReaderSession: Identifiable {
         notesTab = tab
         isNotesVisible = true
     }
+
+    /// A heading the Section tab should show instead of the current page's deepest heading
+    /// (a same-page sibling, a chapter note opened from search or the Notebook). Set by
+    /// `showNotes(_:heading:)`; the notes panel observes it, shows that heading, and clears it
+    /// with `takeRequestedSectionHeading()`. `nil` when nothing is pending.
+    private(set) var requestedSectionHeading: HeadingAnchor?
+
+    /// Shows the notes panel on the Section tab for `heading` (stored anchors are fine: the
+    /// panel resolves them against the current outline).
+    func showNotes(_ tab: NotesTab, heading: HeadingAnchor?) {
+        requestedSectionHeading = tab == .section ? heading : nil
+        showNotes(tab)
+    }
+
+    /// For the notes panel: the pending requested heading, cleared on read.
+    func takeRequestedSectionHeading() -> HeadingAnchor? {
+        defer { requestedSectionHeading = nil }
+        return requestedSectionHeading
+    }
     func showSearch() { isSearchVisible = true }
     func showGoToPage() { isGoToPageVisible = true }
 
@@ -513,6 +532,12 @@ final class ReaderSession: Identifiable {
         let made = make()
         featureStates[key] = made
         return made
+    }
+
+    /// The feature state of type `T` if it has been created, without creating it (e.g. menu
+    /// commands that are disabled while there is no search).
+    func existingFeatureState<T: AnyObject>(_ type: T.Type) -> T? {
+        featureStates[ObjectIdentifier(type)] as? T
     }
 
     /// Keeps a feature controller alive for the session's lifetime (used by

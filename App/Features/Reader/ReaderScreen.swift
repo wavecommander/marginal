@@ -145,11 +145,17 @@ struct ReaderScreen: View {
     }
 
     private var notesSheetBinding: Binding<Bool> {
+        // While search is up the sheet steps aside (one presentation at a time) without
+        // changing `isNotesVisible`, so it comes back when search closes. Only a dismissal by
+        // the reader (swipe down) hides the notes.
         Binding(get: {
                     ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
-                        && session.closeReason == nil
+                        && !session.isSearchVisible && session.closeReason == nil
                 },
-                set: { if session.isNarrowLayout { session.isNotesVisible = $0 } })
+                set: { shown in
+                    guard session.isNarrowLayout, !session.isSearchVisible else { return }
+                    session.isNotesVisible = shown
+                })
     }
 
     // MARK: Title
@@ -176,6 +182,8 @@ struct ReaderScreen: View {
         }
         if session.isMarkupMode {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Find works in markup mode too (⇧⌘F or this button); markup stays on.
+                searchButton
                 Button { session.markup.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!session.markup.canUndo)
                     .accessibilityIdentifier(AccessibilityID.Reader.undo)
@@ -191,13 +199,7 @@ struct ReaderScreen: View {
             }
         } else {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { session.isSearchVisible = true } label: {
-                    Label("Search Book and Notes", systemImage: "magnifyingglass")
-                }
-                .accessibilityIdentifier(AccessibilityID.Reader.search)
-                .popover(isPresented: $session.isSearchVisible) {
-                    SearchPanel(session: session).environment(session)
-                }
+                searchButton
                 if !session.isNarrowLayout {
                     BookmarkButton(session: session)
                 }
@@ -208,6 +210,17 @@ struct ReaderScreen: View {
                 notesToggle
                 moreMenu
             }
+        }
+    }
+
+    /// The search button and the anchor of the search popover, in both toolbars.
+    private var searchButton: some View {
+        Button { session.isSearchVisible = true } label: {
+            Label("Search Book and Notes", systemImage: "magnifyingglass")
+        }
+        .accessibilityIdentifier(AccessibilityID.Reader.search)
+        .popover(isPresented: $session.isSearchVisible) {
+            SearchPanel(session: session).environment(session)
         }
     }
 

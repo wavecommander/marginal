@@ -102,6 +102,13 @@ struct ReaderCommands: Commands {
             Button("Find in Book…") { session?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(session == nil)
+            // ⌃⌘G / ⌃⇧⌘G: the system Find group owns ⌘G / ⇧⌘G (Find Next / Previous).
+            Button("Next Result") { activeSearch?.selectNext() }
+                .keyboardShortcut("g", modifiers: [.command, .control])
+                .disabled(activeSearch == nil)
+            Button("Previous Result") { activeSearch?.selectPrevious() }
+                .keyboardShortcut("g", modifiers: [.command, .control, .shift])
+                .disabled(activeSearch == nil)
             Button(bookmarkTitle) {
                 if let session { BookmarkActions.toggle(session: session) }
             }
@@ -118,6 +125,12 @@ struct ReaderCommands: Commands {
             Button("Redo Markup") { session?.markup.redo() }
                 .disabled(session?.isMarkupMode != true || session?.markup.canRedo != true)
         }
+    }
+
+    /// The focused reader's search, if one exists and has results to step through.
+    private var activeSearch: SearchModel? {
+        guard let model = session?.existingFeatureState(SearchModel.self), model.canStep else { return nil }
+        return model
     }
 
     private var bookmarkTitle: String {

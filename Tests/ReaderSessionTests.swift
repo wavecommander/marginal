@@ -276,6 +276,21 @@ struct ReaderSessionTests {
         #expect(restored.currentPageIndex == 11)
     }
 
+    @Test func notesForARequestedHeading() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        let anchor = HeadingAnchor(userHeadingID: UUID())
+        session.isNotesVisible = false
+        session.showNotes(.section, heading: anchor)
+        #expect(session.isNotesVisible && session.notesTab == .section)
+        #expect(session.requestedSectionHeading == anchor)
+        #expect(session.takeRequestedSectionHeading() == anchor)
+        #expect(session.requestedSectionHeading == nil)
+        session.showNotes(.page, heading: anchor)  // a heading only applies to the Section tab
+        #expect(session.requestedSectionHeading == nil && session.notesTab == .page)
+    }
+
     // MARK: Markup
 
     @Test func markupRoutesUndoToLastActiveSurfaceAndFlushes() async throws {
