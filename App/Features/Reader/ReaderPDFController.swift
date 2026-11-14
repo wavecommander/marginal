@@ -37,7 +37,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     private var pendingPageIndex: Int?
     /// While true, PDFKit's page-changed reports are ignored (initial positioning).
     private var isTrackingSuspended = true
-    private var hasPositionedInitially = false
+    private(set) var hasPositionedInitially = false
 
     /// The reader's place: the page point at the top-left of the view. Updated only when the
     /// scroll position changes outside a size-change layout pass (scrolling, zooming, jumps,
@@ -256,6 +256,15 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return probe
     }()
 
+    /// DEBUG performance probe (`-perfProbe`, `ReaderPerfProbe`), `nil` otherwise.
+    private(set) lazy var perfProbe: UIView? = {
+        #if DEBUG
+        return ReaderPerfProbe.isEnabled ? ReaderPerfProbe(controller: self) : nil
+        #else
+        return nil
+        #endif
+    }()
+
     /// Test hook (`-exposeMarkupState`): `ReaderStateProbe`'s elements, empty otherwise.
     private(set) lazy var markupStateProbes: [UIView] = {
         guard let session, session.configuration.exposesMarkupState else { return [] }
@@ -447,6 +456,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             self.pendingPageIndex = nil
             self.view.showTop(of: page)
             self.hasPositionedInitially = true
+            PerfMarks.mark("positioned")
             self.isTrackingSuspended = false
             self.observeScrollViewIfNeeded()
             self.readingAnchor = self.captureAnchor()
@@ -747,7 +757,7 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ReaderPDFHostView {
         ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView,
-                          probes: [session.pdf.anchorProbe, session.pdf.selectionProbe].compactMap { $0 }
+                          probes: [session.pdf.anchorProbe, session.pdf.selectionProbe, session.pdf.perfProbe].compactMap { $0 }
                               + session.pdf.markupStateProbes)
     }
 

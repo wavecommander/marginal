@@ -296,6 +296,7 @@ final class ReaderSession: Identifiable {
         if configuration.startInMarkup {
             setMode(.markup)
         }
+        PerfMarks.mark("sessionInit")
     }
 
     // MARK: Lifecycle
@@ -303,9 +304,12 @@ final class ReaderSession: Identifiable {
     /// Loads the document off the main thread, then the outline (also off the main thread, after
     /// the document is shown). Idempotent. Marks the book opened (`lastOpenedAt`).
     func open() {
+        PerfMarks.mark("openCalled")
         guard openTask == nil else { return }
         openTask = Task { [weak self, documentURL] in
+            PerfMarks.mark("documentOpening")
             let box = await ReaderDocumentLoader.openDocument(at: documentURL)
+            PerfMarks.mark("documentOpened")
             guard let self else { return }
             guard let document = box?.value else {
                 self.loadState = .failed("The PDF could not be opened.")
@@ -316,6 +320,7 @@ final class ReaderSession: Identifiable {
                 self.currentPageIndex = 0
             }
             self.pdf.attach(document, initialPageIndex: self.currentPageIndex)
+            PerfMarks.mark("attached")
             self.loadState = .ready
             self.markOpened()
             self.updateHeadingPath()

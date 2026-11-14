@@ -90,6 +90,7 @@ struct ReaderHost: View {
             configuration.startInMarkup = overrides.startInMarkup
             configuration.openNotesTab = overrides.notesTab
         }
+        PerfMarks.mark("readerHost")
         let session = ReaderSession(book: book, store: environment.store, configuration: configuration)
         // A Notebook heading-note row: the notes panel waits for the outline, then shows it.
         if let heading = overrides?.notesHeading { session.showNotes(.section, heading: heading) }

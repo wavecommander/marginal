@@ -44,6 +44,7 @@ struct WindowRootView: View {
     }
 
     private func makeContextIfNeeded() {
+        PerfMarks.mark("firstWindow")
         guard context == nil else { return }
         storedPathAtLaunch = storedPath
         var path: [WindowRoute] = []

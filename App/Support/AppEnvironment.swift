@@ -47,6 +47,8 @@ final class AppEnvironment {
     /// The live environment: `LibraryStore.live(reset: -resetState)`, falling back to an
     /// in-memory store (with `storeErrorMessage` set) if the persistent store cannot open.
     static func makeLive(launchOptions: LaunchOptions = .current) -> AppEnvironment {
+        PerfMarks.mark("storeOpening")
+        defer { PerfMarks.mark("storeOpen") }
         do {
             let store = try LibraryStore.live(reset: launchOptions.resetState)
             return AppEnvironment(store: store, launchOptions: launchOptions)
@@ -83,8 +85,11 @@ final class AppEnvironment {
     }
 
     private func runLaunchTasks() async -> LaunchPlan {
+        PerfMarks.mark("launchTasks")
+        defer { PerfMarks.mark("launchPlan") }
         var plan = LaunchPlan()
         _ = try? await store.sweepOrphanedBookDirectories()
+        PerfMarks.mark("sweepDone")
         var imported: [Book] = []
         for url in launchOptions.importFixtures {
             do {

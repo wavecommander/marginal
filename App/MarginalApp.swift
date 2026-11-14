@@ -10,6 +10,10 @@ import SwiftUI
 struct MarginalApp: App {
     @State private var environment = AppEnvironment.makeLive()
 
+    init() {
+        PerfMarks.mark("appInit")
+    }
+
     var body: some Scene {
         WindowGroup(id: WindowID.library) {
             WindowRootView(kind: .library, initialRoute: nil)
