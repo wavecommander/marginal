@@ -28,35 +28,14 @@ nonisolated enum NotebookAccessibilityID {
     static func highlight(_ displayPage: Int, _ index: Int) -> String { "notebook.highlight.\(displayPage).\(index)" }
 }
 
-/// Colours of highlights in the Notebook (the mockup's swatches). WP7 owns the reader's highlight
-/// palette; these should be unified with it when both are merged.
+/// Colours of highlights in the Notebook: forwards to the app's highlight palette
+/// (`HighlightPalette`, WP7), so the Notebook, the reader and the notes panel share one set.
 nonisolated enum NotebookHighlightStyle {
-    static func color(_ color: HighlightColor) -> Color {
-        switch color {
-        case .yellow: Color(red: 1.0, green: 0.84, blue: 0.04)
-        case .green: Color(red: 0.20, green: 0.78, blue: 0.35)
-        case .blue: Color(red: 0.35, green: 0.68, blue: 1.0)
-        case .pink: Color(red: 1.0, green: 0.42, blue: 0.62)
-        }
-    }
+    static func color(_ color: HighlightColor) -> Color { HighlightPalette.swatchColor(color) }
 
-    static func border(_ color: HighlightColor) -> Color {
-        switch color {
-        case .yellow: Color(red: 0.54, green: 0.45, blue: 0.0)
-        case .green: Color(red: 0.11, green: 0.42, blue: 0.19)
-        case .blue: Color(red: 0.10, green: 0.35, blue: 0.65)
-        case .pink: Color(red: 0.62, green: 0.15, blue: 0.33)
-        }
-    }
+    static func border(_ color: HighlightColor) -> Color { HighlightPalette.swatchBorderColor(color) }
 
-    static func name(_ color: HighlightColor) -> String {
-        switch color {
-        case .yellow: "Yellow"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .pink: "Pink"
-        }
-    }
+    static func name(_ color: HighlightColor) -> String { HighlightPalette.name(color) }
 }
 
 /// What a row does when tapped or chosen from its context menu.
