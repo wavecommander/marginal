@@ -100,6 +100,25 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       the target (`toolPicker.colorUserInterfaceStyle`)? Today it follows the system appearance.
       Note what you see and decide.
 
+## Icon, accent and launch screen
+
+- [ ] **Home Screen icon in every style.** Touch and hold the Home Screen › Edit › Customize, and
+      look at Tactile Texts in Default, Dark, Clear (light and dark) and Tinted (try a strong
+      tint colour): the sheet, its folded corner, the text lines, the yellow highlight and the red
+      margin mark are all there, nothing is clipped at the rounded corners, and the glass edges
+      look right. In Clear and Tinted the highlight and margin mark turn faint grey (seen on the
+      simulator): decide whether that is acceptable.
+- [ ] **Small icons.** The icon in the dock, the App Library, Spotlight, Settings › Apps and the
+      app switcher is sharp and recognisable at its small size.
+- [ ] **Launch screen.** Quit the app (swipe it away in the app switcher) and open it, in Light
+      Mode and then in Dark Mode: the launch screen is plain warm off-white (`#F6F2EA`) or warm
+      near-black (`#181612`) with nothing on it, and it fades into the first screen without a
+      flash of white, black or another colour.
+- [ ] **Accent on the device's display.** In both appearances the raspberry accent reads well:
+      toolbar icons, the Contents sidebar's current heading, the Resume button (white text in
+      Light Mode, black in Dark Mode), the Pages grid's note and highlight flags, and the filled
+      Markup toggle.
+
 ## Install
 
 - [ ] **7-day expiry.** The build is signed with a free Personal Team profile, so it stops

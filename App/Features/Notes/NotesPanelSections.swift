@@ -232,6 +232,7 @@ struct NotesSectionEmptyState: View {
     private var buttons: some View {
         NotesAddHeadingButton(session: session)
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color(.onAccent))
         Button { controller.selectTab(.page) } label: {
             Label("Page Note", systemImage: "note.text")
         }

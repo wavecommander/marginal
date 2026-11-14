@@ -25,6 +25,7 @@ mockups' sample book by construction and are not listed.
 | Difference | Status |
 | --- | --- |
 | The app is called **Tactile Texts** (menu bar, Home Screen); the mockups have no app name. | Intentional: DESIGN.md opening paragraph. |
+| The accent is raspberry (`#9C3656` light, `#F4A3BE` dark), not the mockups' blue (`#2D5BD8`); text and icons on an accent fill are white in Light Mode and black in Dark Mode. The shots in `docs/mockup-shots/` predate this (TSOFT-215) and still show the blue. The mockups show no app icon or launch screen. | Intentional: "Icon, accent and launch screen". |
 | Navigation bars, toolbars, segmented controls, sheets and menus are the system's own (iPadOS 27 glass toolbar groups, chevron-only back button whose accessibility label is "Library"), not the mockups' drawn approximations. | Intentional: "System controls … should be the real system ones"; "System chrome". |
 | The tool palette is the system `PKToolPicker` (on iPadOS 27 it opens as the compact floating palette in the corner), not the drawn pen/highlighter/eraser/lasso/colour bar. | Intentional: "Apple Pencil › Defer to the system". |
 | Dark Mode: every screen follows the system appearance; the PDF page stays white; the note page turns dark (dark paper, light text, ink re-rendered by PencilKit). The mockups are light only. | Intentional: "The notes pane follows the system appearance". |

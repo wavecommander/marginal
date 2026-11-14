@@ -80,6 +80,7 @@ struct ContinueReadingCard: View {
     private var resumeButton: some View {
         Button("Resume", action: onResume)
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color(.onAccent))
             .controlSize(.large)
             .accessibilityIdentifier("library.continue.resume")
     }
