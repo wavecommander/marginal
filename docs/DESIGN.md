@@ -213,11 +213,12 @@ take full advantage of their SDKs.
 - **At the floor the same features use the older system model**: multiple windows through Split
   View, Slide Over and Stage Manager; keyboard shortcuts through the same SwiftUI commands (shown
   in the shortcut overlay instead of a menu bar).
-- **Testing.** Two simulator runtimes are installed: iOS 27.0 and iOS 17.5 (the 17.5 image was
-  downloaded from Apple's developer site by the owner and imported with `xcrun simctl runtime
-  add`; Xcode 27.2 will not download it itself). Every package runs its tests on both, so the
-  floor's fallback paths are exercised and not only compiled. Systems in between (18, 26) are
-  covered by the compiler and by review.
+- **Testing.** Routine testing is on the iOS 27.0 simulator and the owner's iPad (iPadOS 27).
+  An iOS 17.5 simulator runtime is installed (imported by the owner with `xcrun simctl runtime
+  add`) and was used for every package until 13 November 2026; since then, by owner decision,
+  iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on every build
+  and were last exercised on the packages merged up to that date (reader engine, library, note
+  page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
 
 ## Technical decisions
 
