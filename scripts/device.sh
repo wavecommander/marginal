@@ -101,7 +101,15 @@ if [[ "${MARGINAL_NO_INSTALL:-}" == "1" ]]; then
 fi
 
 step "Installing on the iPad"
-if ! xcrun devicectl device install app --device "$DEVICE" "$APP" >"$REPO/build/device-install.log" 2>&1; then
+# The first attempt often fails to reach an iPad that has just woken; try up to three times.
+INSTALLED=0
+for ATTEMPT in 1 2 3; do
+  if xcrun devicectl device install app --device "$DEVICE" "$APP" >"$REPO/build/device-install.log" 2>&1; then
+    INSTALLED=1; break
+  fi
+  [[ $ATTEMPT -lt 3 ]] && info "Could not reach the iPad (attempt $ATTEMPT of 3); trying again"
+done
+if [[ $INSTALLED -ne 1 ]]; then
   tail -n 12 "$REPO/build/device-install.log" >&2
   echo "device.sh: install failed. Is the iPad connected, unlocked and trusted? (log: build/device-install.log)" >&2
   exit 1
