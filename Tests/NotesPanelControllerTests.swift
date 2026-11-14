@@ -153,6 +153,15 @@ struct NotesPanelControllerTests {
         controller.openSectionNote(for: try heading("2 Vector Spaces", session))
         #expect(session.notesTab == .section)
         #expect(controller.shownHeading?.title == "2 Vector Spaces")
+
+        // By anchor (search / Notebook requests): same as choosing the level.
+        session.notesTab = .page
+        #expect(controller.openSectionNote(forHeading: try heading("3 Eigenvalues", session).anchor))
+        #expect(session.notesTab == .section)
+        #expect(controller.shownHeading?.title == "3 Eigenvalues")
+        #expect(controller.selection.pinnedAnchor == (try heading("3 Eigenvalues", session).anchor))
+        #expect(!controller.openSectionNote(forHeading: HeadingAnchor(pdfPath: [42], pageIndex: nil, title: "Nowhere")))
+        #expect(controller.shownHeading?.title == "3 Eigenvalues")
     }
 
     @Test func atMostAFewModelsStayAlive() async throws {

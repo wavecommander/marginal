@@ -113,6 +113,21 @@ final class NotesPanelController {
         refresh(explicit: true)
     }
 
+    /// Opens the Section tab on a heading named by anchor (a heading-note hit from search or the
+    /// Notebook). Behaves exactly like choosing that level in the level picker, including for a
+    /// heading with no page range (it then holds until the page changes). A stale anchor is
+    /// resolved through `Outline.resolve`. Returns `false`, changing nothing, when the outline has
+    /// not loaded or no heading matches: a caller holding a request should keep it and retry once
+    /// `session.isOutlineLoaded` (the planned session request value is meant to be read and
+    /// cleared here; see the WP8 report).
+    @discardableResult
+    func openSectionNote(forHeading anchor: HeadingAnchor) -> Bool {
+        guard let session, session.isOutlineLoaded,
+              let node = session.outline.node(for: anchor) ?? session.outline.resolve(anchor)?.node else { return false }
+        openSectionNote(for: node)
+        return true
+    }
+
     /// Back to following the page on the Section tab.
     func followPage() {
         selection.clear()

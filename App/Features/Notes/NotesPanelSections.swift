@@ -39,6 +39,8 @@ struct NotesLevelPicker: View {
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // The row is one element with its own label; never a bare title element.
+                    .accessibilityHidden(true)
                 if noted {
                     Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
                 }
@@ -139,6 +141,8 @@ struct NotesHighlightsSection: View {
                     .lineLimit(4)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // The row is one element with its own label; never a bare title element.
+                    .accessibilityHidden(true)
             }
             .padding(.vertical, 6)
             .frame(minHeight: 44)
@@ -217,6 +221,8 @@ struct NotesPageIsInSection: View {
                     .font(.subheadline.weight(.medium))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // The row is one element with its own label; never a bare title element.
+                    .accessibilityHidden(true)
                 if noted {
                     Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
                 }
