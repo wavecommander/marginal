@@ -346,7 +346,9 @@ struct NotesSectionPageNoteRow: View {
 
     @ViewBuilder
     private var rendering: some View {
-        let width = max(rowWidth, 1)
+        // Never larger than the note page itself: a list row is a preview, the editor is where
+        // the note is read at the reader's zoom.
+        let width = max(min(rowWidth, NotePageStyle.pageWidth), 1)
         if let snapshot {
             let height = width * snapshot.size.height / max(snapshot.size.width, 1)
             NotePageReadOnlyView(snapshot: snapshot)
