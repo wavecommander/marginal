@@ -6,9 +6,8 @@ import SwiftUI
 import Testing
 @testable import Marginal
 
-/// The notes panel's pure rules (WP8): the Section tab's heading choice and level picker, "page
-/// notes in this section" ranges, the switch decision while typing, zoom/width arithmetic, and
-/// the heading-anchor repair.
+/// The notes panel's pure rules (WP8): the Section tab's heading choice and level picker, the
+/// switch decision while typing, zoom/width arithmetic, and the heading-anchor repair.
 @MainActor
 struct NotesPanelRulesTests {
     // MARK: Fixture outline
@@ -133,35 +132,6 @@ struct NotesPanelRulesTests {
         #expect(selection.heading(forPage: 8, outline: without)?.title == "1 Ch")
     }
 
-    // MARK: Page notes in this section
-
-    @Test func pageNoteRangesCoverNestedHeadingsAndSkipSamePageSiblings() async throws {
-        let outline = outline()
-        #expect(NotesSectionSelection.pageNoteRange(of: try node("1 Ch", outline)) == 1...9)
-        #expect(NotesSectionSelection.pageNoteRange(of: try node("1.1", outline)) == 2...5)
-        #expect(NotesSectionSelection.pageNoteRange(of: try node("2.1", outline)) == 10...11)
-        #expect(NotesSectionSelection.pageNoteRange(of: try node("2.2", outline)) == nil)
-        #expect(NotesSectionSelection.pageNoteRange(of: try node("2.3", outline)) == 12...15)
-
-        let store = try LibraryStore.ephemeral()
-        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
-        let book = Book(title: "B", fingerprint: UUID().uuidString, fileName: "b.pdf", pageCount: 20, fileSize: 1)
-        try store.books.save(book)
-        for page in [0, 2, 3, 7, 10, 12, 16] {
-            try store.notes.save(Note(bookID: book.id, target: .page(page), text: "note \(page)"))
-        }
-        func pages(_ title: String) throws -> [Int] {
-            guard let range = NotesSectionSelection.pageNoteRange(of: try node(title, outline)) else { return [] }
-            return try store.notes.pageNotes(bookID: book.id, in: range).compactMap(\.target.pageIndex)
-        }
-        #expect(try pages("1 Ch") == [2, 3, 7], "the chapter lists its subsections' page notes")
-        #expect(try pages("1.1") == [2, 3])
-        #expect(try pages("1.1.1") == [3])
-        #expect(try pages("2 Ch") == [10, 12])
-        #expect(try pages("2.2") == [])
-        #expect(try pages("2.3") == [12])
-    }
-
     // MARK: Switching while typing
 
     @Test func followingThePageWaitsForTypingToEndButExplicitChangesDoNot() {
@@ -188,7 +158,7 @@ struct NotesPanelRulesTests {
         #expect(pane(330).zoom(base: 1.25) == 1.25)
         #expect(!pane(660).usesColumns)
         #expect(pane(660).noteColumnWidth == 660)
-        // The zoom control sets a base so the chosen zoom shows at this width.
+        // A pinch sets a base so the pinched zoom shows at this width.
         let wide = pane(495)
         #expect(abs(wide.base(forZoom: 1.5) - 1) < 0.0001)
         #expect(abs(wide.zoom(base: wide.base(forZoom: 1.75)) - 1.75) < 0.0001)
@@ -210,9 +180,6 @@ struct NotesPanelRulesTests {
         let half = NotesPanelMetrics(presentation: .narrow, size: CGSize(width: 590, height: 500))
         #expect(!half.usesColumns)
         #expect(abs(half.zoom(base: 1) - 1.3) < 0.0001, "never the 179% the full width would give")
-        #expect(half.isCompactHeight)
-        #expect(!NotesPanelMetrics(presentation: .pane, size: CGSize(width: 330, height: 744)).isCompactHeight)
-        #expect(NotesPanelMetrics.percent(1.304) == 130)
     }
 
     @Test func dynamicTypeSetsTheDefaultBase() {

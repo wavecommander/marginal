@@ -1,37 +1,81 @@
 import ReaderCore
 import SwiftUI
 
-// The parts of the notes panel around the editor: the level picker, the lists below the note,
-// and the Section tab's empty state (WP8).
+// The parts of the notes panel around the editor: the level picker, the highlights under the
+// note, and the Section tab's empty state (WP8).
 
 // MARK: - Level picker
 
-/// The level picker over the heading path (Section note tab): one row per level, shallowest
-/// first, the shown heading selected. Choosing a row shows that heading's note and keeps it while
-/// the reader scrolls within its range (`NotesSectionSelection`). In short panels it is a menu.
+/// The level picker (Section note tab, at the bottom of the panel; design: "Notes panel layout").
+/// Collapsed, it is one disclosure row naming the shown heading. Expanded, the heading path
+/// follows it: one row per level, shallowest first, the shown heading checked and a mark on each
+/// level that has a note. Choosing a row shows that heading's note and keeps it while the reader
+/// scrolls within its range (`NotesSectionSelection`).
+///
+/// It starts collapsed, and the reader's choice is remembered across launches (`expandedKey`, one
+/// setting for every window). The region it sits in scrolls, so one form works at every panel
+/// height and text size.
 struct NotesLevelPicker: View {
+    /// The `UserDefaults` key of the expanded/collapsed choice (`-resetState` clears it).
+    static let expandedKey = "notesPanel.levelPickerExpanded"
+
     let levels: [OutlineNode]
-    let selected: HeadingAnchor
-    let isCompact: Bool
+    /// The heading whose note is shown.
+    let shown: OutlineNode
     let hasNote: (HeadingAnchor) -> Bool
     let choose: (OutlineNode) -> Void
+    @AppStorage(Self.expandedKey) private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if isCompact {
-            compactMenu
-        } else {
-            VStack(spacing: 2) {
+        VStack(spacing: 2) {
+            disclosureRow
+            if isExpanded {
                 ForEach(Array(levels.enumerated()), id: \.element.id) { index, node in
                     row(node, depth: index)
                 }
             }
-            .padding(4)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
         }
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+    }
+
+    private var disclosureRow: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .snappy) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet.indent")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(shown.title)
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // The row is one element with its own label; never a bare title element.
+                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Heading level, \(shown.title)")
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(isExpanded ? "Hides the heading levels" : "Shows the headings this page is in")
+        .accessibilityIdentifier(NotesPanelAccessibilityID.levelToggle)
     }
 
     private func row(_ node: OutlineNode, depth: Int) -> some View {
-        let isSelected = node.anchor == selected
+        let isSelected = node.anchor == shown.anchor
         let noted = hasNote(node.anchor)
         return Button { choose(node) } label: {
             HStack(spacing: 8) {
@@ -66,66 +110,23 @@ struct NotesLevelPicker: View {
         .accessibilityHint("Shows this heading's note")
         .accessibilityIdentifier(NotesPanelAccessibilityID.level)
     }
-
-    private var compactMenu: some View {
-        let current = levels.first { $0.anchor == selected }
-        return Menu {
-            ForEach(levels) { node in
-                Button { choose(node) } label: {
-                    if node.anchor == selected {
-                        Label(node.title, systemImage: "checkmark")
-                    } else {
-                        Text(node.title)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "list.bullet.indent")
-                Text(current?.title ?? "Level")
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down").font(.caption)
-            }
-            .font(.subheadline.weight(.medium))
-            .frame(minHeight: 44)
-        }
-        .accessibilityLabel("Heading level")
-        .accessibilityValue(current?.title ?? "")
-        .accessibilityIdentifier(NotesPanelAccessibilityID.levelMenu)
-    }
 }
 
 // MARK: - Highlights on this page
 
 /// "Highlights on this page": the page's highlights in reading order, coloured and quoted.
-/// Tapping one jumps to it (a jump, so it goes through the session). Hidden while the page has
-/// none. Re-read whenever highlights change in any window (`revisions.highlights`).
+/// Tapping one jumps to it (a jump, so it goes through the session). The panel loads them and
+/// shows this only while there are any.
 struct NotesHighlightsSection: View {
     let session: ReaderSession
-    let pageIndex: Int
-    @State private var highlights: [Highlight] = []
-
-    private struct LoadKey: Equatable {
-        var page: Int
-        var revision: Int
-    }
+    let highlights: [Highlight]
 
     var body: some View {
-        // A stack, not a `Group`: a `Group`'s modifiers go to its children, so with no
-        // highlights yet there was nothing to run the `.task` that loads them, and the section
-        // never appeared.
-        VStack(alignment: .leading, spacing: 0) {
-            if !highlights.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    NotesSectionHeader("Highlights on this page")
-                    ForEach(highlights) { highlight in
-                        row(highlight)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 2) {
+            NotesSectionHeader("Highlights on this page")
+            ForEach(highlights) { highlight in
+                row(highlight)
             }
-        }
-        .task(id: LoadKey(page: pageIndex, revision: session.revisions.highlights)) {
-            highlights = (try? session.store.highlights.highlights(bookID: session.book.id, pageIndex: pageIndex)) ?? []
         }
     }
 
@@ -180,224 +181,6 @@ extension HighlightColor {
         case .green: "Green"
         case .blue: "Blue"
         case .pink: "Pink"
-        }
-    }
-}
-
-// MARK: - This page is in
-
-/// "This page is in": the page's heading path, shallowest first; each row opens the Section note
-/// tab on that heading (one tap from a page note to its chapter's or section's note).
-struct NotesPageIsInSection: View {
-    let session: ReaderSession
-    let controller: NotesPanelController
-    let pageIndex: Int
-
-    var body: some View {
-        let path = session.outline.headingPath(forPage: pageIndex)
-        VStack(alignment: .leading, spacing: 0) {
-            NotesSectionHeader("This page is in")
-            if path.isEmpty {
-                Text(emptyText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
-                if session.isOutlineLoaded {
-                    NotesAddHeadingButton(session: session)
-                        .buttonStyle(.borderless)
-                        .frame(minHeight: 44)
-                }
-            } else {
-                ForEach(Array(path.enumerated()), id: \.element.id) { depth, node in
-                    row(node, depth: depth)
-                }
-            }
-        }
-    }
-
-    private var emptyText: String {
-        if !session.isOutlineLoaded { return "Loading contents…" }
-        if session.outline.isEmpty { return "This book has no contents yet." }
-        return "No heading contains this page."
-    }
-
-    private func row(_ node: OutlineNode, depth: Int) -> some View {
-        let noted = session.notebook?.section(for: node.anchor)?.note != nil
-        // UI automation still lists the row's text as a child element even though VoiceOver sees
-        // one element (iOS 27), so the text carries the row's label too: no bare "<title>" element
-        // for other features' title queries to hit.
-        return HStack(spacing: 8) {
-            Text(node.title)
-                .font(.subheadline.weight(.medium))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Section note for \(node.title)")
-            if noted {
-                Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
-            }
-            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-        }
-        .padding(.leading, CGFloat(depth) * 14)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-        .hoverEffect(.highlight)
-        .onTapGesture { controller.openSectionNote(for: node) }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Section note for \(node.title)")
-        .accessibilityValue(noted ? "Has a note" : "")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { controller.openSectionNote(for: node) }
-        .accessibilityIdentifier(NotesPanelAccessibilityID.pageIsIn)
-    }
-}
-
-// MARK: - Page notes in this section
-
-/// "Page notes in this section": every page note inside the heading's page range (its nested
-/// headings included), ascending, each drawn with its ink (`NotePageReadOnlyView`) at the row's
-/// width. Rows are built lazily (a chapter may have hundreds) and their layout is cached per note
-/// version. Tapping one jumps to its page through the session, so section history records it.
-struct NotesSectionPageNotes: View {
-    let session: ReaderSession
-    let controller: NotesPanelController
-    let heading: OutlineNode
-    /// Width available to a row's rendering.
-    let rowWidth: CGFloat
-    @State private var notes: [Note] = []
-    @State private var deleteCandidate: Note?
-
-    private struct LoadKey: Equatable {
-        var range: ClosedRange<Int>?
-        var revision: Int
-    }
-
-    var body: some View {
-        let range = NotesSectionSelection.pageNoteRange(of: heading)
-        LazyVStack(alignment: .leading, spacing: 10) {
-            NotesSectionHeader("Page notes in this section")
-            if range == nil {
-                Text("This heading starts on the same page as the next one, so its pages are listed under that heading.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else if notes.isEmpty {
-                Text("No page notes in this section yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(notes) { note in
-                NotesSectionPageNoteRow(session: session, controller: controller, note: note, rowWidth: rowWidth,
-                                        delete: { deleteCandidate = note })
-            }
-        }
-        .alert("Delete This Note?", isPresented: Binding(get: { deleteCandidate != nil },
-                                                         set: { if !$0 { deleteCandidate = nil } }),
-               presenting: deleteCandidate) { note in
-            Button("Delete", role: .destructive) {
-                Task { await controller.deleteNote(target: note.target) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { note in
-            Text(NotesPanel.deleteMessage(hasInk: note.hasInk))
-        }
-        .task(id: LoadKey(range: range, revision: session.revisions.notes)) {
-            guard let range else { notes = []; return }
-            notes = (try? session.store.notes.pageNotes(bookID: session.book.id, in: range)) ?? []
-        }
-    }
-}
-
-/// One page note in "Page notes in this section".
-struct NotesSectionPageNoteRow: View {
-    let session: ReaderSession
-    let controller: NotesPanelController
-    let note: Note
-    let rowWidth: CGFloat
-    /// Asks to delete this note (the list confirms first).
-    let delete: () -> Void
-    @State private var snapshot: NotePageSnapshot?
-
-    /// Long notes are clipped in the list (the whole note is one tap away).
-    static let maximumRenderedHeight: CGFloat = 300
-
-    private var pageIndex: Int { note.target.pageIndex ?? 0 }
-    private var displayNumber: Int { PageNumbering.displayNumber(forPageIndex: pageIndex) }
-
-    var body: some View {
-        let key = NotesPanelController.SnapshotKey(noteID: note.id, modifiedAt: note.modifiedAt,
-                                                   inkRevision: controller.inkRevisions[note.id] ?? 0)
-        let isCurrent = pageIndex == session.currentPageIndex
-        Button { session.jump(toPage: pageIndex) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(verbatim: "p. \(displayNumber)")
-                        .font(.footnote.weight(.semibold))
-                        .monospacedDigit()
-                        .padding(.horizontal, 8)
-                        .frame(minHeight: 24)
-                        .foregroundStyle(isCurrent ? Color.white : Color.accentColor)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(isCurrent ? Color.accentColor : Color.accentColor.opacity(0.14)))
-                    if note.hasInk {
-                        Label("Handwriting", systemImage: "scribble")
-                            .labelStyle(.iconOnly)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                rendering
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.highlight)
-        .contextMenu {
-            Button(role: .destructive, action: delete) {
-                Label("Delete Note", systemImage: "trash")
-            }
-            .accessibilityIdentifier(NotesPanelAccessibilityID.deleteNote)
-        }
-        .task(id: key) {
-            if let cached = controller.cachedSnapshot(key) {
-                snapshot = cached
-                return
-            }
-            var inkData: Data?
-            if note.hasInk {
-                inkData = try? await session.store.noteInk(bookID: note.bookID, noteID: note.id)
-            }
-            guard !Task.isCancelled else { return }
-            let made = NotePageRenderer.snapshot(note: note, inkData: inkData)
-            controller.storeSnapshot(made, for: key)
-            snapshot = made
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(note.hasInk ? "Page \(displayNumber) note with handwriting" : "Page \(displayNumber) note")
-        .accessibilityValue(note.text)
-        .accessibilityHint("Goes to page \(displayNumber)")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "Delete Note", delete)
-        .accessibilityIdentifier(NotesPanelAccessibilityID.pageNote(displayNumber: displayNumber))
-    }
-
-    @ViewBuilder
-    private var rendering: some View {
-        // Never larger than the note page itself: a list row is a preview, the editor is where
-        // the note is read at the reader's zoom.
-        let width = max(min(rowWidth, NotePageStyle.pageWidth), 1)
-        if let snapshot {
-            let height = width * snapshot.size.height / max(snapshot.size.width, 1)
-            NotePageReadOnlyView(snapshot: snapshot)
-                .frame(width: width, height: height)
-                .frame(width: width, height: min(height, Self.maximumRenderedHeight), alignment: .top)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color(uiColor: .separator)))
-        } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(uiColor: NotePageStyle.paperColor))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color(uiColor: .separator)))
-                .frame(width: width, height: 56)
         }
     }
 }
@@ -490,7 +273,7 @@ struct NotesSectionHeader: View {
 }
 
 /// Content that takes its own height up to `maximumHeight`, then scrolls (with a finger, in either
-/// mode). Used for the lists below the note.
+/// mode). Used for the region below the note.
 struct NotesBoundedScroll<Content: View>: View {
     let maximumHeight: CGFloat
     @ViewBuilder let content: Content

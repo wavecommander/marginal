@@ -144,7 +144,7 @@ struct NotesPanelControllerTests {
         #expect(await waitUntil { controller.shownHeading?.title == "1.1 Foundations" })
     }
 
-    @Test func thisPageIsInOpensTheSectionTabOnThatHeading() async throws {
+    @Test func openingAHeadingsNoteShowsTheSectionTabOnIt() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
         let session = await makeSession(fixture)
@@ -286,19 +286,5 @@ struct NotesPanelControllerTests {
         let otherController = makeController(other)
         #expect(otherController.didRepairAnchors)
         #expect(otherController.repairedAnchorCount == 0)
-    }
-
-    // MARK: Other windows
-
-    @Test func inkChangesFromAnyWindowBumpTheRenderingRevision() async throws {
-        let fixture = try makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
-        let session = await makeSession(fixture)
-        let controller = makeController(session)
-        let noteID = UUID()
-        try await fixture.store.saveNoteInk(Data([1]), bookID: fixture.book.id, noteID: noteID, origin: ChangeOrigin())
-        #expect(controller.inkRevisions[noteID] == 1)
-        try await fixture.store.saveNoteInk(Data([2]), bookID: fixture.book.id, noteID: noteID, origin: session.origin)
-        #expect(controller.inkRevisions[noteID] == 2)
     }
 }

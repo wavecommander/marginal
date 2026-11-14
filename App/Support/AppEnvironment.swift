@@ -49,6 +49,10 @@ final class AppEnvironment {
     static func makeLive(launchOptions: LaunchOptions = .current) -> AppEnvironment {
         PerfMarks.mark("storeOpening")
         defer { PerfMarks.mark("storeOpen") }
+        if launchOptions.resetState {
+            // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
+            UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
+        }
         do {
             let store = try LibraryStore.live(reset: launchOptions.resetState)
             return AppEnvironment(store: store, launchOptions: launchOptions)
