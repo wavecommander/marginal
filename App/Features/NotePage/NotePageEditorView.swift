@@ -113,6 +113,8 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         scrollView.delaysContentTouches = false
         scrollView.keyboardDismissMode = .none
         scrollView.contentInsetAdjustmentBehavior = .never
+        // Owner rule "No scroll-to-top": a status-bar tap must not jump the note to its top.
+        scrollView.scrollsToTop = false
         scrollView.backgroundColor = .clear
         addSubview(scrollView)
 
