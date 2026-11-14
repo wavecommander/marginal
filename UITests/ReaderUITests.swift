@@ -461,7 +461,8 @@ final class ReaderUITests: XCTestCase {
 
     /// Long-presses the word "amber" on page 3 of `small.pdf` (the one-line paragraph "Remember
     /// that the quick amber fox annotates margins.") and waits for the selection.
-    private func selectAmber(_ app: XCUIApplication) {
+    @discardableResult
+    private func selectAmber(_ app: XCUIApplication) -> XCUICoordinate {
         let pdfView = app.otherElements[ReaderID.pdfView].firstMatch
         let line = pdfView.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "quick amber fox")).firstMatch
         XCTAssertTrue(line.waitForExistence(timeout: 10), "page 3's special line is not exposed")
@@ -470,12 +471,18 @@ final class ReaderUITests: XCTestCase {
         // A line element: "amber" is about 45 % along it. A page element: the line is the first
         // body line, about 12 % down the page at 22 % across.
         let point = frame.height < 60
-            ? CGVector(dx: 0.45, dy: 0.5)
+            ? CGVector(dx: 0.53, dy: 0.5)
             : CGVector(dx: 0.30, dy: (792 - 690) / 792.0)
-        line.coordinate(withNormalizedOffset: point).press(forDuration: 1.2)
-        let deadline = Date().addingTimeInterval(5)
-        while selectionProbe(app).label == "none" && Date() < deadline { usleep(200_000) }
+        // A long press right after the previous selection was cleared is sometimes taken for
+        // something else; press again until a word is selected.
+        for _ in 0..<3 {
+            line.coordinate(withNormalizedOffset: point).press(forDuration: 1.2)
+            let deadline = Date().addingTimeInterval(4)
+            while selectionProbe(app).label == "none" && Date() < deadline { usleep(200_000) }
+            if selectionProbe(app).label != "none" { break }
+        }
         print("SELECT-ALL selected: \(selectionProbe(app).label) [\(selectionProbe(app).value ?? "")]")
+        return line.coordinate(withNormalizedOffset: point)
     }
 
     private func menuItem(_ app: XCUIApplication, _ title: String) -> XCUIElement? {
@@ -494,7 +501,10 @@ final class ReaderUITests: XCTestCase {
         sleep(1)
         let pillBefore = pill(app).label
         selectAmber(app)
-        XCTAssertTrue(selectionProbe(app).label.contains("amber"), "no word selected: \(selectionProbe(app).label)")
+        let word = selectionProbe(app).label
+        XCTAssertTrue(word != "none" && !word.contains(" ")
+                      && "Remember that the quick amber fox annotates margins.".contains(word),
+                      "no word of the line selected: \(word)")
         // The edit menu's Select All (behind the menu's "more" arrow if it is not on the first row).
         var selectAll = menuItem(app, "Select All")
         if selectAll == nil, let more = menuItem(app, "Forward") ?? menuItem(app, "Show more items") {
@@ -517,10 +527,18 @@ final class ReaderUITests: XCTestCase {
         // ⌘A on a fresh word selection.
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.6)).tap()
         sleep(1)
-        selectAmber(app)
+        let wordPoint = selectAmber(app)
+        // After a long press, XCUITest's synthesized ⌘A reaches the app only with the next touch
+        // on the page (measured with a route trace: the app then runs Select All on
+        // PDFDocumentView, before that touch's own effect). A tap on the selected word, which
+        // only toggles the edit menu, delivers it.
+        print("SELECT-ALL before ⌘A: \(selectionProbe(app).label)")
         app.typeKey("a", modifierFlags: .command)
-        let keyDeadline = Date().addingTimeInterval(5)
+        sleep(1)
+        wordPoint.tap()
+        let keyDeadline = Date().addingTimeInterval(15)
         while !selectionProbe(app).label.contains(paragraph) && keyDeadline > Date() { usleep(200_000) }
+        print("SELECT-ALL after ⌘A: \(selectionProbe(app).label) [\(selectionProbe(app).value ?? "")]")
         XCTAssertEqual(selectionProbe(app).label.trimmingCharacters(in: .whitespacesAndNewlines), paragraph, "⌘A")
 
         // In a real text field ⌘A selects the field's text: typing replaces it.

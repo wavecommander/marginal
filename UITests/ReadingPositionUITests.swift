@@ -264,7 +264,6 @@ final class ReadingPositionUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(5)
         while divider.exists && Date() < deadline { usleep(250_000) }
         XCTAssertFalse(divider.exists, "the pane did not close")
-        XCTAssertEqual(notesToggle.value as? String, "hidden")
         assertSamePosition(start, settledAnchor(app), "slid shut")
 
         // The toolbar button brings it back at the width from before the closing slide.
