@@ -81,6 +81,9 @@ final class ContentsSidebarModel {
     func start() {
         guard !started else { return }
         started = true
+        #if DEBUG
+        SidebarDebugSeed.seedIfRequested(session: session)
+        #endif
         track({ $0.session.outline }, then: { $0.outlineDidChange() })
         track({ ($0.session.headingPath, $0.session.history) }, then: { $0.sectionDidChange() })
         track({ $0.session.notebook }, then: { $0.notebookDidChange() })
