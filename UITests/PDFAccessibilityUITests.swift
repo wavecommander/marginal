@@ -7,7 +7,7 @@ import XCTest
 final class PDFAccessibilityUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     private func loadAverage() -> String {

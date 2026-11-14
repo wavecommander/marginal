@@ -16,11 +16,11 @@ final class ReadingPositionUITests: XCTestCase {
     override func setUp() {
         // Keep going after a failed comparison so every offset is measured and logged.
         continueAfterFailure = true
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     override func tearDown() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     // MARK: Helpers
@@ -277,10 +277,11 @@ final class ReadingPositionUITests: XCTestCase {
     /// In markup mode the handle resizes and slides the pane shut without inking the page or the note.
     func testSlidingTheNotesHandleInMarkupModeDrawsNothing() {
         let app = launch(Fixtures.small, "small", ["-markup"])
-        // Markup mode: the Markup button is selected (the toolbar has no Done button).
+        // Markup mode: the Markup toggle reads "Done with Markup" (there is no Done button; the
+        // toggle's selected trait and value do not reach XCUITest from the iOS 27 toolbar).
         let markup = app.buttons["reader.toolbar.markup"].firstMatch
         XCTAssertTrue(markup.waitForExistence(timeout: 10))
-        XCTAssertTrue(markup.isSelected, "not in markup mode")
+        XCTAssertEqual(markup.label, "Done with Markup", "not in markup mode")
         let start = settledAnchor(app)
         let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
@@ -307,7 +308,7 @@ final class ReadingPositionUITests: XCTestCase {
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
         sleep(1)
         assertNoInk("closed and reopened")
-        XCTAssertTrue(markup.isSelected, "markup mode ended")
+        XCTAssertEqual(markup.label, "Done with Markup", "markup mode ended")
     }
 
     func testNarrowPanelsKeepPosition() {
