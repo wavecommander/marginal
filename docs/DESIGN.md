@@ -146,6 +146,14 @@ ones even where the mockup draws an approximation.
   ink canvas is active, so in markup mode the reader marks text by hand with the picker's
   highlighter pen, and leaves markup mode to make a text highlight. Existing highlights stay
   visible in markup mode.
+- **Select All selects the paragraph** (owner requirement). In the reader, Select All (the edit
+  menu item and ⌘A) never selects the whole book: PDFKit's default tries to select every page,
+  which on a book of thousands of pages is slow and useless. With text selected, Select All
+  grows the selection to the whole paragraph that contains it, on that page; if the selection
+  already covers a paragraph, or spans several, it grows to the whole paragraphs it touches and
+  no further. With nothing selected it does nothing in the PDF. Paragraphs are found from the
+  page's own text layout (line spacing and indentation), page by page, never by reading other
+  pages. Select All inside a text field or a note keeps its normal meaning.
 - **Ink is navigable like highlights and bookmarks** (owner requirement). Whatever the Pencil
   puts on a page, highlighter strokes and drawings alike, is something the reader can find and
   return to, not only something they see when they happen to scroll past it:
