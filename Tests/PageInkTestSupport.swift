@@ -54,7 +54,8 @@ enum PageInkTestSupport {
             window = UIWindow(windowScene: scene)
             window.frame = CGRect(origin: .zero, size: size)
             let controller = UIViewController()
-            hostView = ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView)
+            hostView = ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView,
+                                         anchorProbe: session.pdf.anchorProbe)
             hostView.frame = CGRect(origin: .zero, size: size)
             controller.view.addSubview(hostView)
             window.rootViewController = controller
