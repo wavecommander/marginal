@@ -296,6 +296,23 @@ handwriting, which is the worst failure the app can have.
   bound, the output opens in PDFKit with the same page count, and marked pages differ from the
   originals.
 
+### WP14 · Ink navigation · Opus
+
+Added by the owner on 13 November 2026 (design rule "Ink is navigable like highlights and
+bookmarks"). Cuts across packages that are already merged, so it runs after WP5, WP8 and WP9.
+
+- `ReaderCore`: the Notebook tree carries pages with ink (from `InkStore.inkedPageIndices`):
+  per-page flag, counts rolled up to headings, badges include ink; Markdown export mentions them.
+- Reader session: the Notebook is rebuilt when page ink changes; a cheap, cached list of inked
+  pages per book.
+- Notebook screen and exports: a row per inked page with a preview of the ink over its page
+  (`PageInkRenderer`), a "Handwriting" type filter, tap to open the reader there; the PDF
+  export draws the preview, ink as vector where the renderer allows.
+- Sidebar: pages with ink listed alongside bookmarks and flagged in the Pages grid.
+- **Done when** a UI test draws on a page, finds that page in the Notebook and in the sidebar,
+  jumps to it from both, erases the ink and sees both entries disappear; unit tests cover the
+  tree, counts and badges.
+
 ### WP12 · Integration, performance and polish · Opus
 
 - End-to-end UI test of the main journey: import, read, mark up the page, highlight, page note,

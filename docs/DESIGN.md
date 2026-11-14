@@ -140,8 +140,37 @@ ones even where the mockup draws an approximation.
   attached to the paragraph before it.
 - **Notes shown elsewhere keep their ink.** The Notebook and the "page notes in this section" list
   render a note with its ink. Editing and inking happen in the notes panel.
-- **Highlights** are made from a text selection through the edit menu (colour choices), in or out
-  of markup mode. Tapping a highlight offers recolour and delete.
+- **Highlights** are made from a text selection through the edit menu (colour choices). Tapping
+  a highlight offers recolour and delete. **Text highlights are made with a finger, outside
+  markup mode** (owner decision for now): on the current SDK text cannot be selected while the
+  ink canvas is active, so in markup mode the reader marks text by hand with the picker's
+  highlighter pen, and leaves markup mode to make a text highlight. Existing highlights stay
+  visible in markup mode.
+- **Ink is navigable like highlights and bookmarks** (owner requirement). Whatever the Pencil
+  puts on a page, highlighter strokes and drawings alike, is something the reader can find and
+  return to, not only something they see when they happen to scroll past it:
+  - every page with ink is listed in the Notebook under its section, with a preview of the ink
+    on its page, filterable as its own type, and included in the Notebook's PDF export;
+  - the sidebar lists pages with ink alongside bookmarks, and flags them in the Pages grid;
+  - Contents note badges count pages with ink, as they count page notes and highlights;
+  - each of these jumps to the page through the reader's jump API, so section history records
+    it; and the lists update as ink is added or erased, in any window.
+- **The notes pane follows the system appearance** (owner requirement). In Dark Mode the whole
+  notes pane is dark, including the note page itself: dark paper, light typed text, and ink that
+  stays legible, using PencilKit's own light and dark ink rendering so a stroke drawn in one
+  appearance reads correctly in the other (black ink shows light on dark paper and returns to
+  black in Light Mode; the stored strokes are never changed by switching appearance). The pane
+  switches live with the system setting. This replaces the first build's choice to keep the note
+  page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
+  appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
+  the PDF draws them.
+- **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
+  note it is showing, page note or section note: a Delete Note action in the note's header,
+  disabled while the note is empty. It asks for confirmation, saying what will go (the typed
+  text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
+  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
+  note's row in "Page notes in this section" and in the Notebook. The change shows in every
+  window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts.
