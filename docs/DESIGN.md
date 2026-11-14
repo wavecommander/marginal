@@ -36,7 +36,7 @@ ones even where the mockup draws an approximation.
 | --- | --- |
 | Library | Imported books in a grid with progress, search, sort, Import PDF, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
-| Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. |
+| Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
 | Reader · section note | Notes inspector on "Section note": a level picker over the heading path, the heading's note, and the page notes that fall inside that heading. |
 | Notebook · all notes by heading | Every note and highlight for one book, laid out along the outline, filterable, exportable. |
@@ -129,7 +129,13 @@ ones even where the mockup draws an approximation.
 - **Markup mode** shows the PencilKit tool picker and enables the per-page ink canvases. Drawing
   policy is the system default (see "Apple Pencil" below): with a Pencil in use only the Pencil
   draws, and fingers scroll and zoom. Leaving the mode hides the picker and makes the
-  ink read-only. Ink saves when a page leaves the screen, on Done, and when the app backgrounds.
+  ink read-only. Ink saves when a page leaves the screen, on leaving markup mode, and when the app backgrounds.
+- **Markup controls.** The toolbar's Markup button is the only switch for the mode, and it is
+  always in the same place: outlined while markup is off, filled while it is on, and tapping it
+  toggles. There is no Done button, and the rest of the toolbar is the same in both modes. Undo
+  and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
+  they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
+  system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in

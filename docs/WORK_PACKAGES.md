@@ -216,7 +216,7 @@ PencilKit over PDFKit has the least forgiving interplay in the app: overlay life
 scale, gesture routing, and saving without stalls.
 
 - Overlay provider that gives each visible page a canvas, loads its drawing, and saves when the
-  page leaves the screen, on Done, and on backgrounding.
+  page leaves the screen, on leaving markup mode, and on backgrounding.
 - Page canvases register as `MarkupSurface`s with the session's shared tool picker (WP4), shown
   only in markup mode; Pencil-only policy with the `-inkAnyInput` test switch; undo and redo
   through the session; ink read-only outside markup mode.
