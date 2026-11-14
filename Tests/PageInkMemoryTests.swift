@@ -9,6 +9,9 @@ import UIKit
 /// Scrolling 200 pages of `large.pdf` in markup mode, in a real PDF view: the number of live
 /// page canvases stays small (none is kept for pages that left the screen) and the process
 /// footprint stays within a generous bound. Pages with ink are loaded and released on the way.
+/// Canvases are counted for this test's book only (`liveCount(bookID:)`): other suites run in
+/// the same process at the same time and open readers of their own, so the process-wide count
+/// would measure them too. The footprint bound is process-wide and deliberately generous.
 @MainActor
 struct PageInkMemoryTests {
     /// Physical footprint of the process in bytes (what Xcode's memory gauge shows).
@@ -41,9 +44,10 @@ struct PageInkMemoryTests {
         #expect(await PageInkTestSupport.waitUntil(timeout: 20) { host.session.loadState == .ready })
         await PageInkTestSupport.pause(1)
         let scrollView = try #require(host.pdfView.documentView?.superview as? UIScrollView)
-        let canvasesAtStart = PageInkCanvasView.liveCount
+        let canvasesAtStart = PageInkCanvasView.liveCount(bookID: book.id)
         let startFootprint = footprint()
         var maxCanvases = 0
+        var maxProcessCanvases = 0
         var maxFootprint = startFootprint
         var pagesWithInkSeen = Set<Int>()
         // Scroll continuously, a third of a screen at a time, through 200 pages.
@@ -60,7 +64,8 @@ struct PageInkMemoryTests {
             scrollView.setContentOffset(offset, animated: false)
             steps += 1
             if steps % 3 == 0 { await PageInkTestSupport.pause(0.02) }
-            maxCanvases = max(maxCanvases, PageInkCanvasView.liveCount)
+            maxCanvases = max(maxCanvases, PageInkCanvasView.liveCount(bookID: book.id))
+            maxProcessCanvases = max(maxProcessCanvases, PageInkCanvasView.liveCount)
             maxFootprint = max(maxFootprint, footprint())
             for (page, surface) in host.provider?.liveSurfaces ?? [:] where surface.strokeCount > 0 {
                 pagesWithInkSeen.insert(page)
@@ -68,9 +73,9 @@ struct PageInkMemoryTests {
         }
         await PageInkTestSupport.pause(1)
         let scrolledPages = pageOnScreen() - startPage
-        let endCanvases = PageInkCanvasView.liveCount
+        let endCanvases = PageInkCanvasView.liveCount(bookID: book.id)
         let growthMB = Double(maxFootprint - min(startFootprint, maxFootprint)) / 1_048_576
-        print("PageInk memory: scrolled \(scrolledPages) pages in \(steps) steps; live canvases start \(canvasesAtStart), max \(maxCanvases), end \(endCanvases); footprint start \(startFootprint / 1_048_576) MB, max \(maxFootprint / 1_048_576) MB (growth \(String(format: "%.1f", growthMB)) MB); pages with ink loaded on the way: \(pagesWithInkSeen.count)")
+        print("PageInk memory: scrolled \(scrolledPages) pages in \(steps) steps; live canvases start \(canvasesAtStart), max \(maxCanvases), end \(endCanvases) (process-wide max \(maxProcessCanvases)); footprint start \(startFootprint / 1_048_576) MB, max \(maxFootprint / 1_048_576) MB (growth \(String(format: "%.1f", growthMB)) MB); pages with ink loaded on the way: \(pagesWithInkSeen.count)")
         #expect(scrolledPages >= 200)
         #expect(maxCanvases <= 8, "only pages near the screen have a canvas")
         #expect(endCanvases <= 6)
