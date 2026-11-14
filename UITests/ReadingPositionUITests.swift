@@ -206,6 +206,16 @@ final class ReadingPositionUITests: XCTestCase {
         assertSamePosition(start, settledAnchor(app), "navigation bar tap")
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.005)).tap()
         assertSamePosition(start, settledAnchor(app), "status bar tap")
+        // With both panels closed the PDF is the only scroll view left in the window (before
+        // iPadOS 26 the system scrolls to top only when exactly one scroll view opts in).
+        app.buttons["reader.toolbar.contents"].firstMatch.tap()
+        app.buttons["reader.toolbar.notes"].firstMatch.tap()
+        let alone = settledAnchor(app)
+        assertSamePosition(start, alone, "panels closed")
+        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        assertSamePosition(start, settledAnchor(app), "title tap, PDF alone")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.005)).tap()
+        assertSamePosition(start, settledAnchor(app), "status bar tap, PDF alone")
         XCTAssertFalse(app.buttons["reader.toolbar.historyBack"].firstMatch.isEnabled, "no history entry")
         XCTAssertEqual(app.buttons["reader.pagePill"].firstMatch.label, pillBefore)
     }

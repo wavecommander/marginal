@@ -130,6 +130,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         pendingPageIndex = initialPageIndex
         isTrackingSuspended = true
         view.document = document
+        view.disableScrollsToTop()
         observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
     }
@@ -509,7 +510,31 @@ final class ReaderPDFView: PDFView {
     /// Every bounds-size change (panel toggles, the divider, window resize, rotation, the
     /// keyboard, animation frames of any of these) is one pass: capture-if-needed before
     /// PDFKit lays out, restore the reading anchor right after, in the same pass.
+    /// "No scroll-to-top" (design): every scroll view PDFKit puts inside this view opts out of
+    /// the system's tap-to-scroll-to-top, which a tap on the status bar (and on iPadOS 26+ the
+    /// navigation bar / title) sends to the window's scroll-to-top scroll view and which would
+    /// take the reader to page 1. PDFKit can replace its scroll view when the document, display
+    /// mode or layout changes, so this runs on every subview addition and layout pass. It walks
+    /// only PDFKit's chrome, never into the document view's page views.
+    func disableScrollsToTop() {
+        var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) }
+        while !queue.isEmpty {
+            let (current, depth) = queue.removeFirst()
+            if let scrollView = current as? UIScrollView, scrollView.scrollsToTop {
+                scrollView.scrollsToTop = false
+            }
+            guard depth < 4, current !== documentView else { continue }
+            queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
+        }
+    }
+
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        disableScrollsToTop()
+    }
+
     override func layoutSubviews() {
+        defer { disableScrollsToTop() }
         let size = bounds.size
         let old = lastLayoutSize
         guard size != old else {
