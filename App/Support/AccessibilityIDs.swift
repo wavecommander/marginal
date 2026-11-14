@@ -10,6 +10,8 @@ nonisolated enum AccessibilityID {
 
     enum Reader {
         static let pdfView = "reader.pdfView"
+        /// Test hook (`-exposeViewportAnchor`): value "page N x X y Y scale S" (page space).
+        static let viewportAnchor = "reader.viewportAnchor"
         static let loading = "reader.loading"
 
         // Toolbar

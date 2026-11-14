@@ -35,13 +35,71 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// Page to show once the view has a size and a document.
     private var pendingPageIndex: Int?
-    /// While true, PDFKit's page-changed reports are ignored (initial positioning, resizing).
+    /// While true, PDFKit's page-changed reports are ignored (initial positioning).
     private var isTrackingSuspended = true
-    /// The page and page-space y at the top of the visible area when a resize began.
-    private var resizeAnchor: (pageIndex: Int, pageY: CGFloat?)?
-    private var resizeGeneration = 0
     private var hasPositionedInitially = false
+
+    /// The reader's place: the page point at the top-left of the view. Updated only when the
+    /// scroll position changes outside a size-change layout pass (scrolling, zooming, jumps,
+    /// links, accessibility scrolling); restored, never re-derived, after every size change, so
+    /// no rounding or transient layout can accumulate into drift.
+    private(set) var readingAnchor: ReadingAnchor?
+    /// True from the start of a size-change layout pass until the anchor has been restored.
+    /// Offset changes in that window are layout, not reading.
+    private var isRestoringPosition = false
+    /// The position moved since PDFKit's last page report was honoured. A page report with no
+    /// movement behind it (PDFKit re-deriving "current" for a new width) is ignored, so the
+    /// current page, subtitle, pill and last-read save never flicker during a size change.
+    private var positionMovedSinceReport = false
     private let tapDelegate = SimultaneousGestureDelegate()
+    private var offsetObservation: NSKeyValueObservation?
+
+    /// Test hook (`-exposeViewportAnchor`): an accessibility element whose value is the current
+    /// reading anchor. A button trait keeps XCUITest queries for it fast (they skip PDFKit's
+    /// page text elements).
+    private(set) lazy var anchorProbe: UIView? = {
+        guard session?.configuration.exposesViewportAnchor == true else { return nil }
+        let probe = UIView()
+        probe.isAccessibilityElement = true
+        probe.accessibilityTraits = .button
+        probe.accessibilityLabel = "Viewport anchor"
+        probe.accessibilityIdentifier = AccessibilityID.Reader.viewportAnchor
+        return probe
+    }()
+
+    /// The scroll view PDFKit scrolls the document in.
+    var scrollView: UIScrollView? { isViewLoaded ? view.documentView?.superview as? UIScrollView : nil }
+
+    /// The reading anchor of the current scroll position (page point at the top-left corner).
+    func captureAnchor() -> ReadingAnchor? {
+        guard let scrollView, view.document != nil else { return nil }
+        let content = ViewportAnchorMath.topLeftContentPoint(contentOffset: scrollView.contentOffset,
+                                                             insets: scrollView.adjustedContentInset)
+        let inView = view.convert(content, from: scrollView)
+        guard let page = view.page(for: inView, nearest: true), let index = pageIndex(of: page) else { return nil }
+        return ReadingAnchor(pageIndex: index, point: view.convert(inView, to: page))
+    }
+
+    private func updateAnchorProbe() {
+        guard let anchorProbe else { return }
+        anchorProbe.accessibilityValue = captureAnchor()?.description(scale: view.scaleFactor) ?? "none"
+    }
+
+    private func observeScrollViewIfNeeded() {
+        guard offsetObservation == nil, let scrollView else { return }
+        offsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.scrollViewDidChangeOffset() }
+        }
+    }
+
+    private func scrollViewDidChangeOffset() {
+        guard !isRestoringPosition else { return }
+        if hasPositionedInitially, let anchor = captureAnchor() {
+            readingAnchor = anchor
+            positionMovedSinceReport = true
+        }
+        updateAnchorProbe()
+    }
 
     init(session: ReaderSession) {
         self.session = session
@@ -72,6 +130,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         pendingPageIndex = initialPageIndex
         isTrackingSuspended = true
         view.document = document
+        observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
     }
 
@@ -94,9 +153,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             applyPendingPageIfPossible()
             return
         }
-        // A navigation supersedes any position a pending resize would restore.
-        resizeAnchor = nil
-        resizeGeneration += 1
         isTrackingSuspended = false
         view.showTop(of: page)
     }
@@ -246,36 +302,41 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return elements
     }
 
-    func viewWillLayout(newSize: CGSize, oldSize: CGSize) {
-        guard hasPositionedInitially, oldSize != .zero, newSize != oldSize, let session else { return }
-        if resizeAnchor == nil {
-            // The scroll offset has not changed yet, so the top of the visible area still maps to
-            // the place the reader was looking at.
-            if let top = view.pageAndPointAtTop(), let index = pageIndex(of: top.page) {
-                resizeAnchor = (index, top.pageY)
-            } else {
-                resizeAnchor = (session.currentPageIndex, nil)
-            }
-        }
-        isTrackingSuspended = true
+    /// Called by `ReaderPDFView.layoutSubviews` *before* PDFKit lays out for a new size. The
+    /// scroll offset and page frames are still the old ones, so if no anchor exists yet it is
+    /// captured here from the place the reader is looking at.
+    func sizeChangeWillLayout() {
+        guard hasPositionedInitially, view.document != nil else { return }
+        if readingAnchor == nil { readingAnchor = captureAnchor() }
+        isRestoringPosition = true
     }
 
-    func viewDidLayout() {
-        if !hasPositionedInitially {
-            applyPendingPageIfPossible()
-            return
+    /// Called by `ReaderPDFView.layoutSubviews` *after* PDFKit has laid out for the new size,
+    /// in the same layout pass (so the position holds through an animated width change instead
+    /// of being fixed up afterwards). Lays out the document view now (the layout this pass
+    /// would do anyway), then puts the anchor's page point back at the top-left corner.
+    func sizeChangeDidLayout() {
+        defer {
+            isRestoringPosition = false
+            updateAnchorProbe()
         }
-        guard let anchor = resizeAnchor else { return }
-        resizeGeneration += 1
-        let generation = resizeGeneration
-        DispatchQueue.main.async { [weak self] in
-            guard let self, generation == self.resizeGeneration else { return }
-            self.resizeAnchor = nil
-            if let page = self.page(at: anchor.pageIndex) {
-                self.view.showTop(of: page, pageY: anchor.pageY)
-            }
-            self.isTrackingSuspended = false
+        guard isRestoringPosition, let anchor = readingAnchor, let page = page(at: anchor.pageIndex),
+              let scrollView else { return }
+        scrollView.layoutIfNeeded()
+        view.documentView?.layoutIfNeeded()
+        let inView = view.convert(anchor.point, from: page)
+        let content = scrollView.convert(inView, from: view)
+        let target = ViewportAnchorMath.contentOffset(placing: content, insets: scrollView.adjustedContentInset,
+                                                      contentSize: scrollView.contentSize,
+                                                      boundsSize: scrollView.bounds.size)
+        if abs(target.x - scrollView.contentOffset.x) > 0.01 || abs(target.y - scrollView.contentOffset.y) > 0.01 {
+            scrollView.setContentOffset(target, animated: false)
         }
+    }
+
+    /// Called by `ReaderPDFView.layoutSubviews` for the first non-zero size.
+    func viewDidGetFirstSize() {
+        applyPendingPageIfPossible()
     }
 
     // MARK: Private
@@ -319,6 +380,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.document = nil
         view.document = document
         hasPositionedInitially = false
+        readingAnchor = nil
         pendingPageIndex = page
         isTrackingSuspended = true
         applyPendingPageIfPossible()
@@ -334,6 +396,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             self.view.showTop(of: page)
             self.hasPositionedInitially = true
             self.isTrackingSuspended = false
+            self.observeScrollViewIfNeeded()
+            self.readingAnchor = self.captureAnchor()
             self.session?.pdfReportedCurrentPage(index)
             self.reportVisiblePages()
             self.reportNavigationState()
@@ -341,7 +405,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     @objc private func pageChanged(_ notification: Notification) {
-        guard !isTrackingSuspended, let page = view.currentPage, let index = pageIndex(of: page) else { return }
+        guard !isTrackingSuspended, !isRestoringPosition, positionMovedSinceReport,
+              let page = view.currentPage, let index = pageIndex(of: page) else { return }
+        positionMovedSinceReport = false
         session?.pdfReportedCurrentPage(index)
     }
 
@@ -440,15 +506,25 @@ final class ReaderPDFView: PDFView {
         }
     }
 
+    /// Every bounds-size change (panel toggles, the divider, window resize, rotation, the
+    /// keyboard, animation frames of any of these) is one pass: capture-if-needed before
+    /// PDFKit lays out, restore the reading anchor right after, in the same pass.
     override func layoutSubviews() {
         let size = bounds.size
         let old = lastLayoutSize
-        if size != old { controller?.viewWillLayout(newSize: size, oldSize: old) }
-        super.layoutSubviews()
-        if size != old {
-            lastLayoutSize = size
-            controller?.viewDidLayout()
+        guard size != old else {
+            super.layoutSubviews()
+            return
         }
+        lastLayoutSize = size
+        if old == .zero {
+            super.layoutSubviews()
+            controller?.viewDidGetFirstSize()
+            return
+        }
+        controller?.sizeChangeWillLayout()
+        super.layoutSubviews()
+        controller?.sizeChangeDidLayout()
     }
 
     override func buildMenu(with builder: any UIMenuBuilder) {
@@ -473,7 +549,8 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
     let session: ReaderSession
 
     func makeUIView(context: Context) -> ReaderPDFHostView {
-        ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView)
+        ReaderPDFHostView(controller: session.pdf, responderView: session.markup.responderView,
+                          anchorProbe: session.pdf.anchorProbe)
     }
 
     func updateUIView(_ uiView: ReaderPDFHostView, context: Context) {}
@@ -482,10 +559,12 @@ struct ReaderPDFViewRepresentable: UIViewRepresentable {
 final class ReaderPDFHostView: UIView {
     private let controller: ReaderPDFController
     private let responderView: UIView
+    private let anchorProbe: UIView?
 
-    init(controller: ReaderPDFController, responderView: UIView) {
+    init(controller: ReaderPDFController, responderView: UIView, anchorProbe: UIView?) {
         self.controller = controller
         self.responderView = responderView
+        self.anchorProbe = anchorProbe
         super.init(frame: .zero)
         adopt()
     }
@@ -507,6 +586,10 @@ final class ReaderPDFHostView: UIView {
         if responderView.superview !== self {
             responderView.frame = .zero
             addSubview(responderView)
+        }
+        if let anchorProbe, anchorProbe.superview !== self {
+            anchorProbe.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+            addSubview(anchorProbe)
         }
     }
 }

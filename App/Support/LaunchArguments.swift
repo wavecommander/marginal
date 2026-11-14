@@ -62,6 +62,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// registered surface before WP6 exists.
     var markupProbeSurface = false
 
+    /// `-exposeViewportAnchor`: test-only. Publishes the reading anchor (page point at the top of
+    /// the view, and the scale) as the accessibility value of a `reader.viewportAnchor` element.
+    var exposeViewportAnchor = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -100,6 +104,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 selectionMenuProbe = true
             case "-markupProbeSurface":
                 markupProbeSurface = true
+            case "-exposeViewportAnchor":
+                exposeViewportAnchor = true
             default:
                 break
             }

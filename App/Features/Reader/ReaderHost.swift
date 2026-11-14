@@ -76,6 +76,7 @@ struct ReaderHost: View {
         configuration.inkAnyInput = environment.launchOptions.inkAnyInput
         configuration.selectionMenuProbe = environment.launchOptions.selectionMenuProbe
         configuration.markupProbeSurface = environment.launchOptions.markupProbeSurface
+        configuration.exposesViewportAnchor = environment.launchOptions.exposeViewportAnchor
         if let storedState {
             configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)
         }
