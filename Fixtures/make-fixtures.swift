@@ -1,6 +1,6 @@
 // Deterministic fixture PDF generator (macOS). Usage:
 //   swiftc -O -o /tmp/make-fixtures Fixtures/make-fixtures.swift && /tmp/make-fixtures <outdir>
-// (scripts/fixtures.sh wraps this.) Writes small.pdf, large.pdf, no-outline.pdf, then verifies
+// (scripts/fixtures.sh wraps this.) Writes small.pdf, links.pdf, large.pdf, no-outline.pdf, then verifies
 // them with PDFKit and exits non-zero on any mismatch.
 import CoreGraphics
 import CoreText
@@ -13,6 +13,19 @@ struct Entry {
     var page: Int  // 1-based
 }
 
+/// A link inside the PDF: a labelled box on `page` that goes to `target`'s page-space `targetY`.
+struct Link {
+    var page: Int  // 1-based
+    var y: CGFloat  // page-space y of the box's bottom edge
+    var label: String
+    var target: Int  // 1-based
+    var targetY: CGFloat
+    /// A GoTo action (`/A`) instead of a plain destination (`/Dest`); real PDFs use both.
+    var asAction = false
+
+    var rect: CGRect { CGRect(x: margin, y: y, width: 260, height: 24) }
+}
+
 struct Spec {
     var file: String
     var pages: Int
@@ -20,6 +33,7 @@ struct Spec {
     var runningHeader: String
     /// page -> extra sentence appended to that page's first paragraph
     var specials: [Int: String] = [:]
+    var links: [Link] = []
 }
 
 // MARK: deterministic text
@@ -135,6 +149,14 @@ func render(_ spec: Spec) -> Data {
         }
         drawBody(ctx, paras.joined(separator: "\n"),
                  in: CGRect(x: margin, y: 90, width: pageW - 2 * margin, height: y - 90))
+        // Link boxes, over the body text.
+        for link in spec.links where link.page == page {
+            ctx.setFillColor(CGColor(red: 0.9, green: 0.94, blue: 1, alpha: 1))
+            ctx.fill(link.rect)
+            ctx.setFillColor(CGColor(red: 0.1, green: 0.3, blue: 0.8, alpha: 1))
+            drawLine(ctx, link.label, font: font("Helvetica", 12), at: CGPoint(x: link.rect.minX + 6, y: link.rect.minY + 7))
+        }
+        ctx.setFillColor(CGColor(gray: 0.08, alpha: 1))
         // Footer.
         drawLine(ctx, "Fixture page \(page)", font: font("Helvetica", 9),
                  at: CGPoint(x: margin, y: 54))
@@ -164,6 +186,16 @@ func write(_ spec: Spec, to dir: URL) throws {
         }
         doc.outlineRoot = root
     }
+    for link in spec.links {
+        let annotation = PDFAnnotation(bounds: link.rect, forType: .link, withProperties: nil)
+        let destination = PDFDestination(page: doc.page(at: link.target - 1)!, at: CGPoint(x: 0, y: link.targetY))
+        if link.asAction {
+            annotation.action = PDFActionGoTo(destination: destination)
+        } else {
+            annotation.destination = destination
+        }
+        doc.page(at: link.page - 1)!.addAnnotation(annotation)
+    }
     let url = dir.appendingPathComponent(spec.file)
     guard doc.write(to: url) else { throw NSError(domain: "fixtures", code: 1) }
 }
@@ -180,6 +212,20 @@ let smallSpec: Spec = {
     }
     return Spec(file: "small.pdf", pages: 12, entries: e, runningHeader: "Small Fixture Textbook",
                 specials: [3: "Remember that the quick amber fox annotates margins."])
+}()
+
+/// `small.pdf`'s pages and outline plus links between sections (section history tests).
+let linksSpec: Spec = {
+    var spec = smallSpec
+    spec.file = "links.pdf"
+    spec.runningHeader = "Linked Fixture Textbook"
+    spec.specials = [:]
+    spec.links = [
+        Link(page: 7, y: 120, label: "Link: start of 2.1 Foundations", target: 6, targetY: pageH, asAction: true),
+        Link(page: 7, y: 200, label: "Link: 3.2 Exercises", target: 12, targetY: pageH),
+        Link(page: 3, y: 400, label: "Link: middle of page 7", target: 7, targetY: 450, asAction: true),
+    ]
+    return spec
 }()
 
 let largeSpec: Spec = {
@@ -250,6 +296,12 @@ func verify(_ spec: Spec, dir: URL, expectedDepth: Int) {
     } else {
         check(expectedDepth == 0, "\(spec.file): missing outline")
     }
+    for link in spec.links {
+        let target = doc.page(at: link.page - 1)?.annotations.first { $0.bounds == link.rect }
+            .flatMap { $0.destination ?? ($0.action as? PDFActionGoTo)?.destination }?.page
+        check(target.map { doc.index(for: $0) } == link.target - 1,
+              "\(spec.file): link on page \(link.page) does not go to page \(link.target)")
+    }
     for (page, _) in spec.specials {
         let key = spec.file == "small.pdf" ? "the quick amber fox annotates margins" : "zygomorphic lighthouse theorem"
         let hits = doc.findString(key, withOptions: [.caseInsensitive]).compactMap { $0.pages.first }
@@ -269,9 +321,10 @@ guard CommandLine.arguments.count == 2 else {
 let outDir = URL(fileURLWithPath: CommandLine.arguments[1])
 try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 let started = Date()
-for spec in [smallSpec, noOutlineSpec, largeSpec] { try write(spec, to: outDir) }
+for spec in [smallSpec, linksSpec, noOutlineSpec, largeSpec] { try write(spec, to: outDir) }
 print(String(format: "generated in %.1fs", Date().timeIntervalSince(started)))
 verify(smallSpec, dir: outDir, expectedDepth: 2)
+verify(linksSpec, dir: outDir, expectedDepth: 2)
 verify(largeSpec, dir: outDir, expectedDepth: 3)
 verify(noOutlineSpec, dir: outDir, expectedDepth: 0)
 if failures.isEmpty {
