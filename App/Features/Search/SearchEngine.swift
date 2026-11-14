@@ -1,18 +1,29 @@
 import Foundation
+import os
 import PDFKit
 
-// The search engine (WP10): in-book text search that streams results, can be cancelled and never
-// touches the on-screen document.
+// The search engine (WP10): in-book text search that streams results, can be cancelled, never
+// touches the on-screen document and never holds more than a few dozen pages' text.
 //
 // ## Why not `PDFDocument.beginFindString`
-// PDFKit's asynchronous find is driven by the run loop of the thread that started it (in
-// practice the main thread, in slices), its delegate callbacks arrive on that thread, it offers
-// only case-insensitive/literal options (no diacritic folding), gives no per-page progress we can
-// throttle, and cannot resume from a page. So the engine runs a page-by-page loop on its own
-// background task over its own `PDFDocument`: `PDFPage.string` of one page at a time (never the
-// whole document's text), folded and matched by `SearchTextMatcher`, with `Task.isCancelled`
-// checked between pages. The `PDFDocument` is created inside the task and never leaves it; only
-// `Sendable` values (`SearchHit`, `SearchEvent`) cross to the main actor.
+// Checked against the installed SDK headers and by experiment (macOS PDFKit, same API): the
+// asynchronous find runs in slices on the run loop of the thread that started it (nothing happens
+// until that run loop spins; every callback arrives on that thread, i.e. the main thread in an
+// app), it took about five times as long as the page loop below on `large.pdf` (15 s against
+// 3 s), its documented options are only case-insensitive, literal and backwards (no diacritic
+// folding), and it cannot resume from a page. So the engine scans page by page itself.
+//
+// ## Threading and memory
+// A search runs on a GCD worker thread (not the Swift cooperative pool, which a multi-second
+// synchronous loop would starve) over **private** `PDFDocument` instances opened from the file:
+// the on-screen document is never touched, and no PDFKit object leaves the worker. Only
+// `Sendable` values (`SearchHit`, `SearchEvent`) cross to the caller.
+//
+// A `PDFDocument` keeps every page it has handed out, with that page's text, until the document
+// is released: scanning all 1,500 pages of `large.pdf` through one instance peaks at about
+// 485 MB (measured, phys_footprint). The worker therefore releases its document and opens a
+// fresh one every `pagesPerDocument` pages (peak about 24 MB, about 10% slower), and reads one
+// page's text at a time (`PDFPage.string`), never the whole document's.
 
 // MARK: - Values
 
@@ -45,6 +56,7 @@ nonisolated enum SearchEvent: Sendable, Equatable {
     /// `pagesSearched` is the number of pages scanned from the start of the book, i.e. the index
     /// of the next page to scan (so a search can resume there).
     case progress(pagesSearched: Int, totalPages: Int)
+    /// The last event of a run that was not cancelled.
     case finished(SearchCompletion)
 }
 
@@ -54,7 +66,7 @@ nonisolated struct SearchCompletion: Hashable, Sendable {
         case completed
         /// The hit cap was reached; `nextPage` is where a continuation resumes.
         case capped
-        /// The document could not be opened.
+        /// The document could not be opened, or the query folds to nothing.
         case failed
     }
 
@@ -71,7 +83,7 @@ nonisolated struct SearchCompletion: Hashable, Sendable {
 /// Foundation once and then from a cache. Runs of whitespace (including the newline at a line
 /// wrap) collapse to one space, so "lighthouse\ntheorem" matches "lighthouse theorem". Combining
 /// marks and soft hyphens are dropped; compatibility forms (ligatures, full-width letters) are
-/// expanded.
+/// expanded. A word hyphenated across a line break ("eigen-\nvalue") is not joined.
 nonisolated struct SearchTextMatcher {
     /// Text folded for matching, with each folded scalar's span in the original UTF-16.
     struct Folded {
@@ -106,7 +118,7 @@ nonisolated struct SearchTextMatcher {
             let value = scalar.value
             if value < 0x80 {
                 if value == 0x20 || (value >= 0x09 && value <= 0x0D) {
-                    append(space: true, start: start, end: offset, to: &out)
+                    appendSpace(start: start, end: offset, to: &out)
                 } else if value >= 0x41 && value <= 0x5A {
                     append(value + 0x20, start: start, end: offset, to: &out)
                 } else {
@@ -116,7 +128,7 @@ nonisolated struct SearchTextMatcher {
             }
             for folded in foldedScalars(for: scalar) {
                 if folded == Self.space {
-                    append(space: true, start: start, end: offset, to: &out)
+                    appendSpace(start: start, end: offset, to: &out)
                 } else {
                     append(folded, start: start, end: offset, to: &out)
                 }
@@ -131,7 +143,7 @@ nonisolated struct SearchTextMatcher {
         out.ends.append(end)
     }
 
-    private func append(space: Bool, start: Int32, end: Int32, to out: inout Folded) {
+    private func appendSpace(start: Int32, end: Int32, to out: inout Folded) {
         if out.scalars.last == Self.space {
             out.ends[out.ends.count - 1] = end  // collapse the run
         } else {
@@ -239,53 +251,101 @@ nonisolated struct SearchTextMatcher {
     }
 }
 
+// MARK: - Cancellation and diagnostics
+
+/// A thread-safe cancellation flag shared by a stream's consumer side and its worker.
+nonisolated final class SearchCancellation: Sendable {
+    private let flag = OSAllocatedUnfairLock(initialState: false)
+
+    var isCancelled: Bool { flag.withLock { $0 } }
+    func cancel() { flag.withLock { $0 = true } }
+}
+
+/// Process-wide counters of the engine's live resources, so tests (and a debugger) can assert
+/// that a completed or cancelled search leaves no worker and no `PDFDocument` behind and that
+/// cancelled work stops. Cheap: one uncontended lock per page.
+nonisolated enum SearchDiagnostics {
+    struct Snapshot: Equatable, Sendable {
+        /// Workers (search runs) whose loop has not returned yet.
+        var liveWorkers = 0
+        /// Private `PDFDocument`s the engine has opened and not yet released.
+        var liveDocuments = 0
+        /// Pages scanned since launch, across all runs (only ever grows).
+        var pagesScanned = 0
+    }
+
+    private static let state = OSAllocatedUnfairLock(initialState: Snapshot())
+
+    static var snapshot: Snapshot { state.withLock { $0 } }
+
+    fileprivate static func update(_ body: @Sendable (inout Snapshot) -> Void) {
+        state.withLock { body(&$0) }
+    }
+}
+
 // MARK: - PDF search
 
-/// Streams text hits from a private `PDFDocument`.
+/// Streams text hits from private `PDFDocument`s opened from the book's file.
 nonisolated enum PDFTextSearch {
-    /// Maximum text hits per search run; "Show more results…" continues from where it stopped.
+    /// Text hits per run. A run stops at the first page boundary at or after this many hits
+    /// (so it can exceed the cap by the hits of one page) and finishes `.capped` with the page
+    /// to resume from; the UI offers "Show More Results", which runs again from there.
     static let defaultHitCap = 500
 
-    /// Searches the PDF at `url` page by page, starting at `startPage`.
+    /// Pages scanned with one private `PDFDocument` before it is released and the file reopened
+    /// (bounds memory; see the file comment).
+    static let pagesPerDocument = 32
+
+    /// Hits are delivered in batches: the first hit at once, then at most every this long, so the
+    /// result list re-renders a few times a second rather than once per page.
+    static let batchInterval: Duration = .milliseconds(250)
+
+    /// Searches the PDF at `url` page by page from `startPage` and streams `SearchEvent`s.
     ///
-    /// The returned stream yields `SearchEvent`s (batched: the first hit is delivered at once,
-    /// later ones at most every ~250 ms (each batch re-renders the result list)) and finishes after `.finished`. Cancelling the consuming
-    /// task, or dropping the stream, cancels the search within one page. A run stops at the
-    /// first page boundary after `hitCap` hits, so it can exceed the cap by one page's hits.
+    /// The search runs on a GCD worker thread. Ending the stream (cancelling the task that
+    /// iterates it, breaking out of the loop, or dropping the stream) cancels the worker, which
+    /// stops before its next page and releases its document; a cancelled run yields no
+    /// `.finished`. A run that is not cancelled ends with exactly one `.finished`.
     ///
-    /// - Parameter pageDelay: test hook; sleeps this long after each page (slows the search so a
-    ///   UI test can cancel it midway).
+    /// - Parameter pageDelay: test hook (the UI tests' `-searchPageDelayMs`): the worker sleeps
+    ///   this long after each page so a search is still running when a test acts on it.
     static func stream(url: URL, query: String, startPage: Int = 0, hitCap: Int = defaultHitCap,
                        pageDelay: Duration = .zero) -> AsyncStream<SearchEvent> {
         AsyncStream(SearchEvent.self, bufferingPolicy: .unbounded) { continuation in
-            let task = Task.detached(priority: .userInitiated) {
+            let cancellation = SearchCancellation()
+            continuation.onTermination = { _ in cancellation.cancel() }
+            SearchDiagnostics.update { $0.liveWorkers += 1 }
+            DispatchQueue.global(qos: .userInitiated).async {
                 run(url: url, query: query, startPage: startPage, hitCap: hitCap, pageDelay: pageDelay,
-                    emit: { continuation.yield($0) })
+                    cancellation: cancellation, emit: { continuation.yield($0) })
+                // The run has released its document; count it gone before the stream ends, so a
+                // consumer that sees the end also sees `liveWorkers` drop.
+                SearchDiagnostics.update { $0.liveWorkers -= 1 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
+    /// The worker loop. Synchronous; every PDFKit object it creates stays on this thread.
     private static func run(url: URL, query: String, startPage: Int, hitCap: Int, pageDelay: Duration,
-                            emit: (SearchEvent) -> Void) {
+                            cancellation: SearchCancellation, emit: (SearchEvent) -> Void) {
         var matcher = SearchTextMatcher()
         let needle = matcher.foldQuery(query)
-        guard !needle.isEmpty, let document = PDFDocument(url: url) else {
+        var pages = PageSource(url: url)
+        defer { pages.close() }
+        guard !needle.isEmpty, let total = pages.pageCount else {
             emit(.finished(SearchCompletion(reason: .failed, nextPage: startPage)))
             return
         }
-        let total = document.pageCount
         var pending: [SearchHit] = []
         var totalHits = 0
-        var lastEmit = ContinuousClock.now - .seconds(1)
+        var lastEmit = ContinuousClock.now
         var sentFirst = false
-        let flushInterval = Duration.milliseconds(250)
-        let sleepNanos = pageDelay > .zero ? pageDelay : nil
 
         func flush(pagesSearched: Int, force: Bool) {
             let now = ContinuousClock.now
-            guard force || now - lastEmit >= flushInterval || (!pending.isEmpty && !sentFirst) else { return }
+            let firstHitWaiting = !sentFirst && !pending.isEmpty
+            guard force || firstHitWaiting || now - lastEmit >= batchInterval else { return }
             if !pending.isEmpty {
                 emit(.hits(pending))
                 sentFirst = true
@@ -297,9 +357,9 @@ nonisolated enum PDFTextSearch {
 
         var page = max(0, startPage)
         while page < total {
-            if Task.isCancelled { return }
+            if cancellation.isCancelled { return }
             autoreleasepool {
-                guard let pdfPage = document.page(at: page), let text = pdfPage.string, !text.isEmpty else { return }
+                guard let pdfPage = pages.page(at: page), let text = pdfPage.string, !text.isEmpty else { return }
                 let folded = matcher.fold(text)
                 let ranges = SearchTextMatcher.matches(of: needle, in: folded)
                 guard !ranges.isEmpty else { return }
@@ -315,20 +375,61 @@ nonisolated enum PDFTextSearch {
                 }
             }
             page += 1
-            if let delay = sleepNanos {
-                Thread.sleep(forTimeInterval: Double(delay.components.seconds)
-                             + Double(delay.components.attoseconds) / 1e18)
+            SearchDiagnostics.update { $0.pagesScanned += 1 }
+            if pageDelay > .zero {
+                Thread.sleep(forTimeInterval: Double(pageDelay.components.seconds)
+                             + Double(pageDelay.components.attoseconds) / 1e18)
             }
+            if cancellation.isCancelled { return }
             if totalHits >= hitCap, page < total {
-                if Task.isCancelled { return }
                 flush(pagesSearched: page, force: true)
                 emit(.finished(SearchCompletion(reason: .capped, nextPage: page)))
                 return
             }
             flush(pagesSearched: page, force: false)
         }
-        if Task.isCancelled { return }
         flush(pagesSearched: total, force: true)
         emit(.finished(SearchCompletion(reason: .completed, nextPage: total)))
+    }
+}
+
+/// The worker's pages: a private `PDFDocument` replaced every `PDFTextSearch.pagesPerDocument`
+/// pages so the text PDFKit caches per page is released as the scan moves on.
+private nonisolated struct PageSource {
+    let url: URL
+    private var document: PDFDocument?
+    private var pagesFromDocument = 0
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    /// The page count, opening the first document; `nil` when the file cannot be opened.
+    var pageCount: Int? {
+        mutating get {
+            if document == nil { reopen() }
+            return document?.pageCount
+        }
+    }
+
+    mutating func page(at index: Int) -> PDFPage? {
+        if document == nil || pagesFromDocument >= PDFTextSearch.pagesPerDocument { reopen() }
+        pagesFromDocument += 1
+        return document?.page(at: index)
+    }
+
+    mutating func close() {
+        guard document != nil else { return }
+        document = nil
+        SearchDiagnostics.update { $0.liveDocuments -= 1 }
+    }
+
+    private mutating func reopen() {
+        close()
+        pagesFromDocument = 0
+        autoreleasepool {
+            document = PDFDocument(url: url)
+        }
+        if document != nil { SearchDiagnostics.update { $0.liveDocuments += 1 } }
     }
 }

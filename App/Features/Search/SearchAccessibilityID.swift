@@ -5,10 +5,11 @@ nonisolated enum SearchAccessibilityID {
     static let field = "search.field"
     static let clear = "search.clear"
     static let done = "search.done"
-    static let stop = "search.stop"
+    /// Cancel while searching.
+    static let cancel = "search.cancel"
+    /// Continue (after Cancel) or Show More Results (after the cap).
     static let resume = "search.resume"
     static let status = "search.status"
-    static let progress = "search.progress"
     static let results = "search.results"
     static let next = "search.next"
     static let previous = "search.previous"

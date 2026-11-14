@@ -68,6 +68,10 @@ nonisolated struct SearchGroup: Hashable, Sendable, Identifiable {
     var id: String
     var kind: Kind
     var title: String
+    /// The titles of the heading's ancestors, shallowest first (empty for a top-level heading,
+    /// front matter and page ranges). Shown under the title: textbooks repeat titles such as
+    /// "Exercises" or "Summary" in every chapter.
+    var ancestorTitles: [String] = []
     /// First page of the heading or range (zero-based), for the header's "p. N".
     var startPage: Int?
     var results: [SearchResult]
@@ -111,8 +115,10 @@ nonisolated enum SearchGrouping {
         }
         for index in buckets.keys.filter({ $0 >= 0 }).sorted() {
             let node = outline.nodes[index]
+            let ancestors = outline.lineage(of: node.anchor).dropLast().map(\.title)
             groups.append(SearchGroup(id: "heading-\(node.anchor.rawValue)", kind: .heading(level: node.level),
-                                      title: node.title, startPage: node.startPage, results: buckets[index] ?? []))
+                                      title: node.title, ancestorTitles: Array(ancestors),
+                                      startPage: node.startPage, results: buckets[index] ?? []))
         }
         return groups
     }

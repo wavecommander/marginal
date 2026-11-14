@@ -1,20 +1,29 @@
 import XCTest
 
-/// Search (WP10): finds a phrase deep in `large.pdf` while the UI stays responsive, jumps to it
-/// (recorded in section history), and stops when cancelled.
+/// Search (WP10) through the real UI.
+///
+/// Query cost note (measured, not a guess): with `large.pdf` open, any XCUITest query that
+/// evaluates text-input elements (`app.textFields`, `element.typeText`) makes UIKit's
+/// accessibility snapshot read the value of PDFKit's `PDFTextInputView`, which builds a selection
+/// over the whole document on the app's main thread (`-[PDFTextInputView textInRange:]`, about
+/// 25 s per query on a loaded machine). That is PDFKit and the reader shell, not search, and it
+/// happens with or without a search running. These tests therefore never query text fields: the
+/// panel focuses its field itself and the tests type with `app.typeText`, and they identify
+/// everything by typed, identifier-scoped queries (buttons, static texts).
 @MainActor
 final class SearchUITests: XCTestCase {
     private enum ID {
         static let searchButton = "reader.toolbar.search"
         static let pagePill = "reader.pagePill"
         static let historyBack = "reader.toolbar.historyBack"
-        static let field = "search.field"
         static let status = "search.status"
-        static let stop = "search.stop"
+        static let cancel = "search.cancel"
         static let resume = "search.resume"
+        static let clear = "search.clear"
         static let results = "search.results"
         static let done = "search.done"
         static let resultPrefix = "search.result."
+        static let groupPrefix = "search.group."
     }
 
     override func setUp() {
@@ -28,146 +37,178 @@ final class SearchUITests: XCTestCase {
 
     // MARK: Helpers
 
-    private func openLarge(_ extra: [String] = []) -> XCUIApplication {
-        XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.large) + ["-openBook", "large"] + extra)
+    private func launch(_ fixture: String, _ title: String, _ extra: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(fixture) + ["-openBook", title] + extra)
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 60), "the reader did not open")
+        return app
     }
 
-    private func openSearch(_ app: XCUIApplication, query: String) -> XCUIElement {
-        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
-        app.buttons[ID.searchButton].firstMatch.tap()
-        let field = app.textFields[ID.field]
-        XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.tap()
-        field.typeText(query)
-        return field
+    /// Opens the panel from the toolbar and types into its field, which the panel focuses.
+    private func openSearch(_ app: XCUIApplication, in scope: XCUIElement? = nil, typing query: String) {
+        let root = scope ?? app
+        root.buttons[ID.searchButton].firstMatch.tap()
+        XCTAssertTrue(root.buttons[ID.done].firstMatch.waitForExistence(timeout: 30), "the search panel did not open")
+        sleep(1)  // the panel focuses its field 150 ms after presenting
+        app.typeText(query)
     }
 
-    private func resultRows(_ app: XCUIApplication) -> XCUIElementQuery {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", ID.resultPrefix))
+    private func status(_ app: XCUIApplication, in scope: XCUIElement? = nil) -> XCUIElement {
+        (scope ?? app).staticTexts[ID.status].firstMatch
     }
 
-    private func status(_ app: XCUIApplication) -> String {
-        app.staticTexts[ID.status].firstMatch.label
-    }
-
-    /// The "Page N of 1500" pill.
     private func pill(_ app: XCUIApplication) -> XCUIElement {
         app.buttons[ID.pagePill].firstMatch
     }
 
-    private func waitForLabel(_ element: XCUIElement, _ label: String, timeout: TimeInterval = 15) -> Bool {
-        let predicate = NSPredicate(format: "label == %@", label)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    private func row(_ app: XCUIApplication, _ resultID: String) -> XCUIElement {
+        app.buttons[ID.resultPrefix + resultID].firstMatch
+    }
+
+    /// Waits for `element.label` to satisfy `predicate` (thousands separators ignored).
+    private func waitForLabel(_ element: XCUIElement, timeout: TimeInterval = 30,
+                              _ predicate: @escaping (String) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if element.exists, predicate(element.label.replacingOccurrences(of: ",", with: "")) { return true }
+            usleep(250_000)
+        } while Date() < deadline
+        return false
+    }
+
+    private func waitForLabel(_ element: XCUIElement, _ label: String, timeout: TimeInterval = 30) -> Bool {
+        waitForLabel(element, timeout: timeout) { $0 == label }
+    }
+
+    /// Times one UI interaction (printed for the report; machine load dominates these numbers).
+    @discardableResult
+    private func timed<T>(_ name: String, _ body: () -> T) -> (T, TimeInterval) {
+        let start = Date()
+        let value = body()
+        let elapsed = Date().timeIntervalSince(start)
+        print("SEARCH-UI \(name): \(String(format: "%.2f", elapsed)) s")
+        return (value, elapsed)
     }
 
     // MARK: Tests
 
+    /// The phrase on page 1,400 of `large.pdf`: "No results" first for a nonsense query, then the
+    /// phrase streams in under its heading; choosing it closes the panel, lands on page 1,400
+    /// (page pill) through the jump API (Back becomes enabled), and Back returns to page 1.
     func testFindPhraseOnPage1400JumpsAndRecordsHistory() {
-        let app = openLarge()
-        _ = openSearch(app, query: "zygomorphic lighthouse theorem")
+        let app = launch(Fixtures.large, "large")
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 1500"))
+        let back = app.buttons[ID.historyBack].firstMatch
+        // iPadOS 17 reports the shell's disabled Back button as enabled to XCUITest (WP4's note);
+        // the Back press at the end proves the jump was recorded on every system.
+        if #available(iOS 18, *) { XCTAssertFalse(back.isEnabled, "Back enabled before any jump") }
 
-        // The result streams in while the rest of the book is still being searched (about five
-        // seconds on the simulator); a generous bound covers slower machines.
-        let row = resultRows(app).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 90), "no result: \(status(app))")
-        XCTAssertTrue(row.label.contains("p. 1400"), row.label)
-        // The grouped list names the heading that contains page 1,400.
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*, [0-9]+ results?"))
-            .firstMatch.exists, "no group header")
+        openSearch(app, typing: "qqxjzv")
+        XCTAssertTrue(waitForLabel(status(app), "No results", timeout: 90), "status: \(status(app).label)")
 
-        // At the iPadOS 17 floor a disabled toolbar Menu with a primary action still reports
-        // enabled to XCUITest, so the "disabled before" check runs on newer systems only; the
-        // Back-returns-to-start check below proves the jump was recorded on every system.
-        if #available(iOS 18, *) { XCTAssertFalse(app.buttons[ID.historyBack].isEnabled) }
-        row.tap()
+        app.buttons[ID.clear].firstMatch.tap()
+        sleep(1)
+        app.typeText("zygomorphic lighthouse theorem")
+        let hit = row(app, "text-1399-0")
+        XCTAssertTrue(hit.waitForExistence(timeout: 90), "no result; status: \(status(app).label)")
+        XCTAssertTrue(hit.label.contains("p. 1400"), hit.label)
+        XCTAssertTrue(hit.label.localizedCaseInsensitiveContains("zygomorphic lighthouse theorem"), hit.label)
+        // The group header (scoped to the result list: an unscoped "any" query would walk
+        // PDFKit's page elements).
+        let header = app.collectionViews[ID.results].firstMatch.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", ID.groupPrefix)).firstMatch
+        XCTAssertTrue(header.exists, "no group header")
+        XCTAssertEqual(header.label, "Set 3, in 14 Numerical Methods, Exercises, 1 result")
+        XCTAssertTrue(waitForLabel(status(app), "1 result", timeout: 90), "status: \(status(app).label)")
 
-        let pill = pill(app)
-        XCTAssertTrue(waitForLabel(pill, "Page 1400 of 1500"))
-        XCTAssertTrue(app.buttons[ID.historyBack].isEnabled, "the hit is a jump: Back must be enabled")
-        // The panel closed after choosing.
-        XCTAssertFalse(app.textFields[ID.field].exists)
+        hit.tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1400 of 1500"), "pill: \(pill(app).label)")
+        XCTAssertFalse(app.buttons[ID.done].exists, "the panel stays open after choosing a result")
+        XCTAssertTrue(back.isEnabled, "the hit is a jump: Back must be enabled")
 
-        // Back returns to where the reader was.
-        app.buttons[ID.historyBack].tap()
-        // The section history returns to the section the reader left (near the start of the book).
-        // (PDFKit may report page 2 as current while page 1 is on screen, so accept either.)
-        XCTAssertTrue(waitForLabel(pill, "Page 1 of 1500", timeout: 4) || waitForLabel(pill, "Page 2 of 1500"),
-                      "pill after Back: \(pill.label)")
+        back.tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 1500"), "pill after Back: \(pill(app).label)")
     }
 
-    func testCancellingStopsResultsAndListScrollsAfterwards() {
-        // Slow the search to 100 ms a page (the 500-hit cap then needs ~50 s) so it is still
-        // running when the test acts; every XCUITest query over large.pdf is slow (see below).
-        let app = openLarge(["-searchPageDelayMs", "100"])
-        _ = openSearch(app, query: "Fixture page")
+    /// While a common-term search runs, the reader can scroll the result list and read the page;
+    /// Cancel stops the count growing and offers Continue. The scan is slowed to 60 ms a page by
+    /// `-searchPageDelayMs` (the 500-match cap then takes at least 30 s): at full speed the
+    /// capped search ends in about a second, before XCUITest (2–3 s per action here) can act.
+    /// Main-thread cost at full speed is measured by `SearchTests.Model`.
+    func testCommonTermSearchStaysResponsiveAndCancelStopsIt() {
+        let app = launch(Fixtures.large, "large", ["-searchPageDelayMs", "60"])
+        openSearch(app, typing: "Fixture page")
+        XCTAssertTrue(row(app, "text-0-0").waitForExistence(timeout: 30), "status: \(status(app).label)")
+        XCTAssertTrue(status(app).label.hasPrefix("Searching…"), status(app).label)
 
-        XCTAssertTrue(resultRows(app).firstMatch.waitForExistence(timeout: 60))
-        // Stop: the result count stops growing.
-        XCTAssertTrue(app.buttons[ID.stop].exists, "still searching: \(status(app))")
-        app.buttons[ID.stop].tap()
-        XCTAssertTrue(app.buttons[ID.resume].waitForExistence(timeout: 30))
-        let atStop = status(app)
-        XCTAssertTrue(atStop.hasPrefix("Stopped"), atStop)
-        sleep(3)
-        XCTAssertEqual(status(app), atStop, "results kept arriving after Stop")
-        sleep(2)
-        XCTAssertEqual(status(app), atStop)
-
-        // The list scrolls. (No time bound: with large.pdf open every XCUITest snapshot walks
-        // PDFKit's text-input view, `-[PDFTextInputView textInRange:]`, O(document), which pegs
-        // the main thread during queries and gestures whatever the search does. Main-thread
-        // responsiveness during a search is measured by `SearchEngineTests`' heartbeat test.)
-        let list = app.collectionViews[ID.results]
+        // Interact while results keep arriving.
+        let list = app.collectionViews[ID.results].firstMatch
         XCTAssertTrue(list.exists)
-        let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-        let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        from.press(forDuration: 0.05, thenDragTo: to)
-        XCTAssertEqual(status(app), atStop)
+        var slowest: TimeInterval = 0
+        for index in 0..<2 {
+            slowest = max(slowest, timed("swipe up \(index) during search") { list.swipeUp() }.1)
+            slowest = max(slowest, timed("read page pill during search") { pill(app).label }.1)
+            slowest = max(slowest, timed("swipe down \(index) during search") { list.swipeDown() }.1)
+        }
+        let during = status(app).label
+        XCTAssertTrue(during.hasPrefix("Searching…"), "the interactions did not happen during the search: \(during)")
+        // A blocked main thread would hold every interaction until the search ended.
+        XCTAssertLessThan(slowest, 20, "an interaction took \(slowest) s during the search")
+
+        let cancel = app.buttons[ID.cancel].firstMatch
+        XCTAssertTrue(cancel.exists, "the search ended before Cancel: \(status(app).label)")
+        cancel.tap()
+        XCTAssertTrue(app.buttons[ID.resume].firstMatch.waitForExistence(timeout: 30))
+        let atCancel = status(app).label
+        XCTAssertTrue(atCancel.hasPrefix("Cancelled after"), atCancel)
+        sleep(3)
+        XCTAssertEqual(status(app).label, atCancel, "results kept arriving after Cancel")
     }
 
-    func testNoResultsShowsAnEndState() {
-        let app = openLarge()
-        _ = openSearch(app, query: "qqxjzv")
-        let status = app.staticTexts[ID.status].firstMatch
-        XCTAssertTrue(status.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForLabel(status, "No results", timeout: 240))
-        XCTAssertEqual(resultRows(app).count, 0)
-    }
+    // MARK: Screenshots (build/shots/search-*-<system version>.png)
 
-    // MARK: Screenshots (written to build/shots by the UI test run)
+    func testScreenshots() throws {
+        let app = launch(Fixtures.large, "large")
+        openSearch(app, typing: "Fixture page")
+        XCTAssertTrue(app.buttons[ID.resume].firstMatch.waitForExistence(timeout: 60), "not capped: \(status(app).label)")
+        app.collectionViews[ID.results].firstMatch.swipeUp()  // dismisses the keyboard
+        sleep(1)
+        try save("search-grouped-landscape")
 
-    func testScreenshotsOfGroupedResults() throws {
-        let app = openLarge()
-        _ = openSearch(app, query: "Fixture page")
-        XCTAssertTrue(resultRows(app).firstMatch.waitForExistence(timeout: 30))
-        // Wait for the 500-result cap.
-        let capped = app.buttons[ID.resume].waitForExistence(timeout: 60)
-        if !capped { try save(app, "search-debug-not-capped") }
-        XCTAssertTrue(capped, "status: \(status(app))")
-        // Scrolling the list dismisses the keyboard so the results are visible in the shot.
-        let list = app.collectionViews[ID.results]
-        list.swipeUp()
-        list.swipeDown()
-        let hide = app.keyboards.buttons["Hide keyboard"]
-        if hide.exists { hide.tap() }
-        try save(app, "search-grouped-landscape")
-
-        app.buttons[ID.done].tap()
+        app.buttons[ID.done].firstMatch.tap()
         XCUIDevice.shared.orientation = .portrait
-        sleep(1)
+        sleep(2)
         app.buttons[ID.searchButton].firstMatch.tap()
-        XCTAssertTrue(app.textFields[ID.field].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons[ID.done].firstMatch.waitForExistence(timeout: 30))
         sleep(1)
-        try save(app, "search-grouped-portrait")
+        app.collectionViews[ID.results].firstMatch.swipeUp()
+        sleep(1)
+        try save("search-grouped-portrait")
     }
 
-    private func save(_ app: XCUIApplication, _ name: String) throws {
+    /// Accessibility text size: rows stack the page under the snippet.
+    func testScreenshotLargeText() throws {
+        let app = launch(Fixtures.small, "small",
+                         ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
+        openSearch(app, typing: "amber")
+        XCTAssertTrue(waitForLabel(status(app), "1 result"), status(app).label)
+        app.collectionViews[ID.results].firstMatch.swipeUp()
+        sleep(1)
+        try save("search-large-text")
+    }
+
+    private func save(_ name: String) throws {
         let version = UIDevice.current.systemVersion
         let dir = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        // The raw screen buffer: in landscape the image comes out rotated a quarter turn (see the report).
-        let png = XCUIScreen.main.screenshot().pngRepresentation
+        let image = XCUIScreen.main.screenshot().image
+        // Redraw so the PNG is upright whatever the device orientation.
+        let png = UIGraphicsImageRenderer(size: image.size).pngData { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
         try png.write(to: dir.appendingPathComponent("\(name)-\(version).png"))
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
