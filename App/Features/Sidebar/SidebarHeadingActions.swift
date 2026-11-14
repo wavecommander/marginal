@@ -1,27 +1,14 @@
 import ReaderCore
 import UIKit
 
-/// Entry points for "Add Heading at This Page" from outside the sidebar (the reader's More menu,
-/// the menu bar command, the notes panel, the text-selection menu). Each opens the sidebar's one
-/// add-heading sheet for the window's own session.
-///
-/// **Wiring for the shell:** the session's pending add-heading request
-/// (`session.requestAddHeading(atPage:suggestedTitle:)`) was not on `build-v1` when this package
-/// was built, so the More menu / menu bar / notes panel should call
-/// `SidebarHeadingActions.presentAddHeading(session:page:title:)` (one line each). Once the
-/// session gains a pending-request value, observe it in `ContentsSidebar` instead.
+/// How "Add Heading at This Page" reaches the sidebar. There is one path: every entry point
+/// (the reader's More menu and the Book menu ⌥⌘H in the shell, the notes panel, and this
+/// package's text-selection item) calls `session.requestAddHeading(atPage:suggestedTitle:)`,
+/// which shows Contents and sets `session.pendingAddHeadingRequest`; `ContentsSidebarModel`
+/// observes it, takes it once with `takeAddHeadingRequest()`, and opens the add-heading sheet
+/// (switching the sidebar to the Contents tab).
 @MainActor
 enum SidebarHeadingActions {
-    /// Opens the add-heading sheet for a zero-based page (default: the current page) with an
-    /// optional suggested title. Shows Contents first if it is hidden (the sheet is presented
-    /// from the sidebar); never moves the PDF.
-    static func presentAddHeading(session: ReaderSession, page: Int? = nil, title: String = "") {
-        install(on: session)
-        let model = ContentsSidebarModel.shared(for: session)
-        model.presentAddHeading(atPage: page ?? session.currentPageIndex, title: title)
-        if !session.isContentsShown { session.toggleContents() }
-    }
-
     /// Registers the window's "Add as Heading" text-selection menu item. Idempotent; called from
     /// the sidebar and from `BookmarkActions` (which the toolbar and menu bar read), because the
     /// shell's `ReaderFeatureWiring` (not this package's file) has no sidebar line yet. The exact
@@ -57,7 +44,7 @@ final class HeadingSelectionMenuProvider: ReaderSelectionMenuProviding {
         let action = UIAction(title: "Add as Heading", image: UIImage(systemName: "text.badge.plus")) { [weak self] _ in
             guard let session = self?.session else { return }
             session.pdf.clearSelection()
-            SidebarHeadingActions.presentAddHeading(session: session, page: page, title: title)
+            session.requestAddHeading(atPage: page, suggestedTitle: title)
         }
         action.accessibilityIdentifier = "sidebar.selection.addAsHeading"
         return [action]

@@ -90,7 +90,7 @@ final class ThumbnailLoader {
     private(set) var stats = Stats()
 
     init(countLimit: Int = ThumbnailLoader.defaultCountLimit, costLimit: Int = ThumbnailLoader.defaultCostLimit,
-         startDelay: Duration = .milliseconds(60), render: @escaping Render) {
+         startDelay: Duration = .milliseconds(150), render: @escaping Render) {
         cache = LRUCache(countLimit: countLimit, costLimit: costLimit)
         self.startDelay = startDelay
         self.render = render

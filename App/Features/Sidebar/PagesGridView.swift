@@ -36,6 +36,10 @@ struct PagesGridView: View {
                     await Task.yield()
                     proxy.scrollTo(current, anchor: .center)
                 }
+                #if DEBUG
+                SidebarDebugStats.runAutoScroll(scrollTo: { proxy.scrollTo($0, anchor: .top) },
+                                                pageCount: session.pageCount)
+                #endif
             }
             #if DEBUG
             .overlay(alignment: .bottom) {

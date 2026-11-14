@@ -15,6 +15,40 @@ import SwiftUI
 enum SidebarDebugStats {
     static let isEnabled = ProcessInfo.processInfo.arguments.contains("-sidebarDebugStats")
 
+    /// `-sidebarAutoScroll` (with `-sidebarDebugStats`): when the Pages tab opens, the app scrolls
+    /// its own grid through the whole book and back, one step every 16 ms (no XCUITest gestures
+    /// or queries while it runs, so the frame figures are the app's own). The phase shows in the
+    /// stats value (`phase down|up|done`); the frame counters are reset when it starts, and
+    /// `doneMaxGapMS` / `doneLongFrames` freeze them when it ends.
+    static let autoScroll = ProcessInfo.processInfo.arguments.contains("-sidebarAutoScroll")
+    @MainActor static var phase = "idle"
+    @MainActor static var doneFigures = ""
+
+    @MainActor
+    static func runAutoScroll(scrollTo: @escaping @MainActor (Int) -> Void, pageCount: Int) {
+        guard autoScroll, phase == "idle" else { return }
+        phase = "waiting"
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            FrameGapMonitor.shared.start()
+            FrameGapMonitor.shared.reset()
+            let pages = Array(stride(from: 0, to: pageCount, by: 6))
+            phase = "down"
+            for page in pages {
+                scrollTo(page)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            phase = "up"
+            for page in pages.reversed() {
+                scrollTo(page)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            let monitor = FrameGapMonitor.shared
+            doneFigures = String(format: "doneMaxGapMS %.0f doneLongFrames %d", monitor.maxGap * 1000, monitor.longFrames)
+            phase = "done"
+        }
+    }
+
     /// Physical footprint in MB.
     static func footprintMB() -> Double {
         var info = task_vm_info_data_t()
@@ -72,6 +106,7 @@ struct SidebarDebugStatsView: View {
                 + "bytes \(model.thumbnails.cachedCost) "
                 + String(format: "footprintMB %.1f maxGapMS %.0f longFrames %d",
                          SidebarDebugStats.footprintMB(), monitor.maxGap * 1000, monitor.longFrames)
+                + " phase \(SidebarDebugStats.phase) " + SidebarDebugStats.doneFigures
             Button { monitor.reset() } label: {
                 Text(verbatim: "stats").font(.caption2).foregroundStyle(.secondary).frame(width: 44, height: 20)
             }

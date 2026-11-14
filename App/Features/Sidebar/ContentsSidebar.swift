@@ -60,7 +60,7 @@ struct ContentsSidebar: View {
         let model = model
         let session = session
         return SidebarActions(
-            addHeading: { page in model.presentAddHeading(atPage: page) },
+            addHeading: { page in session.requestAddHeading(atPage: page) },
             edit: { node in model.presentEdit(node) },
             rename: { node in
                 renameText = node.title
@@ -101,6 +101,10 @@ struct ContentsSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
         .onAppear { model.start() }
+        .onChange(of: model.headingSheet?.id, initial: true) { _, id in
+            // An add-heading request (from any entry point) shows Contents behind its sheet.
+            if id != nil, tab.wrappedValue != .contents { tab.wrappedValue = .contents }
+        }
         .onChange(of: model.headingSaveCount) { _, _ in
             // A heading was added or edited: show it in Contents.
             if tab.wrappedValue != .contents { tab.wrappedValue = .contents }

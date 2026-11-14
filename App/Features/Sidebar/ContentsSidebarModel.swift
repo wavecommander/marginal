@@ -113,6 +113,13 @@ final class ContentsSidebarModel {
         track({ $0.session.revisions.pageInk }, then: { $0.reloadInkedPages() })
         lastMemoryWarningCount = session.memoryWarningCount
         track({ $0.session.memoryWarningCount }, then: { $0.memoryWarningDidChange() })
+        track({ $0.session.pendingAddHeadingRequest }, then: { $0.takeAddHeadingRequest() })
+    }
+
+    /// The shell's (or the selection menu's) add-heading request: handled once.
+    private func takeAddHeadingRequest() {
+        guard session.pendingAddHeadingRequest != nil, let request = session.takeAddHeadingRequest() else { return }
+        presentAddHeading(atPage: request.pageIndex, title: request.suggestedTitle ?? "")
     }
 
     private func memoryWarningDidChange() {

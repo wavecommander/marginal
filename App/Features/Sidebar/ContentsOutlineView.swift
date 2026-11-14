@@ -184,6 +184,7 @@ private struct ContentsRowView: View {
         if row.hasChildren {
             Button(row.isExpanded ? "Collapse" : "Expand") { model.toggle(row.anchor) }
         }
+        Button("Show Section Note") { session.showNotes(.section, heading: node.anchor) }
         if node.isEditable {
             Button("Edit") { actions.edit(node) }
             Button("Rename") { actions.rename(node) }
@@ -201,6 +202,9 @@ private struct ContentsRowView: View {
     private var contextMenu: some View {
         Button { model.select(node) } label: { Label("Go to Heading", systemImage: "arrow.right.circle") }
             .disabled(node.startPage == nil)
+        Button { session.showNotes(.section, heading: node.anchor) } label: {
+            Label("Show Section Note", systemImage: "note.text")
+        }
         if let start = node.startPage {
             Button { actions.addHeading(start) } label: {
                 Label("Add Heading at Page \(PageNumbering.displayNumber(forPageIndex: start))", systemImage: "plus")

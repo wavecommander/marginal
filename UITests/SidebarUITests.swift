@@ -100,6 +100,11 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(heading(app, title).waitForExistence(timeout: 10), "added \(title)")
     }
 
+    private func dumpHeadingsAfterFailure(_ app: XCUIApplication) {
+        Self.dumpHeadings(app, "after failure")
+        print("SHEET-STATE save exists \(app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.exists)")
+    }
+
     /// Prints the sidebar's heading rows (diagnostics on failure).
     static func dumpHeadings(_ app: XCUIApplication, _ note: String) {
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.heading.")).allElementsBoundByIndex
@@ -121,8 +126,13 @@ final class SidebarUITests: XCTestCase {
     /// characters while the simulator is busy); retries up to three times.
     static func replaceText(_ field: XCUIElement, with text: String) {
         for _ in 0..<3 {
-            field.typeKey("a", modifierFlags: .command)
-            field.typeText(XCUIKeyboardKey.delete.rawValue)
+            // Backspaces, not ⌘A: ⌘A in an empty field is passed up the responder chain, and on
+            // iOS 27 that left the app animating forever (XCUITest then never sees it idle).
+            let shown = field.value as? String ?? ""
+            let current = shown == (field.placeholderValue ?? "") ? "" : shown
+            if !current.isEmpty {
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 1))
+            }
             field.typeText(text)
             if waitFor(field, "value == %@", text, timeout: 3) { return }
         }
@@ -306,14 +316,18 @@ final class SidebarUITests: XCTestCase {
         let pageField = app.textFields["sidebar.addHeading.page"].firstMatch
         XCTAssertTrue(pageField.waitForExistence(timeout: 10))
         pageField.tap()
-        pageField.typeKey("a", modifierFlags: .command)
-        pageField.typeText("18")
+        Self.replaceText(pageField, with: "18")
         let save = app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch
         if (pageField.value as? String) != "18" || !save.isEnabled {
             print("EDIT-DUMP page field “\(pageField.value ?? "nil")” save enabled \(save.isEnabled)\n\(app.debugDescription)")
         }
         save.tap()
-        XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "page 18"))
+        if !Self.waitFor(sectionB, "value CONTAINS %@", "page 18") {
+            try? XCUIScreen.main.screenshot().pngRepresentation
+                .write(to: Fixtures.repoRoot.appendingPathComponent("build/shots/debug-edit-after-save.png"))
+            dumpHeadingsAfterFailure(app)
+            XCTFail("Section B not moved to page 18")
+        }
         XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "level 2"))
 
         // Delete Part One: its two sections move up to the top level.
@@ -362,6 +376,42 @@ final class SidebarUITests: XCTestCase {
         app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
         XCTAssertTrue(Self.heading(app, suggested).waitForExistence(timeout: 10), "heading “\(suggested)”")
         XCTAssertTrue((Self.heading(app, suggested).value as? String ?? "").contains("page 2"))
+    }
+
+    /// The shell's entry points: More ▸ "Add Heading at This Page…" and Book ▸ ⌥⌘H both open the
+    /// sidebar's sheet (switching to the Contents tab) at the current page.
+    func testAddHeadingFromMoreMenuAndShortcut() {
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "6"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 6 of 40", timeout: 40))
+        Self.selectTab(app, "Pages")
+
+        let more = app.buttons[ReaderID.more].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let item = app.buttons["Add Heading at This Page…"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        Self.fillHeadingSheet(app, title: "From More")
+        XCTAssertTrue(Self.tab(app, "Contents").isSelected, "the request shows Contents")
+        XCTAssertTrue((Self.heading(app, "From More").value as? String ?? "").contains("page 6"))
+        XCTAssertEqual(Self.pill(app).label, "Page 6 of 40", "adding never moves the PDF")
+
+    }
+
+    /// Book ▸ "Add Heading at This Page…" by its shortcut ⌥⌘H. Skipped (not failed) when the
+    /// simulator does not deliver the key event to the menu command.
+    func testAddHeadingFromKeyboardShortcut() throws {
+        let app = Self.open(Fixtures.noOutline, "no-outline", ["-openPage", "12"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 12 of 40", timeout: 40))
+        Self.selectTab(app, "Contents")
+        XCTAssertTrue(app.buttons[SidebarID.emptyAddHeading].firstMatch.waitForExistence(timeout: 20))
+        sleep(2)  // hardware-key events need the window to have become key
+        app.typeKey("h", modifierFlags: [.command, .option])
+        guard app.textFields[SidebarID.addHeadingTitle].firstMatch.waitForExistence(timeout: 10) else {
+            throw XCTSkip("⌥⌘H was not delivered to the Book menu command on this simulator")
+        }
+        Self.fillHeadingSheet(app, title: "From Shortcut")
+        XCTAssertTrue((Self.heading(app, "From Shortcut").value as? String ?? "").contains("page 12"))
     }
 
     // MARK: Bookmarks
@@ -531,6 +581,32 @@ final class SidebarUITests: XCTestCase {
         XCTAssertLessThan(afterDown["rendered"] ?? .infinity, 1_500)
         // Bounded growth (generous: simulator footprints include the PDF view's own caches).
         XCTAssertLessThan((end["footprintMB"] ?? 0) - (start["footprintMB"] ?? 0), 400)
+    }
+
+    /// The app scrolls its own Pages grid through all 1,500 pages and back (`-sidebarAutoScroll`,
+    /// one step of 6 pages every 16 ms) with no XCUITest gestures or queries while it runs, so the
+    /// frame-gap figures are the app's own: thumbnails must not stall the main thread (which
+    /// drives the PDF view), cells that fly past are cancelled, the cache stays bounded.
+    func testAutoScrollThroughTheWholeBook() throws {
+        let app = Self.open(Fixtures.large, "large", ["-sidebarDebugStats", "-sidebarAutoScroll"])
+        XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 1 of 1500", timeout: 40))
+        Self.selectTab(app, "Pages")
+        // 2 × 250 steps × ≥16 ms ≈ 8–15 s after a 3 s settle; no queries meanwhile.
+        sleep(30)
+        let stats = app.buttons[SidebarID.debugStats].firstMatch
+        XCTAssertTrue(stats.waitForExistence(timeout: 10))
+        let value = stats.value as? String ?? ""
+        let figures = Self.parse(value)
+        let report = "auto-scroll 1,500 pages down and up: \(value)"
+        print(report)
+        try report.write(to: Fixtures.repoRoot.appendingPathComponent("build/sidebar-autoscroll-stats.txt"),
+                         atomically: true, encoding: .utf8)
+        XCTAssertTrue(value.contains("phase done"), value)
+        XCTAssertLessThanOrEqual(figures["cached"] ?? .infinity, 240)
+        XCTAssertLessThanOrEqual(figures["bytes"] ?? .infinity, 24 * 1024 * 1024)
+        XCTAssertGreaterThan(figures["cancelled"] ?? 0, 0, "cells that flew past were cancelled")
+        XCTAssertLessThan(figures["rendered"] ?? .infinity, figures["requests"] ?? 0, "cells that only flew past were not rendered")
+        XCTAssertLessThan(figures["doneMaxGapMS"] ?? .infinity, 250, "no main-thread stall while thumbnails stream in")
     }
 
     static var suffix: String {

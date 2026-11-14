@@ -132,9 +132,12 @@ struct SidebarHeadingTests {
         let (session, model) = await Support.openedSession(fixture)
         session.isNarrowLayout = false
         session.isContentsVisible = false
-        SidebarHeadingActions.presentAddHeading(session: session, page: 6, title: "From the menu")
-        #expect(model.headingSheet?.mode == .add(pageIndex: 6, title: "From the menu"))
+        // The shell's request (More menu, ⌥⌘H, selection menu): taken once by the sidebar model.
+        session.requestAddHeading(atPage: 6, suggestedTitle: "  From the menu ")
         #expect(session.isContentsVisible, "Contents is shown to host the sheet")
+        #expect(await Support.waitUntil { model.headingSheet != nil })
+        #expect(model.headingSheet?.mode == .add(pageIndex: 6, title: "From the menu"))
+        #expect(session.pendingAddHeadingRequest == nil, "handled once")
         #expect(session.currentPageIndex == 0, "never moves the PDF")
 
         let anchor = try UserHeadingEditor.add(title: "From the menu", pageIndex: 6, parent: .topLevel, session: session)
