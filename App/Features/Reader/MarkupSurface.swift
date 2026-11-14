@@ -21,11 +21,13 @@ import UIKit
 ///    WP13 routes touches itself. Ink stays visible in both modes.
 /// 4. **Activity.** When a stroke begins (`canvasViewDidBeginUsingTool`) call
 ///    `session.markup.surfaceDidBeginStroke(self)`; when it ends (`canvasViewDidEndUsingTool`)
-///    call `session.markup.surfaceDidEndStroke(self)`. Undo/Redo (toolbar and ⌘Z) go to the
-///    surface that most recently began a stroke. While `isStrokeInProgress(on:)` is true, do not
+///    call `session.markup.surfaceDidEndStroke(self)`. Undo/Redo (the tool picker's buttons,
+///    ⌘Z / ⇧⌘Z, the Edit menu, and the toolbar at compact width) go to the surface that most
+///    recently began a stroke. While `isStrokeInProgress(on:)` is true, do not
 ///    reload the surface from a change made in another window; reconcile after the stroke.
 /// 5. **Saving.** Save on your own debounce and when the page leaves the screen. Implement
-///    `flushPendingMarkup()` to write anything pending **now**; the session awaits it on Done,
+///    `flushPendingMarkup()` to write anything pending **now**; the session awaits it on leaving
+///    markup mode,
 ///    on backgrounding/close, and on memory warnings. Write through `LibraryStore` with
 ///    `origin: session.origin`.
 /// 6. **Unregister** before the canvas is released (page overlay: in `overlayDidDisappear`,
@@ -87,6 +89,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     /// The first responder that carries the tool picker in markup mode. Inserted into the view
     /// hierarchy by the PDF host view.
     @ObservationIgnored let responderView = MarkupResponderView()
+    /// The responder view's undo manager for the life of the window: a stable stand-in for
+    /// `routedUndoManager` (see `MarkupRoutingUndoManager`), so the tool picker's own Undo/Redo
+    /// buttons, ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo follow the surface last drawn on.
+    @ObservationIgnored let routingUndoManager = MarkupRoutingUndoManager()
 
     @ObservationIgnored private var surfaces: [String: WeakSurface] = [:]
     /// Surface IDs in order of last activity (most recent last).
@@ -94,11 +100,18 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     @ObservationIgnored private var strokesInProgress: Set<String> = []
     @ObservationIgnored private var auxiliaryResponders: [WeakResponder] = []
     @ObservationIgnored private var isMarkup = false
+    /// The routed manager the proxy last announced (to announce a change of routed surface).
+    @ObservationIgnored private weak var announcedRoutedManager: UndoManager?
+    @ObservationIgnored private var hasAnnouncedRouting = false
+    /// `canUndo` / `canRedo` as read when the proxy last posted (see `scheduleStateCheck()`).
+    @ObservationIgnored private var announcedState: (undo: Bool, redo: Bool) = (false, false)
+    @ObservationIgnored private var isStateCheckScheduled = false
 
     init(drawingPolicy: PKCanvasViewDrawingPolicy) {
         self.drawingPolicy = drawingPolicy
         super.init()
         responderView.controller = self
+        routingUndoManager.controller = self
         toolPicker.addObserver(self)
         toolPicker.setVisible(false, forFirstResponder: responderView)
         let center = NotificationCenter.default
@@ -162,6 +175,8 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         activity.removeAll { $0 == id }
         activity.append(id)
         activeSurfaceID = id
+        // The routed surface may have changed: the picker's buttons follow it at once.
+        refreshUndoState()
     }
 
     /// Step 4: the stroke on `surface` ended.
@@ -266,9 +281,22 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
 
     // MARK: Private
 
+    /// Any undo manager in the process changed state. The proxy's own posts are ignored (they
+    /// are echoes of the routed manager's); the routed manager's are re-posted by the proxy.
     @objc private func undoManagerChanged(_ notification: Notification) {
+        if let manager = notification.object as? UndoManager, manager === routingUndoManager { return }
         refreshUndoState()
+        if let routed = routedUndoManager, let manager = notification.object as? UndoManager, manager === routed,
+           Self.mirroredNotifications.contains(notification.name) {
+            announce(notification.name, userInfo: notification.userInfo)
+        }
     }
+
+    /// The routed manager's notifications the proxy re-posts as its own: the ones PencilKit's
+    /// tool picker listens to (its binary imports exactly these three).
+    private static let mirroredNotifications: Set<Notification.Name> = [
+        .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
+    ]
 
     private func refreshUndoState() {
         let manager = routedUndoManager
@@ -276,6 +304,38 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         let redo = manager?.canRedo ?? false
         if undo != canUndo { canUndo = undo }
         if redo != canRedo { canRedo = redo }
+        // A different surface (or none) is now routed: tell the proxy's observers that its
+        // state changed, as if its manager had just closed an undo group.
+        if !hasAnnouncedRouting || manager !== announcedRoutedManager {
+            hasAnnouncedRouting = true
+            announcedRoutedManager = manager
+            announce(.NSUndoManagerDidCloseUndoGroup, userInfo: nil)
+        }
+    }
+
+    /// Posts `name` from the proxy and remembers what its observers will read now.
+    private func announce(_ name: Notification.Name, userInfo: [AnyHashable: Any]?) {
+        NotificationCenter.default.post(name: name, object: routingUndoManager, userInfo: userInfo)
+        announcedState = (routingUndoManager.canUndo, routingUndoManager.canRedo)
+        scheduleStateCheck()
+    }
+
+    /// `NSUndoManagerDidCloseUndoGroup` is posted just before the group is closed, so an
+    /// observer reading `canUndo` in it may see the old value. On the next turn of the main
+    /// queue, re-read the routed state and, if it differs from what was announced, announce
+    /// again (also refreshes `canUndo` / `canRedo` for the toolbar and menu).
+    private func scheduleStateCheck() {
+        guard !isStateCheckScheduled else { return }
+        isStateCheckScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isStateCheckScheduled = false
+            self.refreshUndoState()
+            let now = (undo: self.routingUndoManager.canUndo, redo: self.routingUndoManager.canRedo)
+            if now != self.announcedState {
+                self.announce(.NSUndoManagerDidCloseUndoGroup, userInfo: nil)
+            }
+        }
     }
 
     private final class WeakSurface {
@@ -289,9 +349,56 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     }
 }
 
+/// The undo manager of `MarkupResponderView`: one object for the life of the reader window that
+/// stands in for whichever surface's manager is routed (`ReaderMarkupController.routedUndoManager`,
+/// the surface last drawn on).
+///
+/// Why: the system tool picker drives its own Undo/Redo buttons from the `undoManager` of the
+/// first responder it is shown for. It reads that manager when the first responder changes and
+/// then follows it through its `NSUndoManagerDidCloseUndoGroup` / `DidUndoChange` /
+/// `DidRedoChange` notifications. A responder whose `undoManager` jumps between per-surface
+/// managers after it became first responder leaves the picker watching a manager nobody draws
+/// into, so its buttons never enable. This proxy never changes identity; it answers `canUndo`,
+/// `canRedo`, the action names and counts from the routed manager, forwards `undo()` / `redo()`
+/// to it, and the controller re-posts the routed manager's state notifications (and a change of
+/// routed surface) with the proxy as the object.
+///
+/// Nothing registers undo actions on the proxy (registration is disabled); surfaces keep
+/// registering on their own managers.
+final class MarkupRoutingUndoManager: UndoManager {
+    weak var controller: ReaderMarkupController?
+
+    override init() {
+        super.init()
+        disableUndoRegistration()
+    }
+
+    private var routed: UndoManager? { controller?.routedUndoManager }
+
+    override var canUndo: Bool { routed?.canUndo ?? false }
+    override var canRedo: Bool { routed?.canRedo ?? false }
+    override var isUndoing: Bool { routed?.isUndoing ?? false }
+    override var isRedoing: Bool { routed?.isRedoing ?? false }
+    override var undoActionName: String { routed?.undoActionName ?? "" }
+    override var redoActionName: String { routed?.redoActionName ?? "" }
+    override var undoMenuItemTitle: String { routed?.undoMenuItemTitle ?? super.undoMenuItemTitle }
+    override var redoMenuItemTitle: String { routed?.redoMenuItemTitle ?? super.redoMenuItemTitle }
+
+    @available(iOS 17.4, *)
+    override var undoCount: Int { routed?.undoCount ?? 0 }
+    @available(iOS 17.4, *)
+    override var redoCount: Int { routed?.redoCount ?? 0 }
+
+    /// Undoes on the routed surface (the controller's `undo()`, which also refreshes its state).
+    override func undo() { controller?.undo() }
+    override func redo() { controller?.redo() }
+    override func undoNestedGroup() { controller?.undo() }
+}
+
 /// The invisible first responder that carries the tool picker in markup mode. Its `undoManager`
-/// is the routed surface's, so the system Undo/Redo commands (⌘Z, ⇧⌘Z, Edit menu) act on the
-/// surface last drawn on while it is first responder.
+/// is always the controller's `MarkupRoutingUndoManager`, so the tool picker's Undo/Redo buttons
+/// and the system Undo/Redo commands (⌘Z, ⇧⌘Z, Edit menu) act on the surface last drawn on
+/// while it is first responder.
 final class MarkupResponderView: UIView {
     weak var controller: ReaderMarkupController?
 
@@ -310,7 +417,7 @@ final class MarkupResponderView: UIView {
     override var canBecomeFirstResponder: Bool { true }
 
     override var undoManager: UndoManager? {
-        controller?.routedUndoManager ?? super.undoManager
+        controller?.routingUndoManager ?? super.undoManager
     }
 
     override func didMoveToWindow() {
