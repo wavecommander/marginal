@@ -183,40 +183,44 @@ struct ReaderScreen: View {
             SectionHistoryButton(session: session, direction: .back)
             SectionHistoryButton(session: session, direction: .forward)
         }
-        if session.isMarkupMode {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                // Find works in markup mode too (⇧⌘F or this button); markup stays on.
-                searchButton
+        // One toolbar in both modes (design, "Markup controls"). Find works in markup mode too
+        // (⇧⌘F or the search button); markup stays on.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            searchButton
+            if !session.isNarrowLayout {
+                BookmarkButton(session: session)
+            }
+            // Ink undo/redo are the system tool picker's own buttons, except at compact width,
+            // where the picker has none.
+            if session.isMarkupMode && horizontalSizeClass == .compact {
                 Button { session.markup.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!session.markup.canUndo)
                     .accessibilityIdentifier(AccessibilityID.Reader.undo)
                 Button { session.markup.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!session.markup.canRedo)
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
-                notesToggle
-                Button("Done") { session.finishMarkup() }
-                    .fontWeight(.semibold)
-                    .accessibilityIdentifier(AccessibilityID.Reader.done)
-                    // For UI tests: whether the window's tool picker is on screen.
-                    .accessibilityValue(session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden")
             }
-        } else {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                searchButton
-                if !session.isNarrowLayout {
-                    BookmarkButton(session: session)
-                }
-                Button { session.setMode(.markup) } label: {
-                    Label("Markup", systemImage: "pencil.tip.crop.circle")
-                }
-                .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
-                notesToggle
-                moreMenu
-            }
+            markupToggle
+            notesToggle
+            moreMenu
         }
     }
 
-    /// The search button and the anchor of the search popover, in both toolbars.
+    /// The only switch for markup mode: outlined while off, filled (and selected) while on.
+    /// Turning it off does everything leaving markup does (flushes every surface).
+    private var markupToggle: some View {
+        let isOn = session.isMarkupMode
+        return Button { session.toggleMarkup() } label: {
+            Label(isOn ? "Done with Markup" : "Markup",
+                  systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+        }
+        .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        // For UI tests: whether the window's tool picker is on screen (markup mode only).
+        .accessibilityValue(isOn ? (session.markup.isToolPickerVisible ? "tool picker shown" : "tool picker hidden") : "")
+    }
+
+    /// The search button and the anchor of the search popover, in both modes.
     private var searchButton: some View {
         Button { session.isSearchVisible = true } label: {
             Label("Search Book and Notes", systemImage: "magnifyingglass")

@@ -25,9 +25,9 @@ nonisolated enum AccessibilityID {
         static let markupToggle = "reader.toolbar.markup"
         static let notesToggle = "reader.toolbar.notes"
         static let more = "reader.toolbar.more"
+        /// Undo / Redo of ink: only in markup mode at compact width (elsewhere the tool picker has them).
         static let undo = "reader.toolbar.undo"
         static let redo = "reader.toolbar.redo"
-        static let done = "reader.toolbar.done"
         /// The title block (fallback toolbar title before iOS 26; label = title, value = subtitle).
         static let titleBlock = "reader.toolbar.title"
 
