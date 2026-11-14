@@ -1,27 +1,37 @@
 import Foundation
 
 /// A place in a book for section history: a page and the section (deepest heading) containing
-/// it, or a page alone when no heading contains it (front matter, or a book with no outline).
+/// it, or a page alone when no heading contains it (front matter, or a book with no outline),
+/// and, for a place the reader left, the exact position on screen.
 public struct SectionPlace: Hashable, Sendable, Codable {
-    /// Zero-based page index. Going to a place always goes to this page, so a place stays valid
-    /// when its heading is later renamed, moved or deleted.
+    /// Zero-based page index: the reader's current page when the place was recorded. It names
+    /// the place's section and its menu entry. Going to a place without an `anchor` goes to the
+    /// top of this page, so a place stays valid when its heading is later renamed, moved or
+    /// deleted.
     public var pageIndex: Int
     /// The deepest heading containing `pageIndex` when the place was recorded, or `nil` for a
     /// page-keyed place.
     public var heading: HeadingAnchor?
     /// The heading's title when recorded (for menus); `nil` for a page-keyed place.
     public var title: String?
+    /// The exact position the reader left: the page point that was at the top-left corner of
+    /// the view (its page can be the one before `pageIndex` when the top of the view showed the
+    /// end of the previous page). Going to the place puts that point back there. `nil` for a
+    /// jump's destination the reader has not left yet, and in history saved before positions
+    /// were recorded: such a place goes to the top of `pageIndex`.
+    public var anchor: ReadingAnchor?
 
-    public init(pageIndex: Int, heading: HeadingAnchor?, title: String?) {
+    public init(pageIndex: Int, heading: HeadingAnchor?, title: String?, anchor: ReadingAnchor? = nil) {
         self.pageIndex = pageIndex
         self.heading = heading
         self.title = heading == nil ? nil : title
+        self.anchor = anchor
     }
 
     /// The place of `pageIndex` in `outline`: its `deepestHeading`, or page-keyed if none.
-    public init(pageIndex: Int, in outline: Outline) {
+    public init(pageIndex: Int, in outline: Outline, anchor: ReadingAnchor? = nil) {
         let node = outline.deepestHeading(forPage: pageIndex)
-        self.init(pageIndex: pageIndex, heading: node?.anchor, title: node?.title)
+        self.init(pageIndex: pageIndex, heading: node?.anchor, title: node?.title, anchor: anchor)
     }
 
     /// Same section: both have a heading and the anchors are equal, or both are page-keyed and
@@ -48,13 +58,14 @@ public struct SectionPlace: Hashable, Sendable, Codable {
 /// it with the window's restorable state (`Codable`).
 ///
 /// **Rules**
-/// - `recordJump(from:to:)`: `from` is the place actually on screen (page and its section). The
-///   current entry becomes `from`. If `to` is in the same section as `from`, the current entry
-///   becomes `to` and nothing is added. Otherwise the forward entries are dropped, `to` is
-///   appended and becomes current, and the oldest entries drop off beyond `capacity`.
+/// - `recordJump(from:to:)`: `from` is the place actually on screen (page, its section and the
+///   exact position). The current entry becomes `from`. If `to` is in the same section as
+///   `from`, the current entry becomes `to` and nothing is added. Otherwise the forward entries
+///   are dropped, `to` is appended and becomes current, and the oldest entries drop off beyond
+///   `capacity`.
 /// - `back(from:)` / `forward(from:)` / `goToEntry(at:from:)`: first update the current entry to
-///   `from` (the page on screen), then move the cursor and return the place to go to (its page
-///   is the page the reader left it on, never the section's first page). Forward undoes Back.
+///   `from` (the place on screen), then move the cursor and return the place to go to: the
+///   exact place the reader left it, never the section's first page. Forward undoes Back.
 /// - An empty history has no current entry; the first jump records both places.
 public struct SectionHistory: Hashable, Sendable, Codable {
     /// Default maximum number of entries.

@@ -10,6 +10,8 @@ enum Fixtures {
         .deletingLastPathComponent()  // repo root
 
     static var small: String { path("small.pdf") }
+    /// `small.pdf`'s pages and outline plus links between sections.
+    static var links: String { path("links.pdf") }
     static var large: String { path("large.pdf") }
     static var noOutline: String { path("no-outline.pdf") }
 

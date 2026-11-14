@@ -126,6 +126,82 @@ struct SectionHistoryTests {
         #expect(back?.title == "1.1")  // snapshot kept for the menu
     }
 
+    /// A place on screen at an exact position (page `page`, page-space y `y` at the top).
+    func place(_ page: Int, y: Double) -> SectionPlace {
+        SectionPlace(pageIndex: page, in: outline, anchor: ReadingAnchor(pageIndex: page, point: CGPoint(x: 0, y: y)))
+    }
+
+    /// TSOFT-214: jump A→B, Back, Forward, read on in B, follow a link to C, Back: back in B at
+    /// the exact place the link was followed.
+    @Test func backAfterBackForwardThenJumpReturnsToTheExactPlaceLeft() {
+        var history = SectionHistory()
+        history.recordJump(from: place(12, y: 300), to: place(50))           // A (1.1) → B (2.1)
+        do { let r = history.back(from: place(50, y: 792)); #expect(r == place(12, y: 300)) }
+        do { let r = history.forward(from: place(12, y: 300)); #expect(r == place(50, y: 792)) }
+        // Read on in B to page 53, then a link to C (Ch3).
+        do { let r = history.recordJump(from: place(53, y: 410), to: place(75)); #expect(r) }
+        do { let r = history.back(from: place(75, y: 600)); #expect(r == place(53, y: 410)) }
+        do { let r = history.forward(from: place(53, y: 410)); #expect(r == place(75, y: 600)) }
+        #expect(history.entries.map(\.pageIndex) == [12, 53, 75])
+    }
+
+    /// Several Backs then a new jump: the forward entries go, and Back returns to where the
+    /// jump was made.
+    @Test func severalBacksThenAJumpDropsForwardEntriesAndBackReturnsToTheJumpPoint() {
+        var history = SectionHistory()
+        history.recordJump(from: place(12, y: 700), to: place(25))
+        history.recordJump(from: place(26, y: 500), to: place(50))
+        history.recordJump(from: place(51, y: 400), to: place(75))
+        _ = history.back(from: place(76, y: 300))
+        _ = history.back(from: place(51, y: 400))
+        // Read on in 1.2 from 26 y 500 to 28 y 120, then jump to front matter.
+        do { let r = history.recordJump(from: place(28, y: 120), to: place(3)); #expect(r) }
+        #expect(!history.canGoForward)
+        #expect(history.entries.map(\.pageIndex) == [12, 28, 3])
+        do { let r = history.back(from: place(3, y: 792)); #expect(r == place(28, y: 120)) }
+    }
+
+    /// A jump that lands in the section the reader is in adds no entry; the place it lands on
+    /// becomes the current entry and is replaced by the exact place when the reader leaves.
+    @Test func sameSectionJumpKeepsTheTrailAndTheExactPlaceIsTakenOnLeaving() {
+        var history = SectionHistory()
+        history.recordJump(from: place(12, y: 700), to: place(45))
+        do { let r = history.recordJump(from: place(46, y: 500), to: place(60)); #expect(!r) }  // both in 2.1
+        #expect(history.entries == [place(12, y: 700), place(60)])
+        do { let r = history.back(from: place(62, y: 250)); #expect(r == place(12, y: 700)) }
+        do { let r = history.forward(from: place(12, y: 700)); #expect(r == place(62, y: 250)) }
+    }
+
+    @Test func goToEntryStoresTheExactPlaceAndReturnsTheEntrysPlace() {
+        var history = SectionHistory()
+        history.recordJump(from: place(12, y: 100), to: place(25))
+        history.recordJump(from: place(30, y: 200), to: place(50))
+        do { let r = history.goToEntry(at: 0, from: place(55, y: 300)); #expect(r == place(12, y: 100)) }
+        #expect(history.forwardList.map(\.place) == [place(30, y: 200), place(55, y: 300)])
+        do { let r = history.goToEntry(at: 2, from: place(13, y: 50)); #expect(r == place(55, y: 300)) }
+        #expect(history.backList.map(\.place) == [place(30, y: 200), place(13, y: 50)])
+    }
+
+    /// History saved by builds before positions were recorded still decodes; its places have no
+    /// anchor (they go to the top of their page). Positions round-trip.
+    @Test func historySavedWithoutPositionsDecodes() throws {
+        var old = SectionHistory()
+        old.recordJump(from: place(12), to: place(50))
+        let oldData = try JSONEncoder().encode(old)
+        #expect(!String(decoding: oldData, as: UTF8.self).contains("anchor"))  // the old format
+        let decoded = try JSONDecoder().decode(SectionHistory.self, from: oldData)
+        #expect(decoded == old && decoded.entries.allSatisfy { $0.anchor == nil })
+        let literal = #"{"entries":[{"pageIndex":4},{"pageIndex":9}],"cursor":1,"capacity":50}"#
+        var fromLiteral = try JSONDecoder().decode(SectionHistory.self, from: Data(literal.utf8))
+        #expect(fromLiteral.back(from: place(9))?.anchor == nil)
+
+        var new = SectionHistory()
+        new.recordJump(from: place(12, y: 321.5), to: place(50))
+        let roundTripped = try JSONDecoder().decode(SectionHistory.self, from: JSONEncoder().encode(new))
+        #expect(roundTripped == new)
+        #expect(roundTripped.entries.first?.anchor == ReadingAnchor(pageIndex: 12, point: CGPoint(x: 0, y: 321.5)))
+    }
+
     @Test func codableRoundTripAndCursorValidation() throws {
         var history = SectionHistory(capacity: 10)
         history.recordJump(from: place(12), to: place(50))

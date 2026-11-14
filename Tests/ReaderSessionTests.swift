@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import PencilKit
 import ReaderCore
 import ReaderStore
@@ -274,6 +275,176 @@ struct ReaderSessionTests {
         let restored = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
         #expect(restored.history == session.history)
         #expect(restored.currentPageIndex == 11)
+    }
+
+    // MARK: Section history in a real PDF view
+
+    /// A session on `links.pdf` (`small.pdf`'s pages and outline plus links: on page 7, "start
+    /// of 2.1" at y 120 → page 6 and "3.2 Exercises" at y 200 → page 12; on page 3, "middle of
+    /// page 7" at y 400 → page 7 y 450), hosted in a window, positioned and with its outline.
+    private func makeLinkedHost(configure: (inout ReaderSession.Configuration) -> Void = { _ in }) async throws
+        -> PageInkTestSupport.Host {
+        let (store, book) = try PageInkTestSupport.makeStore(pdf: PageInkTestSupport.fixture("links.pdf"), pageCount: 12)
+        let host = PageInkTestSupport.Host(book: book, store: store) {
+            $0.installsFeatures = false
+            configure(&$0)
+        }
+        #expect(await waitUntil { host.session.isOutlineLoaded && host.session.pdf.hasPositionedInitially })
+        await settle()
+        return host
+    }
+
+    /// Lets PDFKit and the history move's alignment finish.
+    private func settle() async {
+        try? await Task.sleep(for: .milliseconds(400))
+    }
+
+    /// Scrolls as the reader's finger does (no jump), so page-space `y` of zero-based `page` is
+    /// at the top of the view.
+    private func scroll(_ session: ReaderSession, toPage page: Int, y: CGFloat) async throws {
+        let view = session.pdf.view
+        let scrollView = try #require(session.pdf.scrollView)
+        let pdfPage = try #require(session.pdf.page(at: page))
+        let content = scrollView.convert(view.convert(CGPoint(x: 0, y: y), from: pdfPage), from: view)
+        scrollView.contentOffset.y = content.y - scrollView.adjustedContentInset.top
+        await settle()
+    }
+
+    /// Follows the link whose box starts at page-space `y` on zero-based `page` as PDFKit does
+    /// on a tap: it performs the link's action on the view (a plain destination as a go-to).
+    private func followLink(_ session: ReaderSession, onPage page: Int, y: CGFloat) async throws {
+        let link = try #require(session.pdf.annotations(onPageAt: page).first {
+            $0.bounds.minY == y && ($0.action != nil || $0.destination != nil)
+        })
+        let action = try #require(link.action ?? link.destination.map { PDFActionGoTo(destination: $0) })
+        session.pdf.view.perform(action)
+        await settle()
+    }
+
+    /// The same page point at the top of the view (≤ 1 pt in page space).
+    private func expectSamePlace(_ actual: ReadingAnchor?, _ expected: ReadingAnchor?, _ context: String,
+                                 sourceLocation: SourceLocation = #_sourceLocation) {
+        let same = actual.map { a in expected.map { a.pageIndex == $0.pageIndex && abs(a.point.y - $0.point.y) <= 1 } ?? false } ?? false
+        #expect(same, "\(context): at \(String(describing: actual)), left at \(String(describing: expected))",
+                sourceLocation: sourceLocation)
+    }
+
+    /// TSOFT-214, the owner's sequence: jump A → B, Back, Forward, read on in B, follow a link
+    /// to C, Back: back in B at the exact place the link was followed from.
+    @Test func backAfterFollowingALinkReturnsToTheExactPlaceItWasFollowedFrom() async throws {
+        let host = try await makeLinkedHost()
+        let session = host.session
+        #expect(session.jump(toPage: 5))                    // A "1 Linear Systems" p1 → B "2.1" p6
+        await settle()
+        session.goBack()
+        await settle()
+        #expect(session.currentPageIndex == 0)
+        session.goForward()
+        await settle()
+        #expect(session.currentPageIndex == 5)
+
+        try await scroll(session, toPage: 6, y: 450)        // read on to p7; its "3.2" link is below
+        let left = session.pdf.readingAnchor
+        let leftPage = session.currentPageIndex
+        #expect(left?.pageIndex == 6)
+        try await followLink(session, onPage: 6, y: 200)    // → C "3.2 Exercises" p12
+        #expect(session.currentPageIndex == 11)
+        #expect(session.history.backList.count == 2)          // the link recorded the place it left
+        #expect(session.history.backList.first?.place.anchor == left)
+        #expect(session.history.backList.last?.place.title == "1 Linear Systems")
+
+        session.goBack()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, left, "Back after the link")
+        #expect(session.currentPageIndex == leftPage)
+        #expect(session.canGoForward)
+        session.goForward()
+        await settle()
+        #expect(session.currentPageIndex == 11)
+        await host.close()
+    }
+
+    /// A link followed from mid-page records that exact place; a link that lands in the section
+    /// the reader is already in adds no entry (design), so Back then leaves the section.
+    @Test func linksFromMidPageAndWithinTheSectionFollowTheRules() async throws {
+        let host = try await makeLinkedHost()
+        let session = host.session
+        #expect(session.jump(toPage: 2))                    // → "1.1 Foundations" p3
+        await settle()
+        try await scroll(session, toPage: 2, y: 600)        // its link (y 400) is mid-view
+        let leftInA = session.pdf.readingAnchor
+        try await followLink(session, onPage: 2, y: 400)    // → p7 y 450, in "2.1 Foundations"
+        #expect(session.deepestHeading?.title == "2.1 Foundations")
+        #expect(session.history.entries.count == 3)
+
+        try await scroll(session, toPage: 6, y: 700)
+        try await followLink(session, onPage: 6, y: 120)    // → p6, the start of 2.1: same section
+        #expect(session.currentPageIndex == 5)
+        #expect(session.history.entries.count == 3)
+        #expect(!session.canGoForward)
+        let beforeBack = session.pdf.readingAnchor
+
+        session.goBack()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, leftInA, "Back to where the mid-page link was followed")
+        session.goForward()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, beforeBack, "Forward to the place Back was pressed")
+        await host.close()
+    }
+
+    /// Several Backs, scrolling in between, then a new jump: the forward entries go and Back
+    /// returns to the exact place the jump was made; the press-and-hold lists go straight to an
+    /// entry's exact place; a restored window keeps the exact places.
+    @Test func historyListsNewJumpsAndRestorationKeepExactPlaces() async throws {
+        let host = try await makeLinkedHost()
+        let session = host.session
+        try await scroll(session, toPage: 0, y: 300)
+        let inA = session.pdf.readingAnchor
+        #expect(session.jump(toPage: 5))                    // → B "2.1"
+        await settle()
+        try await scroll(session, toPage: 5, y: 380)
+        let inB = session.pdf.readingAnchor
+        #expect(session.jump(toPage: 11))                   // → C "3.2"
+        await settle()
+        session.goBack()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, inB, "Back to B")
+        session.goBack()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, inA, "Back to A")
+        try await scroll(session, toPage: 1, y: 500)        // read on into "1.1"
+        let jumpedFrom = session.pdf.readingAnchor
+        #expect(session.jump(toPage: 9))                    // → "3.1": B and C are dropped
+        await settle()
+        #expect(!session.canGoForward)
+        #expect(session.history.entries.count == 2)
+        session.goBack()
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, jumpedFrom, "Back to where the new jump was made")
+
+        // Press-and-hold list: straight to an entry.
+        try await scroll(session, toPage: 2, y: 200)
+        let leftAgain = session.pdf.readingAnchor
+        let forward = try #require(session.history.forwardList.first)
+        session.goToHistoryEntry(at: forward.index)
+        await settle()
+        #expect(session.currentPageIndex == 9)
+        try await scroll(session, toPage: 9, y: 250)
+        let inD = session.pdf.readingAnchor
+        session.goToHistoryEntry(at: try #require(session.history.backList.first).index)
+        await settle()
+        expectSamePlace(session.pdf.readingAnchor, leftAgain, "Back list entry")
+
+        // A restored window: the same trail, and Forward goes to the exact place left.
+        let saved = session.restorableState
+        await host.close()
+        let restored = try await makeLinkedHost { $0.restoredState = saved }
+        #expect(restored.session.history == session.history)
+        restored.session.goForward()
+        await settle()
+        expectSamePlace(restored.session.pdf.readingAnchor, inD, "Forward in the restored window")
+        await restored.close()
     }
 
     @Test func notesForARequestedHeading() throws {

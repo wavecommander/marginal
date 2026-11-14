@@ -1,18 +1,13 @@
 import CoreGraphics
+import ReaderCore
 import UIKit
 
-/// The reader's place in the book: the page point (PDFKit page space) at the top-left corner
-/// of the visible area. It changes only when the reader scrolls or zooms or a jump happens;
-/// every change of the PDF view's size (panels, divider, window resize, rotation, keyboard)
-/// puts the same page point back at the top-left corner (design: "The reading position is
-/// stable").
-nonisolated struct ReadingAnchor: Equatable, Sendable {
-    /// Zero-based page the point belongs to.
-    var pageIndex: Int
-    /// Page-space point (y up). May lie outside the page's bounds when the top edge of the
-    /// view is in the gap between pages; the mapping is linear, so that is exact too.
-    var point: CGPoint
+// `ReadingAnchor` (ReaderCore) is the reader's place: the page point at the top-left corner of
+// the visible area. It changes only when the reader scrolls or zooms or a jump happens; every
+// change of the PDF view's size (panels, divider, window resize, rotation, keyboard) puts the
+// same page point back at the top-left corner (design: "The reading position is stable").
 
+nonisolated extension ReadingAnchor {
     /// Test-hook text: `"page 3 x 12.00 y 412.50 scale 1.2500"` (1-based page).
     func description(scale: CGFloat) -> String {
         String(format: "page %d x %.2f y %.2f scale %.4f", pageIndex + 1, point.x, point.y, scale)
