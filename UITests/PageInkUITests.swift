@@ -47,7 +47,19 @@ final class PageInkUITests: XCTestCase {
         }
         XCTAssertTrue(pdf(app).waitForExistence(timeout: 30), "PDF view")
         sleep(2)  // the first page is positioned and its overlay loaded
+        if !extra.contains("-alsoOpenWindow") { closeStrayWindows(app) }
         return app
+    }
+
+    /// A reader window left open by an earlier failed multi-window test is restored by the
+    /// system on every launch and can sit in front of the window under test: close it.
+    private func closeStrayWindows(_ app: XCUIApplication) {
+        var attempts = 0
+        while app.otherElements.matching(identifier: ID.pdfView).count > 1 && attempts < 3 {
+            app.typeKey("w", modifierFlags: .command)
+            sleep(2)
+            attempts += 1
+        }
     }
 
     private func pdf(_ app: XCUIApplication) -> XCUIElement {
@@ -171,6 +183,14 @@ final class PageInkUITests: XCTestCase {
     func testStrokeAppearsInASecondWindowOnTheSameBook() throws {
         let app = launch(page: 1, ["-inkAnyInput", "-alsoOpenWindow", "small"])
         let views = app.otherElements.matching(identifier: ID.pdfView)
+        // Always leave one window (system Close Window, ⌘W), as WP4's tests do, even when an
+        // assertion fails: a window left open is restored into every later launch.
+        addTeardownBlock { @MainActor in
+            for _ in 0..<2 where app.otherElements.matching(identifier: ID.pdfView).count > 1 {
+                app.typeKey("w", modifierFlags: .command)
+                sleep(2)
+            }
+        }
         let deadline = Date().addingTimeInterval(30)
         while views.count < 2 && Date() < deadline { usleep(250_000) }
         XCTAssertEqual(views.count, 2, "two reader windows")
@@ -188,13 +208,6 @@ final class PageInkUITests: XCTestCase {
         let inkDeadline = Date().addingTimeInterval(15)
         while inks.count < 2 && Date() < inkDeadline { usleep(250_000) }
         XCTAssertEqual(inks.count, 2, "the stroke is in both windows")
-        // Leave one window (system Close Window, ⌘W), as WP4's tests do.
-        app.typeKey("w", modifierFlags: .command)
-        sleep(2)
-        if app.otherElements.matching(identifier: ID.pdfView).count > 1 {
-            app.typeKey("w", modifierFlags: .command)
-            sleep(2)
-        }
     }
 
     // MARK: Zoom
