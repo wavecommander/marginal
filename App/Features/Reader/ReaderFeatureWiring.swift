@@ -8,6 +8,11 @@ enum ReaderFeatureWiring {
     static func install(on session: ReaderSession) {
         session.retainFeature(PageInkOverlayProvider(session: session))  // WP6
         session.retainFeature(HighlightController(session: session))     // WP7
+        // WP8: with the window, not with the panel, so heading-anchor repair and section-pin
+        // tracking run in a window that never shows the notes panel. Safe this early: its init
+        // only reads the session's page and tab, subscribes to the store hub, makes (does not
+        // load) the page note's model, and defers anything else until the outline has loaded.
+        _ = NotesPanelController.forSession(session)
         if session.configuration.markupProbeSurface {
             session.retainFeature(MarkupProbeSurface(session: session))   // UI tests only
         }

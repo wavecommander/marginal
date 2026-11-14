@@ -37,7 +37,8 @@ final class NotesPanelController {
     /// Models kept alive at once.
     static let modelCapacity = 3
 
-    /// The controller of a session's window (created on first use).
+    /// The controller of a session's window: created with the window (`ReaderFeatureWiring`), or
+    /// on first use when feature wiring is off (unit tests).
     static func forSession(_ session: ReaderSession) -> NotesPanelController {
         session.featureState { NotesPanelController(session: session) }
     }
@@ -84,7 +85,8 @@ final class NotesPanelController {
             }
         }
         // A pending `showNotes(.section, heading:)` request is honoured on the next turn: this
-        // initialiser runs while SwiftUI builds the panel, where the session must not change.
+        // initialiser runs inside `ReaderSession.init` (`ReaderFeatureWiring`), or, when feature
+        // wiring is off, while SwiftUI builds the panel, where the session must not change.
         refresh(explicit: true, honoursRequests: false)
         track()
         Task { @MainActor [weak self] in self?.refresh() }
