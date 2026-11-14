@@ -59,7 +59,9 @@ struct ReaderHost: View {
             session?.handleMemoryWarning()
         }
         .onChange(of: window.readerJumpRequests) { _, _ in
-            if let page = window.takeReaderOverrides(for: bookID)?.pageIndex { session?.jump(toPage: page) }
+            guard let overrides = window.takeReaderOverrides(for: bookID) else { return }
+            if let page = overrides.pageIndex { session?.jump(toPage: page) }
+            if let heading = overrides.notesHeading { session?.showNotes(.section, heading: heading) }
         }
     }
 
@@ -82,12 +84,15 @@ struct ReaderHost: View {
         if let storedState {
             configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)
         }
-        if let overrides = window.takeReaderOverrides(for: bookID) {
+        let overrides = window.takeReaderOverrides(for: bookID)
+        if let overrides {
             configuration.initialPageIndex = overrides.pageIndex
             configuration.startInMarkup = overrides.startInMarkup
             configuration.openNotesTab = overrides.notesTab
         }
         let session = ReaderSession(book: book, store: environment.store, configuration: configuration)
+        // A Notebook heading-note row: the notes panel waits for the outline, then shows it.
+        if let heading = overrides?.notesHeading { session.showNotes(.section, heading: heading) }
         self.session = session
         session.open()
     }

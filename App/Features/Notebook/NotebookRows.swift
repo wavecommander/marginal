@@ -15,6 +15,8 @@ nonisolated enum NotebookAccessibilityID {
     static let exportCancel = "notebook.export.cancel"
     static let openBook = "notebook.openBook"
     static let empty = "notebook.empty"
+    /// "Delete Note" in a note row's context menu.
+    static let deleteNote = "notebook.deleteNote"
 
     /// A scope entry in the filter column: `notebook.scope.<title>`.
     static func scope(_ title: String) -> String { "notebook.scope.\(title)" }
@@ -38,15 +40,19 @@ nonisolated enum NotebookHighlightStyle {
     static func name(_ color: HighlightColor) -> String { HighlightPalette.name(color) }
 }
 
-/// What a row does when tapped or chosen from its context menu.
+/// What a row does when tapped or chosen from its context menu. `heading` is set for a heading
+/// note's row: the reader then opens with the notes panel on the Section tab at that heading.
 struct NotebookRowActions {
-    var open: (Int) -> Void
-    var openInNewWindow: (Int) -> Void
+    var open: (_ page: Int, _ heading: HeadingAnchor?) -> Void
+    var openInNewWindow: (_ page: Int, _ heading: HeadingAnchor?) -> Void
+    /// Asks to delete a note (the screen confirms first, with the notes panel's wording).
+    var deleteNote: (Note) -> Void
 }
 
 /// One row of the feed: a header, a heading note, a page note or a highlight. Tapping opens the
-/// reader at the row's page (a header: its heading's start page); the context menu also offers
-/// "Open in New Window".
+/// reader at the row's page (a header: its heading's start page; a heading note: its heading's
+/// start page with that heading's note in the notes panel); the context menu also offers
+/// "Open in New Window", and on a note's row "Delete Note" (also a VoiceOver action).
 struct NotebookRowView: View {
     let row: NotebookFeedRow
     let model: NotebookModel
@@ -57,8 +63,9 @@ struct NotebookRowView: View {
 
     var body: some View {
         let target = row.targetPage
+        let heading = row.noteHeading
         Button {
-            if let target { actions.open(target) }
+            if let target { actions.open(target, heading) }
         } label: {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,16 +75,24 @@ struct NotebookRowView: View {
         .disabled(target == nil)
         .contextMenu {
             if let target {
-                Button("Open", systemImage: "book") { actions.open(target) }
-                Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target) }
+                Button("Open", systemImage: "book") { actions.open(target, heading) }
+                Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target, heading) }
+            }
+            if let note = row.note {
+                Divider()
+                Button(role: .destructive) { actions.deleteNote(note) } label: {
+                    Label("Delete Note", systemImage: "trash")
+                }
+                .accessibilityIdentifier(NotebookAccessibilityID.deleteNote)
             }
         }
         // Modifiers on the button itself (no wrapping element): one element per row, read as
         // section, page and note text, with handwriting announced.
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(target == nil ? "" : "Opens the book at this page")
+        .accessibilityHint(target == nil ? "" : (heading == nil ? "Opens the book at this page" : "Opens the book at this section's note"))
         .accessibilityAddTraits(row.isHeader ? .isHeader : [])
         .accessibilityIdentifier(identifier)
+        .modifier(DeleteNoteAccessibilityAction(note: row.note, delete: actions.deleteNote))
     }
 
     // MARK: Content
@@ -220,6 +235,28 @@ struct NotebookRowView: View {
         case (false, true): return text + (text.last.map { ".!?".contains($0) } == true ? "" : ".") + " Has handwriting."
         default: return text
         }
+    }
+}
+
+/// "Delete Note" as a VoiceOver action, on note rows only.
+private struct DeleteNoteAccessibilityAction: ViewModifier {
+    let note: Note?
+    let delete: (Note) -> Void
+
+    func body(content: Content) -> some View {
+        if let note {
+            content.accessibilityAction(named: "Delete Note") { delete(note) }
+        } else {
+            content
+        }
+    }
+}
+
+extension NotebookFeedRow {
+    /// The heading whose note this row shows (a heading note under a live heading), else `nil`.
+    var noteHeading: HeadingAnchor? {
+        if case .headingNote(_, let header) = kind, case .section(let anchor) = header.kind { return anchor }
+        return nil
     }
 }
 

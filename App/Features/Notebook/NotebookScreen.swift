@@ -81,6 +81,8 @@ private struct NotebookContent: View {
     @State private var didRestoreScroll = false
     @State private var isWide = true
     @State private var export = NotebookExportController()
+    /// The note whose deletion is being confirmed.
+    @State private var deleteCandidate: Note?
 
     /// Below this window width (or in a compact size class) the filter column collapses into a
     /// toolbar menu.
@@ -127,6 +129,17 @@ private struct NotebookContent: View {
         .notebookSubtitle(model.book?.title ?? "")
         .searchable(text: $query, prompt: "Search Notes and Highlights")
         .toolbar { toolbar }
+        // Same wording as the notes panel's Delete Note (design: "Deleting a note").
+        .alert("Delete This Note?", isPresented: Binding(get: { deleteCandidate != nil },
+                                                         set: { if !$0 { deleteCandidate = nil } }),
+               presenting: deleteCandidate) { note in
+            Button("Delete", role: .destructive) {
+                Task { await model.deleteNote(note) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { note in
+            Text(NotesPanel.deleteMessage(hasInk: note.hasInk))
+        }
         .overlay(alignment: .topTrailing) {
             NotebookShareSheetAnchor(item: export.sharedResult?.fileURL, onFinish: export.shareDidFinish)
                 .frame(width: 1, height: 1)
@@ -276,10 +289,12 @@ private struct NotebookContent: View {
         let bookID = model.bookID
         let store = environment.store
         return NotebookRowActions(
-            open: { page in window.openReader(bookID: bookID, pageIndex: page) },
-            openInNewWindow: { page in
-                NotebookNavigation.openInNewWindow(bookID: bookID, pageIndex: page, store: store, window: window)
-            })
+            open: { page, heading in window.openReader(bookID: bookID, pageIndex: page, notesHeading: heading) },
+            openInNewWindow: { page, heading in
+                NotebookNavigation.openInNewWindow(bookID: bookID, pageIndex: page, notesHeading: heading,
+                                                   store: store, window: window)
+            },
+            deleteNote: { note in deleteCandidate = note })
     }
 
     // MARK: Filter column
@@ -391,8 +406,9 @@ private struct NotebookContent: View {
 enum NotebookNavigation {
     /// Opens a new reader window on the book at `pageIndex` (the shell applies the page once,
     /// when the window is created; the book's stored last-read page is left alone).
-    static func openInNewWindow(bookID: UUID, pageIndex: Int, store: LibraryStore, window: WindowContext) {
-        window.openReaderInNewWindow(bookID: bookID, pageIndex: pageIndex)
+    static func openInNewWindow(bookID: UUID, pageIndex: Int, notesHeading: HeadingAnchor? = nil,
+                                store: LibraryStore, window: WindowContext) {
+        window.openReaderInNewWindow(bookID: bookID, pageIndex: pageIndex, notesHeading: notesHeading)
     }
 }
 

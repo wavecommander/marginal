@@ -20,7 +20,7 @@ struct MarginalApp: App {
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
             WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },
-                           initialPageIndex: value?.pageIndex)
+                           initialPageIndex: value?.pageIndex, initialNotesHeading: value?.notesHeading)
                 .environment(environment)
                 .environment(\.launchOptions, environment.launchOptions)
         }

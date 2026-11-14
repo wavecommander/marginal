@@ -138,4 +138,7 @@ nonisolated struct ReaderOverrides: Sendable, Equatable {
     var pageIndex: Int?
     var startInMarkup = false
     var notesTab: ReaderSession.NotesTab?
+    /// A heading whose note the notes panel shows on the Section tab (a Notebook heading-note
+    /// row); applied with `ReaderSession.showNotes(.section, heading:)`.
+    var notesHeading: HeadingAnchor?
 }

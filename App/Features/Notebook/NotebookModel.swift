@@ -157,6 +157,20 @@ final class NotebookModel {
         }
     }
 
+    /// Deletes a note and its ink (design: "Deleting a note"; the Notebook row's Delete Note).
+    /// Not attributed to this model's origin, so this Notebook rebuilds from the change like every
+    /// other window; a reader showing the note resets it to the empty placeholder. Returns
+    /// `false` when the store failed.
+    @discardableResult
+    func deleteNote(_ note: Note) async -> Bool {
+        do {
+            try await store.deleteNote(id: note.id, origin: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func applyRepairsOnce(_ notebook: Notebook) {
         guard !repairsApplied else { return }
         repairsApplied = true
