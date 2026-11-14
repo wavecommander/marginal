@@ -292,6 +292,41 @@ final class PageInkUITests: XCTestCase {
         XCTAssertEqual(ink(app).value as? String, "1 stroke")
     }
 
+    // MARK: Appearance
+
+    /// A live light/dark switch in markup mode re-shows the system tool picker (it would keep
+    /// its old swatches until next shown), with the markup responder or the note's text view
+    /// first responder. Saves `pageink-dark-page-and-note` and `pageink-light-again` to look at
+    /// the swatches (pixels are not checked here).
+    func testToolPickerFollowsALiveAppearanceSwitch() throws {
+        addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
+        XCUIDevice.shared.appearance = .light
+        let app = launch(["-markup", "-inkAnyInput", "-notesPanel", "page", "-exposeMarkupState"])
+        let noteText = app.textViews[ID.noteText].firstMatch
+        XCTAssertTrue(noteText.waitForExistence(timeout: 15))
+        XCTAssertTrue(state(app, has: "picker=shown"))
+
+        XCUIDevice.shared.appearance = .dark
+        sleep(2)
+        XCTAssertTrue(state(app, has: "picker=shown"), "picker back after switching to dark")
+        XCTAssertTrue(state(app, has: "responder=markup"))
+        drawLine(app)
+        XCTAssertTrue(strokes(ink(app), 1), "page stroke in dark mode")
+        let note = noteText.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 40, dy: 160))
+        note.press(forDuration: 0.2, thenDragTo: note.withOffset(CGVector(dx: 160, dy: 2)))
+        sleep(1)
+        try saveScreenshot("pageink-dark-page-and-note")
+
+        // With the cursor in the note (an auxiliary responder of the picker).
+        noteText.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.02)).tap()
+        XCTAssertTrue(state(app, has: "responder=auxiliary"), "the note's text view is first responder")
+        XCUIDevice.shared.appearance = .light
+        sleep(2)
+        XCTAssertTrue(state(app, has: "picker=shown"), "picker back after switching to light while typing")
+        XCTAssertTrue(state(app, has: "responder=auxiliary"), "the cursor stays in the note")
+        try saveScreenshot("pageink-light-again")
+    }
+
     // MARK: Screenshots
 
     /// Not a check: saves `pageink-markup` (ink on the page and the system picker),

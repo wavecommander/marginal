@@ -264,6 +264,27 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         }
     }
 
+    /// The window's light/dark appearance changed (called by `MarkupResponderView`). A
+    /// `PKToolPicker` on screen keeps the look it was shown with (its swatches stay in the old
+    /// appearance while canvases already draw that ink in the new one) until it is next shown,
+    /// so in markup mode hide it for every responder it is visible for and show it again on the
+    /// next turn of the main queue.
+    func appearanceDidChange() {
+        guard isMarkup else { return }
+        for responder in pickerResponders { toolPicker.setVisible(false, forFirstResponder: responder) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isMarkup else { return }
+            for responder in self.pickerResponders { self.toolPicker.setVisible(true, forFirstResponder: responder) }
+            self.reassertToolPicker()
+        }
+    }
+
+    /// Every responder the tool picker is made visible for in markup mode.
+    private var pickerResponders: [UIResponder] {
+        [responderView] + surfaces.values.compactMap { $0.value?.canvasView }
+            + auxiliaryResponders.compactMap(\.value)
+    }
+
     /// Which of this window's responders is first responder (test hook, `ReaderStateProbe`):
     /// `markup` (the responder view), `surface` (a registered canvas), `auxiliary`, or `other`.
     var firstResponderKind: String {
@@ -422,6 +443,18 @@ final class MarkupResponderView: UIView {
         }
         return nil
     }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // The system tool picker does not restyle itself when the appearance changes while it
+        // is on screen; the controller re-shows it (see `appearanceDidChange()`).
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: MarkupResponderView, _: UITraitCollection) in
+            view.controller?.appearanceDidChange()
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var canBecomeFirstResponder: Bool { true }
 
