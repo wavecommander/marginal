@@ -82,10 +82,11 @@ enum NotePageRenderer {
         return CGSize(width: NotePageStyle.pageWidth, height: ceil(max(textBottom, inkBottom)))
     }
 
-    // MARK: Bitmap (Markdown export)
+    // MARK: Bitmap (Markdown export, and the on-screen read-only view)
 
-    /// PNG of the whole note (text and ink) on white paper in the light appearance, `width`
-    /// points wide (default: the page width) at `scale` pixels per point (default 3).
+    /// PNG of the whole note (text and ink) for export: always the light appearance on white
+    /// paper with the strokes' stored colours, whatever the app's appearance. `width` points wide
+    /// (default: the page width) at `scale` pixels per point (default 3).
     static func pngData(note: Note, inkData: Data?, scale: CGFloat = 3, width: CGFloat? = nil) -> Data? {
         pngData(snapshot(note: note, inkData: inkData), scale: scale, width: width)
     }
@@ -94,36 +95,65 @@ enum NotePageRenderer {
         image(snapshot, scale: scale, width: width).pngData()
     }
 
-    /// The note as an image (see `pngData`). Its `size` is in points.
-    static func image(_ snapshot: NotePageSnapshot, scale: CGFloat = 3, width: CGFloat? = nil) -> UIImage {
+    /// The note as an image (see `pngData`). Its `size` is in points. `appearance` is
+    /// `NotePageStyle.exportAppearance` (light) unless a caller asks for the on-screen look of
+    /// another appearance; exports never pass it.
+    static func image(_ snapshot: NotePageSnapshot, scale: CGFloat = 3, width: CGFloat? = nil,
+                      appearance: UIUserInterfaceStyle = NotePageStyle.exportAppearance) -> UIImage {
         let factor = (width ?? snapshot.size.width) / snapshot.size.width
         let size = CGSize(width: snapshot.size.width * factor, height: snapshot.size.height * factor)
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
-        let light = UITraitCollection(userInterfaceStyle: .light)
         format.preferredRange = .standard
+        let traits = UITraitCollection(userInterfaceStyle: appearance)
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            light.performAsCurrent {
-                UIColor.white.setFill()
-                context.fill(CGRect(origin: .zero, size: size))
-                let cg = context.cgContext
-                cg.saveGState()
-                cg.scaleBy(x: factor, y: factor)
-                NotePageLayoutEngine.shared.drawText(snapshot.text, in: cg)
-                if snapshot.hasInk {
-                    let page = CGRect(origin: .zero, size: snapshot.size)
-                    snapshot.drawing.image(from: page, scale: scale * factor).draw(in: page)
-                }
-                cg.restoreGState()
-            }
+            drawPage(snapshot, in: context.cgContext, factor: factor, inkScale: scale * factor, traits: traits,
+                     paper: size)
         }
+    }
+
+    /// Draws the page (paper, text, ink) scaled by `factor`, everything resolved in `traits`
+    /// (made current for the duration, so the dynamic paper and `.label` text resolve in it and
+    /// PencilKit renders the ink for its user interface style). `paper` is the area to fill with
+    /// the paper colour, in the context's points (`nil`: no fill).
+    static func drawPage(_ snapshot: NotePageSnapshot, in context: CGContext, factor: CGFloat, inkScale: CGFloat,
+                         traits: UITraitCollection, paper: CGSize?, cachedInk: UIImage? = nil) {
+        traits.performAsCurrent {
+            if let paper {
+                context.setFillColor(NotePageStyle.paperColor.resolvedColor(with: traits).cgColor)
+                context.fill(CGRect(origin: .zero, size: paper))
+            }
+            context.saveGState()
+            context.scaleBy(x: factor, y: factor)
+            NotePageLayoutEngine.shared.drawText(snapshot.text, in: context)
+            if snapshot.hasInk {
+                let page = CGRect(origin: .zero, size: snapshot.size)
+                let ink = cachedInk ?? inkImage(snapshot, scale: inkScale, traits: traits)
+                UIGraphicsPushContext(context)
+                ink.draw(in: page)
+                UIGraphicsPopContext()
+            }
+            context.restoreGState()
+        }
+    }
+
+    /// The note's ink alone as a transparent image of the page at `scale`, rendered by PencilKit
+    /// for `traits`' user interface style (light: the stored colours; dark: PencilKit's dark
+    /// rendering of them). Never changes the strokes.
+    static func inkImage(_ snapshot: NotePageSnapshot, scale: CGFloat, traits: UITraitCollection) -> UIImage {
+        var image = UIImage()
+        traits.performAsCurrent {
+            image = snapshot.drawing.image(from: CGRect(origin: .zero, size: snapshot.size), scale: scale)
+        }
+        return image
     }
 
     // MARK: Vector (PDF export)
 
     /// Draws the note (text as glyphs, ink as vector paths where the ink allows; see the type
-    /// documentation) into `context` in the light appearance, with its top-left at `origin`,
+    /// documentation) into `context` in the light appearance (`NotePageStyle.exportTraits`,
+    /// whatever the app's appearance: this is the export path), with its top-left at `origin`,
     /// `width` points wide (default: the page width). `context` must be in UIKit orientation
     /// (y down), as in `UIGraphicsPDFRenderer`; flip a raw Core Graphics PDF context first.
     /// Paints no background. - Returns: the size drawn, in the context's points.
@@ -131,8 +161,7 @@ enum NotePageRenderer {
     static func draw(_ snapshot: NotePageSnapshot, in context: CGContext, at origin: CGPoint = .zero,
                      width: CGFloat? = nil) -> CGSize {
         let factor = (width ?? snapshot.size.width) / snapshot.size.width
-        let light = UITraitCollection(userInterfaceStyle: .light)
-        light.performAsCurrent {
+        NotePageStyle.exportTraits.performAsCurrent {
             context.saveGState()
             context.translateBy(x: origin.x, y: origin.y)
             context.scaleBy(x: factor, y: factor)
@@ -167,7 +196,7 @@ enum NotePageRenderer {
 
     private static func drawStroke(_ stroke: PKStroke, in context: CGContext, imageScale: CGFloat) {
         if export(for: stroke) == .vector, let path = outline(of: stroke) {
-            let color = stroke.ink.color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+            let color = stroke.ink.color.resolvedColor(with: NotePageStyle.exportTraits)
             var alpha: CGFloat = 1
             color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
             context.saveGState()
@@ -180,6 +209,7 @@ enum NotePageRenderer {
         } else {
             let bounds = stroke.renderBounds
             guard !bounds.isNull, !bounds.isEmpty else { return }
+            // Called inside `exportTraits.performAsCurrent`, so PencilKit renders the stored colour.
             let image = PKDrawing(strokes: [stroke]).image(from: bounds, scale: imageScale)
             UIGraphicsPushContext(context)
             image.draw(in: bounds)
@@ -251,8 +281,9 @@ enum NotePageRenderer {
 /// A note drawn read-only at the width SwiftUI offers (Notebook rows, "page notes in this
 /// section"): the same layout as the editor, scaled, never re-wrapped. Text is drawn as glyphs
 /// and ink is rendered from the strokes at the displayed scale (re-rendered when the size
-/// changes, never a scaled bitmap). Drawn on light paper in every appearance, like the editor
-/// (`NotePageStyle.pageAppearance`). Its height is
+/// changes, never a scaled bitmap). Follows the appearance like the editor: dark paper, light
+/// text and PencilKit's dark ink rendering in Dark Mode, re-drawn live when the appearance
+/// changes (the ink image is cached per scale and appearance). Its height is
 /// `width × snapshot.size.height / snapshot.size.width`.
 struct NotePageReadOnlyView: View {
     let snapshot: NotePageSnapshot
@@ -298,12 +329,21 @@ final class NotePageReadOnlyUIView: UIView {
         }
     }
 
-    private var inkImage: (key: String, image: UIImage)?
+    /// The ink rendered for one scale and appearance (re-rendered from the strokes when either
+    /// changes, so a live appearance switch never shows the other appearance's ink).
+    private var inkImage: (key: InkImageKey, image: UIImage)?
+
+    struct InkImageKey: Equatable {
+        var scale: CGFloat
+        var style: UIUserInterfaceStyle
+    }
+
+    /// The appearance the view last drew in (tests).
+    private(set) var renderedStyle: UIUserInterfaceStyle?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
-        overrideUserInterfaceStyle = NotePageStyle.pageAppearance
         backgroundColor = NotePageStyle.paperColor
         contentMode = .redraw
         isUserInteractionEnabled = false
@@ -317,22 +357,22 @@ final class NotePageReadOnlyUIView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-
     override func draw(_ rect: CGRect) {
         guard let snapshot, let context = UIGraphicsGetCurrentContext(), bounds.width > 0 else { return }
         let factor = bounds.width / snapshot.size.width
-        context.saveGState()
-        context.scaleBy(x: factor, y: factor)
-        NotePageLayoutEngine.shared.drawText(snapshot.text, in: context)
+        let traits = traitCollection
+        let scale = factor * contentScaleFactor
+        var ink: UIImage?
         if snapshot.hasInk {
-            let page = CGRect(origin: .zero, size: snapshot.size)
-            let scale = factor * contentScaleFactor
-            let key = "\(scale)-\(traitCollection.userInterfaceStyle.rawValue)"
+            let key = InkImageKey(scale: scale, style: traits.userInterfaceStyle)
             if inkImage?.key != key {
-                inkImage = (key, snapshot.drawing.image(from: page, scale: scale))
+                inkImage = (key, NotePageRenderer.inkImage(snapshot, scale: scale, traits: traits))
             }
-            inkImage?.image.draw(in: page)
+            ink = inkImage?.image
         }
-        context.restoreGState()
+        // The background colour (dynamic paper) is the paper; draw text and ink over it.
+        NotePageRenderer.drawPage(snapshot, in: context, factor: factor, inkScale: scale, traits: traits,
+                                  paper: nil, cachedInk: ink)
+        renderedStyle = traits.userInterfaceStyle
     }
 }
