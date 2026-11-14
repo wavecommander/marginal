@@ -452,6 +452,86 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Probe"].firstMatch.waitForExistence(timeout: 5)
                       || app.menuItems["Probe"].firstMatch.waitForExistence(timeout: 2))
     }
+
+    // MARK: Select All selects the paragraph
+
+    private func selectionProbe(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["reader.selectionProbe"].firstMatch
+    }
+
+    /// Long-presses the word "amber" on page 3 of `small.pdf` (the one-line paragraph "Remember
+    /// that the quick amber fox annotates margins.") and waits for the selection.
+    private func selectAmber(_ app: XCUIApplication) {
+        let pdfView = app.otherElements[ReaderID.pdfView].firstMatch
+        let line = pdfView.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "quick amber fox")).firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 10), "page 3's special line is not exposed")
+        let frame = line.frame
+        print("SELECT-ALL line element frame: \(frame)")
+        // A line element: "amber" is about 45 % along it. A page element: the line is the first
+        // body line, about 12 % down the page at 22 % across.
+        let point = frame.height < 60
+            ? CGVector(dx: 0.45, dy: 0.5)
+            : CGVector(dx: 0.30, dy: (792 - 690) / 792.0)
+        line.coordinate(withNormalizedOffset: point).press(forDuration: 1.2)
+        let deadline = Date().addingTimeInterval(5)
+        while selectionProbe(app).label == "none" && Date() < deadline { usleep(200_000) }
+        print("SELECT-ALL selected: \(selectionProbe(app).label) [\(selectionProbe(app).value ?? "")]")
+    }
+
+    private func menuItem(_ app: XCUIApplication, _ title: String) -> XCUIElement? {
+        for candidate in [app.buttons[title].firstMatch, app.menuItems[title].firstMatch] where candidate.exists {
+            return candidate
+        }
+        return nil
+    }
+
+    /// Select All in the edit menu grows a word to its paragraph, on its page only, and the
+    /// result is a normal selection (the edit menu still offers Copy); ⌘A does the same; in the
+    /// go-to-page field ⌘A keeps its normal meaning.
+    func testSelectAllSelectsTheParagraph() throws {
+        let app = openSmall(["-openPage", "3", "-exposeSelection"])
+        XCTAssertTrue(selectionProbe(app).waitForExistence(timeout: 10))
+        sleep(1)
+        let pillBefore = pill(app).label
+        selectAmber(app)
+        XCTAssertTrue(selectionProbe(app).label.contains("amber"), "no word selected: \(selectionProbe(app).label)")
+        // The edit menu's Select All (behind the menu's "more" arrow if it is not on the first row).
+        var selectAll = menuItem(app, "Select All")
+        if selectAll == nil, let more = menuItem(app, "Forward") ?? menuItem(app, "Show more items") {
+            more.tap()
+            selectAll = menuItem(app, "Select All")
+        }
+        let item = try XCTUnwrap(selectAll, "Select All is not in the edit menu")
+        item.tap()
+        let paragraph = "Remember that the quick amber fox annotates margins."
+        let deadline = Date().addingTimeInterval(5)
+        while !selectionProbe(app).label.contains(paragraph) && Date() < deadline { usleep(200_000) }
+        let label = selectionProbe(app).label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = selectionProbe(app).value as? String ?? ""
+        print("SELECT-ALL after menu: \(label) [\(value)]")
+        XCTAssertEqual(label, paragraph)
+        XCTAssertTrue(value.hasPrefix("pages 2;"), "the selection touches other pages: \(value)")
+        XCTAssertEqual(pill(app).label, pillBefore, "the page moved")
+        XCTAssertFalse(app.buttons[ReaderID.historyBack].firstMatch.isEnabled, "Select All recorded history")
+
+        // ⌘A on a fresh word selection.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.6)).tap()
+        sleep(1)
+        selectAmber(app)
+        app.typeKey("a", modifierFlags: .command)
+        let keyDeadline = Date().addingTimeInterval(5)
+        while !selectionProbe(app).label.contains(paragraph) && keyDeadline > Date() { usleep(200_000) }
+        XCTAssertEqual(selectionProbe(app).label.trimmingCharacters(in: .whitespacesAndNewlines), paragraph, "⌘A")
+
+        // In a real text field ⌘A selects the field's text: typing replaces it.
+        pill(app).tap()
+        let field = app.textFields[ReaderID.goToPageField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.typeText("12")
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("7")
+        XCTAssertEqual(field.value as? String, "7", "⌘A in the go-to-page field")
+    }
 }
 
 /// Mirrors `AccessibilityID.Reader` in the app (the test target cannot import it).

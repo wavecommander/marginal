@@ -12,6 +12,8 @@ nonisolated enum AccessibilityID {
         static let pdfView = "reader.pdfView"
         /// Test hook (`-exposeViewportAnchor`): value "page N x X y Y scale S" (page space).
         static let viewportAnchor = "reader.viewportAnchor"
+        /// Test hook (`-exposeSelection`): label = selected text, value "pages P; ms T".
+        static let selectionProbe = "reader.selectionProbe"
         static let loading = "reader.loading"
 
         // Toolbar
