@@ -455,7 +455,7 @@ final class ReaderSession: Identifiable {
     }
 
     func toggleMarkup() { setMode(isMarkupMode ? .reading : .markup) }
-    /// The Done button: flush ink and return to reading.
+    /// Leaves markup mode (flushes ink and returns to reading); the Markup toggle does the same.
     func finishMarkup() { setMode(.reading) }
 
     /// The drawing policy every canvas must use (`.default`; `.anyInput` under `-inkAnyInput`).

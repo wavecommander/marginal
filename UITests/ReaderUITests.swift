@@ -275,12 +275,14 @@ final class ReaderUITests: XCTestCase {
     func testFindWorksInMarkupMode() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("hardware-key events (see the menu test)") }
         let app = openSmall(["-markup"])
-        XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 30))
+        let toggle = app.buttons[ReaderID.markupToggle].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 30))
+        XCTAssertTrue(waitForSelected(toggle, true), "markup on")
         sleep(2)
         app.typeKey("f", modifierFlags: [.command, .shift])
         XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
         app.buttons["search.done"].firstMatch.tap()
-        XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5), "markup ended")
+        XCTAssertTrue(waitForSelected(toggle, true), "markup stays on after search")
         // The toolbar's search button is there in markup mode too.
         XCTAssertTrue(app.buttons["reader.toolbar.search"].firstMatch.exists)
     }
@@ -356,9 +358,9 @@ final class ReaderUITests: XCTestCase {
         app.typeKey("g", modifierFlags: [.command, .control, .shift]) // Previous Result (disabled)
         app.typeKey("h", modifierFlags: [.command, .option])          // Add Heading at This Page…
         app.typeKey("a", modifierFlags: [.command, .shift])          // Markup
-        XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForSelected(app.buttons[ReaderID.markupToggle].firstMatch, true))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup
-        XCTAssertTrue(app.buttons[ReaderID.markupToggle].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForSelected(app.buttons[ReaderID.markupToggle].firstMatch, false))
         openGoToPageField(app)                                       // Go to Page… (a text field)
         let field = app.textFields[ReaderID.goToPageField]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -397,22 +399,48 @@ final class ReaderUITests: XCTestCase {
         closeFrontWindow(two)
     }
 
-    /// Markup mode shows the window's system tool picker; Done hides it. Also from launch (-markup).
+    /// Markup mode shows the window's system tool picker; tapping the Markup toggle again hides
+    /// it. Also from launch (-markup).
     func testMarkupModeShowsToolPicker() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
-        app.buttons[ReaderID.markupToggle].tap()
-        let done = app.buttons[ReaderID.done]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitForValue(done, "tool picker shown"))
-        done.tap()
-        XCTAssertTrue(app.buttons[ReaderID.markupToggle].waitForExistence(timeout: 5))
+        let toggle = app.buttons[ReaderID.markupToggle].firstMatch
+        toggle.tap()
+        XCTAssertTrue(waitForValue(toggle, "tool picker shown"))
+        toggle.tap()
+        XCTAssertTrue(waitForSelected(toggle, false), "markup off")
 
         let launched = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
                                                    + ["-openBook", "small", "-markup"])
-        let doneAtLaunch = launched.buttons[ReaderID.done]
-        XCTAssertTrue(doneAtLaunch.waitForExistence(timeout: 30))
-        XCTAssertTrue(waitForValue(doneAtLaunch, "tool picker shown"))
+        let toggleAtLaunch = launched.buttons[ReaderID.markupToggle].firstMatch
+        XCTAssertTrue(toggleAtLaunch.waitForExistence(timeout: 30))
+        XCTAssertTrue(waitForValue(toggleAtLaunch, "tool picker shown"))
+    }
+
+    /// The Markup toggle is the only switch (design, "Markup controls"): the same button in
+    /// both modes, selected (filled) while markup is on, no Done button, and at regular width
+    /// no toolbar Undo/Redo (the tool picker has its own); the rest of the toolbar stays.
+    func testMarkupToggleIsSelectedInMarkupModeWithNoDoneButton() {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        let toggle = app.buttons[ReaderID.markupToggle].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(toggle.isSelected, "outlined while off")
+        XCTAssertEqual(toggle.label, "Markup")
+
+        toggle.tap()
+        XCTAssertTrue(waitForSelected(toggle, true), "filled (selected) while on")
+        XCTAssertEqual(toggle.label, "Done with Markup")
+        XCTAssertFalse(app.buttons["reader.toolbar.done"].exists, "no Done button")
+        XCTAssertFalse(app.navigationBars.buttons["Done"].exists, "no Done button")
+        XCTAssertFalse(app.buttons["reader.toolbar.undo"].exists, "Undo is the tool picker's at regular width")
+        XCTAssertFalse(app.buttons["reader.toolbar.redo"].exists, "Redo is the tool picker's at regular width")
+        XCTAssertTrue(app.buttons[ReaderID.more].firstMatch.exists, "same toolbar in markup mode")
+        XCTAssertTrue(app.buttons[ReaderID.notesToggle].firstMatch.exists, "same toolbar in markup mode")
+
+        toggle.tap()
+        XCTAssertTrue(waitForSelected(toggle, false), "outlined again")
+        XCTAssertEqual(toggle.label, "Markup")
     }
 
     /// With a registered surface that takes first responder (as a canvas does), the picker stays.
@@ -420,17 +448,23 @@ final class ReaderUITests: XCTestCase {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
                                               + ["-openBook", "small", "-markupProbeSurface"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
-        app.buttons[ReaderID.markupToggle].tap()
-        let done = app.buttons[ReaderID.done]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        let toggle = app.buttons[ReaderID.markupToggle].firstMatch
+        toggle.tap()
+        XCTAssertTrue(waitForSelected(toggle, true))
         sleep(2)  // the probe canvas has become first responder by now
-        XCTAssertTrue(waitForValue(done, "tool picker shown"))
+        XCTAssertTrue(waitForValue(toggle, "tool picker shown"))
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         let suffix = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 18 ? "-ios17" : ""
         try? XCUIScreen.main.screenshot().pngRepresentation
             .write(to: directory.appendingPathComponent("reader-markup-surface\(suffix).png"))
-        done.tap()
-        XCTAssertTrue(app.buttons[ReaderID.markupToggle].waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertTrue(waitForSelected(toggle, false))
+    }
+
+    private func waitForSelected(_ element: XCUIElement, _ selected: Bool, timeout: TimeInterval = 5) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == %@", NSNumber(value: selected)),
+                                                    object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForEnabled(_ element: XCUIElement, _ enabled: Bool = true, timeout: TimeInterval = 5) -> Bool {
@@ -561,7 +595,6 @@ enum ReaderID {
     static let notesToggle = "reader.toolbar.notes"
     static let markupToggle = "reader.toolbar.markup"
     static let more = "reader.toolbar.more"
-    static let done = "reader.toolbar.done"
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
     static let contentsPane = "reader.pane.contents"

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Page ink (WP6): persistence across relaunch, toolbar undo/redo, read-only ink and scrolling
+/// Page ink (WP6): persistence across relaunch, undo/redo (⌘Z / ⇧⌘Z), read-only ink and scrolling
 /// outside markup mode, two-finger scroll and pinch while a finger can draw, a second window on
 /// the same book, registration under zoom, the page and note canvases in one markup session,
 /// and the screenshots. Fingers draw through `-inkAnyInput` (the simulator cannot make Pencil
@@ -13,7 +13,6 @@ final class PageInkUITests: XCTestCase {
     private enum ID {
         static func ink(_ n: Int) -> String { "pageInk.ink.\(n)" }
         static let pdfView = "reader.pdfView"
-        static let done = "reader.toolbar.done"
         static let undo = "reader.toolbar.undo"
         static let redo = "reader.toolbar.redo"
         static let markupToggle = "reader.toolbar.markup"
@@ -82,6 +81,19 @@ final class PageInkUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    /// Undo / Redo of ink at regular width: the tool picker's own buttons are not reliably
+    /// addressable, so the tests reach the same routed undo manager through ⌘Z / ⇧⌘Z.
+    private func undo(_ app: XCUIApplication) { app.typeKey("z", modifierFlags: .command) }
+    private func redo(_ app: XCUIApplication) { app.typeKey("z", modifierFlags: [.command, .shift]) }
+
+    /// Leaves markup mode with the Markup toggle (there is no Done button).
+    private func leaveMarkup(_ app: XCUIApplication) {
+        let toggle = app.buttons[ID.markupToggle].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertTrue(wait(toggle, "isSelected == false"), "markup off")
+    }
+
     private func strokes(_ element: XCUIElement, _ count: Int, timeout: TimeInterval = 10) -> Bool {
         wait(element, "exists == true AND value == %@", [count == 1 ? "1 stroke" : "\(count) strokes"], timeout: timeout)
     }
@@ -94,8 +106,7 @@ final class PageInkUITests: XCTestCase {
         drawLine(app)
         XCTAssertTrue(strokes(ink(app), 1), "stroke drawn on page 3")
         let before = ink(app).frame
-        app.buttons[ID.done].tap()  // Done flushes the ink
-        XCTAssertTrue(app.buttons[ID.markupToggle].waitForExistence(timeout: 5))
+        leaveMarkup(app)  // leaving markup flushes the ink
         sleep(1)
         app.terminate()
 
@@ -109,25 +120,28 @@ final class PageInkUITests: XCTestCase {
 
     // MARK: Undo and redo
 
-    func testToolbarUndoAndRedoActOnThePage() {
+    /// At regular width ink undo/redo are the tool picker's (no toolbar buttons); ⌘Z / ⇧⌘Z go
+    /// through the same routed undo manager.
+    func testUndoAndRedoActOnThePage() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("hardware-key events are unreliable on the iPadOS 17.5 simulator") }
         let app = launch(["-markup", "-inkAnyInput"])
-        let undo = app.buttons[ID.undo].firstMatch
-        let redo = app.buttons[ID.redo].firstMatch
+        XCTAssertFalse(app.buttons[ID.undo].exists, "no toolbar Undo at regular width")
+        XCTAssertFalse(app.buttons[ID.redo].exists, "no toolbar Redo at regular width")
         drawLine(app, y: 0.35)
         XCTAssertTrue(strokes(ink(app), 1))
         drawLine(app, y: 0.5)
         XCTAssertTrue(strokes(ink(app), 2))
-        XCTAssertTrue(wait(undo, "isEnabled == true"))
-        undo.tap()
+        undo(app)
         XCTAssertTrue(strokes(ink(app), 1), "undo removed the last stroke")
-        undo.tap()
+        undo(app)
         XCTAssertTrue(wait(ink(app), "exists == false"), "undo removed the first stroke")
-        XCTAssertTrue(wait(redo, "isEnabled == true"))
-        redo.tap()
+        redo(app)
         XCTAssertTrue(strokes(ink(app), 1), "redo")
-        redo.tap()
+        redo(app)
         XCTAssertTrue(strokes(ink(app), 2), "redo again")
-        XCTAssertTrue(wait(redo, "isEnabled == false"))
+        redo(app)
+        sleep(1)
+        XCTAssertEqual(ink(app).value as? String, "2 strokes", "nothing left to redo")
     }
 
     // MARK: Reading mode
@@ -138,8 +152,7 @@ final class PageInkUITests: XCTestCase {
         let app = launch(["-markup", "-inkAnyInput"])
         drawLine(app)
         XCTAssertTrue(strokes(ink(app), 1))
-        app.buttons[ID.done].tap()
-        XCTAssertTrue(app.buttons[ID.markupToggle].waitForExistence(timeout: 5))
+        leaveMarkup(app)
         let before = ink(app).frame
         // A sideways drag across text and a vertical drag: neither draws.
         drawLine(app, y: 0.55)
@@ -241,7 +254,8 @@ final class PageInkUITests: XCTestCase {
 
     /// One markup session inks the page and the note: both canvases take ink with the one
     /// picker, and Undo follows the surface last drawn on.
-    func testPageAndNoteCanvasesBothTakeInk() {
+    func testPageAndNoteCanvasesBothTakeInk() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("hardware-key events are unreliable on the iPadOS 17.5 simulator") }
         let app = launch(["-markup", "-inkAnyInput", "-notesPanel", "page"])
         let noteText = app.textViews[ID.noteText].firstMatch
         XCTAssertTrue(noteText.waitForExistence(timeout: 15))
@@ -251,9 +265,9 @@ final class PageInkUITests: XCTestCase {
         note.press(forDuration: 0.2, thenDragTo: note.withOffset(CGVector(dx: 160, dy: 2)))
         let noteInk = app.otherElements[ID.noteEditor].firstMatch.images[ID.noteInk].firstMatch
         XCTAssertTrue(noteInk.waitForExistence(timeout: 5), "note stroke")
-        XCTAssertTrue(wait(app.buttons[ID.done], "value == %@", ["tool picker shown"]))
+        XCTAssertTrue(wait(app.buttons[ID.markupToggle], "value == %@", ["tool picker shown"]))
         // Undo goes to the note (last drawn on); the page keeps its stroke.
-        app.buttons[ID.undo].tap()
+        undo(app)
         XCTAssertTrue(wait(noteInk, "exists == false"))
         XCTAssertEqual(ink(app).value as? String, "1 stroke")
     }
