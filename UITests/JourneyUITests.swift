@@ -98,6 +98,9 @@ final class JourneyUITests: XCTestCase {
         if !pageTab.waitForExistence(timeout: 3) { app.buttons[ID.notesToggle].firstMatch.tap() }
         XCTAssertTrue(pageTab.waitForExistence(timeout: 10), "notes panel")
         if !pageTab.isSelected { pageTab.tap() }
+        let listed = app.buttons["notesPanel.highlight"].firstMatch
+        XCTAssertTrue(listed.waitForExistence(timeout: 10), "the highlight in Highlights on this page")
+        XCTAssertEqual(listed.value as? String, Self.phrase)
         typeNote(app, Self.pageNoteText)
 
         // Ink the note (markup on, a finger stroke in the blank space below the text).
