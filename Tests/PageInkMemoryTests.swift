@@ -48,7 +48,9 @@ struct PageInkMemoryTests {
         var pagesWithInkSeen = Set<Int>()
         // Scroll continuously, a third of a screen at a time, through 200 pages.
         func pageOnScreen() -> Int {
-            host.pdfView.currentPage.map { host.pdfView.document?.index(for: $0) ?? 0 } ?? 0
+            host.pdfView.layoutIfNeeded()
+            let centre = CGPoint(x: host.pdfView.bounds.midX, y: host.pdfView.bounds.midY)
+            return host.pdfView.page(for: centre, nearest: true).map { host.pdfView.document?.index(for: $0) ?? 0 } ?? 0
         }
         let startPage = pageOnScreen()
         var steps = 0

@@ -12,7 +12,8 @@ import UIKit
 ///   and this provider keeps only weak references, so nothing per page outlives PDFKit's overlay.
 /// - Ink space and zoom: see `PageInkGeometry`. PDFKit zooms by scaling an ancestor of the
 ///   overlays; PencilKit re-renders its strokes for the on-screen scale itself (vector, sharp
-///   at 4×; verified by zoomed screenshots), so no scale factor is forced on the canvas.
+///   after six Zoom In steps, about 3×; verified by zoomed screenshots), so no scale factor is
+///   forced on the canvas.
 /// - Another window's write of a displayed page (`pageInkChanged` from another origin) is
 ///   handed to that page's surface, which reconciles (see `PageInkMerge`).
 ///
