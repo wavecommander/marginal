@@ -277,7 +277,10 @@ final class ReadingPositionUITests: XCTestCase {
     /// In markup mode the handle resizes and slides the pane shut without inking the page or the note.
     func testSlidingTheNotesHandleInMarkupModeDrawsNothing() {
         let app = launch(Fixtures.small, "small", ["-markup"])
-        XCTAssertTrue(app.buttons["reader.toolbar.done"].waitForExistence(timeout: 10))
+        // Markup mode: the Markup button is selected (the toolbar has no Done button).
+        let markup = app.buttons["reader.toolbar.markup"].firstMatch
+        XCTAssertTrue(markup.waitForExistence(timeout: 10))
+        XCTAssertTrue(markup.isSelected, "not in markup mode")
         let start = settledAnchor(app)
         let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
@@ -304,7 +307,7 @@ final class ReadingPositionUITests: XCTestCase {
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
         sleep(1)
         assertNoInk("closed and reopened")
-        XCTAssertTrue(app.buttons["reader.toolbar.done"].exists, "markup mode ended")
+        XCTAssertTrue(markup.isSelected, "markup mode ended")
     }
 
     func testNarrowPanelsKeepPosition() {
