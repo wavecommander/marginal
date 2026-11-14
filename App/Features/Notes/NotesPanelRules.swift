@@ -35,6 +35,8 @@ nonisolated enum NotesPanelAccessibilityID {
     static let sectionEmpty = "notesPanel.sectionEmpty"
     /// "Add Heading at This Page…" (where the page is in no section).
     static let addHeading = "notesPanel.addHeading"
+    /// Delete Note (header button, and the item in a page-note row's context menu).
+    static let deleteNote = "notes.deleteNote"
     /// "Open in Notebook".
     static let openNotebook = "notesPanel.openNotebook"
 }

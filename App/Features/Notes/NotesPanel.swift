@@ -23,6 +23,8 @@ struct NotesPanel: View {
     private let controller: NotesPanelController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(WindowContext.self) private var window: WindowContext?
+    /// The note the reader asked to delete (confirmation shown while set).
+    @State private var deleteCandidate: NotePageModel?
 
     init(session: ReaderSession) {
         self.session = session
@@ -45,6 +47,16 @@ struct NotesPanel: View {
         // own avoidance would also push the whole panel up.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .onAppear { controller.refresh() }
+        .alert("Delete This Note?", isPresented: Binding(get: { deleteCandidate != nil },
+                                                         set: { if !$0 { deleteCandidate = nil } }),
+               presenting: deleteCandidate) { model in
+            Button("Delete", role: .destructive) {
+                Task { await controller.delete(model) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { model in
+            Text(Self.deleteMessage(hasInk: model.hasInk))
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(NotesPanelAccessibilityID.panel)
     }
@@ -62,7 +74,8 @@ struct NotesPanel: View {
                 .frame(maxWidth: 300)
                 .accessibilityIdentifier(NotesPanelAccessibilityID.tabs)
                 Spacer(minLength: 0)
-                if controller.model != nil {
+                if let model = controller.model {
+                    deleteButton(model)
                     zoomMenu(metrics)
                 }
                 if metrics.presentation == .pane && session.notesPanelWidth > ReaderSession.defaultNotesPanelWidth + 0.5 {
@@ -130,6 +143,29 @@ struct NotesPanel: View {
             .accessibilityLabel("\(text), go to the start of \(heading.title)")
             .accessibilityIdentifier(NotesPanelAccessibilityID.sectionRange)
         }
+    }
+
+    /// Delete Note (design: "Deleting a note"): in the header on both tabs, disabled while the
+    /// note is empty. The model to delete is captured at the tap, so a page-following switch while
+    /// the confirmation is up cannot redirect it to another note.
+    private func deleteButton(_ model: NotePageModel) -> some View {
+        Button(role: .destructive) {
+            deleteCandidate = model
+        } label: {
+            Label("Delete Note", systemImage: "trash")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .disabled(!model.isLoaded || NotesPanelController.isEmpty(model))
+        .hoverEffect(.highlight)
+        .accessibilityIdentifier(NotesPanelAccessibilityID.deleteNote)
+    }
+
+    /// The confirmation's message: what goes and what stays.
+    static func deleteMessage(hasInk: Bool) -> String {
+        (hasInk ? "The typed text and the handwriting on this note will be deleted."
+                : "The typed text of this note will be deleted.")
+            + " Ink on the PDF page and highlights are not affected."
     }
 
     static func pagesText(_ heading: OutlineNode) -> String? {

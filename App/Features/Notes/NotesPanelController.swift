@@ -128,6 +128,45 @@ final class NotesPanelController {
         return true
     }
 
+    // MARK: Deleting (design: "Deleting a note")
+
+    /// Deletes the note of `target` and its ink. When a model of this window holds that note (the
+    /// one on screen, or a cached one with unsaved edits), the model deletes it, so no pending or
+    /// late autosave can re-create it and its editor shows the empty placeholder; otherwise the
+    /// stored note is deleted directly. Attributed to the session's origin, so other windows
+    /// update. Returns `false` when the store failed.
+    @discardableResult
+    func deleteNote(target: NoteTarget) async -> Bool {
+        if let live = cache[target] ?? (model?.target == target ? model : nil) {
+            return await delete(live)
+        }
+        guard let session else { return false }
+        do {
+            if let record = try session.store.notes.note(bookID: session.book.id, target: target) {
+                try await session.store.deleteNote(id: record.id, origin: session.origin)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Deletes the note a model shows (the header's Delete Note).
+    @discardableResult
+    func delete(_ model: NotePageModel) async -> Bool {
+        do {
+            try await model.deleteNote()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Whether a model's note is empty (no text, no ink): Delete Note is disabled then.
+    static func isEmpty(_ model: NotePageModel) -> Bool {
+        !model.hasInk && model.text.allSatisfy { $0.isWhitespace || $0.isNewline }
+    }
+
     /// Back to following the page on the Section tab.
     func followPage() {
         selection.clear()

@@ -243,6 +243,31 @@ final class NotesPanelUITests: XCTestCase {
         try saveScreenshot("wp8-narrow-section")
     }
 
+    /// Delete Note: disabled on an empty note; deleting asks first, leaves the placeholder, and the
+    /// note is still gone after a relaunch.
+    func testDeleteNoteFromTheHeader() {
+        let app = launch(fresh: true, page: 3)
+        let delete = app.buttons["notes.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 10))
+        XCTAssertFalse(delete.isEnabled, "nothing to delete on an empty note")
+        type(app, "Delete me")
+        XCTAssertTrue(waitForEnabled(delete))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "asks first")
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "highlights are not affected"))
+                      .firstMatch.exists, "says what stays")
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "the placeholder")
+        XCTAssertEqual((textView(app).value as? String) ?? "", "")
+        XCTAssertTrue(wait(delete, "isEnabled == false", ""))
+        app.terminate()
+
+        let again = launch(fresh: false, page: 3)
+        XCTAssertTrue(wait(status(again), "label == %@", "Empty"), "still gone")
+        XCTAssertEqual((textView(again).value as? String) ?? "", "")
+    }
+
     /// A book with no outline: the Section tab's empty state and "This page is in" offer "Add
     /// Heading at This Page…" (the Contents sidebar presents the sheet).
     func testAddHeadingIsOfferedWhereThePageIsInNoSection() {

@@ -260,6 +260,7 @@ struct NotesSectionPageNotes: View {
     /// Width available to a row's rendering.
     let rowWidth: CGFloat
     @State private var notes: [Note] = []
+    @State private var deleteCandidate: Note?
 
     private struct LoadKey: Equatable {
         var range: ClosedRange<Int>?
@@ -280,8 +281,19 @@ struct NotesSectionPageNotes: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(notes) { note in
-                NotesSectionPageNoteRow(session: session, controller: controller, note: note, rowWidth: rowWidth)
+                NotesSectionPageNoteRow(session: session, controller: controller, note: note, rowWidth: rowWidth,
+                                        delete: { deleteCandidate = note })
             }
+        }
+        .alert("Delete This Note?", isPresented: Binding(get: { deleteCandidate != nil },
+                                                         set: { if !$0 { deleteCandidate = nil } }),
+               presenting: deleteCandidate) { note in
+            Button("Delete", role: .destructive) {
+                Task { await controller.deleteNote(target: note.target) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { note in
+            Text(NotesPanel.deleteMessage(hasInk: note.hasInk))
         }
         .task(id: LoadKey(range: range, revision: session.revisions.notes)) {
             guard let range else { notes = []; return }
@@ -296,6 +308,8 @@ struct NotesSectionPageNoteRow: View {
     let controller: NotesPanelController
     let note: Note
     let rowWidth: CGFloat
+    /// Asks to delete this note (the list confirms first).
+    let delete: () -> Void
     @State private var snapshot: NotePageSnapshot?
 
     /// Long notes are clipped in the list (the whole note is one tap away).
@@ -333,6 +347,12 @@ struct NotesSectionPageNoteRow: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
+        .contextMenu {
+            Button(role: .destructive, action: delete) {
+                Label("Delete Note", systemImage: "trash")
+            }
+            .accessibilityIdentifier(NotesPanelAccessibilityID.deleteNote)
+        }
         .task(id: key) {
             if let cached = controller.cachedSnapshot(key) {
                 snapshot = cached
@@ -352,6 +372,7 @@ struct NotesSectionPageNoteRow: View {
         .accessibilityValue(note.text)
         .accessibilityHint("Goes to page \(displayNumber)")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Delete Note", delete)
         .accessibilityIdentifier(NotesPanelAccessibilityID.pageNote(displayNumber: displayNumber))
     }
 
