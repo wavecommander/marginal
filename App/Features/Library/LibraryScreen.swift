@@ -178,6 +178,7 @@ struct LibraryScreen: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.lift)
         .accessibilityLabel(LibraryLogic.accessibilityLabel(book))
         .accessibilityIdentifier(AccessibilityID.Library.book(book.title))
         .contextMenu { menu(for: book) }

@@ -72,6 +72,7 @@ struct NotebookRowView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(NotebookRowButtonStyle())
+        .hoverEffect(.highlight)
         .disabled(target == nil)
         .contextMenu {
             if let target {
