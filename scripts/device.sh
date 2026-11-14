@@ -111,7 +111,7 @@ info "Installed $BUNDLE_ID"
 step "Launching"
 if ! xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" >"$REPO/build/device-launch.log" 2>&1; then
   if grep -qi "locked" "$REPO/build/device-launch.log"; then
-    info "The app is installed, but the iPad is locked. Unlock it and open Marginal from the Home Screen."
+    info "The app is installed, but the iPad is locked. Unlock it and open Tactile Texts from the Home Screen."
   else
     info "The app is installed, but it could not be launched from here:"
     grep -E "NSLocalizedFailureReason|ERROR" "$REPO/build/device-launch.log" | head -n 2 | sed 's/^ */    /'
@@ -119,5 +119,5 @@ if ! xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" >"$RE
   fi
   exit 2
 fi
-info "Marginal is running on the iPad"
+info "Tactile Texts is running on the iPad"
 printf '\nDone in %s.\n' "$(elapsed)"
