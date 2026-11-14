@@ -10,29 +10,39 @@ public struct NotebookCounts: Hashable, Sendable {
     public var highlights: Int = 0
     /// Bookmarked pages (never badge).
     public var bookmarks: Int = 0
+    /// Pages with page ink (Pencil highlighter strokes and drawings alike). Listed in the
+    /// Notebook, never a Contents badge (owner decision, 14 November 2026).
+    public var inkedPages: Int = 0
 
-    public init(headingNotes: Int = 0, pageNotes: Int = 0, highlights: Int = 0, bookmarks: Int = 0) {
+    public init(headingNotes: Int = 0, pageNotes: Int = 0, highlights: Int = 0, bookmarks: Int = 0,
+                inkedPages: Int = 0) {
         self.headingNotes = headingNotes
         self.pageNotes = pageNotes
         self.highlights = highlights
         self.bookmarks = bookmarks
+        self.inkedPages = inkedPages
     }
 
     /// `headingNotes + pageNotes`.
     public var notes: Int { headingNotes + pageNotes }
-    /// The Contents badge rule: any note or highlight (bookmarks do not badge).
+    /// The Contents badge rule: any note or highlight (bookmarks and page ink do not badge).
     public var hasBadge: Bool { notes + highlights > 0 }
+    /// What the Notebook lists and counts: notes, highlights and pages with ink.
+    public var items: Int { notes + highlights + inkedPages }
+    /// Whether the Notebook shows anything here (`items > 0`).
+    public var hasContent: Bool { items > 0 }
     /// No items of any kind.
-    public var isEmpty: Bool { notes + highlights + bookmarks == 0 }
+    public var isEmpty: Bool { notes + highlights + bookmarks + inkedPages == 0 }
 
     static func + (a: Self, b: Self) -> Self {
         Self(headingNotes: a.headingNotes + b.headingNotes, pageNotes: a.pageNotes + b.pageNotes,
-             highlights: a.highlights + b.highlights, bookmarks: a.bookmarks + b.bookmarks)
+             highlights: a.highlights + b.highlights, bookmarks: a.bookmarks + b.bookmarks,
+             inkedPages: a.inkedPages + b.inkedPages)
     }
 }
 
-/// Everything on one page: its note, highlights (reading order) and bookmark flag. Only pages
-/// with at least one item appear in a notebook.
+/// Everything on one page: its note, highlights (reading order), bookmark flag and whether it
+/// has page ink. Only pages with at least one item appear in a notebook.
 public struct NotebookPage: Hashable, Sendable, Identifiable {
     /// Zero-based page index (also the `id`).
     public let pageIndex: Int
@@ -40,10 +50,16 @@ public struct NotebookPage: Hashable, Sendable, Identifiable {
     /// Sorted by `Highlight.readingOrder`.
     public let highlights: [Highlight]
     public let isBookmarked: Bool
+    /// The page has ink (`InkStore.inkedPageIndices`): the Notebook lists it as its own entry.
+    public let hasInk: Bool
 
     public var id: Int { pageIndex }
+    /// Whether the Notebook and its exports show this page: a note, a highlight or ink
+    /// (bookmark-only pages are not shown).
+    public var hasContent: Bool { note != nil || !highlights.isEmpty || hasInk }
     var counts: NotebookCounts {
-        NotebookCounts(pageNotes: note == nil ? 0 : 1, highlights: highlights.count, bookmarks: isBookmarked ? 1 : 0)
+        NotebookCounts(pageNotes: note == nil ? 0 : 1, highlights: highlights.count, bookmarks: isBookmarked ? 1 : 0,
+                       inkedPages: hasInk ? 1 : 0)
     }
 }
 
@@ -138,13 +154,25 @@ public struct Notebook: Sendable {
     /// The section for a heading's current anchor. O(1).
     public func section(for anchor: HeadingAnchor) -> NotebookSection? { sectionsByAnchor[anchor] }
 
-    /// `sections` pruned to headings with any note or highlight in their subtree (`hasBadge`),
-    /// recursively; what the Notebook feed and the export show.
+    /// `sections` pruned to headings with any note, highlight or inked page in their subtree
+    /// (`NotebookCounts.hasContent`), recursively; what the Notebook feed and the export show.
     public var sectionsWithContent: [NotebookSection] { Self.prune(sections) }
+
+    /// Pages with ink, ascending, wherever they are filed (sections, front matter, orphans).
+    public var inkedPageIndices: [Int] {
+        var pages: [Int] = []
+        var stack = sections
+        while let section = stack.popLast() {
+            pages += section.pages.lazy.filter(\.hasInk).map(\.pageIndex)
+            stack.append(contentsOf: section.children)
+        }
+        pages += (frontMatter + orphanPages).lazy.filter(\.hasInk).map(\.pageIndex)
+        return pages.sorted()
+    }
 
     static func prune(_ sections: [NotebookSection]) -> [NotebookSection] {
         sections.compactMap { section in
-            guard section.totalCounts.hasBadge else { return nil }
+            guard section.totalCounts.hasContent else { return nil }
             return NotebookSection(
                 anchor: section.anchor, title: section.title, level: section.level, startPage: section.startPage,
                 pageRange: section.pageRange, isUserHeading: section.isUserHeading, note: section.note,
@@ -161,7 +189,7 @@ public enum NotebookBuilder {
     /// thread for large books. All inputs must belong to one book (not checked).
     ///
     /// **Rules:**
-    /// - *Page items* (page notes, highlights, bookmarks) on page `p` are filed once, under
+    /// - *Page items* (page notes, highlights, bookmarks, page ink) on page `p` are filed once, under
     ///   `outline.deepestHeading(forPage: p)`; with no such heading they go to `frontMatter`;
     ///   pages outside `0..<outline.pageCount` go to `orphanPages`.
     /// - *Heading notes* are matched with `outline.resolveAll` (one note per heading; the
@@ -169,11 +197,16 @@ public enum NotebookBuilder {
     ///   `orphanNotes`. Non-exact matches are listed in `anchorRepairs`.
     /// - If two page notes share a page (a store invariant was broken), the one with the latest
     ///   `modifiedAt` (then greatest `id.uuidString`) is kept and the other goes to `orphanPages`.
+    /// - *Page ink*: each page in `inkedPages` is one entry (`NotebookPage.hasInk`), counted once
+    ///   in `NotebookCounts.inkedPages` however many strokes it holds. A page with a note,
+    ///   highlights and ink is one `NotebookPage` carrying all three. Duplicates are ignored.
     /// - Counts: a section's `ownCounts` are its note plus its own pages' items; `totalCounts`
     ///   add all descendants. A heading has a badge when `totalCounts.hasBadge` (its own note,
-    ///   or any note or highlight on a page it contains, through any descendant).
+    ///   or any note or highlight on a page it contains, through any descendant); page ink never
+    ///   badges, but it does make a heading appear in `sectionsWithContent` (`hasContent`).
+    /// - Parameter inkedPages: zero-based pages with page ink (`InkStore.inkedPageIndices`).
     public static func build(outline: Outline, notes: [Note], highlights: [Highlight],
-                             bookmarks: [Bookmark] = []) -> Notebook {
+                             bookmarks: [Bookmark] = [], inkedPages: [Int] = []) -> Notebook {
         // Page items.
         var pageNotes: [Int: Note] = [:]
         var duplicateNotes: [Note] = []
@@ -195,15 +228,16 @@ public enum NotebookBuilder {
         var highlightsByPage: [Int: [Highlight]] = [:]
         for highlight in highlights { highlightsByPage[highlight.pageIndex, default: []].append(highlight) }
         let bookmarked = Set(bookmarks.map(\.pageIndex))
+        let inked = Set(inkedPages)
 
-        let pagesWithItems = Set(pageNotes.keys).union(highlightsByPage.keys).union(bookmarked).sorted()
+        let pagesWithItems = Set(pageNotes.keys).union(highlightsByPage.keys).union(bookmarked).union(inked).sorted()
         var pagesByOwner: [HeadingAnchor: [NotebookPage]] = [:]
         var frontMatter: [NotebookPage] = []
         var orphanPages: [NotebookPage] = []
         for page in pagesWithItems {
             let item = NotebookPage(pageIndex: page, note: pageNotes[page],
                                     highlights: (highlightsByPage[page] ?? []).sorted(by: Highlight.readingOrder),
-                                    isBookmarked: bookmarked.contains(page))
+                                    isBookmarked: bookmarked.contains(page), hasInk: inked.contains(page))
             if !PageNumbering.isValid(page, pageCount: outline.pageCount) {
                 orphanPages.append(item)
             } else if let owner = outline.deepestHeading(forPage: page) {
@@ -213,7 +247,8 @@ public enum NotebookBuilder {
             }
         }
         for note in duplicateNotes {
-            orphanPages.append(NotebookPage(pageIndex: note.target.pageIndex ?? 0, note: note, highlights: [], isBookmarked: false))
+            orphanPages.append(NotebookPage(pageIndex: note.target.pageIndex ?? 0, note: note, highlights: [], isBookmarked: false,
+                                           hasInk: false))
         }
         orphanPages.sort { ($0.pageIndex, $0.note?.id.uuidString ?? "") < ($1.pageIndex, $1.note?.id.uuidString ?? "") }
 
