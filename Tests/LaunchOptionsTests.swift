@@ -7,7 +7,11 @@ struct LaunchOptionsTests {
             "app", "-resetState", "-importFixture", "/a.pdf", "-importFixture", "/b.pdf",
             "-openBook", "Small", "-openPage", "3", "-screen", "reader", "-inkAnyInput",
             "-markup", "-notesPanel", "section", "-alsoOpenWindow", "Large", "-selectionMenuProbe", "-bogus", "x",
+            "-alsoOpenWindowPage", "9", "-seedNotebook", "-seedNotebookLateNote", "-notebookDebugWidth", "420",
         ])
+        #expect(options.alsoOpenWindowPage == 9)
+        #expect(options.seedNotebook && options.seedNotebookLateNote)
+        #expect(options.notebookDebugWidth == 420)
         #expect(options.alsoOpenWindow == "Large")
         #expect(options.selectionMenuProbe)
         #expect(options.resetState)

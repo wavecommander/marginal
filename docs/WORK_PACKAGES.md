@@ -59,11 +59,12 @@ adds because of them:
   is used only behind an availability check with a working fallback beside it, kept in one small
   place per feature. Check the real availability in the installed SDK rather than from memory,
   and list in the report every availability-gated path added and what its fallback does.
-- **Every package, gate step 4**: run the app's tests a second time on an iPadOS 17.5 simulator
-  (`MARGINAL_SIM=<the 17.5 device the orchestrator assigns> scripts/test.sh --skip-packages`) and,
-  for UI packages, take the same screenshots there. A test that cannot pass at the floor for a
-  reason outside the package (a system difference, a simulator limit) is skipped on that system
-  with an availability check and named in the report, never deleted.
+- **iOS 17 testing is suspended (owner instruction, 13 November 2026).** The gate runs on the
+  iOS 27 simulator only. iPadOS 17 is lower priority and is tested occasionally, outside the
+  package gates; the earlier "gate step 4" floor pass no longer applies. The deployment target
+  stays iPadOS 17.0, so the availability rule above still holds and the fallbacks must compile,
+  but nobody runs or fixes them at the floor as part of a package. Each report lists what is
+  unverified at the floor.
 - **WP2**: one `ModelContainer` shared by all windows; repositories safe to use from several
   windows' sessions at once; a change hub (`InkChangeHub` or similar) that announces page-ink and
   note-ink writes and deletions so other windows can reload that surface.

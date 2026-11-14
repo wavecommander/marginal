@@ -19,7 +19,8 @@ struct MarginalApp: App {
         .commands { ReaderCommands() }
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
-            WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) })
+            WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },
+                           initialPageIndex: value?.pageIndex)
                 .environment(environment)
                 .environment(\.launchOptions, environment.launchOptions)
         }
