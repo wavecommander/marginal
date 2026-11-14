@@ -155,6 +155,15 @@ ones even where the mockup draws an approximation.
   - Contents note badges count pages with ink, as they count page notes and highlights;
   - each of these jumps to the page through the reader's jump API, so section history records
     it; and the lists update as ink is added or erased, in any window.
+- **The notes pane follows the system appearance** (owner requirement). In Dark Mode the whole
+  notes pane is dark, including the note page itself: dark paper, light typed text, and ink that
+  stays legible, using PencilKit's own light and dark ink rendering so a stroke drawn in one
+  appearance reads correctly in the other (black ink shows light on dark paper and returns to
+  black in Light Mode; the stored strokes are never changed by switching appearance). The pane
+  switches live with the system setting. This replaces the first build's choice to keep the note
+  page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
+  appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
+  the PDF draws them.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts.
