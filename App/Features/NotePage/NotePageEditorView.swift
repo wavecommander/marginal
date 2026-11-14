@@ -39,6 +39,13 @@ nonisolated enum NotePageAccessibilityID {
 /// - Nothing intercepts Pencil double-tap, squeeze or hover: the canvas and the shared tool
 ///   picker handle them.
 ///
+/// ## Appearance
+/// The whole page follows the system light/dark setting, live (design: "The notes pane follows
+/// the system appearance"): `NotePageStyle.paperColor`, `.label` text, `.placeholderText`, the
+/// system tint for the cursor and selection, and PencilKit's own light/dark ink rendering on the
+/// canvas. Switching appearance re-renders only; it never writes to the canvas's drawing, so it
+/// never reaches the model or the store.
+///
 /// ## Markup surface
 /// With a session, the view registers itself as a `MarkupSurface` while it is in a window, and
 /// its text view as the auxiliary responder that keeps the tool picker up while typing. Ink undo
@@ -118,7 +125,10 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         scrollView.backgroundColor = .clear
         addSubview(scrollView)
 
-        pageView.overrideUserInterfaceStyle = NotePageStyle.pageAppearance
+        // The page follows the system appearance (no style override): the dynamic paper, the
+        // `.label` text, the placeholder and the canvas's ink all resolve against the trait
+        // collection the editor is in and change live with it. PencilKit draws the stored
+        // strokes converted for the appearance; the drawing itself is never touched.
         pageView.backgroundColor = NotePageStyle.paperColor
         pageView.editor = self
         scrollView.addSubview(pageView)

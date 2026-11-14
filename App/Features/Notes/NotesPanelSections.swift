@@ -392,7 +392,7 @@ struct NotesSectionPageNoteRow: View {
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color(uiColor: .separator)))
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white)
+                .fill(Color(uiColor: NotePageStyle.paperColor))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color(uiColor: .separator)))
                 .frame(width: width, height: 56)
         }
