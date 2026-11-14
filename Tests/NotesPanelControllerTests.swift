@@ -164,6 +164,72 @@ struct NotesPanelControllerTests {
         #expect(controller.shownHeading?.title == "3 Eigenvalues")
     }
 
+    // MARK: Requests from other features (`showNotes(.section, heading:)`)
+
+    @Test func aRequestedHeadingIsChosenLikeALevelAndDroppedOnLeaving() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
+        let session = await makeSession(fixture)  // page tab, page index 0
+        let controller = makeController(session)
+        let chapter3 = try heading("3 Eigenvalues", session)
+        // Not in the current page's heading path: the tab switches and shows it anyway.
+        session.showNotes(.section, heading: chapter3.anchor)
+        #expect(await waitUntil { controller.shownHeading?.title == "3 Eigenvalues" })
+        #expect(session.notesTab == .section)
+        #expect(session.requestedSectionHeading == nil, "read and cleared")
+        #expect(NotesSectionSelection.levels(showing: chapter3, page: session.currentPageIndex, outline: session.outline)
+                .map(\.title) == ["3 Eigenvalues"])
+        // The reader scrolls: they are outside it, so the tab follows the page again.
+        session.pdfReportedCurrentPage(1)
+        #expect(await waitUntil { controller.shownHeading?.title == "1.1 Foundations" })
+    }
+
+    @Test func aRequestWaitsForTheOutline() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
+        var configuration = ReaderSession.Configuration()
+        configuration.installsFeatures = false
+        let session = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        let controller = makeController(session)
+        // A stored anchor (another path): resolved against the outline once it has loaded.
+        session.showNotes(.section, heading: HeadingAnchor(pdfPath: [9], pageIndex: 4, title: "2 Vector Spaces"))
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(controller.model == nil)
+        #expect(session.requestedSectionHeading != nil, "kept while the outline loads")
+        session.open()
+        #expect(await waitUntil { controller.shownHeading?.title == "2 Vector Spaces" })
+        #expect(session.requestedSectionHeading == nil)
+    }
+
+    @Test func anAddedHeadingIsPickedUpAndAHeadingWithoutPagesCanBeRequested() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
+        let session = await makeSession(fixture, tab: .section)
+        session.pdfReportedCurrentPage(4)
+        let controller = makeController(session)
+        #expect(controller.shownHeading?.title == "2 Vector Spaces")
+
+        // The reader adds a heading of their own on the chapter's first page (top level): the
+        // tab picks it up without a relaunch. Being the later same-page sibling, it now owns the
+        // page, and "2 Vector Spaces" contains no page.
+        let added = UserHeading(bookID: fixture.book.id, title: "Prelude", pageIndex: 4, parent: nil)
+        try session.perform { try $0.headings.save(added) }
+        #expect(await waitUntil { controller.shownHeading?.title == "Prelude" })
+        let chapter2 = try heading("2 Vector Spaces", session)
+        #expect(chapter2.pageRange == nil)
+
+        // Search or the Notebook opens the page-less chapter's note: it shows, with its lineage
+        // in the level picker, also after a jump to its start page.
+        session.pdfReportedCurrentPage(7)
+        session.showNotes(.section, heading: chapter2.anchor)
+        session.jump(toPage: 4)
+        #expect(await waitUntil { controller.shownHeading?.title == "2 Vector Spaces" })
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(controller.shownHeading?.title == "2 Vector Spaces", "holds on its start page")
+        session.pdfReportedCurrentPage(5)
+        #expect(await waitUntil { controller.shownHeading?.title == "Prelude" })
+    }
+
     @Test func atMostAFewModelsStayAlive() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }

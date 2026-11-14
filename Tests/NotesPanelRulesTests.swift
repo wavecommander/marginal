@@ -99,6 +99,13 @@ struct NotesPanelRulesTests {
         let dropped = selection.pageDidChange(to: 13, outline: outline)
         #expect(dropped)
         #expect(selection.heading(forPage: 13, outline: outline)?.title == "2.3")
+
+        // Requested from page 15 (search, Notebook) and then jumped to its start page: it holds there.
+        var requested = NotesSectionSelection()
+        requested.choose(earlier.anchor, atPage: 15)
+        let droppedOnStart = requested.pageDidChange(to: 12, outline: outline)
+        #expect(!droppedOnStart)
+        #expect(requested.heading(forPage: 12, outline: outline)?.title == "2.2")
     }
 
     @Test func levelPickerListsTheWholeHeadingPath() throws {

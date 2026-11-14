@@ -33,6 +33,8 @@ nonisolated enum NotesPanelAccessibilityID {
     static func pageNote(displayNumber: Int) -> String { "notesPanel.pageNote.\(displayNumber)" }
     /// The empty state of the Section note tab (no heading for this page).
     static let sectionEmpty = "notesPanel.sectionEmpty"
+    /// "Add Heading at This Page…" (where the page is in no section).
+    static let addHeading = "notesPanel.addHeading"
     /// "Open in Notebook".
     static let openNotebook = "notesPanel.openNotebook"
 }
@@ -52,7 +54,8 @@ nonisolated enum NotesPanelAccessibilityID {
 ///   chapter's sections and subsections. A heading with no range (an earlier sibling that shares
 ///   its start page with a later one, so it contains no page; reachable only from Contents) or a
 ///   heading outside the current page's path holds only while the page is the one it was chosen
-///   on.
+///   on (and, for a heading with no range, its own start page, so a request that also jumps there
+///   keeps it).
 /// - **Leaving.** The first page change that breaks that condition drops the pin for good
 ///   (`pageDidChange(to:outline:)` runs on *every* page change, panel shown or not), and the tab
 ///   follows the page again. Coming back into the heading's range later does not restore it.
@@ -81,6 +84,8 @@ struct NotesSectionSelection: Equatable {
     func pinHolds(onPage page: Int, outline: Outline) -> Bool {
         guard let pinnedAnchor, let node = outline.node(for: pinnedAnchor) else { return false }
         if let range = node.pageRange, range.contains(page) { return true }
+        // A heading with no range lives on its start page (it shares it with a later sibling).
+        if node.pageRange == nil, page == node.startPage { return true }
         return page == pinnedAtPage
     }
 

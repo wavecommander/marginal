@@ -243,6 +243,22 @@ final class NotesPanelUITests: XCTestCase {
         try saveScreenshot("wp8-narrow-section")
     }
 
+    /// A book with no outline: the Section tab's empty state and "This page is in" offer "Add
+    /// Heading at This Page…" (the Contents sidebar presents the sheet).
+    func testAddHeadingIsOfferedWhereThePageIsInNoSection() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.noOutline)
+                                              + ["-openBook", "no-outline", "-openPage", "3", "-notesPanel", "section"])
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30), "reader open")
+        let add = app.buttons["notesPanel.addHeading"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 15), "offered in the Section tab's empty state")
+        XCTAssertFalse(textView(app).exists, "no section, so no section note")
+        tab(app, "Page note").tap()
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 3"))
+        XCTAssertTrue(app.buttons["notesPanel.addHeading"].firstMatch.waitForExistence(timeout: 5),
+                      "offered under This page is in")
+    }
+
     /// Markup mode: a finger stroke (`-inkAnyInput`) on the page note survives a tab switch and a
     /// relaunch.
     func testMarkupStrokeSurvivesTabSwitchAndRelaunch() {

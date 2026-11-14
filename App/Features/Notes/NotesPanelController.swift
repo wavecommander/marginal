@@ -83,8 +83,11 @@ final class NotesPanelController {
                 self?.inkRevisions[noteID, default: 0] += 1
             }
         }
-        refresh(explicit: true)
+        // A pending `showNotes(.section, heading:)` request is honoured on the next turn: this
+        // initialiser runs while SwiftUI builds the panel, where the session must not change.
+        refresh(explicit: true, honoursRequests: false)
         track()
+        Task { @MainActor [weak self] in self?.refresh() }
     }
 
     // MARK: Reader actions
@@ -113,13 +116,10 @@ final class NotesPanelController {
         refresh(explicit: true)
     }
 
-    /// Opens the Section tab on a heading named by anchor (a heading-note hit from search or the
-    /// Notebook). Behaves exactly like choosing that level in the level picker, including for a
-    /// heading with no page range (it then holds until the page changes). A stale anchor is
-    /// resolved through `Outline.resolve`. Returns `false`, changing nothing, when the outline has
-    /// not loaded or no heading matches: a caller holding a request should keep it and retry once
-    /// `session.isOutlineLoaded` (the planned session request value is meant to be read and
-    /// cleared here; see the WP8 report).
+    /// Opens the Section tab on a heading named by anchor. Behaves exactly like choosing that
+    /// level in the level picker. Returns `false`, changing nothing, when the outline has not
+    /// loaded or no heading matches. Other features use `session.showNotes(.section, heading:)`,
+    /// which this controller honours the same way (`takeHeadingRequest`).
     @discardableResult
     func openSectionNote(forHeading anchor: HeadingAnchor) -> Bool {
         guard let session, session.isOutlineLoaded,
@@ -168,14 +168,15 @@ final class NotesPanelController {
 
     /// Re-decides which note to show. `explicit`: the reader asked for this change (see
     /// `NotesTargetSwitch`).
-    func refresh(explicit: Bool = false) {
+    func refresh(explicit: Bool = false, honoursRequests: Bool = true) {
         guard let session else { return }
         repairAnchorsIfNeeded(session)
         let page = session.currentPageIndex
         selection.pageDidChange(to: page, outline: session.outline)
+        let honoured = honoursRequests && takeHeadingRequest(session)
         let desired = desiredTarget(session)
         switch NotesTargetSwitch.decide(displayed: model?.target, desired: desired,
-                                        isEditingText: model?.isEditingText ?? false, explicit: explicit) {
+                                        isEditingText: model?.isEditingText ?? false, explicit: explicit || honoured) {
         case .keep:
             if isSwitchDeferred { isSwitchDeferred = false }
         case .deferUntilEditingEnds:
@@ -184,6 +185,22 @@ final class NotesPanelController {
             if isSwitchDeferred { isSwitchDeferred = false }
             show(desired)
         }
+    }
+
+    /// `session.showNotes(.section, heading:)` (search hits, Notebook rows, Contents): the
+    /// requested heading is chosen exactly as if the reader had picked it in the level picker, so
+    /// the existing stickiness rule applies (`NotesSectionSelection`), including for a heading
+    /// outside the page's heading path or with no page range (its level picker is then its
+    /// lineage). The request waits while the outline loads, and is cleared when read; a stale
+    /// anchor resolves through `Outline.resolve`, and one that matches nothing is dropped.
+    private func takeHeadingRequest(_ session: ReaderSession) -> Bool {
+        guard session.requestedSectionHeading != nil, session.isOutlineLoaded,
+              let anchor = session.takeRequestedSectionHeading(),
+              let node = session.outline.node(for: anchor) ?? session.outline.resolve(anchor)?.node else { return false }
+        selection.choose(node.anchor, atPage: session.currentPageIndex)
+        if session.notesTab != .section { session.notesTab = .section }
+        lastTab = .section
+        return true
     }
 
     private func desiredTarget(_ session: ReaderSession) -> NoteTarget? {
@@ -235,6 +252,7 @@ final class NotesPanelController {
             _ = session.notesTab
             _ = session.isOutlineLoaded
             _ = session.outline
+            _ = session.requestedSectionHeading
             _ = model?.isEditingText
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

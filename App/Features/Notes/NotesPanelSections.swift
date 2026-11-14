@@ -199,6 +199,11 @@ struct NotesPageIsInSection: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
+                if session.isOutlineLoaded {
+                    NotesAddHeadingButton(session: session)
+                        .buttonStyle(.borderless)
+                        .frame(minHeight: 44)
+                }
             } else {
                 ForEach(Array(path.enumerated()), id: \.element.id) { depth, node in
                     row(node, depth: depth)
@@ -375,8 +380,9 @@ struct NotesSectionPageNoteRow: View {
 // MARK: - Empty state
 
 /// The Section note tab when no heading contains the page (front matter, a book without an
-/// outline) or while the outline loads. The way forward: Contents (where "Add heading at page N"
-/// lives, WP5) or the page note.
+/// outline) or while the outline loads. The way forward: "Add Heading at This Page…" (the
+/// session's add-heading request; the Contents sidebar presents the sheet) or the page note. The
+/// tab picks a new heading up as soon as the outline is rebuilt.
 struct NotesSectionEmptyState: View {
     let session: ReaderSession
     let controller: NotesPanelController
@@ -396,8 +402,8 @@ struct NotesSectionEmptyState: View {
                     .font(.headline)
                     .multilineTextAlignment(.center)
                 Text(session.outline.isEmpty
-                     ? "Section notes belong to headings. Add a heading at page \(number) from Contents, and its note appears here."
-                     : "Section notes belong to headings, and no heading contains this page. Add a heading at page \(number) from Contents, or write a page note.")
+                     ? "Section notes belong to headings, and this book has none yet. Add a heading of your own at page \(number), and its note appears here."
+                     : "Section notes belong to headings, and no heading contains this page. Add a heading of your own at page \(number), or write a page note.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -416,12 +422,8 @@ struct NotesSectionEmptyState: View {
 
     @ViewBuilder
     private var buttons: some View {
-        Button {
-            if !session.isContentsShown { withAnimation { session.toggleContents() } }
-        } label: {
-            Label("Show Contents", systemImage: "sidebar.leading")
-        }
-        .buttonStyle(.bordered)
+        NotesAddHeadingButton(session: session)
+            .buttonStyle(.borderedProminent)
         Button { controller.selectTab(.page) } label: {
             Label("Page Note", systemImage: "note.text")
         }
@@ -430,6 +432,19 @@ struct NotesSectionEmptyState: View {
 }
 
 // MARK: - Shared
+
+/// "Add Heading at This Page…" (design: "The reader's own headings"), offered where the current
+/// page is in no section. Asks the session; the Contents sidebar presents the add-heading sheet.
+struct NotesAddHeadingButton: View {
+    let session: ReaderSession
+
+    var body: some View {
+        Button { session.requestAddHeading() } label: {
+            Label("Add Heading at This Page\u{2026}", systemImage: "text.badge.plus")
+        }
+        .accessibilityIdentifier(NotesPanelAccessibilityID.addHeading)
+    }
+}
 
 /// A small section header inside the panel ("Highlights on this page").
 struct NotesSectionHeader: View {
