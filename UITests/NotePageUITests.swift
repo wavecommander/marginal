@@ -279,6 +279,15 @@ final class NotePageUITests: XCTestCase {
         XCTAssertTrue(wait(textView(app), "value == %@", "Undo me"))
         textView(app).typeKey("z", modifierFlags: .command)
         // iPadOS 27 coalesces the typing into one undo step, 17.5 undoes the last keystroke.
+        // XCUITest intermittently loses a synthesized ⌘Z on iOS 27 (as in
+        // NotebookHandwritingUITests): if the text is still exactly as typed after a generous
+        // wait, the key never arrived, so send it once more. A ⌘Z that arrived but did nothing
+        // still fails below, and the stroke check catches a second ⌘Z that reached the ink.
+        if !waitFor(textView(app), "value == nil OR value != 'Undo me'", timeout: 5),
+           (textView(app).value as? String) == "Undo me" {
+            print("NotePageUITests: ⌘Z not delivered, sending it again")
+            textView(app).typeKey("z", modifierFlags: .command)
+        }
         XCTAssertTrue(waitFor(textView(app), "value == nil OR value != 'Undo me'"), "typing undone")
         XCTAssertTrue(ink(app).exists, "the stroke stays")
     }

@@ -445,7 +445,8 @@ final class ReaderSession: Identifiable {
 
     // MARK: Mode
 
-    /// Enters or leaves markup mode. Leaving flushes every markup surface (as Done does).
+    /// Enters or leaves markup mode (the toolbar's Markup toggle). Leaving flushes every markup
+    /// surface.
     func setMode(_ newMode: Mode) {
         guard newMode != mode else { return }
         mode = newMode

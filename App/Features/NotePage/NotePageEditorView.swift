@@ -49,8 +49,9 @@ nonisolated enum NotePageAccessibilityID {
 /// ## Markup surface
 /// With a session, the view registers itself as a `MarkupSurface` while it is in a window, and
 /// its text view as the auxiliary responder that keeps the tool picker up while typing. Ink undo
-/// and redo use the model's `undoManager` (the surface's `markupUndoManager`, so the toolbar
-/// Undo/Redo and ⌘Z through the markup responder act on note ink after a stroke on the note); the
+/// and redo use the model's `undoManager` (the surface's `markupUndoManager`, so the tool picker's
+/// Undo/Redo, the toolbar's at compact width, and ⌘Z through the markup responder act on note ink
+/// after a stroke on the note); the
 /// canvas's own undo registration is switched off because the model owns ink undo (it must
 /// survive relocation). Typing undo is the text view's own, while it has focus.
 final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {

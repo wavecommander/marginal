@@ -2,14 +2,12 @@ import XCTest
 
 /// Search (WP10) through the real UI.
 ///
-/// Query cost note (measured, not a guess): with `large.pdf` open, any XCUITest query that
-/// evaluates text-input elements (`app.textFields`, `element.typeText`) makes UIKit's
-/// accessibility snapshot read the value of PDFKit's `PDFTextInputView`, which builds a selection
-/// over the whole document on the app's main thread (`-[PDFTextInputView textInRange:]`, about
-/// 25 s per query on a loaded machine). That is PDFKit and the reader shell, not search, and it
-/// happens with or without a search running. These tests therefore never query text fields: the
-/// panel focuses its field itself and the tests type with `app.typeText`, and they identify
-/// everything by typed, identifier-scoped queries (buttons, static texts).
+/// Queries: the panel focuses its field itself, so the tests type with `app.typeText` and find
+/// everything by typed, identifier-scoped queries (buttons, static texts). This style dates from
+/// when PDFKit's `PDFTextInputView` was exposed to accessibility and any text-field query built a
+/// selection over the whole of `large.pdf` (about 25 s); the reader no longer exposes it
+/// (`ReaderPDFController`, and `PDFAccessibilityUITests` holds text-field queries and typing on
+/// `large.pdf` to a few seconds), but typed queries remain the cheaper choice.
 @MainActor
 final class SearchUITests: XCTestCase {
     private enum ID {

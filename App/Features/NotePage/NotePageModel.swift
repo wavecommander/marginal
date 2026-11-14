@@ -38,7 +38,7 @@ protocol NotePageEditing: AnyObject {
 /// ## Saving
 /// - Edits are saved `autosaveDelay` after the last change (text or a finished stroke), and at
 ///   once by `flush()` (the editor's `MarkupSurface.flushPendingMarkup`, which the session calls
-///   on Done, backgrounding, window close and memory warnings; the model also flushes itself
+///   on leaving markup mode, backgrounding, window close and memory warnings; the model also flushes itself
 ///   when the app enters the background).
 /// - A save writes the record first (`notes.save`, attributed to `origin`), then the ink file
 ///   (`saveNoteInk`) when the note has ink, or deletes the ink file when the last stroke went.
