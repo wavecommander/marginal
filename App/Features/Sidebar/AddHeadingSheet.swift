@@ -65,9 +65,22 @@ struct HeadingSheet: View {
         UserHeadingEditor.parentChoices(outline: session.outline, pageIndex: pageIndex ?? 0, excluding: editing)
     }
 
+    /// The placement actually used: the reader's choice while it contains the typed page, else
+    /// the choice at the same level, else the default. The choice itself is kept, so typing a
+    /// page number digit by digit (passing through pages it does not contain) never loses it.
+    private var placement: HeadingParentChoice {
+        let choices = choices
+        if choices.contains(parent) { return parent }
+        return choices.first { $0.childLevel == parent.childLevel }
+            ?? UserHeadingEditor.defaultParent(outline: session.outline, pageIndex: pageIndex ?? 0, excluding: editing)
+    }
+
+    private var placementBinding: Binding<HeadingParentChoice> {
+        Binding(get: { placement }, set: { parent = $0 })
+    }
+
     private var canSave: Bool {
         pageIndex != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && choices.contains(parent)
     }
 
     var body: some View {
@@ -85,7 +98,7 @@ struct HeadingSheet: View {
                 Section {
                     HStack {
                         TextField("Page", text: $pageText)
-                            .keyboardType(.numberPad)
+                            .keyboardType(.numbersAndPunctuation)
                             .accessibilityLabel("Page number")
                             .accessibilityIdentifier(SidebarAccessibilityID.addHeadingPage)
                         Text(verbatim: "of \(session.pageCount)").foregroundStyle(.secondary)
@@ -98,7 +111,7 @@ struct HeadingSheet: View {
                     }
                 }
                 Section {
-                    Picker("Place", selection: $parent) {
+                    Picker("Place", selection: placementBinding) {
                         ForEach(choices) { choice in
                             HeadingChoiceLabel(choice: choice).tag(choice)
                         }
@@ -109,7 +122,7 @@ struct HeadingSheet: View {
                 } header: {
                     Text("Place")
                 } footer: {
-                    Text("Level \(parent.childLevel). A heading can go at the top level or under any heading that contains its page.")
+                    Text("Level \(placement.childLevel). A heading can go at the top level or under any heading that contains its page.")
                 }
                 if let errorMessage {
                     Section { Text(errorMessage).foregroundStyle(.red) }
@@ -129,14 +142,6 @@ struct HeadingSheet: View {
                 }
             }
         }
-        .onChange(of: pageIndex) { _, newPage in
-            // Keep the placement while it still contains the new page.
-            guard let newPage else { return }
-            let newChoices = UserHeadingEditor.parentChoices(outline: session.outline, pageIndex: newPage, excluding: editing)
-            guard !newChoices.contains(parent) else { return }
-            parent = newChoices.first { $0.childLevel == parent.childLevel }
-                ?? UserHeadingEditor.defaultParent(outline: session.outline, pageIndex: newPage, excluding: editing)
-        }
         .onAppear { if editing == nil { titleFocused = true } }
     }
 
@@ -144,11 +149,11 @@ struct HeadingSheet: View {
         guard canSave, let pageIndex else { return }
         do {
             if let editing {
-                try UserHeadingEditor.update(editing, title: title, pageIndex: pageIndex, parent: parent, session: session)
-                model.headingSaved(editing, placement: parent, isNew: false)
+                try UserHeadingEditor.update(editing, title: title, pageIndex: pageIndex, parent: placement, session: session)
+                model.headingSaved(editing, placement: placement, isNew: false)
             } else {
-                let anchor = try UserHeadingEditor.add(title: title, pageIndex: pageIndex, parent: parent, session: session)
-                model.headingSaved(anchor, placement: parent, isNew: true)
+                let anchor = try UserHeadingEditor.add(title: title, pageIndex: pageIndex, parent: placement, session: session)
+                model.headingSaved(anchor, placement: placement, isNew: true)
             }
             dismiss()
         } catch {

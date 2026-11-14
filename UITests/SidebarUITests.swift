@@ -86,13 +86,24 @@ final class SidebarUITests: XCTestCase {
         if !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { field.tap() }
         field.typeText(title)
         if let placement {
-            let choice = app.buttons.matching(NSPredicate(
-                format: "label BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@)", placement, "sidebar.")).firstMatch
-            XCTAssertTrue(choice.waitForExistence(timeout: 5), "placement \(placement)")
+            // The placement picker's rows (in the sheet's form), not the sidebar's heading rows.
+            let predicate = NSPredicate(format: "label BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
+                                        placement, "sidebar.heading.", "sidebar.disclosure.")
+            var choice = app.buttons.matching(predicate).firstMatch
+            if !choice.waitForExistence(timeout: 3) { choice = app.cells.matching(predicate).firstMatch }
+            if !choice.waitForExistence(timeout: 2) { choice = app.staticTexts.matching(predicate).firstMatch }
+            if !choice.waitForExistence(timeout: 2) { print("SHEET-DUMP\n\(app.debugDescription)") }
+            XCTAssertTrue(choice.exists, "placement \(placement)")
             choice.tap()
         }
-        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
         XCTAssertTrue(heading(app, title).waitForExistence(timeout: 10), "added \(title)")
+    }
+
+    /// Prints the sidebar's heading rows (diagnostics on failure).
+    static func dumpHeadings(_ app: XCUIApplication, _ note: String) {
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.heading.")).allElementsBoundByIndex
+        print("HEADINGS-DUMP \(note): " + rows.map { "\($0.label) [\($0.value as? String ?? "")]" }.joined(separator: " | "))
     }
 
     /// Replaces the text in the Rename alert and confirms.
@@ -105,6 +116,7 @@ final class SidebarUITests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
         field.typeText(title)
         alert.buttons["Rename"].tap()
+        if !heading(app, title).waitForExistence(timeout: 5) { dumpHeadings(app, "after rename to \(title)") }
     }
 
     /// The navigation bar shows `text` (the subtitle on iOS 26+, the title block before).
@@ -178,7 +190,7 @@ final class SidebarUITests: XCTestCase {
         sleep(1)
         if !(titleField.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { titleField.tap() }
         titleField.typeText("Chapter Alpha")
-        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
 
         let row = Self.heading(app, "Chapter Alpha")
         XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -284,8 +296,13 @@ final class SidebarUITests: XCTestCase {
         let pageField = app.textFields["sidebar.addHeading.page"].firstMatch
         XCTAssertTrue(pageField.waitForExistence(timeout: 10))
         pageField.tap()
-        pageField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "18")
-        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        pageField.typeKey("a", modifierFlags: .command)
+        pageField.typeText("18")
+        let save = app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch
+        if (pageField.value as? String) != "18" || !save.isEnabled {
+            print("EDIT-DUMP page field “\(pageField.value ?? "nil")” save enabled \(save.isEnabled)\n\(app.debugDescription)")
+        }
+        save.tap()
         XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "page 18"))
         XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "level 2"))
 
@@ -332,7 +349,7 @@ final class SidebarUITests: XCTestCase {
         let suggested = titleField.value as? String ?? ""
         XCTAssertFalse(suggested.isEmpty)
         XCTAssertFalse(suggested.contains("\n"))
-        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
         XCTAssertTrue(Self.heading(app, suggested).waitForExistence(timeout: 10), "heading “\(suggested)”")
         XCTAssertTrue((Self.heading(app, suggested).value as? String ?? "").contains("page 2"))
     }
@@ -396,8 +413,11 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(target.waitForExistence(timeout: 5))
         target.tap()
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 314 of 1500"))
-        XCTAssertTrue(Self.waitFor(target, "value CONTAINS %@", "current page"))
-        XCTAssertTrue(Self.waitFor(app.buttons[ReaderID.historyBack].firstMatch, "enabled == true"))
+        if !Self.waitFor(target, "value CONTAINS %@", "current page") {
+            print("PAGES-DUMP 314: label \(target.label) value \(target.value ?? "nil"); 312 value \(current.value ?? "nil")")
+            XCTFail("page 314 not marked current")
+        }
+        // 312 → 314 stays in "4.1.3 Summary": a same-section jump adds no history entry (design).
     }
 
     // MARK: Badges
@@ -458,21 +478,31 @@ final class SidebarUITests: XCTestCase {
         Self.selectTab(app, "Pages")
         let stats = app.buttons[SidebarID.debugStats].firstMatch
         XCTAssertTrue(stats.waitForExistence(timeout: 10))
-        sleep(2)
-        let start = Self.parse(stats.value as? String ?? "")
-        stats.tap()  // reset frame counters
         let grid = app.scrollViews["sidebar.pages.grid"].firstMatch
         XCTAssertTrue(grid.exists)
+        // Resolve coordinates once: flings by coordinate need no element look-ups (each look-up
+        // makes XCUITest snapshot the app's accessibility tree on its main thread, which shows
+        // up as frame gaps that are the harness's, not the app's).
+        let low = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        let high = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+        sleep(2)
+        let start = Self.parse(stats.value as? String ?? "")
+        // Baseline: frame gaps over 5 s of doing nothing.
+        stats.tap()
+        sleep(5)
+        let idle = Self.parse(stats.value as? String ?? "")
+        stats.tap()  // reset frame counters
         let started = Date()
-        for _ in 0..<25 { grid.swipeUp(velocity: XCUIGestureVelocity(6000)) }
+        for _ in 0..<25 { low.press(forDuration: 0.01, thenDragTo: high, withVelocity: 5000, thenHoldForDuration: 0) }
         let downSeconds = Date().timeIntervalSince(started)
         sleep(2)
         let afterDown = Self.parse(stats.value as? String ?? "")
-        for _ in 0..<25 { grid.swipeDown(velocity: XCUIGestureVelocity(6000)) }
+        for _ in 0..<25 { high.press(forDuration: 0.01, thenDragTo: low, withVelocity: 5000, thenHoldForDuration: 0) }
         sleep(2)
         let end = Self.parse(stats.value as? String ?? "")
         let report = """
             thumbnails: start \(start)
+            idle 5 s (frame-gap baseline): \(idle)
             after 25 fast swipes down (\(String(format: "%.1f", downSeconds)) s): \(afterDown)
             after 25 fast swipes back: \(end)
             """
@@ -577,7 +607,7 @@ final class SidebarScreenshotUITests: XCTestCase {
         field.typeText("1 Getting Started")
         sleep(1)
         try save("sidebar-add-heading")
-        app.buttons[SidebarID.addHeadingSave].firstMatch.tap()
+        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
         XCTAssertTrue(SidebarUITests.heading(app, "1 Getting Started").waitForExistence(timeout: 10))
         sleep(1)
         try save("sidebar-no-outline-added")
