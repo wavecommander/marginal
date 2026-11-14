@@ -10,7 +10,7 @@ final class ReaderScreenshotUITests: XCTestCase {
     }
 
     override func tearDown() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     private var suffix: String {
