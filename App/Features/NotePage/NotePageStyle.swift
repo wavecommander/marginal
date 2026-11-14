@@ -27,15 +27,34 @@ nonisolated enum NotePageStyle {
     /// Zoom range of the editor (1 = 100%).
     static let zoomRange: ClosedRange<CGFloat> = 1...2
 
-    /// The appearance of the note page itself (paper, text and ink). **Always light**, like the
-    /// PDF page beside it: on the installed SDK PencilKit does not adapt stroke colours to dark
-    /// mode on this canvas (black ink stays black on a dark page, both on a transparent or
-    /// opaque `PKCanvasView` and in `PKDrawing.image` under a dark trait collection — verified on
-    /// the iOS 27.0 simulator), so a dark page would hide the reader's ink. The panel around the
-    /// page follows the system appearance. Exports are light as well.
-    static let pageAppearance: UIUserInterfaceStyle = .light
-    /// The paper colour of the note page.
-    static var paperColor: UIColor { .white }
+    // MARK: Appearance (design: "The notes pane follows the system appearance")
+
+    /// The paper colour of the note page **on screen**: white in Light Mode, a dark grey in Dark
+    /// Mode (one step above the panel's black background, so the page still reads as paper). It
+    /// is dynamic, so the editor and the read-only views follow the trait collection they are in
+    /// and switch live with the system setting.
+    ///
+    /// Ink follows the same trait collection through PencilKit's own light/dark rendering: a
+    /// `PKCanvasView` and `PKDrawing.image(from:scale:)` (inside `UITraitCollection.performAsCurrent`)
+    /// draw each stroke's stored colour converted for the appearance, the same conversion as
+    /// `PKInkingTool.convertColor(_:from:to:)` (dark colours lighten: black shows white, dark blue
+    /// shows light blue; light colours darken; saturated yellow stays yellow). The stored strokes
+    /// never change. Verified on the iOS 27 simulator (`NotePageAppearanceTests`).
+    static let paperColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? darkPaperColor : exportPaperColor
+    }
+
+    /// The Dark Mode paper (`secondarySystemBackground` in Dark Mode, fixed so it does not change
+    /// with the elevated or high-contrast variants).
+    static let darkPaperColor = UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1)
+
+    /// The appearance of every export (Markdown images, the Notebook PDF): always light, on white
+    /// paper, with the strokes' stored colours, whatever the app's appearance.
+    static let exportAppearance: UIUserInterfaceStyle = .light
+    /// The paper colour of exports (and of the page in Light Mode).
+    static let exportPaperColor = UIColor.white
+    /// The trait collection exports draw in (`exportAppearance`).
+    static var exportTraits: UITraitCollection { UITraitCollection(userInterfaceStyle: exportAppearance) }
 
     /// The text font (system, regular, fixed size).
     static var font: UIFont { UIFont.systemFont(ofSize: fontSize) }
@@ -50,8 +69,9 @@ nonisolated enum NotePageStyle {
         return style
     }
 
-    /// Attributes of all note text. The colour is dynamic (`.label`), so it follows dark mode on
-    /// screen; renderers resolve it in a light trait collection for exports.
+    /// Attributes of all note text. The colour is dynamic (`.label`), so it follows the
+    /// appearance on screen (dark text on white paper, light text on dark paper); exports draw it
+    /// inside `exportTraits` (`performAsCurrent`), so it is always dark there.
     static var textAttributes: [NSAttributedString.Key: Any] {
         [.font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.label]
     }
