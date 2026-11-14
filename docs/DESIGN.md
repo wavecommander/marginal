@@ -1,4 +1,9 @@
-# Marginal (working title): design
+# Tactile Texts: design
+
+The app's name is **Tactile Texts** (owner decision, 14 November 2026): that is the name on the
+Home Screen, in the menu bar, in exported files' metadata and on the App Store. "Marginal" was
+the working title and remains the internal name only: the repository, the Xcode target, scheme
+and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marginal`).
 
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
@@ -327,7 +332,8 @@ windows cover this), sharing single notes, PaperKit shapes and text boxes on the
 
 ## Open questions for the owner
 
-1. App name ("Marginal" is a placeholder) and bundle identifier.
+1. ~~App name and bundle identifier.~~ Settled: the app is "Tactile Texts", bundle identifier
+   `software.tactile.marginal`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
 3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?

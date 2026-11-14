@@ -40,7 +40,8 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Marginal
+        CFBundleDisplayName: Tactile Texts
+        CFBundleName: Tactile Texts
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true

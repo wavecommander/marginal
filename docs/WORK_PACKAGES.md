@@ -1,4 +1,4 @@
-# Marginal: work packages
+# Tactile Texts (code name Marginal): work packages
 
 Read `docs/DESIGN.md` first. This file splits the build into packages sized for one subagent each
 and says which model runs each one. It is written for an orchestrating Claude Code session
