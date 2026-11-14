@@ -400,7 +400,8 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// Markup mode shows the window's system tool picker; tapping the Markup toggle again hides
-    /// it. Also from launch (-markup).
+    /// it. Also from launch (-markup). Each entry shows it exactly once (TSOFT-219: no hide and
+    /// show while the first show settles, nor while the reader is pushed at launch).
     func testMarkupModeShowsToolPicker() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
                                               + ["-openBook", "small", "-exposeMarkupState"])
@@ -409,9 +410,15 @@ final class ReaderUITests: XCTestCase {
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, true), "markup on")
         XCTAssertTrue(waitForState(app, "picker=shown"))
+        settle(app)
+        XCTAssertTrue(waitForState(app, "shows=1 "), "first entry shows the picker once")
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, false), "markup off")
         XCTAssertTrue(waitForState(app, "picker=hidden"))
+        toggle.tap()
+        XCTAssertTrue(waitForState(app, "picker=shown"), "shown again")
+        settle(app)
+        XCTAssertTrue(waitForState(app, "shows=2 "), "second entry shows it once more")
 
         let launched = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
                                                    + ["-openBook", "small", "-markup", "-exposeMarkupState"])
@@ -419,6 +426,15 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(toggleAtLaunch.waitForExistence(timeout: 30))
         XCTAssertTrue(waitForSelected(toggleAtLaunch, true), "markup on at launch")
         XCTAssertTrue(waitForState(launched, "picker=shown"))
+        settle(launched)
+        XCTAssertTrue(waitForState(launched, "shows=1 "), "shown once at launch, after the reader is pushed")
+    }
+
+    /// Taps the markup probe's Undo button (nothing to undo; it never moves first responder). An
+    /// action makes XCUITest wait for the app to go idle first, so the reader's push and the
+    /// picker's own animations have finished when the probe is read next.
+    private func settle(_ app: XCUIApplication) {
+        app.buttons["reader.markupUndo"].firstMatch.tap()
     }
 
     /// The Markup toggle is the only switch (design, "Markup controls"): the same button in

@@ -77,6 +77,9 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     let drawingPolicy: PKCanvasViewDrawingPolicy
     /// Whether the tool picker is currently on screen.
     private(set) var isToolPickerVisible = false
+    /// How many times the tool picker has come on screen (diagnostics and tests: entering markup
+    /// once shows it once, with no hide and show in between).
+    @ObservationIgnored private(set) var toolPickerShowCount = 0
     /// Whether Undo / Redo can act on the routed surface.
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -100,6 +103,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     @ObservationIgnored private var strokesInProgress: Set<String> = []
     @ObservationIgnored private var auxiliaryResponders: [WeakResponder] = []
     @ObservationIgnored private var isMarkup = false
+    /// The window the tool picker has been on screen in (see `showingToolPicker(_:)`).
+    @ObservationIgnored private weak var toolPickerWindow: UIWindow?
+    /// A reassert is waiting for the navigation transition to finish.
+    @ObservationIgnored private var isAwaitingTransition = false
     /// The routed manager the proxy last announced (to announce a change of routed surface).
     @ObservationIgnored private weak var announcedRoutedManager: UndoManager?
     @ObservationIgnored private var hasAnnouncedRouting = false
@@ -225,20 +232,45 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     /// Called by the session when the mode changes.
     func modeDidChange(to mode: ReaderSession.Mode) {
         isMarkup = mode == .markup
-        toolPicker.setVisible(isMarkup, forFirstResponder: responderView)
-        for surface in surfaces.values.compactMap(\.value) {
-            toolPicker.setVisible(isMarkup, forFirstResponder: surface.canvasView)
-            surface.markupModeDidChange(isMarkup)
-        }
-        for responder in auxiliaryResponders.compactMap(\.value) {
-            toolPicker.setVisible(isMarkup, forFirstResponder: responder)
-        }
-        if isMarkup {
-            reassertToolPicker()
-        } else if responderView.isFirstResponder {
-            responderView.resignFirstResponder()
+        showingToolPicker {
+            toolPicker.setVisible(isMarkup, forFirstResponder: responderView)
+            for surface in surfaces.values.compactMap(\.value) {
+                toolPicker.setVisible(isMarkup, forFirstResponder: surface.canvasView)
+                surface.markupModeDidChange(isMarkup)
+            }
+            for responder in auxiliaryResponders.compactMap(\.value) {
+                toolPicker.setVisible(isMarkup, forFirstResponder: responder)
+            }
+            if isMarkup {
+                reassertToolPicker()
+            } else if responderView.isFirstResponder {
+                responderView.resignFirstResponder()
+            }
         }
         updateBackSwipe()
+    }
+
+    /// Runs `body`, which may put the tool picker on screen. The first time a `PKToolPicker` is
+    /// shown in a window, PencilKit adds its palette host view (in the scene's text-effects
+    /// window, not the reader's) centred on the window's origin and docks the palette inside it;
+    /// the host gets its real frame on a later layout pass, and PencilKit animates its own
+    /// layout when the host's safe area changes in between. Either one animated, and the palette
+    /// flies in from the top centre of the screen instead of appearing at its docked edge
+    /// (TSOFT-219; on the simulator, when a note's text view is first responder). So until the
+    /// picker has been on screen in this window, show it without animation and lay the scene's
+    /// windows out at once: it appears in its docked place. Later shows (host laid out) keep
+    /// PencilKit's own slide-in from that edge.
+    private func showingToolPicker(_ body: () -> Void) {
+        guard isMarkup, let window = responderView.window, window !== toolPickerWindow else {
+            body()
+            return
+        }
+        UIView.performWithoutAnimation {
+            body()
+            for sceneWindow in window.windowScene?.windows ?? [window] {
+                sceneWindow.layoutIfNeeded()
+            }
+        }
     }
 
     /// In markup mode the navigation stack's back-swipe gestures are disabled for this window:
@@ -257,10 +289,24 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     /// responder is (call after a text field you own ends editing).
     func reassertToolPicker() {
         guard isMarkup, responderView.window != nil else { return }
+        // While the reader is pushed (e.g. `-markup` at launch) its views move between the
+        // transition's containers and drop first responder at the end, so a picker shown now
+        // would show, hide and show again: take first responder once the transition is over.
+        guard !isAwaitingTransition else { return }
+        if let transition = responderView.enclosingNavigationController?.transitionCoordinator {
+            isAwaitingTransition = transition.animate(alongsideTransition: nil) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.isAwaitingTransition = false
+                    self.reassertToolPicker()
+                }
+            }
+            if isAwaitingTransition { return }
+        }
         let registeredFirst = surfaces.values.contains { $0.value?.canvasView.isFirstResponder == true }
             || auxiliaryResponders.contains { $0.value?.isFirstResponder == true }
         if !registeredFirst && !responderView.isFirstResponder {
-            responderView.becomeFirstResponder()
+            showingToolPicker { responderView.becomeFirstResponder() }
         }
     }
 
@@ -307,6 +353,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
 
     func toolPickerVisibilityDidChange(_ toolPicker: PKToolPicker) {
         isToolPickerVisible = toolPicker.isVisible
+        if toolPicker.isVisible {
+            toolPickerShowCount += 1
+            toolPickerWindow = responderView.window
+        }
     }
 
     // MARK: Private
