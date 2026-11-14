@@ -349,7 +349,9 @@ struct ReaderSessionTests {
         #expect(left?.pageIndex == 6)
         try await followLink(session, onPage: 6, y: 200)    // → C "3.2 Exercises" p12
         #expect(session.currentPageIndex == 11)
-        #expect(session.history.backList.map(\.place.title) == ["2.1 Foundations", "1 Linear Systems"])
+        #expect(session.history.backList.count == 2)          // the link recorded the place it left
+        #expect(session.history.backList.first?.place.anchor == left)
+        #expect(session.history.backList.last?.place.title == "1 Linear Systems")
 
         session.goBack()
         await settle()

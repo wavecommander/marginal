@@ -405,22 +405,22 @@ final class ReaderSession: Identifiable {
 
     // MARK: Section history
 
-    /// Back to the previous section, at the page the reader left it on.
+    /// Back to the previous section, at the exact place the reader left it.
     func goBack() {
         guard let place = history.back(from: placeOnScreen) else { return }
-        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
+        move(to: place)
     }
 
-    /// Forward (undoes Back), at the page the reader left it on.
+    /// Forward (undoes Back), at the exact place the reader left it.
     func goForward() {
         guard let place = history.forward(from: placeOnScreen) else { return }
-        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
+        move(to: place)
     }
 
     /// Straight to an entry of `history.backList` / `history.forwardList` (by its `index`).
     func goToHistoryEntry(at index: Int) {
         guard let place = history.goToEntry(at: index, from: placeOnScreen) else { return }
-        moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
+        move(to: place)
     }
 
     // MARK: Paging (never recorded)
@@ -633,11 +633,24 @@ final class ReaderSession: Identifiable {
 
     // MARK: - Private
 
-    /// The place on screen now (current page and its section).
-    private var placeOnScreen: SectionPlace { SectionPlace(pageIndex: currentPageIndex, in: outline) }
+    /// The place on screen now: the current page, its section, and the exact position (the
+    /// reading anchor, once the PDF view has positioned).
+    private var placeOnScreen: SectionPlace {
+        SectionPlace(pageIndex: currentPageIndex, in: outline, anchor: pdf.readingAnchor)
+    }
 
     private func recordJump(toPage pageIndex: Int) {
         history.recordJump(from: placeOnScreen, to: SectionPlace(pageIndex: pageIndex, in: outline))
+    }
+
+    /// Goes to a history place: its exact position, or the top of its page when it has none.
+    private func move(to place: SectionPlace) {
+        guard let anchor = place.anchor, PageNumbering.isValid(anchor.pageIndex, pageCount: pageCount) else {
+            moveWithoutRecordingHistory(toPage: clampedPage(place.pageIndex))
+            return
+        }
+        pdf.moveWithoutRecordingHistory(to: anchor)
+        setCurrentPage(clampedPage(place.pageIndex))
     }
 
     private func clampedPage(_ pageIndex: Int) -> Int {

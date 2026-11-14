@@ -34,7 +34,8 @@ and says which model runs each one. It is written for an orchestrating Claude Co
      matching mockup artboard and lists the differences it left.
 - **Fixtures**: `Fixtures/make-fixtures.swift` generates PDFs at build-test time, never committed:
   `small.pdf` (12 pages, 2-level outline), `large.pdf` (1,500 pages, 3-level outline, real text
-  on every page), `no-outline.pdf` (40 pages, no outline).
+  on every page), `no-outline.pdf` (40 pages, no outline), `links.pdf` (`small.pdf` plus links
+  inside the PDF, for section history).
 - **Simulator limits**: Pencil pressure, hover, double-tap and palm rejection cannot be tested in
   the simulator. A `-inkAnyInput` launch argument switches the drawing policy to any input so UI
   tests can draw. Real-device Pencil checks are listed in WP12 for the owner.

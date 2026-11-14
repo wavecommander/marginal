@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import ReaderCore
 import SwiftUI
 import UIKit
 
@@ -156,6 +157,17 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         }
         isTrackingSuspended = false
         view.showTop(of: page)
+    }
+
+    /// **Not for features**: puts `anchor`'s page point back at the top-left corner of the view
+    /// (section history's exact place) without recording section history.
+    func moveWithoutRecordingHistory(to anchor: ReadingAnchor) {
+        guard hasPositionedInitially, let page = page(at: anchor.pageIndex), view.bounds.width > 0 else {
+            moveWithoutRecordingHistory(toPage: anchor.pageIndex)
+            return
+        }
+        isTrackingSuspended = false
+        view.show(anchor.point, of: page)
     }
 
     // MARK: Zoom
@@ -351,6 +363,14 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: View-facing (ReaderPDFView)
 
+    /// A link inside the PDF is about to be followed (`ReaderPDFView.perform(_:)`): record it as
+    /// a jump to the page PDFKit is going to, whatever form the link takes. PDFKit then moves.
+    func willPerform(_ action: PDFAction) {
+        guard let goTo = action as? PDFActionGoTo, let page = goTo.destination.page,
+              let index = pageIndex(of: page) else { return }
+        session?.pdfWillFollowLink(toPage: index)
+    }
+
     func selectionMenuElements() -> [UIMenuElement] {
         guard let selection = currentSelection else { return [] }
         var elements: [UIMenuElement] = []
@@ -425,7 +445,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         center.addObserver(self, selector: #selector(pageChanged(_:)), name: .PDFViewPageChanged, object: view)
         center.addObserver(self, selector: #selector(visiblePagesChanged(_:)), name: .PDFViewVisiblePagesChanged, object: view)
         center.addObserver(self, selector: #selector(navigationChanged(_:)), name: .PDFViewScaleChanged, object: view)
-        center.addObserver(self, selector: #selector(annotationWillHit(_:)), name: .PDFViewAnnotationWillHit, object: view)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
@@ -481,14 +500,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         reportNavigationState()
     }
 
-    /// A link inside the PDF is about to be followed: record it as a jump (PDFKit moves).
-    @objc private func annotationWillHit(_ notification: Notification) {
-        guard let annotation = notification.userInfo?["PDFAnnotationHit"] as? PDFAnnotation else { return }
-        let page = annotation.destination?.page ?? (annotation.action as? PDFActionGoTo)?.destination.page
-        guard let page, let index = pageIndex(of: page) else { return }
-        session?.pdfWillFollowLink(toPage: index)
-    }
-
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         let handlers = tapHandlers.compactMap(\.value)
@@ -520,19 +531,34 @@ final class ReaderPDFView: PDFView {
     weak var controller: ReaderPDFController?
     private var lastLayoutSize: CGSize = .zero
 
-    /// Scrolls so page-space `pageY` of `page` (default: its top edge) is at the top of the
-    /// visible area.
+    /// PDFKit follows a link inside the PDF by performing its action on the view (a link with a
+    /// plain destination is performed as a go-to action too), so the controller sees it here,
+    /// before PDFKit moves.
+    override func perform(_ action: PDFAction) {
+        controller?.willPerform(action)
+        super.perform(action)
+    }
+
+    /// Scrolls so the top edge of `page` is at the top of the visible area.
     ///
     /// On this SDK `go(to: PDFPage)` / `go(to: PDFDestination)` leave the neighbouring page
     /// partly visible when pages are taller than the view (PDFKit then reports the neighbour as
     /// current), and a far-away page's frame is not valid before PDFKit has laid it out. So:
     /// let PDFKit bring the page near, then (next run-loop turns) set the scroll offset from the
     /// page's now-valid frame and check the result, retrying briefly.
-    func showTop(of page: PDFPage, pageY: CGFloat? = nil) {
+    func showTop(of page: PDFPage) {
         alignmentGeneration += 1
         go(to: page)
-        let y = pageY ?? page.bounds(for: displayBox).maxY
-        align(page, pageY: y, attemptsLeft: 4, generation: alignmentGeneration)
+        align(page, pageY: page.bounds(for: displayBox).maxY, pageX: nil, attemptsLeft: 4, generation: alignmentGeneration)
+    }
+
+    /// Scrolls so page-space `point` of `page` is at the top-left corner of the visible area, as
+    /// near as the scrollable range allows (a `ReadingAnchor`: section history's exact place).
+    /// Positioned as `showTop(of:)` is.
+    func show(_ point: CGPoint, of page: PDFPage) {
+        alignmentGeneration += 1
+        go(to: page)
+        align(page, pageY: point.y, pageX: point.x, attemptsLeft: 4, generation: alignmentGeneration)
     }
 
     /// The page at the top of the visible area and the page-space y there.
@@ -546,24 +572,27 @@ final class ReaderPDFView: PDFView {
 
     private var alignmentGeneration = 0
 
-    private func align(_ page: PDFPage, pageY: CGFloat, attemptsLeft: Int, generation: Int) {
+    /// Puts page-space `pageY` (and `pageX`, when given; otherwise the horizontal offset is kept)
+    /// of `page` at the top-left corner of the visible area.
+    private func align(_ page: PDFPage, pageY: CGFloat, pageX: CGFloat?, attemptsLeft: Int, generation: Int) {
         DispatchQueue.main.async { [weak self, weak page] in
             guard let self, let page, attemptsLeft > 0, generation == self.alignmentGeneration,
                   let documentView = self.documentView,
                   let scrollView = documentView.superview as? UIScrollView else { return }
             self.layoutIfNeeded()
             let bounds = page.bounds(for: self.displayBox)
-            let pointInView = self.convert(CGPoint(x: bounds.midX, y: pageY), from: page)
+            let pointInView = self.convert(CGPoint(x: pageX ?? bounds.midX, y: pageY), from: page)
             let pointInContent = scrollView.convert(pointInView, from: self)
-            let inset = scrollView.adjustedContentInset
-            let maxY = max(-inset.top, scrollView.contentSize.height + inset.bottom - scrollView.bounds.height)
-            let targetY = min(max(pointInContent.y - inset.top, -inset.top), maxY)
-            if targetY.isFinite {
-                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: targetY), animated: false)
+            let target = ViewportAnchorMath.contentOffset(placing: pointInContent, insets: scrollView.adjustedContentInset,
+                                                          contentSize: scrollView.contentSize,
+                                                          boundsSize: scrollView.bounds.size)
+            let x = pageX == nil ? scrollView.contentOffset.x : target.x
+            if target.y.isFinite, x.isFinite {
+                scrollView.setContentOffset(CGPoint(x: x, y: target.y), animated: false)
             }
             // Verify: the page under the top of the visible area must be `page`.
             if self.pageAndPointAtTop()?.page !== page {
-                self.align(page, pageY: pageY, attemptsLeft: attemptsLeft - 1, generation: generation)
+                self.align(page, pageY: pageY, pageX: pageX, attemptsLeft: attemptsLeft - 1, generation: generation)
             }
         }
     }
