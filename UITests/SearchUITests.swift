@@ -89,6 +89,37 @@ final class SearchUITests: XCTestCase {
 
     // MARK: Tests
 
+    /// One tap on the search button opens the panel again after each way of closing it: Done,
+    /// a tap outside the popover, and choosing a result.
+    func testSearchButtonReopensAfterEachWayOfClosing() {
+        let app = launch(Fixtures.large, "large")
+        let button = app.buttons[ID.searchButton].firstMatch
+        let done = app.buttons[ID.done].firstMatch
+        func reopen(_ step: String) {
+            button.tap()
+            XCTAssertTrue(done.waitForExistence(timeout: 10), "search did not reopen after \(step)")
+        }
+
+        reopen("launch")
+        done.tap()
+        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "Done did not close search")
+        reopen("Done")
+
+        // Outside the popover (at the trailing edge) and above the keyboard (the bottom half in
+        // landscape): the page, left of the popover.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.3)).tap()
+        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "a tap outside did not close search")
+        reopen("a tap outside")
+
+        sleep(1)  // the panel focuses its field 150 ms after presenting
+        app.typeText("zygomorphic lighthouse theorem")
+        let hit = row(app, "text-1399-0")
+        XCTAssertTrue(hit.waitForExistence(timeout: 90), "no result; status: \(status(app).label)")
+        hit.tap()
+        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "choosing a result did not close search")
+        reopen("choosing a result")
+    }
+
     /// The phrase on page 1,400 of `large.pdf`: "No results" first for a nonsense query, then the
     /// phrase streams in under its heading; choosing it closes the panel, lands on page 1,400
     /// (page pill) through the jump API (Back becomes enabled), and Back returns to page 1.

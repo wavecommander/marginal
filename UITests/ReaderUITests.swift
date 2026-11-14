@@ -299,6 +299,12 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
         app.buttons["search.done"].firstMatch.tap()
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back")
+        // One tap on the search button opens search again over the returned sheet.
+        app.buttons["reader.toolbar.search"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10),
+                      "search did not reopen after the notes sheet came back")
+        app.buttons["search.done"].firstMatch.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back a second time")
     }
 
     func testAlsoOpenWindowShowsSecondReaderWithIndependentPage() {
