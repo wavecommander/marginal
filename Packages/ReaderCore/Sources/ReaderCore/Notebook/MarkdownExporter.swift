@@ -16,10 +16,11 @@ import Foundation
 ///    `### <recorded anchor title>` (or `### Untitled heading` for user headings) and its note
 ///    block, then the orphan page blocks.
 ///
-/// A **page block** is emitted for a page with a note or highlights (bookmark-only pages are
-/// skipped): the line `**Page N**` (1-based), then the note block if any, then one quote block
-/// per highlight in reading order: `> <text> (p. N)`, where the text has all whitespace collapsed
-/// to single spaces.
+/// A **page block** is emitted for a page with a note, highlights or page ink (bookmark-only
+/// pages are skipped): the line `**Page N**` (1-based), then the note block if any, then one
+/// quote block per highlight in reading order: `> <text> (p. N)`, where the text has all
+/// whitespace collapsed to single spaces; then, for a page with ink, the line
+/// `_Handwriting on page N_` (the ink itself is not exported to Markdown; the PDF export draws it).
 ///
 /// A **note block** is the note's text with line endings normalised to `"\n"`, trailing
 /// whitespace removed from each line, and leading and trailing blank lines removed; then, if
@@ -50,12 +51,15 @@ public enum MarkdownExporter {
         }
 
         func pageBlocks(_ page: NotebookPage) -> [String] {
-            guard page.note != nil || !page.highlights.isEmpty else { return [] }
+            guard page.hasContent else { return [] }
             var result = ["**Page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))**"]
             if let note = page.note { result += noteBlocks(note) }
             for highlight in page.highlights {
                 let text = OutlineText.normalizedTitle(highlight.text)
                 result.append("> \(text) (\(PageNumbering.label(forPageIndex: highlight.pageIndex)))")
+            }
+            if page.hasInk {
+                result.append("_Handwriting on page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))_")
             }
             return result
         }

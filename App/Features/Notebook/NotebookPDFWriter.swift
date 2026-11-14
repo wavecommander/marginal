@@ -1,5 +1,6 @@
 import CoreText
 import Foundation
+import PDFKit
 import PencilKit
 import ReaderCore
 import UIKit
@@ -10,7 +11,8 @@ import UIKit
 /// every heading with content, depth first (title, page range and a rule; level 1 large with a
 /// heavy rule); under a heading its own note (labelled "Chapter"/"Section"), then its pages, each
 /// item labelled with its page ("p. 312"): the page note, then the page's highlights (colour
-/// swatch and the quoted text in a serif face); finally "Unfiled notes". A running footer carries
+/// swatch and the quoted text in a serif face), then, for a page with page ink, "Handwriting" and
+/// the book page with its ink (`drawInkedPage`); finally "Unfiled notes". A running footer carries
 /// the book title and the PDF page number. Page size: US Letter where the locale measures in
 /// US units, A4 elsewhere; 54 pt margins.
 ///
@@ -49,6 +51,7 @@ final class NotebookPDFWriter {
     private var pageNumber = 0
     private var isPageOpen = false
     private var isClosed = false
+    private var bookPages: BookPages?
 
     private var contentTop: CGFloat { margin }
     private var contentBottom: CGFloat { pageSize.height - margin - footerHeight }
@@ -71,15 +74,26 @@ final class NotebookPDFWriter {
         self.context = context
     }
 
+    /// The book's pages and their ink, for the pages with handwriting.
+    struct BookPages {
+        /// The book (a private instance; the writer draws its pages on the main actor).
+        let document: PDFDocument?
+        /// The page's stored ink (`nil`: none any more, the page is skipped).
+        let loadInk: @MainActor (Int) async -> Data?
+    }
+
     /// Writes the whole notebook and closes the file.
     /// - Parameters:
     ///   - loadInk: the stored ink of a note (`nil` for none); called only for notes with ink.
+    ///   - bookPages: the book's pages and page ink, for pages with handwriting (`nil`: such
+    ///     pages are left out).
     ///   - progress: fractions in `0..<1` as items are drawn.
     /// - Throws: `CancellationError` when the task is cancelled (the file is closed, not removed;
     ///   the caller removes it).
     func write(_ notebook: Notebook, loadInk: @escaping @MainActor (Note) async -> Data?,
-               progress: @escaping @MainActor (Double) -> Void) async throws {
-        let total = max(1, notebook.totalCounts.notes + notebook.totalCounts.highlights)
+               bookPages: BookPages? = nil, progress: @escaping @MainActor (Double) -> Void) async throws {
+        self.bookPages = bookPages
+        let total = max(1, notebook.totalCounts.items)
         var done = 0
         let step: @MainActor () async throws -> Void = {
             done += 1
@@ -91,7 +105,7 @@ final class NotebookPDFWriter {
         beginPage()
         drawTitleBlock(notebook)
         if NotebookFeed.itemCount(notebook) == 0 {
-            drawText(NSAttributedString(string: "No notes or highlights yet.", attributes: Self.attributes(size: 12, color: .secondaryLabel)),
+            drawText(NSAttributedString(string: "No notes, highlights or handwriting yet.", attributes: Self.attributes(size: 12, color: .secondaryLabel)),
                      x: margin, width: contentWidth)
         }
 
@@ -125,7 +139,7 @@ final class NotebookPDFWriter {
 
     // MARK: Structure
 
-    private static func isExportable(_ page: NotebookPage) -> Bool { page.note != nil || !page.highlights.isEmpty }
+    private static func isExportable(_ page: NotebookPage) -> Bool { page.hasContent }
 
     private func drawSection(_ section: NotebookSection, loadInk: @escaping @MainActor (Note) async -> Data?,
                              step: @MainActor () async throws -> Void) async throws {
@@ -147,6 +161,10 @@ final class NotebookPDFWriter {
         }
         for highlight in page.highlights {
             drawHighlight(highlight, label: label)
+            try await step()
+        }
+        if page.hasInk {
+            try await drawInkedPage(page.pageIndex, label: label)
             try await step()
         }
     }
@@ -197,7 +215,9 @@ final class NotebookPDFWriter {
                  x: margin, width: contentWidth)
         y += 2
         let notes = notebook.totalCounts.notes, highlights = notebook.totalCounts.highlights
-        let counts = "Notebook · \(notes) \(notes == 1 ? "note" : "notes") · \(highlights) \(highlights == 1 ? "highlight" : "highlights")"
+        let inked = notebook.totalCounts.inkedPages
+        var counts = "Notebook · \(notes) \(notes == 1 ? "note" : "notes") · \(highlights) \(highlights == 1 ? "highlight" : "highlights")"
+        if inked > 0 { counts += " · \(inked) \(inked == 1 ? "page" : "pages") of handwriting" }
         drawText(NSAttributedString(string: counts, attributes: Self.attributes(size: 11, color: .secondaryLabel)),
                  x: margin, width: contentWidth)
         y += 6
@@ -364,6 +384,55 @@ final class NotebookPDFWriter {
             y += line.height
         }
         y += 8
+    }
+
+    /// A page with handwriting: "Handwriting" and the book page with its ink, on white, up to
+    /// 300 pt wide (scaled down to fit one page; never split). The page is drawn as the PDF draws
+    /// it (vector, `BookPageDrawing`), the ink with `PageInkRenderer.draw` (vector paths where the
+    /// ink allows, a high-resolution image per textured stroke), colours as stored. A page whose
+    /// ink is gone by now is skipped.
+    private func drawInkedPage(_ pageIndex: Int, label: String) async throws {
+        guard let bookPages, let data = await bookPages.loadInk(pageIndex) else { return }
+        try Task.checkCancellation()
+        autoreleasepool {
+            guard let drawing = try? PKDrawing(data: data) else { return }
+            let page = bookPages.document?.page(at: pageIndex)
+            let geometry = page.map { PageInkGeometry(page: $0) }
+                ?? PageInkGeometry(cropBox: CGRect(origin: .zero, size: Self.defaultPageSize), rotation: 0)
+            let size = geometry.size
+            guard size.width > 0, size.height > 0 else { return }
+            let caption = lines(NSAttributedString(string: "Handwriting",
+                                                   attributes: Self.attributes(size: 9.5, weight: .semibold, color: .secondaryLabel)),
+                                width: bodyWidth)
+            let captionHeight = caption.reduce(0) { $0 + $1.height } + 3
+            var width = min(bodyWidth, 300)
+            var height = width * size.height / size.width
+            let room = contentBottom - contentTop - captionHeight
+            if height > room {
+                height = room
+                width = height * size.width / size.height
+            }
+            ensureRoom(captionHeight + height)
+            drawLabel(label, top: y + 1)
+            for line in caption {
+                draw(line.line, x: bodyX, baseline: y + line.ascent)
+                y += line.height
+            }
+            y += 3
+            let rect = CGRect(x: bodyX, y: y, width: width, height: height)
+            context.saveGState()
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(rect)
+            context.restoreGState()
+            if let page { BookPageDrawing.draw(page, geometry: geometry, in: context, target: rect) }
+            PageInkRenderer.draw(drawing, geometry: geometry, in: context, target: rect)
+            context.saveGState()
+            context.setStrokeColor(UIColor(white: 0.82, alpha: 1).cgColor)
+            context.setLineWidth(0.5)
+            context.stroke(rect.insetBy(dx: 0.25, dy: 0.25))
+            context.restoreGState()
+            y = rect.maxY + 12
+        }
     }
 
     private func drawLabel(_ label: String, top: CGFloat) {

@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import ReaderCore
 import UIKit
 
@@ -44,7 +45,9 @@ nonisolated struct NotebookExportResult: Sendable, Equatable {
 /// expands with a tap.
 ///
 /// ## PDF
-/// See `NotebookPDFWriter`: the faithful format, every note drawn with `NotePageRenderer.draw`.
+/// See `NotebookPDFWriter`: the faithful format, every note drawn with `NotePageRenderer.draw`,
+/// and every page with page ink drawn from the book with its ink (`PageInkRenderer`). The
+/// Markdown names those pages ("_Handwriting on page N_") without an image.
 ///
 /// ## Threading, progress, cancellation, cleanup
 /// The Markdown text, file writes and the zip run off the main thread; ink files are read through
@@ -175,10 +178,14 @@ enum NotebookExporter {
                                   progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
         let url = work.appendingPathComponent(baseName(forBookTitle: book.title) + ".pdf")
         let writer = try NotebookPDFWriter(url: url, bookTitle: book.title)
+        // Pages with handwriting: drawn from a private instance of the book.
+        let bookPages = NotebookPDFWriter.BookPages(
+            document: notebook.totalCounts.inkedPages > 0 ? PDFDocument(url: store.documentURL(for: book)) : nil,
+            loadInk: { page in try? await store.pageInk(bookID: book.id, pageIndex: page) })
         do {
             try await writer.write(notebook, loadInk: { note in
                 try? await store.noteInk(bookID: book.id, noteID: note.id)
-            }, progress: progress)
+            }, bookPages: bookPages, progress: progress)
         } catch {
             writer.close()
             throw error

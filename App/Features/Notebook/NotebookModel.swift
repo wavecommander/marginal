@@ -14,7 +14,11 @@ import ReaderCore
 /// **Staying live.** A Notebook window has no reader session, so the model observes `store.hub`
 /// itself, filtered to its book: note, highlight and bookmark changes from any window schedule a
 /// debounced rebuild (`rebuildDelay`); user-heading changes also rebuild the outline; note-ink
-/// writes bump `inkVersions[noteID]` so an on-screen row reloads that note's ink; `bookDeleted`
+/// writes bump `inkVersions[noteID]` so an on-screen row reloads that note's ink; page-ink writes
+/// and deletions bump `pageInkVersions[page]` (the handwriting row's preview reloads) and schedule
+/// a rebuild, which reads the pages with ink from `store.inkedPages` (cached for every window,
+/// re-listed once after a change), so a page appears when inked and goes when all its ink is
+/// erased; `bookDeleted`
 /// moves to `.missing` (the window's `WindowContext` drops the route or closes the window).
 ///
 /// **Anchor repairs.** After the first successful build, `Notebook.anchorRepairs` are applied
@@ -38,6 +42,11 @@ final class NotebookModel {
     private(set) var buildCount = 0
     /// Per note: increases when its ink file is written or deleted (a row reloads its ink).
     private(set) var inkVersions: [UUID: Int] = [:]
+    /// Per page: increases when its page-ink file is written or deleted (a handwriting row
+    /// reloads its preview).
+    private(set) var pageInkVersions: [Int: Int] = [:]
+    /// Previews of inked pages for the handwriting rows (rendered off the main thread, cached).
+    @ObservationIgnored let pagePreviews: NotebookPagePreviews
 
     @ObservationIgnored let store: LibraryStore
     /// Attributes the anchor repairs this model makes.
@@ -61,6 +70,7 @@ final class NotebookModel {
         self.store = store
         self.bookID = bookID
         self.rebuildDelay = rebuildDelay
+        self.pagePreviews = NotebookPagePreviews(store: store, bookID: bookID)
         self.loadOutlineEntries = outlineEntries ?? { url in await ReaderDocumentLoader.outlineEntries(at: url) }
     }
 
@@ -76,6 +86,7 @@ final class NotebookModel {
     func stop() {
         observation?.cancel()
         rebuildTask?.cancel()
+        pagePreviews.purge()
     }
 
     private func performStart() async {
@@ -101,6 +112,8 @@ final class NotebookModel {
         generation += 1
         let current = generation
         let records = readRecords()
+        // Cached across windows; one directory listing only after a page-ink change.
+        let inkedPages = (try? await store.inkedPages.pages(bookID: book.id)) ?? []
         let outline: Outline
         if let cached = self.outline {
             outline = cached
@@ -108,8 +121,8 @@ final class NotebookModel {
             outline = await ReaderDocumentLoader.buildOutline(entries: rawEntries ?? [], userHeadings: records.headings,
                                                               pageCount: book.pageCount)
         }
-        let built = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: records.notes,
-                                                             highlights: records.highlights, bookmarks: records.bookmarks)
+        let built = await Self.buildNotebook(outline: outline, notes: records.notes, highlights: records.highlights,
+                                             bookmarks: records.bookmarks, inkedPages: inkedPages)
         guard current == generation, phase != .missing else { return }
         self.outline = outline
         notebook = built
@@ -118,7 +131,15 @@ final class NotebookModel {
         applyRepairsOnce(built)
     }
 
-    private func readRecords() -> (notes: [Note], highlights: [Highlight], bookmarks: [Bookmark], headings: [UserHeading]) {
+    /// Builds the tree, pages with ink included, off the main thread.
+    @concurrent
+    private nonisolated static func buildNotebook(outline: Outline, notes: [Note], highlights: [Highlight],
+                                                  bookmarks: [Bookmark], inkedPages: [Int]) async -> Notebook {
+        NotebookBuilder.build(outline: outline, notes: notes, highlights: highlights, bookmarks: bookmarks,
+                              inkedPages: inkedPages)
+    }
+
+    private func readRecords() ->(notes: [Note], highlights: [Highlight], bookmarks: [Bookmark], headings: [UserHeading]) {
         ((try? store.notes.notes(bookID: bookID)) ?? [],
          (try? store.highlights.highlights(bookID: bookID)) ?? [],
          (try? store.bookmarks.bookmarks(bookID: bookID)) ?? [],
@@ -170,8 +191,10 @@ final class NotebookModel {
         case .noteInkChanged(_, let noteID):
             inkVersions[noteID, default: 0] += 1
             snapshots.remove(noteID: noteID)
-        case .pageInkChanged:
-            break
+        case .pageInkChanged(_, let page):
+            // Ink added or erased on a page, in any window: its row appears, changes or goes.
+            pageInkVersions[page, default: 0] += 1
+            scheduleRebuild()
         }
     }
 

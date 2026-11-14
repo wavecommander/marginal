@@ -176,16 +176,27 @@ private struct NotebookContent: View {
         (NotebookFeed.rows(for: notebook, filter: filter), NotebookFeed.scopeEntries(for: notebook))
     }
 
+    /// The type filter: segmented when wide; a menu when narrow, where five segments would be
+    /// truncated.
+    @ViewBuilder
+    private var typePicker: some View {
+        let picker = Picker("Show", selection: $typeKey) {
+            ForEach(NotebookTypeFilter.allCases, id: \.self) { type in
+                Text(type.title).tag(type.rawValue)
+            }
+        }
+        if isWide {
+            picker.pickerStyle(.segmented)
+        } else {
+            picker.pickerStyle(.menu)
+        }
+    }
+
     @ViewBuilder
     private var feedColumn: some View {
         VStack(spacing: 0) {
-            Picker("Show", selection: $typeKey) {
-                ForEach(NotebookTypeFilter.allCases, id: \.self) { type in
-                    Text(type.title).tag(type.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 520)
+            typePicker
+            .frame(maxWidth: 640)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, isWide ? 36 : 16)
             .padding(.top, 12)
@@ -243,7 +254,7 @@ private struct NotebookContent: View {
                     ContentUnavailableView {
                         Label("No Notes Yet", systemImage: "note.text")
                     } description: {
-                        Text("Notes and highlights you make in this book appear here, laid out along its contents.")
+                        Text("Notes, highlights and handwriting you make in this book appear here, laid out along its contents.")
                     } actions: {
                         Button("Open Book") { window.openReader(bookID: model.bookID) }
                             .buttonStyle(.borderedProminent)

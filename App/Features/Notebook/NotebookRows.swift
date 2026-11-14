@@ -100,6 +100,8 @@ struct NotebookRowView: View {
             labelled { pagePill(page) } body: { noteBody(note) }
         case .highlight(let highlight, _):
             labelled { pagePill(highlight.pageIndex) } body: { highlightBody(highlight) }
+        case .handwriting(let page):
+            labelled { pagePill(page) } body: { NotebookHandwritingPreview(pageIndex: page, model: model) }
         }
     }
 
@@ -181,6 +183,7 @@ struct NotebookRowView: View {
         case .pageNote(_, let page): NotebookAccessibilityID.pageNote(PageNumbering.displayNumber(forPageIndex: page))
         case .highlight(let highlight, let index):
             NotebookAccessibilityID.highlight(PageNumbering.displayNumber(forPageIndex: highlight.pageIndex), index)
+        case .handwriting(let page): NotebookAccessibilityID.handwriting(PageNumbering.displayNumber(forPageIndex: page))
         }
     }
 
@@ -205,6 +208,8 @@ struct NotebookRowView: View {
             return "\(NotebookHighlightStyle.name(highlight.color)) highlight, page "
                 + "\(PageNumbering.displayNumber(forPageIndex: highlight.pageIndex)). "
                 + OutlineText.normalizedTitle(highlight.text)
+        case .handwriting(let page):
+            return NotebookHandwriting.accessibilityLabel(pageIndex: page)
         }
     }
 

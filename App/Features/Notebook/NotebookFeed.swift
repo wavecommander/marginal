@@ -12,6 +12,8 @@ nonisolated enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
     /// Notes attached to pages.
     case pageNotes
     case highlights
+    /// Pages with page ink (Pencil highlighter strokes and drawings alike).
+    case handwriting
 
     var title: String {
         switch self {
@@ -19,12 +21,14 @@ nonisolated enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
         case .sectionNotes: "Section Notes"
         case .pageNotes: "Page Notes"
         case .highlights: "Highlights"
+        case .handwriting: "Handwriting"
         }
     }
 
     var allowsSectionNotes: Bool { self == .all || self == .sectionNotes }
     var allowsPageNotes: Bool { self == .all || self == .pageNotes }
     var allowsHighlights: Bool { self == .all || self == .highlights }
+    var allowsHandwriting: Bool { self == .all || self == .handwriting }
 }
 
 /// What part of the book the feed shows (the heading filter column).
@@ -66,7 +70,8 @@ nonisolated struct NotebookFilter: Hashable, Sendable {
     var scope: NotebookScope = .all
     var type: NotebookTypeFilter = .all
     /// Search text; blank shows everything. Matches note text and highlight text,
-    /// case- and diacritic-insensitively (`localizedStandardContains`).
+    /// case- and diacritic-insensitively (`localizedStandardContains`). Handwriting has no text,
+    /// so a search hides it.
     var query: String = ""
 
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -104,6 +109,9 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
         case pageNote(Note, pageIndex: Int)
         /// `indexOnPage`: position among the page's highlights in reading order.
         case highlight(Highlight, indexOnPage: Int)
+        /// A page with page ink, shown as a preview of the page with its ink
+        /// (`NotebookHandwritingPreview`).
+        case handwriting(pageIndex: Int)
     }
 
     let id: String
@@ -117,6 +125,7 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
         case .unfiledHeadingNote(let note, _): note.target.headingAnchor?.pageIndex
         case .pageNote(_, let page): page
         case .highlight(let highlight, _): highlight.pageIndex
+        case .handwriting(let page): page
         }
     }
 
@@ -124,7 +133,7 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
     var note: Note? {
         switch kind {
         case .headingNote(let note, _), .unfiledHeadingNote(let note, _), .pageNote(let note, _): note
-        case .header, .highlight: nil
+        case .header, .highlight, .handwriting: nil
         }
     }
 
@@ -137,7 +146,7 @@ nonisolated struct NotebookScopeEntry: Identifiable, Hashable, Sendable {
     let title: String
     /// 1 for top level (and "Whole book", front matter, unfiled), deeper for nested headings.
     let level: Int
-    /// Notes plus highlights in the scope.
+    /// Notes, highlights and inked pages in the scope.
     let count: Int
 
     var id: String { scope.storageKey }
@@ -147,8 +156,9 @@ nonisolated struct NotebookScopeEntry: Identifiable, Hashable, Sendable {
 nonisolated enum NotebookFeed {
     /// The feed for `filter`, in outline order: front matter; then every heading with content,
     /// depth first, each as its header, its own note, then its pages (each page's note, then its
-    /// highlights in reading order), then its children; then unfiled notes. A header is shown
-    /// only when something under it passes the filter. Bookmark-only pages are not shown.
+    /// highlights in reading order, then its handwriting), then its children; then unfiled notes.
+    /// A header is shown only when something under it passes the filter. Bookmark-only pages are
+    /// not shown. A page's note, highlights and ink are separate rows.
     static func rows(for notebook: Notebook, filter: NotebookFilter) -> [NotebookFeedRow] {
         let query = filter.trimmedQuery
         let type = filter.type
@@ -164,6 +174,9 @@ nonisolated enum NotebookFeed {
                     rows.append(NotebookFeedRow(id: "highlight:" + highlight.id.uuidString,
                                                 kind: .highlight(highlight, indexOnPage: index)))
                 }
+            }
+            if page.hasInk, type.allowsHandwriting, query.isEmpty {
+                rows.append(NotebookFeedRow(id: "ink:\(page.pageIndex)", kind: .handwriting(pageIndex: page.pageIndex)))
             }
             return rows
         }
@@ -214,9 +227,9 @@ nonisolated enum NotebookFeed {
 
     /// The heading filter column: "Whole book", front matter (if it has content), every heading
     /// with content in outline order (indented by level), and unfiled notes (if any). Counts are
-    /// notes plus highlights.
+    /// notes, highlights and inked pages (`NotebookCounts.items`).
     static func scopeEntries(for notebook: Notebook) -> [NotebookScopeEntry] {
-        func count(_ counts: NotebookCounts) -> Int { counts.notes + counts.highlights }
+        func count(_ counts: NotebookCounts) -> Int { counts.items }
         var entries = [NotebookScopeEntry(scope: .all, title: "Whole book", level: 1, count: count(notebook.totalCounts))]
         let front = count(notebook.frontMatterCounts)
         if front > 0 {
@@ -235,9 +248,9 @@ nonisolated enum NotebookFeed {
         return entries
     }
 
-    /// Notes plus highlights in the whole book.
+    /// Notes, highlights and inked pages in the whole book.
     static func itemCount(_ notebook: Notebook) -> Int {
-        notebook.totalCounts.notes + notebook.totalCounts.highlights
+        notebook.totalCounts.items
     }
 
     /// Whether `scope` still exists in `notebook` (a heading may lose its content or be deleted).
@@ -266,7 +279,9 @@ nonisolated enum NotebookFeed {
     }
 
     static func unfiledCount(_ notebook: Notebook) -> Int {
-        notebook.orphanNotes.count + notebook.orphanPages.reduce(0) { $0 + ($1.note == nil ? 0 : 1) + $1.highlights.count }
+        notebook.orphanNotes.count + notebook.orphanPages.reduce(0) {
+            $0 + ($1.note == nil ? 0 : 1) + $1.highlights.count + ($1.hasInk ? 1 : 0)
+        }
     }
 
     static func findSection(_ anchor: HeadingAnchor, in sections: [NotebookSection]) -> NotebookSection? {

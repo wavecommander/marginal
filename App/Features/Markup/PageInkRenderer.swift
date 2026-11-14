@@ -63,6 +63,32 @@ enum PageInkRenderer {
         }
     }
 
+    /// Draws `drawing` as one bitmap made by PencilKit's own renderer so that ink space (the
+    /// whole page given by `geometry`) fills `target` in a y-down `context`, at `pixelsPerPoint`
+    /// device pixels per point of `target`. For previews (the Notebook's handwriting rows), which
+    /// are bitmaps at display resolution anyway. Unlike the vector `draw` methods this is
+    /// **nonisolated**: `PKDrawing` is `Sendable` and renders images on any thread, so previews
+    /// are made off the main thread. Colours are resolved in the light appearance (ink as stored,
+    /// as on the white page), whatever the app's appearance.
+    nonisolated static func drawBitmap(_ drawing: PKDrawing, geometry: PageInkGeometry, in context: CGContext,
+                                       target: CGRect, pixelsPerPoint: CGFloat) {
+        let bounds = geometry.bounds
+        guard !drawing.strokes.isEmpty, bounds.width > 0, bounds.height > 0, target.width > 0, target.height > 0 else { return }
+        let scale = target.width / bounds.width * max(pixelsPerPoint, 1)
+        var image: UIImage?
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            image = drawing.image(from: bounds, scale: scale)
+        }
+        guard let cgImage = image?.cgImage else { return }
+        context.saveGState()
+        context.clip(to: target)
+        // `CGContext.draw` is y-up: flip around the target.
+        context.translateBy(x: target.minX, y: target.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(origin: .zero, size: target.size))
+        context.restoreGState()
+    }
+
     // MARK: Private
 
     /// Draws strokes in the context's current (ink-space) coordinates; `scale` is device units

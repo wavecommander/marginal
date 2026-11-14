@@ -19,6 +19,8 @@ import UIKit
 ///     through `NotePageModel`, i.e. exactly the note page's persisted format);
 ///   - highlights: p. 4 yellow, p. 10 green, p. 19 yellow, p. 25 yellow and green, p. 29 blue;
 ///   - a bookmark on p. 20 (not shown in the Notebook).
+/// - `-seedNotebookPageInk`: also page ink on pp. 2, 18 and 25 (`seedPageInk`), for the
+///   handwriting rows (WP14).
 /// - `-notebookDebugWidth <points>`: the Notebook lays itself out at most this wide (narrow-width
 ///   screenshots on a simulator, which cannot resize windows).
 /// - `-seedNotebookLateNote`: also adds a page note on p. 33 ("Added while the Notebook was
@@ -45,6 +47,7 @@ enum NotebookDebugSeed {
               ((try? store.notes.noteCount(bookID: bookID)) ?? 0) == 0 else { return }
         do {
             try await seed(store: store, book: book)
+            if LaunchOptions.current.seedNotebookPageInk { try await seedPageInk(store: store, bookID: bookID) }
         } catch {
             print("NotebookDebugSeed: \(error)")
         }
@@ -135,6 +138,50 @@ enum NotebookDebugSeed {
         ]
         model.applyUserDrawing(drawing)
         await model.flush()
+    }
+
+    /// `-seedNotebookPageInk`: page ink (ink space: the upright page, points, y down) on p. 2
+    /// (front matter: a marker swipe and a pen underline), p. 18 (under 5.1, nothing else on the
+    /// page: a sketch and a bracket) and p. 25 (under 5.2, which also has a note and highlights:
+    /// a circle and an arrow). Saved through the store, as the page canvas saves.
+    static let pageInkPages = [1, 17, 24]
+
+    static func seedPageInk(store: LibraryStore, bookID: UUID) async throws {
+        let blue = UIColor(red: 0.12, green: 0.31, blue: 0.84, alpha: 1)
+        let red = UIColor(red: 0.84, green: 0.15, blue: 0.24, alpha: 1)
+        let ink = UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+        let yellow = UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 0.5)
+        func circle(center: CGPoint, rx: CGFloat, ry: CGFloat) -> [CGPoint] {
+            (0...24).map { index in
+                let angle = CGFloat(index) / 24 * 2 * .pi + 0.3
+                return CGPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
+            }
+        }
+        let drawings: [Int: [PKStroke]] = [
+            1: [
+                stroke([CGPoint(x: 72, y: 150), CGPoint(x: 400, y: 150)], inkType: .marker, color: yellow, width: 16, seconds: 20),
+                stroke([CGPoint(x: 72, y: 214), CGPoint(x: 330, y: 216)], color: red, width: 2.5, seconds: 21),
+            ],
+            17: [
+                stroke([CGPoint(x: 120, y: 520), CGPoint(x: 480, y: 518)], color: ink, width: 2, seconds: 22),
+                stroke([CGPoint(x: 300, y: 600), CGPoint(x: 301, y: 380)], color: ink, width: 2, seconds: 23),
+                stroke(curve(from: CGPoint(x: 160, y: 590), via: CGPoint(x: 300, y: 470), to: CGPoint(x: 450, y: 390)),
+                       color: blue, width: 4, seconds: 24),
+                stroke([CGPoint(x: 60, y: 100), CGPoint(x: 52, y: 104), CGPoint(x: 52, y: 250), CGPoint(x: 60, y: 254)],
+                       color: red, width: 3, seconds: 25),
+            ],
+            24: [
+                stroke(circle(center: CGPoint(x: 230, y: 330), rx: 150, ry: 34), color: red, width: 3, seconds: 26),
+                stroke([CGPoint(x: 400, y: 420), CGPoint(x: 470, y: 520), CGPoint(x: 455, y: 498),
+                        CGPoint(x: 470, y: 520), CGPoint(x: 444, y: 516)], color: blue, width: 3, seconds: 27),
+                stroke([CGPoint(x: 72, y: 700), CGPoint(x: 520, y: 700)], inkType: .marker,
+                       color: UIColor(red: 0.35, green: 0.78, blue: 0.45, alpha: 0.5), width: 16, seconds: 28),
+            ],
+        ]
+        for page in pageInkPages {
+            let data = PKDrawing(strokes: drawings[page] ?? []).dataRepresentation()
+            try await store.savePageInk(data, bookID: bookID, pageIndex: page, origin: nil)
+        }
     }
 
     private static func curve(from start: CGPoint, via control: CGPoint, to end: CGPoint) -> [CGPoint] {

@@ -66,6 +66,9 @@ public final class LibraryStore {
     /// The raw ink store. **Read only**: writes through it post no change; use the `LibraryStore`
     /// ink methods instead.
     public let inkStore: any InkStore
+    /// The pages with page ink of each book, cached and kept current from this store's hub
+    /// (shared by every window; see `InkedPagesCache`).
+    public let inkedPages: InkedPagesCache
 
     private let context: PostingContext
 
@@ -86,6 +89,7 @@ public final class LibraryStore {
         self.bookmarks = PostingBookmarkRepository(inner: bookmarks, context: context)
         self.headings = PostingHeadingRepository(inner: headings, context: context)
         self.inkStore = inkStore
+        self.inkedPages = InkedPagesCache(inkStore: inkStore, hub: hub)
     }
 
     /// A store backed by `InMemoryRecordStore` and `InMemoryInkStore`, for previews, unit tests,
