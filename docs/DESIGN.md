@@ -133,6 +133,10 @@ ones even where the mockup draws an approximation.
   without leaving markup mode.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and has a zoom
   control (100% to 200%, also pinch). Widening zooms the note page; it does not re-wrap it.
+  The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
+  the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
+  and snapping shut on release; a short slide that stops above the narrowest width just resizes.
+  The toolbar's notes button brings the pane back at the width it had before.
 - **Ink follows the text it annotates.** Each stroke belongs to the paragraph it was drawn over,
   or to the blank space after the text. When typing above makes a paragraph move down or up, its
   strokes move with it. Re-wrapping inside a paragraph does not move that paragraph's own strokes;
