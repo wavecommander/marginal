@@ -126,8 +126,8 @@ ones even where the mockup draws an approximation.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
   An empty note is a placeholder, not a stored record.
 - **Section note** tab opens on the deepest heading in the current page's heading path. The level
-  picker lists the whole path, so a chapter note is one tap up. Below the note it lists the page
-  notes inside that heading's range; tapping one jumps to the page.
+  picker, under the note, lists the whole path, so a chapter note is one tap up (see "Notes panel
+  layout").
 - **Note badges** in Contents mark a heading that has its own note or any page note or highlight
   in its range.
 - **Markup mode** shows the PencilKit tool picker and enables the per-page ink canvases. Drawing
@@ -286,7 +286,7 @@ Added by the owner after the first plan.
     the owner's iPad before it is called done.
 - **Vector ink.** Ink is stored as PencilKit drawings (vector strokes), never as bitmaps, and is
   re-rendered from the strokes at the size it is shown: canvases stay sharp at any zoom, and
-  read-only views (Notebook, section list) draw from the strokes at their display scale instead of
+  read-only views (the Notebook) draw from the strokes at their display scale instead of
   scaling a cached image. PDF exports draw ink as vector paths wherever the stroke's ink can be
   reproduced faithfully that way, and fall back to a high-resolution image only for inks that
   cannot (textured inks such as crayon or watercolour). Markdown export images are bitmaps because
