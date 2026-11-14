@@ -164,6 +164,13 @@ ones even where the mockup draws an approximation.
   page light in Dark Mode. Read-only notes in the Notebook and the section list follow the
   appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
   the PDF draws them.
+- **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
+  note it is showing, page note or section note: a Delete Note action in the note's header,
+  disabled while the note is empty. It asks for confirmation, saying what will go (the typed
+  text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
+  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
+  note's row in "Page notes in this section" and in the Notebook. The change shows in every
+  window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts.
