@@ -12,6 +12,8 @@ import XCTest
 final class SearchUITests: XCTestCase {
     private enum ID {
         static let searchButton = "reader.toolbar.search"
+        static let markupToggle = "reader.toolbar.markup"
+        static let notesSheet = "reader.pane.notesSheet"
         static let pagePill = "reader.pagePill"
         static let historyBack = "reader.toolbar.historyBack"
         static let status = "search.status"
@@ -60,6 +62,16 @@ final class SearchUITests: XCTestCase {
 
     private func row(_ app: XCUIApplication, _ resultID: String) -> XCUIElement {
         app.buttons[ID.resultPrefix + resultID].firstMatch
+    }
+
+    /// Swipes the result list with a fast drag between two of its points. `swipeUp()` refuses it:
+    /// UIKit puts an arrowed popover's content under a zero-size view, so XCUITest reports the
+    /// list's visible frame as empty although the list is on screen and scrolls under a finger.
+    private func swipe(_ list: XCUIElement, up: Bool) {
+        let low = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        let high = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+        (up ? low : high).press(forDuration: 0.05, thenDragTo: up ? high : low,
+                                withVelocity: .fast, thenHoldForDuration: 0)
     }
 
     /// Waits for `element.label` to satisfy `predicate` (thousands separators ignored).
@@ -143,9 +155,9 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(list.exists)
         var slowest: TimeInterval = 0
         for index in 0..<2 {
-            slowest = max(slowest, timed("swipe up \(index) during search") { list.swipeUp() }.1)
+            slowest = max(slowest, timed("swipe up \(index) during search") { swipe(list, up: true) }.1)
             slowest = max(slowest, timed("read page pill during search") { pill(app).label }.1)
-            slowest = max(slowest, timed("swipe down \(index) during search") { list.swipeDown() }.1)
+            slowest = max(slowest, timed("swipe down \(index) during search") { swipe(list, up: false) }.1)
         }
         let during = status(app).label
         XCTAssertTrue(during.hasPrefix("Searching…"), "the interactions did not happen during the search: \(during)")
@@ -162,13 +174,151 @@ final class SearchUITests: XCTestCase {
         XCTAssertEqual(status(app).label, atCancel, "results kept arriving after Cancel")
     }
 
+    /// TSOFT-216: the search popover hangs under the toolbar, pointing at the search button, and
+    /// leaves the toolbar's other buttons in place; once search closes, by any route, the search
+    /// button looks exactly as it did before it was tapped (same pixels, not selected). Covers
+    /// Done, a tap outside, ⇧⌘F and choosing a result, then markup mode (the search
+    /// button must not end up like the filled Markup toggle) and the narrow layout, where the
+    /// notes sheet steps aside and comes back.
+    func testSearchButtonLooksUnchangedAfterSearchCloses() throws {
+        let app = launch(Fixtures.small, "small")
+        let button = app.buttons[ID.searchButton].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 30))
+        var baseline = settledImage(of: button)
+
+        openAndClose(app, baseline, "Done") { app.buttons[ID.done].firstMatch.tap() }
+        openAndClose(app, baseline, "tap outside") {
+            // On the page above the keyboard, once the keyboard is up (a tap while the popover
+            // still moves is dropped); again if the first tap was lost.
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
+            let done = app.buttons[ID.done].firstMatch
+            for _ in 0..<2 where done.exists {
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25)).tap()
+                _ = self.waitFor(done, timeout: 3) { !$0.exists }
+            }
+        }
+        if #available(iOS 18.0, *) {  // hardware-key events (see ReaderUITests' menu test)
+            openAndClose(app, baseline, "⇧⌘F, then Done", open: { self.pressFindUntilOpen(app) }) {
+                app.buttons[ID.done].firstMatch.tap()
+            }
+        }
+        openAndClose(app, baseline, "choosing a result", open: { self.openSearch(app, typing: "amber\n") }) {
+            let result = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", ID.resultPrefix)).firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 30), "no result for amber")
+            result.tap()
+        }
+
+        let markup = app.buttons[ID.markupToggle].firstMatch
+        markup.tap()
+        XCTAssertTrue(waitFor(markup, \.isSelected), "markup did not turn on")
+        baseline = settledImage(of: button)
+        openAndClose(app, baseline, "Done in markup mode") { app.buttons[ID.done].firstMatch.tap() }
+        markup.tap()
+        XCTAssertTrue(waitFor(markup) { !$0.isSelected }, "markup did not turn off")
+
+        XCUIDevice.shared.orientation = .portrait
+        let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch
+        if #available(iOS 26.0, *) { XCTAssertTrue(sheet.waitForExistence(timeout: 15), "no notes sheet") }
+        baseline = settledImage(of: button)
+        openAndClose(app, baseline, "Done in the narrow layout") { app.buttons[ID.done].firstMatch.tap() }
+        if #available(iOS 26.0, *) { XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back") }
+    }
+
+    /// Opens search (the toolbar button by default), checks the panel's place, closes it with
+    /// `close` and waits for the search button to look like `baseline` again.
+    private func openAndClose(_ app: XCUIApplication, _ baseline: UIImage, _ route: String,
+                              open: (() -> Void)? = nil, close: () -> Void) {
+        let button = app.buttons[ID.searchButton].firstMatch
+        let done = app.buttons[ID.done].firstMatch
+        if let open { open() } else { button.tap() }
+        XCTAssertTrue(done.waitForExistence(timeout: 30), "\(route): search did not open")
+        // Under the toolbar, not over it, with the toolbar's other buttons still there.
+        XCTAssertGreaterThanOrEqual(done.frame.minY, button.frame.maxY, "\(route): the panel covers the toolbar")
+        XCTAssertTrue(app.buttons[ID.markupToggle].firstMatch.exists, "\(route): the Markup toggle is gone")
+        close()
+        XCTAssertTrue(waitFor(done) { !$0.exists }, "\(route): search did not close")
+        let after = waitForImage(of: button, matching: baseline)
+        if !Self.looksTheSame(after, baseline) {
+            for (name, image) in [("before", baseline), ("after \(route)", after)] {
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "search button \(name)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            XCTFail("\(route): the search button looks different after search closed")
+        }
+        XCTAssertFalse(button.isSelected, "\(route): the search button is selected")
+    }
+
+    /// ⇧⌘F. Hardware keys are intermittently lost on the iPadOS 27 simulator: one retry.
+    private func pressFindUntilOpen(_ app: XCUIApplication) {
+        let done = app.buttons[ID.done].firstMatch
+        for _ in 0..<2 where !done.exists {
+            app.typeKey("f", modifierFlags: [.command, .shift])
+            _ = done.waitForExistence(timeout: 5)
+        }
+    }
+
+    private func waitFor(_ element: XCUIElement, timeout: TimeInterval = 10,
+                         _ predicate: (XCUIElement) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate(element) { return true }
+            usleep(200_000)
+        } while Date() < deadline
+        return false
+    }
+
+    /// The element's image once two consecutive captures agree (the toolbar has settled).
+    private func settledImage(of element: XCUIElement) -> UIImage {
+        var previous = element.screenshot().image
+        for _ in 0..<50 {
+            usleep(200_000)
+            let image = element.screenshot().image
+            if Self.looksTheSame(image, previous) { return image }
+            previous = image
+        }
+        return previous
+    }
+
+    /// The element's image as soon as it matches `baseline`, or its last image after 10 s.
+    private func waitForImage(of element: XCUIElement, matching baseline: UIImage) -> UIImage {
+        let deadline = Date().addingTimeInterval(10)
+        var image = element.screenshot().image
+        while !Self.looksTheSame(image, baseline) && Date() < deadline {
+            usleep(200_000)
+            image = element.screenshot().image
+        }
+        return image
+    }
+
+    /// Same size and no channel of any pixel more than 8 apart (screenshot encoding noise).
+    private static func looksTheSame(_ a: UIImage, _ b: UIImage) -> Bool {
+        guard let pa = rgba(a), let pb = rgba(b), pa.count == pb.count else { return false }
+        return zip(pa, pb).allSatisfy { abs(Int($0) - Int($1)) <= 8 }
+    }
+
+    private static func rgba(_ image: UIImage) -> [UInt8]? {
+        guard let cg = image.cgImage else { return nil }
+        var data = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: cg.width, height: cg.height,
+                                          bitsPerComponent: 8, bytesPerRow: cg.width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+            return true
+        }
+        return drawn ? data : nil
+    }
+
     // MARK: Screenshots (build/shots/search-*-<system version>.png)
 
     func testScreenshots() throws {
         let app = launch(Fixtures.large, "large")
         openSearch(app, typing: "Fixture page")
         XCTAssertTrue(app.buttons[ID.resume].firstMatch.waitForExistence(timeout: 60), "not capped: \(status(app).label)")
-        app.collectionViews[ID.results].firstMatch.swipeUp()  // dismisses the keyboard
+        swipe(app.collectionViews[ID.results].firstMatch, up: true)  // dismisses the keyboard
         sleep(1)
         try save("search-grouped-landscape")
 
@@ -178,7 +328,7 @@ final class SearchUITests: XCTestCase {
         app.buttons[ID.searchButton].firstMatch.tap()
         XCTAssertTrue(app.buttons[ID.done].firstMatch.waitForExistence(timeout: 30))
         sleep(1)
-        app.collectionViews[ID.results].firstMatch.swipeUp()
+        swipe(app.collectionViews[ID.results].firstMatch, up: true)
         sleep(1)
         try save("search-grouped-portrait")
     }
@@ -189,7 +339,7 @@ final class SearchUITests: XCTestCase {
                          ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
         openSearch(app, typing: "amber")
         XCTAssertTrue(waitForLabel(status(app), "1 result"), status(app).label)
-        app.collectionViews[ID.results].firstMatch.swipeUp()
+        swipe(app.collectionViews[ID.results].firstMatch, up: true)
         sleep(1)
         try save("search-large-text")
     }

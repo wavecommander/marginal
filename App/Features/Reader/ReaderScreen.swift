@@ -38,6 +38,11 @@ struct ReaderScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// The search panel is on screen (from its appearance until its dismissal has finished).
     @State private var isSearchPanelOnScreen = false
+    /// The search button's frame in the reader's coordinates, as last measured. Kept after search
+    /// closes so the popover does not move while it is dismissed.
+    @State private var searchAnchor = CGRect.zero
+    /// `searchAnchor` has been measured since search last opened.
+    @State private var isSearchAnchored = false
     /// The notes pane's width while its handle slides it shut (below its narrowest width).
     @State private var notesCollapsingWidth: CGFloat?
 
@@ -57,6 +62,22 @@ struct ReaderScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        // The search popover hangs from the reader, pointing at the toolbar's search button (see
+        // `SearchAnchorReader`), so the button is never its source. It presents once the button
+        // has been measured for this opening.
+        .background(SearchAnchorReader(isActive: session.isSearchVisible) { frame in
+            searchAnchor = frame
+            isSearchAnchored = true
+        })
+        .popover(isPresented: searchPopoverBinding, attachmentAnchor: .rect(.rect(searchAnchor)), arrowEdge: .top) {
+            SearchPanel(session: session)
+                .environment(session)
+                .onAppear { isSearchPanelOnScreen = true }
+                .onDisappear { isSearchPanelOnScreen = false }
+        }
+        .onChange(of: session.isSearchVisible) { _, visible in
+            if !visible { isSearchAnchored = false }
+        }
         .navigationTitle(session.book.title)
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
@@ -154,6 +175,11 @@ struct ReaderScreen: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var searchPopoverBinding: Binding<Bool> {
+        Binding(get: { session.isSearchVisible && isSearchAnchored },
+                set: { shown in if !shown { session.isSearchVisible = false } })
+    }
+
     private var notesSheetBinding: Binding<Bool> {
         // While search is up the sheet steps aside (one presentation at a time) without
         // changing `isNotesVisible`, and it comes back once the search panel's dismissal has
@@ -235,18 +261,13 @@ struct ReaderScreen: View {
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
     }
 
-    /// The search button and the anchor of the search popover, in both modes.
+    /// The search button, in both modes. The search popover points at it but is not attached to
+    /// it (see `SearchAnchorReader`).
     private var searchButton: some View {
         Button { session.isSearchVisible = true } label: {
-            Label("Search Book and Notes", systemImage: "magnifyingglass")
+            Label(SearchAnchorReader.searchTitle, systemImage: "magnifyingglass")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.search)
-        .popover(isPresented: $session.isSearchVisible) {
-            SearchPanel(session: session)
-                .environment(session)
-                .onAppear { isSearchPanelOnScreen = true }
-                .onDisappear { isSearchPanelOnScreen = false }
-        }
     }
 
     /// The label says the state ("Hide Notes" while shown); an accessibility value here would not
@@ -598,6 +619,86 @@ private extension View {
                     .accessibilityIdentifier(AccessibilityID.Reader.titleBlock)
                 }
             }
+        }
+    }
+}
+
+/// Measures the toolbar's search button for the search popover (TSOFT-216).
+///
+/// A popover attached to a toolbar button has the bar button item as its source, and on
+/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (search, bookmark,
+/// Markup, notes, More) into the popover: the popover covers the bar while it is open (those
+/// buttons are gone), and on the owner's iPad the button was left looking selected after the
+/// morph back. Attached to the reader with the button's frame as its anchor rect, it is a plain
+/// popover under the bar whose arrow points at the button, and the toolbar is left alone.
+///
+/// SwiftUI gives no toolbar item's frame, so this invisible view, laid out over the reader,
+/// finds the bar button item by its title in its view controller's navigation item and reports
+/// `frame(in:)` in its own (the reader's) coordinates: once after search opens (the toolbar is
+/// laid out by then) and again on every layout while it is open (window resized).
+private struct SearchAnchorReader: UIViewRepresentable {
+    /// The search button's label, which is also its bar button item's title.
+    static let searchTitle = "Search Book and Notes"
+
+    let isActive: Bool
+    let onMeasure: (CGRect) -> Void
+
+    func makeUIView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: AnchorView, context: Context) {
+        view.onMeasure = onMeasure
+        view.isActive = isActive
+    }
+
+    final class AnchorView: UIView {
+        var onMeasure: ((CGRect) -> Void)?
+        var isActive = false {
+            didSet {
+                guard isActive && !oldValue else { return }
+                reported = nil
+                scheduleMeasure()
+            }
+        }
+        /// The frame last reported in this opening (only changes are reported again).
+        private var reported: CGRect?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if isActive { scheduleMeasure() }
+        }
+
+        /// After the current update pass (SwiftUI state must not change during one).
+        private func scheduleMeasure() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isActive else { return }
+                let frame = self.searchItemFrame()
+                guard frame != self.reported else { return }
+                self.reported = frame
+                self.onMeasure?(frame)
+            }
+        }
+
+        /// The search item's frame. Should the system ever lay the toolbar out without it (none
+        /// seen), the popover hangs from the reader's top trailing corner instead.
+        private func searchItemFrame() -> CGRect {
+            var responder: UIResponder? = self
+            while let next = responder?.next {
+                if let controller = next as? UIViewController {
+                    let navigationItem = controller.navigationItem
+                    let items = navigationItem.trailingItemGroups.flatMap(\.barButtonItems)
+                        + (navigationItem.rightBarButtonItems ?? [])
+                    if let item = items.first(where: { $0.title == SearchAnchorReader.searchTitle }),
+                       let frame = item.frame(in: self) {
+                        return frame
+                    }
+                }
+                responder = next
+            }
+            return CGRect(x: bounds.maxX, y: bounds.minY, width: 0, height: 0)
         }
     }
 }
