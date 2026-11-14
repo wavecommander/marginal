@@ -174,10 +174,11 @@ ones even where the mockup draws an approximation.
   return to, not only something they see when they happen to scroll past it:
   - every page with ink is listed in the Notebook under its section, with a preview of the ink
     on its page, filterable as its own type, and included in the Notebook's PDF export;
-  - the sidebar lists pages with ink alongside bookmarks, and flags them in the Pages grid;
-  - Contents note badges count pages with ink, as they count page notes and highlights;
-  - each of these jumps to the page through the reader's jump API, so section history records
-    it; and the lists update as ink is added or erased, in any window.
+  - tapping such a row jumps to the page through the reader's jump API, so section history
+    records it; and the Notebook updates as ink is added or erased, in any window.
+  - *Owner decision, 14 November 2026: ink navigation lives in the Notebook.* The earlier plan
+    to also list inked pages in the sidebar, flag them in the Pages grid and count them in
+    Contents badges is dropped.
 - **The notes pane follows the system appearance** (owner requirement). In Dark Mode the whole
   notes pane is dark, including the note page itself: dark paper, light typed text, and ink that
   stays legible, using PencilKit's own light and dark ink rendering so a stroke drawn in one
@@ -249,7 +250,8 @@ Added by the owner after the first plan.
   finger. The `-inkAnyInput` test switch forces any-input drawing.
 - **Scribble.** Every text input (notes, search, go-to-page, titles) is a standard text control so
   Scribble works in it without extra code.
-- **Handwriting to text in notes** (owner requirement). Writing in a note with the Pencil and
+- **Handwriting to text in notes** (owner requirement; *confirmed working as is by the owner on
+  14 November 2026, no further work planned*). Writing in a note with the Pencil and
   having it become typed text must work, and is treated as a feature to verify, not a side effect:
   - *Markup mode off:* Scribble works anywhere on the note page, including an empty note and the
     blank space below the text (the whole page is a writing target, not just the lines that
