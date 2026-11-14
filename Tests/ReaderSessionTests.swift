@@ -276,6 +276,41 @@ struct ReaderSessionTests {
         #expect(restored.currentPageIndex == 11)
     }
 
+    @Test func notesForARequestedHeading() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        let anchor = HeadingAnchor(userHeadingID: UUID())
+        session.isNotesVisible = false
+        session.showNotes(.section, heading: anchor)
+        #expect(session.isNotesVisible && session.notesTab == .section)
+        #expect(session.requestedSectionHeading == anchor)
+        #expect(session.takeRequestedSectionHeading() == anchor)
+        #expect(session.requestedSectionHeading == nil)
+        session.showNotes(.page, heading: anchor)  // a heading only applies to the Section tab
+        #expect(session.requestedSectionHeading == nil && session.notesTab == .page)
+    }
+
+    @Test func addHeadingRequestCarriesPageAndTitleAndShowsContents() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        session.pdfReportedCurrentPage(4)
+        session.isContentsVisible = false
+        session.requestAddHeading()
+        #expect(session.pendingAddHeadingRequest?.pageIndex == 4)
+        #expect(session.pendingAddHeadingRequest?.suggestedTitle == nil)
+        #expect(session.isContentsVisible)
+        session.isNarrowLayout = true
+        session.requestAddHeading(atPage: 7, suggestedTitle: "  Eigenvalues \n")
+        #expect(session.isContentsOverlayVisible)
+        let request = session.takeAddHeadingRequest()
+        #expect(request?.pageIndex == 7 && request?.suggestedTitle == "Eigenvalues")
+        #expect(session.pendingAddHeadingRequest == nil)
+        session.requestAddHeading(atPage: 999)  // out of range: the current page
+        #expect(session.pendingAddHeadingRequest?.pageIndex == 4)
+    }
+
     // MARK: Markup
 
     @Test func markupRoutesUndoToLastActiveSurfaceAndFlushes() async throws {
