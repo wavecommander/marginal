@@ -125,6 +125,22 @@ final class NotePageUITests: XCTestCase {
         XCTAssertEqual(textView(again).label, "Note with handwriting")
     }
 
+    /// Turning markup on for the first time while the note's text view is first responder (the
+    /// case where PencilKit animated the picker's first layout from the top of the screen,
+    /// TSOFT-219) shows the picker once, for the text view.
+    func testFirstMarkupEntryWhileTypingShowsThePickerOnce() {
+        let app = launch(fresh: true, markup: false)
+        textView(app).tap()
+        textView(app).typeText("Typing first")
+        XCTAssertTrue(wait(textView(app), "value == %@", "Typing first"))
+        app.buttons["reader.toolbar.markup"].firstMatch.tap()
+        XCTAssertTrue(pickerShown(app))
+        // The probe's Undo never moves first responder; tapping waits for the app to go idle.
+        undoInk(app)
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "shows=1 "), "shown once")
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=auxiliary"), "still typing in the note")
+    }
+
     func testTypingWithMarkupOnByTapping() {
         let app = launch(fresh: true, markup: true)
         textView(app).tap()

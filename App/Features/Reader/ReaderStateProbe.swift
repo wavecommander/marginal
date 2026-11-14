@@ -5,8 +5,9 @@ import UIKit
 /// XCUITest on iPadOS 26+ (see `ReaderScreen.markupToggle`). Never created in normal runs.
 ///
 /// - `reader.markupState`: value read live on every query, space-separated `key=value` tokens:
-///   `markup=on|off picker=shown|hidden notes=shown|hidden responder=markup|surface|auxiliary|other`
-///   `undo=yes|no redo=yes|no heardUndo=yes|no heardRedo=yes|no posts=N`. `undo`/`redo` are the
+///   `markup=on|off picker=shown|hidden shows=N notes=shown|hidden`
+///   `responder=markup|surface|auxiliary|other undo=yes|no redo=yes|no heardUndo=yes|no`
+///   `heardRedo=yes|no posts=N`. `shows` counts the tool picker's appearances. `undo`/`redo` are the
 ///   markup responder's undo manager (`MarkupRoutingUndoManager`) now; `heard…` is what a listener
 ///   of that manager's notifications (as the tool picker is) read in the last one, and `posts`
 ///   how many it has heard.
@@ -63,6 +64,7 @@ enum ReaderStateProbe {
                 func word(_ value: Bool) -> String { value ? "yes" : "no" }
                 return ["markup=\(session.isMarkupMode ? "on" : "off")",
                         "picker=\(markup.isToolPickerVisible ? "shown" : "hidden")",
+                        "shows=\(markup.toolPickerShowCount)",
                         "notes=\(session.isNotesVisible ? "shown" : "hidden")",
                         "responder=\(markup.firstResponderKind)",
                         "undo=\(word(manager?.canUndo ?? false))", "redo=\(word(manager?.canRedo ?? false))",
