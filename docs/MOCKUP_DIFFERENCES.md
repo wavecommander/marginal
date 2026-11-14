@@ -92,3 +92,17 @@ mockups' sample book by construction and are not listed.
 | The book page stays white in every screen, including page previews in the Notebook; the note page, the notes pane, the sidebar and the Notebook are dark. | Intentional: "The notes pane follows the system appearance". |
 | On the dark note page a yellow highlighter stroke is drawn as PencilKit's dark-appearance yellow (a darker olive), and black ink as near-white. | Intentional: "using PencilKit's own light and dark ink rendering"; the stored strokes are unchanged. |
 | The tool picker's swatches follow the system appearance while the target is the white book page. | Open owner decision (`toolPicker.colorUserInterfaceStyle`); on the device checklist. |
+
+## Largest accessibility text size (`*-xxxl.jpg`)
+
+Not in the mockups; checked in WP12 at Accessibility XXXL (`TEST_RUNNER_MOCKUP_ARGS=
+"-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL"`,
+`TEST_RUNNER_MOCKUP_SUFFIX=-xxxl`).
+
+| Finding | Status |
+| --- | --- |
+| Contents rows showed no title at all (badge, mark and page number took the 280 pt row). | **Fixed in WP12:** at accessibility sizes the title takes the row and the mark, badge and page number go under it; indentation stops growing with the text. |
+| Notes pane header: tabs cut to "Page…" / "Sectio…", zoom wrapped to "200 / %", section titles and the level picker cut to "5.2…". | **Fixed in WP12:** the header is capped at Accessibility 1 like toolbar controls, and the page range goes under the section title. The note and the lists below keep the full size. "Section note" can still show as "Section n…". |
+| "Add Heading at Page N" under Contents wrapped to five lines. | **Fixed in WP12:** capped at Accessibility 1. |
+| The note page's default zoom follows Dynamic Type (200%), wider than the 330 pt pane, so the note scrolls sideways until the pane is widened. | Open: by design ("Dynamic Type sets the default zoom"); a cap at the pane's width is an owner choice. |
+| The Notebook's filter column hyphenates long headings ("3 Matri-ces"). | Open (cosmetic). |
