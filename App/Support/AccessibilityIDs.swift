@@ -14,6 +14,12 @@ nonisolated enum AccessibilityID {
         static let viewportAnchor = "reader.viewportAnchor"
         /// Test hook (`-exposeSelection`): label = selected text, value "pages P; ms T".
         static let selectionProbe = "reader.selectionProbe"
+        /// Test hooks (`-exposeMarkupState`, `ReaderStateProbe`): markup, tool picker, notes and
+        /// undo state as `key=value` tokens; the two buttons undo / redo through the markup
+        /// responder's undo manager.
+        static let markupState = "reader.markupState"
+        static let markupUndoProbe = "reader.markupUndo"
+        static let markupRedoProbe = "reader.markupRedo"
         static let loading = "reader.loading"
 
         // Toolbar

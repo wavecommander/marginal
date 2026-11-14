@@ -264,6 +264,15 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         }
     }
 
+    /// Which of this window's responders is first responder (test hook, `ReaderStateProbe`):
+    /// `markup` (the responder view), `surface` (a registered canvas), `auxiliary`, or `other`.
+    var firstResponderKind: String {
+        if responderView.isFirstResponder { return "markup" }
+        if surfaces.values.contains(where: { $0.value?.canvasView.isFirstResponder == true }) { return "surface" }
+        if auxiliaryResponders.contains(where: { $0.value?.isFirstResponder == true }) { return "auxiliary" }
+        return "other"
+    }
+
     /// The responder view moved into a window (called by `MarkupResponderView`).
     func responderViewDidMoveToWindow() {
         updateBackSwipe()
