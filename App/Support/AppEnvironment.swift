@@ -31,6 +31,8 @@ final class AppEnvironment {
         var readerOverrides: ReaderOverrides?
         /// `-alsoOpenWindow`: open a second reader window on this book.
         var alsoOpenBookID: UUID?
+        /// `-alsoOpenWindowPage`: the zero-based page that window opens at.
+        var alsoOpenPageIndex: Int?
         /// Import failures, for diagnostics.
         var errors: [String] = []
     }
@@ -116,6 +118,7 @@ final class AppEnvironment {
         }
         if let title = launchOptions.alsoOpenWindow {
             plan.alsoOpenBookID = book(titled: title)?.id
+            plan.alsoOpenPageIndex = launchOptions.alsoOpenWindowPage.map(PageNumbering.pageIndex(forDisplayNumber:))
         }
         return plan
     }

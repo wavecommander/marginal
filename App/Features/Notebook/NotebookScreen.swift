@@ -378,19 +378,10 @@ private struct NotebookContent: View {
 /// Opening the reader from the Notebook in another window.
 @MainActor
 enum NotebookNavigation {
-    /// Opens a new reader window on the book at `pageIndex`.
-    ///
-    /// The shell's `openReaderInNewWindow(bookID:)` takes no page, and a new reader window starts
-    /// at the book's stored last-read page (it has no restored state). So the page is stored as
-    /// the last-read page first, then the window is opened. This is the one place to change when
-    /// the shell gains `openReaderInNewWindow(bookID:pageIndex:)`.
+    /// Opens a new reader window on the book at `pageIndex` (the shell applies the page once,
+    /// when the window is created; the book's stored last-read page is left alone).
     static func openInNewWindow(bookID: UUID, pageIndex: Int, store: LibraryStore, window: WindowContext) {
-        if var book = try? store.books.book(id: bookID),
-           PageNumbering.isValid(pageIndex, pageCount: book.pageCount), book.lastReadPageIndex != pageIndex {
-            book.lastReadPageIndex = pageIndex
-            try? store.books.save(book)
-        }
-        window.openReaderInNewWindow(bookID: bookID)
+        window.openReaderInNewWindow(bookID: bookID, pageIndex: pageIndex)
     }
 }
 

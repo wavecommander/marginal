@@ -14,6 +14,9 @@ struct WindowRootView: View {
     /// What the window shows first when it has no restored state (a reader or Notebook window's
     /// value).
     let initialRoute: WindowRoute?
+    /// The page a new reader window opens at (`ReaderWindowValue.pageIndex`); used only when the
+    /// window has no restored state.
+    var initialPageIndex: Int? = nil
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow
@@ -46,10 +49,15 @@ struct WindowRootView: View {
         } else if let initialRoute {
             path = [initialRoute]
         }
+        let opensAtPage: (bookID: UUID, page: Int)? = if storedPath == nil, let initialPageIndex,
+            case .reader(let bookID)? = initialRoute { (bookID, initialPageIndex) } else { nil }
         // A restored window never shows a reader or Notebook of a book that is gone: those
         // screens are dropped (a reader/Notebook window left empty shows the Library).
         path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
+        if let opensAtPage {
+            context.setReaderOverrides(ReaderOverrides(pageIndex: opensAtPage.page), for: opensAtPage.bookID)
+        }
         context.openWindowAction = openWindow
         context.scene = scene
         self.context = context
@@ -82,7 +90,7 @@ struct WindowRootView: View {
         if let bookID = plan.alsoOpenBookID {
             // Let the first window settle before the system brings in the second.
             try? await Task.sleep(for: .milliseconds(800))
-            context.openReaderInNewWindow(bookID: bookID)
+            context.openReaderInNewWindow(bookID: bookID, pageIndex: plan.alsoOpenPageIndex)
         }
     }
 }

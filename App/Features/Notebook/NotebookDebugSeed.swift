@@ -4,8 +4,8 @@ import PencilKit
 import ReaderCore
 import UIKit
 
-/// DEBUG-only seeding for UI tests and screenshots (read from the process arguments here, not
-/// through `LaunchOptions`, so the shell is untouched; fold into `LaunchOptions` later).
+/// DEBUG-only seeding for UI tests and screenshots. The arguments are parsed by `LaunchOptions`
+/// (`seedNotebook`, `seedNotebookLateNote`, `notebookDebugWidth`).
 ///
 /// - `-seedNotebook`: when a Notebook first appears, after the launch's fixture import, seeds its
 ///   book (once per process; skipped if the book already has notes) with a deterministic set
@@ -30,16 +30,11 @@ enum NotebookDebugSeed {
     static let lateNoteArgument = "-seedNotebookLateNote"
     static let lateNoteText = "Added while the Notebook was open."
 
-    static var isRequested: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
+    static var isRequested: Bool { LaunchOptions.current.seedNotebook }
 
     /// `-notebookDebugWidth <points>`: the Notebook lays itself out at most this wide.
-    static let debugWidth: CGFloat? = {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard let index = arguments.firstIndex(of: "-notebookDebugWidth"), index + 1 < arguments.count,
-              let value = Double(arguments[index + 1]), value > 0 else { return nil }
-        return CGFloat(value)
-    }()
-    static var isLateNoteRequested: Bool { ProcessInfo.processInfo.arguments.contains(lateNoteArgument) }
+    static let debugWidth: CGFloat? = LaunchOptions.current.notebookDebugWidth.map { CGFloat($0) }
+    static var isLateNoteRequested: Bool { LaunchOptions.current.seedNotebookLateNote }
 
     private static var seeded = Set<UUID>()
 

@@ -256,6 +256,49 @@ final class ReaderUITests: XCTestCase {
         return parts.count > 1 ? Int(parts[1]) ?? -1 : -1
     }
 
+    /// `openReaderInNewWindow(bookID:pageIndex:)`: the new window opens at that page, once, and
+    /// the book's stored last-read page is not touched to get there.
+    func testNewWindowOpensAtRequestedPage() {
+        let app = openSmall(["-alsoOpenWindow", "small", "-alsoOpenWindowPage", "9"])
+        let pills = app.buttons.matching(identifier: ReaderID.pagePill)
+        let deadline = Date().addingTimeInterval(30)
+        while pills.count < 2 && Date() < deadline { usleep(250_000) }
+        XCTAssertEqual(pills.count, 2)
+        sleep(2)
+        let labels = Set((0..<pills.count).map { pills.element(boundBy: $0).label })
+        XCTAssertEqual(labels, ["Page 1 of 12", "Page 9 of 12"])
+        closeFrontWindow(app)
+        if app.buttons.matching(identifier: ReaderID.pagePill).count > 1 { closeFrontWindow(app) }
+    }
+
+    /// Find (⇧⌘F) works in markup mode: the search panel opens and markup stays on.
+    func testFindWorksInMarkupMode() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("hardware-key events (see the menu test)") }
+        let app = openSmall(["-markup"])
+        XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 30))
+        sleep(2)
+        app.typeKey("f", modifierFlags: [.command, .shift])
+        XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
+        app.buttons["search.done"].firstMatch.tap()
+        XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5), "markup ended")
+        // The toolbar's search button is there in markup mode too.
+        XCTAssertTrue(app.buttons["reader.toolbar.search"].firstMatch.exists)
+    }
+
+    /// Narrow width, iPadOS 26+: opening search makes the notes sheet step aside, and closing
+    /// search brings it back (the notes stay "shown").
+    func testSearchAndNarrowNotesSheetCoexist() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("the system notes sheet is iPadOS 26+") }
+        XCUIDevice.shared.orientation = .portrait
+        let app = openSmall()
+        let sheet = element(app, ReaderID.notesSheet)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 15))
+        app.buttons["reader.toolbar.search"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
+        app.buttons["search.done"].firstMatch.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back")
+    }
+
     func testAlsoOpenWindowShowsSecondReaderWithIndependentPage() {
         let app = openSmall(["-openPage", "7", "-alsoOpenWindow", "small"])
         // Each reader window has its own page pill; both are in the hierarchy once the second opens.
@@ -299,10 +342,19 @@ final class ReaderUITests: XCTestCase {
     /// shortcut equal to a system one): drive every state through keyboard shortcuts, which
     /// forces UIKit to rebuild and re-enumerate the main menu each time, and check the app is
     /// still alive afterwards (the crash was delayed and silent to earlier assertions).
-    func testMenuCommandsStayStableAcrossStates() {
+    func testMenuCommandsStayStableAcrossStates() throws {
+        // Driven by hardware-key events, which XCUITest does not deliver reliably on the iPadOS
+        // 17.5 simulator (unverified on a real iPadOS 17 keyboard); routine 17 testing is
+        // suspended, so below iOS 18 this test is skipped rather than left red.
+        guard #available(iOS 18.0, *) else {
+            throw XCTSkip("hardware-key events are unreliable on the iPadOS 17.5 simulator")
+        }
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         sleep(2)  // hardware-key events need the window to have become key
+        app.typeKey("g", modifierFlags: [.command, .control])         // Next Result (no search: disabled)
+        app.typeKey("g", modifierFlags: [.command, .control, .shift]) // Previous Result (disabled)
+        app.typeKey("h", modifierFlags: [.command, .option])          // Add Heading at This Page…
         app.typeKey("a", modifierFlags: [.command, .shift])          // Markup
         XCTAssertTrue(app.buttons[ReaderID.done].waitForExistence(timeout: 5))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup

@@ -473,6 +473,57 @@ final class ReaderSession: Identifiable {
         notesTab = tab
         isNotesVisible = true
     }
+
+    /// A heading the Section tab should show instead of the current page's deepest heading
+    /// (a same-page sibling, a chapter note opened from search or the Notebook). Set by
+    /// `showNotes(_:heading:)`; the notes panel observes it, shows that heading, and clears it
+    /// with `takeRequestedSectionHeading()`. `nil` when nothing is pending.
+    private(set) var requestedSectionHeading: HeadingAnchor?
+
+    /// Shows the notes panel on the Section tab for `heading` (stored anchors are fine: the
+    /// panel resolves them against the current outline).
+    func showNotes(_ tab: NotesTab, heading: HeadingAnchor?) {
+        requestedSectionHeading = tab == .section ? heading : nil
+        showNotes(tab)
+    }
+
+    /// A request to add a heading of the reader's own (design: "The reader's own headings"),
+    /// made from the More menu, the menu bar or a text selection. The Contents sidebar (WP5)
+    /// observes `pendingAddHeadingRequest`, presents its add-heading sheet and clears the
+    /// request with `takeAddHeadingRequest()`.
+    struct AddHeadingRequest: Equatable, Identifiable, Sendable {
+        /// Distinguishes two requests for the same page.
+        let id = UUID()
+        /// Zero-based page the heading starts on.
+        var pageIndex: Int
+        /// Title to pre-fill (e.g. the selected text), or `nil`.
+        var suggestedTitle: String?
+    }
+
+    /// The pending add-heading request, `nil` when none. Per window.
+    private(set) var pendingAddHeadingRequest: AddHeadingRequest?
+
+    /// Asks the Contents sidebar to add a heading at `atPage` (default: the current page),
+    /// optionally pre-filled with `suggestedTitle`. Also shows Contents (the sidebar at wide
+    /// widths, the overlay at narrow widths), because the sidebar presents the sheet.
+    func requestAddHeading(atPage pageIndex: Int? = nil, suggestedTitle: String? = nil) {
+        let page = pageIndex.flatMap { PageNumbering.isValid($0, pageCount: pageCount) ? $0 : nil } ?? currentPageIndex
+        let title = suggestedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingAddHeadingRequest = AddHeadingRequest(pageIndex: page, suggestedTitle: title?.isEmpty == false ? title : nil)
+        if isNarrowLayout { isContentsOverlayVisible = true } else { isContentsVisible = true }
+    }
+
+    /// For the sidebar: the pending add-heading request, cleared on read.
+    func takeAddHeadingRequest() -> AddHeadingRequest? {
+        defer { pendingAddHeadingRequest = nil }
+        return pendingAddHeadingRequest
+    }
+
+    /// For the notes panel: the pending requested heading, cleared on read.
+    func takeRequestedSectionHeading() -> HeadingAnchor? {
+        defer { requestedSectionHeading = nil }
+        return requestedSectionHeading
+    }
     func showSearch() { isSearchVisible = true }
     func showGoToPage() { isGoToPageVisible = true }
 
@@ -513,6 +564,12 @@ final class ReaderSession: Identifiable {
         let made = make()
         featureStates[key] = made
         return made
+    }
+
+    /// The feature state of type `T` if it has been created, without creating it (e.g. menu
+    /// commands that are disabled while there is no search).
+    func existingFeatureState<T: AnyObject>(_ type: T.Type) -> T? {
+        featureStates[ObjectIdentifier(type)] as? T
     }
 
     /// Keeps a feature controller alive for the session's lifetime (used by
