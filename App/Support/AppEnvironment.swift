@@ -28,6 +28,9 @@ final class AppEnvironment {
     @ObservationIgnored let backupFolderStore: BackupFolderStore
     /// The Google Drive connection (sign in, sign out, state) behind the Google Drive destination.
     @ObservationIgnored let googleDriveAccount: GoogleDriveAccount
+    /// Tactile Texts Cloud (subscription, account, destination); `nil` unless the build sets
+    /// `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` (empty by default).
+    @ObservationIgnored let cloudBackup: TactileCloudBackup?
     /// Automatic-backup preferences and the outcome of the last automatic run.
     @ObservationIgnored let backupAutomaticSettings: BackupAutomaticSettings
     /// Runs automatic backups (`MarginalApp` registers its background task and forwards the
@@ -51,7 +54,9 @@ final class AppEnvironment {
         var errors: [String] = []
     }
 
-    init(store: LibraryStore, launchOptions: LaunchOptions, storeErrorMessage: String? = nil) {
+    /// - Parameter infoDictionary: the build's settings (the app's `Info.plist`; tests pass their own).
+    init(store: LibraryStore, launchOptions: LaunchOptions, storeErrorMessage: String? = nil,
+         infoDictionary: [String: Any]? = Bundle.main.infoDictionary) {
         self.store = store
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
@@ -76,6 +81,13 @@ final class AppEnvironment {
         // S3-compatible bucket when the build is configured for one. Each reports itself
         // unavailable (no folder chosen, no iCloud in this build, not signed in) when it is.
         for destination in local.all + cloud.all { backupDestinations.register(destination) }
+        // Tactile Texts Cloud, last, only when the build is configured for the service.
+        let cloudBackup = TactileCloudBackup.make(infoDictionary: infoDictionary)
+        self.cloudBackup = cloudBackup
+        if let cloudBackup {
+            backupDestinations.register(cloudBackup.destination)
+            cloudBackup.start()
+        }
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
         backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
         backupScheduler.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }

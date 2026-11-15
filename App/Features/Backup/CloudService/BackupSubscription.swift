@@ -13,15 +13,20 @@ nonisolated struct BackupSignedTransaction: Hashable, Sendable, CustomStringConv
     let originalTransactionID: UInt64
     /// When it expires (or expired); the service decides what an expired one still allows.
     let expirationDate: Date?
+    /// The subscription's renewal info as the App Store signed it, when StoreKit has it verified
+    /// (it lets the service count Apple's grace and billing-retry periods). Never described.
+    var signedRenewalInfo: String? = nil
 
     var description: String {
         "BackupSignedTransaction(product: \(productID), transaction: \(transactionID), "
-            + "expires: \(expirationDate.map { "\($0)" } ?? "never"), jws: <redacted>)"
+            + "expires: \(expirationDate.map { "\($0)" } ?? "never"), jws: <redacted>, "
+            + "renewalInfo: \(signedRenewalInfo == nil ? "none" : "<redacted>"))"
     }
     var debugDescription: String { description }
     var customMirror: Mirror {
         Mirror(self, children: ["productID": productID, "transactionID": transactionID,
-                                "expirationDate": expirationDate as Any, "jws": "<redacted>"], displayStyle: .struct)
+                                "expirationDate": expirationDate as Any, "jws": "<redacted>",
+                                "signedRenewalInfo": signedRenewalInfo == nil ? "none" : "<redacted>"], displayStyle: .struct)
     }
 }
 
@@ -211,13 +216,24 @@ final class BackupSubscription {
 
     /// The newest verified transaction for a backup product, expired or not, to identify the
     /// reader to the backup service; `nil` when there is none (never subscribed, or only
-    /// unverified transactions).
+    /// unverified transactions). Carries the subscription's verified renewal info when StoreKit
+    /// reports a status for it (the products must have been loaded for their group).
     func signedTransaction() async -> BackupSignedTransaction? {
         guard !productIDs.isEmpty else { return nil }
         let transactions = await store.transactions(for: Set(productIDs))
         guard let newest = Self.newestVerified(transactions, productIDs: Set(productIDs)) else { return nil }
-        return BackupSignedTransaction(jws: newest.jwsRepresentation, productID: newest.productID, transactionID: newest.id,
-                                       originalTransactionID: newest.originalID, expirationDate: newest.expirationDate)
+        var signed = BackupSignedTransaction(jws: newest.jwsRepresentation, productID: newest.productID, transactionID: newest.id,
+                                             originalTransactionID: newest.originalID, expirationDate: newest.expirationDate)
+        for groupID in Set(products.compactMap(\.subscriptionGroupID)) {
+            guard let statuses = try? await store.subscriptionStatuses(groupID: groupID) else { continue }
+            if let renewal = statuses.first(where: {
+                $0.transaction.originalID == newest.originalID && $0.transaction.isVerified && $0.renewalInfoJWS != nil
+            })?.renewalInfoJWS {
+                signed.signedRenewalInfo = renewal
+                break
+            }
+        }
+        return signed
     }
 
     // MARK: - Internals

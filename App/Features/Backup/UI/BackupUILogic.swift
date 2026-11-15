@@ -124,6 +124,8 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
     case iCloud
     case googleDrive
     case s3
+    /// Tactile Texts Cloud, the paid backup service.
+    case tactileCloud
     /// Anything else (the test-only `-backupFolder` destination).
     case other
 
@@ -133,6 +135,7 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
         case ICloudBackupDestination.destinationID: self = .iCloud
         case GoogleDriveBackupDestination.destinationID: self = .googleDrive
         case S3BackupDestination.destinationID: self = .s3
+        case TactileCloudBackupDestination.destinationID: self = .tactileCloud
         default: self = .other
         }
     }
@@ -143,6 +146,7 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
         case .iCloud: "icloud"
         case .googleDrive: "cloud"
         case .s3: "server.rack"
+        case .tactileCloud: "lock.icloud"
         }
     }
 

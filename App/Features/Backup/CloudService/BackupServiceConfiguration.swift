@@ -14,10 +14,16 @@ import S3Kit
 ///   every other host over HTTPS.
 /// - `BACKUP_PRODUCT_IDS`: the subscription product IDs, separated by commas
 ///   (`software.tactile.marginal.backup.standard`).
+/// - `BACKUP_SERVICE_ATTEST_BYPASS` (optional, **development only**): the `dev` Worker's
+///   `APP_ATTEST_BYPASS_SECRET`, sent as `X-App-Attest-Bypass` where App Attest is not
+///   supported (the simulator). Only debug builds read it; it ends up in the built app's
+///   Info.plist, so it is for development builds against the `dev` Worker only, never for a
+///   build that leaves the developer's hands. The production Worker ignores the header.
 nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringConvertible {
     static let infoKey = "BackupService"
     static let hostKey = "Host"
     static let productIDsKey = "ProductIDs"
+    static let attestBypassKey = "AttestBypass"
 
     /// `https://<host>[:<port>]`, or `http://` for a loopback host. No path, no trailing slash.
     let baseURL: URL
@@ -27,12 +33,16 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
     let port: Int?
     /// The subscription product IDs, in the order given, without repeats.
     let productIDs: [String]
+    /// The development Worker's App Attest bypass secret, or `nil` (always `nil` outside debug
+    /// builds). Never described.
+    let attestBypassSecret: String?
 
     /// Whether the service is reached over plain HTTP on this machine (local development).
     var isLoopback: Bool { baseURL.scheme == "http" }
 
     var description: String {
-        "BackupServiceConfiguration(\(baseURL.absoluteString), products: \(productIDs.joined(separator: ", ")))"
+        "BackupServiceConfiguration(\(baseURL.absoluteString), products: \(productIDs.joined(separator: ", "))"
+            + (attestBypassSecret == nil ? ")" : ", attest bypass: <redacted>)")
     }
 
     /// The configuration, or `nil` unless the host is a usable host (and port) and at least one
@@ -42,11 +52,14 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
         guard let values = infoDictionary?[infoKey] as? [String: Any],
               let hostValue = (values[hostKey] as? String).flatMap(setting),
               let idsValue = (values[productIDsKey] as? String).flatMap(setting) else { return nil }
-        return BackupServiceConfiguration(host: hostValue, productIDs: idsValue)
+        return BackupServiceConfiguration(host: hostValue, productIDs: idsValue,
+                                          attestBypass: values[attestBypassKey] as? String ?? "")
     }
 
-    /// Parses the two settings as written in the xcconfig. `nil` unless both are usable.
-    init?(host hostSetting: String, productIDs productIDsSetting: String) {
+    /// Parses the settings as written in the xcconfig. `nil` unless host and product IDs are
+    /// usable. An empty or unexpanded bypass setting means none; outside debug builds it is
+    /// always ignored.
+    init?(host hostSetting: String, productIDs productIDsSetting: String, attestBypass: String = "") {
         let ids = Self.parseProductIDs(productIDsSetting)
         guard !ids.isEmpty, let (host, port) = Self.parseHost(hostSetting) else { return nil }
         let scheme = S3Endpoint.loopbackHosts.contains(host.lowercased()) ? "http" : "https"
@@ -55,6 +68,11 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
         self.host = host
         self.port = port
         self.productIDs = ids
+        #if DEBUG
+        self.attestBypassSecret = Self.setting(attestBypass)
+        #else
+        self.attestBypassSecret = nil
+        #endif
     }
 
     // MARK: Parsing

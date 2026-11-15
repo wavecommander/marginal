@@ -52,6 +52,51 @@ cp .dev.vars.example .dev.vars    # fill in; a development bucket and a token li
 npm run prove
 ```
 
+### The app against `wrangler dev` (end to end)
+
+`MarginalTests/BackupCloudServiceEndToEndTests` runs the app's own client against a local
+`wrangler dev` that mints real temporary credentials for the real development bucket: a
+StoreKit test purchase, a backup of a small library, a check that every object is opaque, a
+restore into an empty library, and delete-everything. It needs three more values in
+`.dev.vars`:
+
+- `APP_ATTEST_BYPASS_SECRET`: any 32+ random characters (`openssl rand -hex 24`). The
+  simulator has no App Attest.
+- `APPLE_TEAM_ID`: required by the settings check even when App Attest is bypassed; any 10
+  uppercase letters or digits will do locally.
+- `XCODE_STOREKIT_CERT`: the certificate StoreKit Testing signs transactions with. **Getting it
+  without the Xcode UI:** a test-session transaction's JWS carries it as the only entry of its
+  header's `x5c` (base64 DER, self-signed, "StoreKit Testing in Xcode"). The app's test
+  `writeStoreKitTestCertificate` buys through an `SKTestSession` and writes that entry to a file:
+
+  ```sh
+  TEST_RUNNER_MARGINAL_STOREKIT_CERT_OUT=/tmp/storekit-cert.txt \
+    scripts/test.sh --skip-packages \
+    "-only-testing:MarginalTests/BackupCloudServiceEndToEndTests/writeStoreKitTestCertificate()"
+  echo "XCODE_STOREKIT_CERT=$(tr -d '\n' < /tmp/storekit-cert.txt)" >> .dev.vars
+  ```
+
+  Measured (Xcode 27, iOS 27 simulator): the certificate is the same across test sessions and
+  runs on one simulator, valid for a year from when it was made; another simulator or Mac may
+  have its own, so take it from the simulator the tests run on. It is public, not a secret.
+
+Then:
+
+```sh
+npm run migrate:local
+npx wrangler dev --port 8797 --ip 127.0.0.1
+# in the repository root, with the bypass secret from .dev.vars:
+TEST_RUNNER_MARGINAL_BACKUP_SERVICE=127.0.0.1:8797 \
+TEST_RUNNER_MARGINAL_BACKUP_SERVICE_BYPASS=<APP_ATTEST_BYPASS_SECRET> \
+  scripts/test.sh --skip-packages -only-testing:MarginalTests/BackupCloudServiceEndToEndTests
+```
+
+Two things differ from a deployment, because `wrangler dev`'s `BUCKET` binding is the *local*
+bucket while the credentials reach the real one: usage always counts 0, and
+`/v1/delete-my-data` empties the local folder (answering `done` at once), so the test removes
+the real objects itself with the folder's credentials and checks the folder is empty. Test
+purchases land under `sandbox/<key>/`.
+
 ## HTTP contract
 
 All request and response bodies are JSON (`Content-Type: application/json`, UTF-8). Times are

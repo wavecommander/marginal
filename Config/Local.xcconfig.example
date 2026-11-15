@@ -38,3 +38,7 @@ CODE_SIGNING_REQUIRED = YES
 // App Attest needs no entitlement for development builds (they use Apple's sandbox servers).
 // BACKUP_SERVICE_HOST = localhost:8787
 // BACKUP_PRODUCT_IDS = software.tactile.marginal.backup.standard
+// Development only: the simulator has no App Attest, so against a local or `dev` Worker it sends
+// this value (the Worker's APP_ATTEST_BYPASS_SECRET in Backend/backup-worker/.dev.vars) instead.
+// Debug builds only; it is readable in the built app. Never with the production Worker.
+// BACKUP_SERVICE_ATTEST_BYPASS = <the dev Worker's APP_ATTEST_BYPASS_SECRET>

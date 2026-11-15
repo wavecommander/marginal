@@ -126,10 +126,12 @@ targets:
           DisplayName: $(S3_BACKUP_NAME)
         # The Tactile Texts cloud backup service: its host (no scheme) and the App Store
         # subscription product IDs, comma-separated. Not secrets. Both empty by default, which
-        # leaves the service out of the app; see Config/Signing.xcconfig.
+        # leaves the service out of the app; see Config/Signing.xcconfig. AttestBypass is for
+        # development builds against the `dev` Worker only (debug builds read it).
         BackupService:
           Host: $(BACKUP_SERVICE_HOST)
           ProductIDs: $(BACKUP_PRODUCT_IDS)
+          AttestBypass: $(BACKUP_SERVICE_ATTEST_BYPASS)
   MarginalTests:
     type: bundle.unit-test
     platform: iOS
