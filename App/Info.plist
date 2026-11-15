@@ -12,8 +12,12 @@
 		<string>$(BACKUP_SERVICE_ATTEST_BYPASS)</string>
 		<key>Host</key>
 		<string>$(BACKUP_SERVICE_HOST)</string>
+		<key>PrivacyURL</key>
+		<string>$(BACKUP_PRIVACY_URL)</string>
 		<key>ProductIDs</key>
 		<string>$(BACKUP_PRODUCT_IDS)</string>
+		<key>TermsURL</key>
+		<string>$(BACKUP_TERMS_URL)</string>
 	</dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

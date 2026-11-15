@@ -82,7 +82,12 @@ final class AppEnvironment {
         // unavailable (no folder chosen, no iCloud in this build, not signed in) when it is.
         for destination in local.all + cloud.all { backupDestinations.register(destination) }
         // Tactile Texts Cloud, last, only when the build is configured for the service.
-        let cloudBackup = TactileCloudBackup.make(infoDictionary: infoDictionary)
+        var cloudBackup: TactileCloudBackup?
+        #if DEBUG
+        // `-cloudBackupUITest <state>`: the service on fakes, for UI tests and screenshots.
+        cloudBackup = launchOptions.cloudBackupUITest.flatMap { CloudBackupUITestMode.make(stateName: $0) }
+        #endif
+        if cloudBackup == nil { cloudBackup = TactileCloudBackup.make(infoDictionary: infoDictionary) }
         self.cloudBackup = cloudBackup
         if let cloudBackup {
             backupDestinations.register(cloudBackup.destination)

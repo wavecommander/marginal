@@ -202,6 +202,7 @@ private struct BackupDestinationContent: View {
 
     private var service: BackupService { environment.backupService }
     private var isAvailable: Bool { model.availability?.isAvailable == true }
+    private let backUpFooter = "Each PDF is sent once and stored by its contents; later backups send only notes and ink. The newest \(SnapshotRetention.defaultKeepCount) backups are kept."
 
     var body: some View {
         Form {
@@ -211,8 +212,8 @@ private struct BackupDestinationContent: View {
             statusSection
             if model.kind.showsFolderControls { folderSection }
             if model.kind.showsGoogleAccount { googleSection }
-            backUpSection
-            snapshotsSection
+            BackupDestinationBackUpSection(model: model, canBackUp: isAvailable, footer: backUpFooter)
+            BackupDestinationSnapshotsSection(model: model, restoreRequest: $restoreRequest)
         }
         .navigationTitle(model.name)
         .accessibilityIdentifier(AccessibilityID.Backup.destinationScreen)
@@ -227,12 +228,7 @@ private struct BackupDestinationContent: View {
         }
         .sheet(item: $restoreRequest, onDismiss: { Task { await model.refresh() } }) { RestoreFlowView(request: $0) }
         .backupFailureAlert($model.failure, signIn: { model.signIn(anchor: window?.presentationAnchor) })
-        .alert("Delete This Backup?", isPresented: deleteBinding, presenting: model.pendingDelete) { snapshot in
-            Button("Delete", role: .destructive) { model.delete(snapshot) }
-            Button("Cancel", role: .cancel) {}
-        } message: { snapshot in
-            Text("The backup from \(BackupUIText.date(snapshot.createdAt)) will be deleted from \(model.name). PDFs stored with the backups are kept.")
-        }
+        .backupSnapshotDeleteAlert(model)
         .confirmationDialog("Stop using “\(model.folderName ?? "this folder")” for backups?",
                             isPresented: $isStopConfirmationPresented, titleVisibility: .visible) {
             Button("Stop Using This Folder", role: .destructive) { model.stopUsingFolder() }
@@ -298,15 +294,27 @@ private struct BackupDestinationContent: View {
         }
         .task { await account.refresh() }
     }
+}
 
-    private var backUpSection: some View {
+// MARK: - Parts shared with Tactile Texts Cloud's screen
+
+/// Back Up Now with the shared Include PDFs switch and the last result.
+struct BackupDestinationBackUpSection: View {
+    let model: BackupDestinationModel
+    /// Back Up Now is enabled (and nothing else is running).
+    let canBackUp: Bool
+    let footer: String
+
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
         // The same Include PDFs choice as the backup-file switch and the automatic one.
         @Bindable var settings = environment.backupAutomaticSettings
-        return Section {
+        Section {
             Toggle("Include PDFs", isOn: $settings.includesPDFs)
                 .accessibilityIdentifier(AccessibilityID.Backup.destinationIncludePDFs)
             Button("Back Up Now") { model.backUpNow(includePDFs: settings.includesPDFs) }
-                .disabled(!isAvailable || service.isBusy)
+                .disabled(!canBackUp || environment.backupService.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.backUpNow)
             if let result = model.resultLine {
                 Text(result)
@@ -317,11 +325,22 @@ private struct BackupDestinationContent: View {
         } header: {
             Text("Back Up")
         } footer: {
-            Text("Each PDF is sent once and stored by its contents; later backups send only notes and ink. The newest \(SnapshotRetention.defaultKeepCount) backups are kept.")
+            Text(footer)
         }
     }
+}
 
-    private var snapshotsSection: some View {
+/// The backups at a destination: each opens the restore preview, or is deleted after a
+/// confirmation (`backupSnapshotDeleteAlert`).
+struct BackupDestinationSnapshotsSection: View {
+    let model: BackupDestinationModel
+    @Binding var restoreRequest: RestoreRequest?
+    /// Offer Delete on each backup (not while a cloud subscription only allows restoring).
+    var allowsDelete = true
+
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
         Section {
             switch model.snapshots {
             case .loading:
@@ -341,7 +360,7 @@ private struct BackupDestinationContent: View {
                     .accessibilityIdentifier(AccessibilityID.Backup.snapshotsEmpty)
             case .loaded(let snapshots):
                 ForEach(snapshots) { snapshot in
-                    snapshotRow(snapshot)
+                    row(snapshot)
                 }
             }
         } header: {
@@ -351,7 +370,7 @@ private struct BackupDestinationContent: View {
         }
     }
 
-    private func snapshotRow(_ snapshot: BackupSnapshotInfo) -> some View {
+    private func row(_ snapshot: BackupSnapshotInfo) -> some View {
         Button {
             guard let destination = model.destination else { return }
             restoreRequest = RestoreRequest(source: .snapshot(snapshot, destination: destination))
@@ -372,24 +391,43 @@ private struct BackupDestinationContent: View {
             }
             .contentShape(Rectangle())
         }
-        .disabled(service.isBusy)
+        .disabled(environment.backupService.isBusy)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Shows what this backup holds before restoring")
         .accessibilityIdentifier(AccessibilityID.Backup.snapshot(snapshot.name))
         .swipeActions {
-            Button("Delete", role: .destructive) { model.pendingDelete = snapshot }
+            if allowsDelete {
+                Button("Delete", role: .destructive) { model.pendingDelete = snapshot }
+            }
         }
         .contextMenu {
             Button("Restore…", systemImage: "arrow.counterclockwise") {
                 guard let destination = model.destination else { return }
                 restoreRequest = RestoreRequest(source: .snapshot(snapshot, destination: destination))
             }
-            Button("Delete…", systemImage: "trash", role: .destructive) { model.pendingDelete = snapshot }
+            if allowsDelete {
+                Button("Delete…", systemImage: "trash", role: .destructive) { model.pendingDelete = snapshot }
+            }
         }
-        .accessibilityAction(named: "Delete") { model.pendingDelete = snapshot }
+        .accessibilityActions {
+            if allowsDelete {
+                Button("Delete") { model.pendingDelete = snapshot }
+            }
+        }
     }
+}
 
-    private var deleteBinding: Binding<Bool> {
-        Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } })
+extension View {
+    /// The confirmation before deleting one backup (`BackupDestinationModel.pendingDelete`).
+    func backupSnapshotDeleteAlert(_ model: BackupDestinationModel) -> some View {
+        @Bindable var model = model
+        return alert("Delete This Backup?",
+                     isPresented: Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } }),
+                     presenting: model.pendingDelete) { snapshot in
+            Button("Delete", role: .destructive) { model.delete(snapshot) }
+            Button("Cancel", role: .cancel) {}
+        } message: { snapshot in
+            Text("The backup from \(BackupUIText.date(snapshot.createdAt)) will be deleted from \(model.name). PDFs stored with the backups are kept.")
+        }
     }
 }

@@ -191,6 +191,43 @@ Only once the account side exists (see `Config/Local.xcconfig.example`):
       the objects are under `Backups/` and `PDFs/` in the bucket; restore works; a wrong key
       and a wrong device clock each give a clear message.
 
+### Tactile Texts Cloud
+
+Needs a build with `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` set, the Worker deployed, a
+paid developer team (App Attest and the App Store sandbox), and a Sandbox Apple Account
+(Settings › App Store › Sandbox Account). The simulator tests cover the screens against fakes
+only. Open Settings › Backup & Restore › Tactile Texts Cloud.
+
+- [ ] **Offer and purchase.** The offer shows the sandbox price and period, Terms of Use and
+      Privacy Policy open the configured pages, and Subscribe shows the App Store sheet. After
+      buying, the page becomes the status page with the plan, "Renews on …" and the storage
+      used. Cancelling the sheet says nothing; Ask to Buy (a child sandbox account) says the
+      purchase is waiting for approval.
+- [ ] **App Attest.** The first Back Up Now on a real iPad registers the device with the Worker
+      (no bypass): the backup succeeds and the Worker's log shows an attestation, then
+      assertions on later requests.
+- [ ] **First backup and the recovery key.** The first backup is followed by Save Your Recovery
+      Key. Copy pastes the key into Notes; Share or Save… saves a text file to Files and to a
+      password manager. "Not Now" leaves a reminder on the page; "I’ve Saved It" removes it.
+      VoiceOver reads the key group by group, character by character.
+- [ ] **The key on a second iPad.** On a second iPad signed in to the same Apple Account with
+      iCloud Keychain on, install the app and Restore Purchases: the page says the key may still
+      be arriving, and after a while Try Again lists the backups without typing the key.
+- [ ] **Restore with the recovery key.** With iCloud Keychain off on the second iPad (or after
+      deleting and reinstalling with Keychain sync off), Enter Recovery Key: a key from another
+      account is refused as not the one the backups were made with, a mistyped character is
+      called a typing mistake, and the right key (typed in lower case with spaces) lists the
+      backups, which then restore with their PDFs.
+- [ ] **Read-only after expiry.** Let the sandbox subscription expire (sandbox renewals are
+      minutes long; turn off auto-renew in Manage Subscription): the banner says backups can't
+      be made, with the dates until which restore works and after which the backups are
+      deleted; Back Up Now is off; restoring still works. Resubscribing brings Back Up Now back.
+- [ ] **Delete My Cloud Backups.** The confirmation says everything is removed for good and the
+      subscription is not cancelled. Afterwards the backup list is empty, the Worker's bucket
+      folder is empty, the key is gone from the second iPad too (it asks for nothing and its
+      next backup makes a new key), and the subscription is still active in Manage
+      Subscription.
+
 ## Install
 
 - [ ] **7-day expiry.** The build is signed with a free Personal Team profile, so it stops
