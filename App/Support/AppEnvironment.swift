@@ -17,6 +17,9 @@ final class AppEnvironment {
     /// Parsed launch arguments.
     let launchOptions: LaunchOptions
     /// Set when the persistent store failed to open and an in-memory store is used instead.
+    /// Every window then shows `LibraryUnavailableView` instead of the Library, so nothing is
+    /// imported or written into a store that vanishes when the app quits, and automatic backups
+    /// stay off.
     let storeErrorMessage: String?
     /// The fixture importer (`-importFixture`); WP3 owns the real import pipeline.
     @ObservationIgnored let fixtureImporter: FixtureImporter
@@ -73,8 +76,11 @@ final class AppEnvironment {
         self.backupService = backupService
         self.backupDestinations = backupDestinations
         self.backupAutomaticSettings = backupAutomaticSettings
+        // Never armed when the library could not be opened: the stand-in store is empty, and an
+        // automatic backup of it would look like a backup of a library with no books.
         self.backupScheduler = BackupScheduler(settings: backupAutomaticSettings, service: backupService,
-                                               destinations: backupDestinations, armed: !launchOptions.resetState)
+                                               destinations: backupDestinations,
+                                               armed: !launchOptions.resetState && storeErrorMessage == nil)
         let local = BackupDestinationFactory.folderAndICloud()
         let cloud = CloudBackupDestinations.make()
         self.backupFolderStore = local.folderStore

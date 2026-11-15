@@ -31,7 +31,9 @@ struct WindowRootView: View {
 
     var body: some View {
         ZStack {
-            if let context {
+            if let details = environment.storeErrorMessage {
+                LibraryUnavailableView(details: details)
+            } else if let context {
                 WindowContent(context: context, storedPath: $storedPath)
             }
         }
@@ -101,6 +103,27 @@ struct WindowRootView: View {
             try? await Task.sleep(for: .milliseconds(800))
             context.openReaderInNewWindow(bookID: bookID, pageIndex: plan.alsoOpenPageIndex)
         }
+    }
+}
+
+/// Shown in place of every screen when the library's store could not be opened
+/// (`AppEnvironment.storeErrorMessage`). The app is then running on an empty stand-in store that
+/// is gone when it quits, so nothing may be imported, written or backed up: this screen offers
+/// no way into the rest of the app.
+struct LibraryUnavailableView: View {
+    /// The store's error, for a support request.
+    let details: String
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Library Couldn't Be Opened", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("Your books and notes have not been deleted, but Tactile Texts couldn't open them. Close the app and open it again. If this keeps happening, restart your iPad.")
+            Text(details)
+                .font(.footnote)
+                .textSelection(.enabled)
+        }
+        .accessibilityIdentifier(AccessibilityID.Library.unavailable)
     }
 }
 

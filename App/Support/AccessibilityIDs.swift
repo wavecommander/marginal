@@ -23,6 +23,8 @@ nonisolated enum AccessibilityID {
         static let backupProgress = "library.backupProgress"
         /// The "PDF missing" badge on a book's cover: `library.book.<title>.pdfMissing`.
         static func pdfMissing(_ title: String) -> String { "library.book.\(title).pdfMissing" }
+        /// The screen shown instead of the Library when the store could not be opened.
+        static let unavailable = "library.unavailable"
     }
 
     /// Settings ▸ Backup & Restore and a destination's screen.
