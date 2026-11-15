@@ -95,5 +95,8 @@ nonisolated struct ConverterRegistry: Sendable {
     static let standard = ConverterRegistry([
         ImagesConverter(),
         EPUBConverter(),
+        TextDocumentConverter(),
+        OfficeDocumentConverter(),
+        SlidesConverter(),
     ])
 }
