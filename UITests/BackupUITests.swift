@@ -130,10 +130,19 @@ final class BackupUITests: XCTestCase {
 
     /// With large text a list can be taller than the sheet, and rows off screen are not in the
     /// tree yet: swipe up until `element` is there and hittable (a few times at most).
+    ///
+    /// The drag is made inside the front list itself. A swipe on the app as a whole is not
+    /// enough: when the app's window is smaller than the screen (windows keep their size between
+    /// launches on the simulator) the sheet is short, the row starts off screen, and a swipe
+    /// aimed at the screen's middle did not scroll the sheet.
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<5 {
-            if element.waitForExistence(timeout: 2), element.isHittable { return }
-            app.swipeUp()
+        for _ in 0..<8 {
+            if element.waitForExistence(timeout: 1), element.isHittable { return }
+            let lists = app.collectionViews
+            let list = lists.count > 0 ? lists.element(boundBy: lists.count - 1) : app.windows.firstMatch
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+            let to = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            from.press(forDuration: 0.05, thenDragTo: to)
         }
     }
 
