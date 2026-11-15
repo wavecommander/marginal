@@ -146,26 +146,24 @@ struct NotesPanelRulesTests {
 
     // MARK: Zoom and width
 
-    @Test func paneZoomFollowsWidthAndNeverReflows() {
+    /// TSOFT-226: widening the pane never zooms the note.
+    @Test func paneZoomIgnoresWidthAndNeverReflows() {
         func pane(_ width: CGFloat) -> NotesPanelMetrics {
             NotesPanelMetrics(presentation: .pane, size: CGSize(width: width, height: 700))
         }
-        #expect(pane(330).zoom(base: 1) == 1)
-        #expect(abs(pane(495).zoom(base: 1) - 1.5) < 0.0001)
-        #expect(pane(660).zoom(base: 1) == 2)
-        #expect(pane(900).zoom(base: 1) == 2, "clamped at 200%")
-        #expect(abs(pane(462).zoom(base: 1) - 1.4) < 0.0001)
-        #expect(pane(330).zoom(base: 1.25) == 1.25)
+        for width: CGFloat in [330, 462, 495, 660, 900] {
+            #expect(pane(width).zoom(base: 1) == 1, "pane \(width) wide keeps 100%")
+            #expect(pane(width).zoom(base: 1.25) == 1.25, "pane \(width) wide keeps 125%")
+            #expect(pane(width).zoomReferenceWidth == NotesPanelMetrics.defaultPaneWidth)
+        }
+        #expect(pane(330).zoom(base: 2.5) == 2, "clamped at 200%")
         #expect(!pane(660).usesColumns)
         #expect(pane(660).noteColumnWidth == 660)
-        // A pinch sets a base so the pinched zoom shows at this width.
+        // A pinch in a wide pane is the zoom shown at every pane width.
         let wide = pane(495)
-        #expect(abs(wide.base(forZoom: 1.5) - 1) < 0.0001)
-        #expect(abs(wide.zoom(base: wide.base(forZoom: 1.75)) - 1.75) < 0.0001)
-        // Back to the default width: the base is what was chosen there.
-        #expect(abs(pane(330).zoom(base: wide.base(forZoom: 1.8)) - 1.2) < 0.0001)
-        // A pane at its widest may need a base below 100% for 100%; it is kept in range.
-        #expect(pane(900).base(forZoom: 1) == NotesPanelMetrics.baseRange.lowerBound)
+        #expect(abs(wide.base(forZoom: 1.5) - 1.5) < 0.0001)
+        #expect(abs(pane(330).zoom(base: wide.base(forZoom: 1.8)) - 1.8) < 0.0001)
+        #expect(abs(pane(900).zoom(base: wide.base(forZoom: 1.4)) - 1.4) < 0.0001)
     }
 
     @Test func narrowPresentationsGiveTheNoteAComfortableColumn() {

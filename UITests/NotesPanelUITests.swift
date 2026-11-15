@@ -281,25 +281,28 @@ final class NotesPanelUITests: XCTestCase {
                                     "the note takes the space the list had: no divider, no empty region")
     }
 
-    /// Widening the pane zooms the note without re-wrapping it; the shrink button restores both.
-    func testWideningZoomsTheNoteAndShrinkRestoresIt() {
+    /// Widening the pane neither zooms nor re-wraps the note (TSOFT-226); the shrink button
+    /// restores the width.
+    func testWideningKeepsTheNoteZoomAndShrinkRestoresTheWidth() {
         let app = launch(fresh: true, page: 3)
         type(app, "A paragraph long enough to wrap onto several lines of the note page, so a reflow would show")
         XCTAssertEqual(percent(app), 100)
         let width = textView(app).frame.width
         let textHeight = writingSpace(app).frame.minY - textView(app).frame.minY
-        let ratio = textHeight / width
         XCTAssertGreaterThan(textHeight / (width / 320), 14 + 2 * 22, "the paragraph wraps onto three lines")
+        let paneLeft = divider(app).frame.midX
 
         dragDivider(app, by: -220)
         XCTAssertTrue(app.buttons[ID.shrink].firstMatch.waitForExistence(timeout: 5), "shrink button while widened")
-        XCTAssertGreaterThan(percent(app), 140, "the note zoomed with the wider pane")
-        let wideWidth = textView(app).frame.width
-        let wideRatio = (writingSpace(app).frame.minY - textView(app).frame.minY) / wideWidth
-        XCTAssertEqual(wideRatio, ratio, accuracy: 0.004, "same line breaks: the text block scaled, not reflowed")
+        XCTAssertLessThan(divider(app).frame.midX, paneLeft - 100, "the pane widened")
+        XCTAssertEqual(percent(app), 100, "the note kept its zoom in the wider pane")
+        XCTAssertEqual(textView(app).frame.width, width, accuracy: 1)
+        XCTAssertEqual(writingSpace(app).frame.minY - textView(app).frame.minY, textHeight, accuracy: 1,
+                       "same line breaks: not reflowed")
 
         app.buttons[ID.shrink].firstMatch.tap()
-        for _ in 0..<20 where abs(textView(app).frame.width - width) > 1 { usleep(250_000) }
+        for _ in 0..<20 where divider(app).frame.midX < paneLeft - 1 { usleep(250_000) }
+        XCTAssertEqual(divider(app).frame.midX, paneLeft, accuracy: 1, "back to the default width")
         XCTAssertEqual(percent(app), 100)
         XCTAssertEqual(textView(app).frame.width, width, accuracy: 1)
         XCTAssertFalse(app.buttons[ID.shrink].firstMatch.exists)

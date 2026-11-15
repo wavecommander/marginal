@@ -161,8 +161,10 @@ nonisolated enum NotesPanelPresentation: Equatable, Sendable {
 /// screen is `NotePageZoom.zoom(base:panelWidth:)` with `panelWidth = zoomReferenceWidth`:
 /// - `base` is the reader's chosen zoom at the default pane width (330), remembered per window;
 ///   until they choose one it is `NotePageStyle.defaultZoom(for: Dynamic Type)`.
-/// - **Pane:** the reference width is the pane's width, so dragging the divider from 330 to 660
-///   doubles the zoom (clamped to 100%–200%) and the shrink button returns both.
+/// - **Pane:** the reference width is always the default pane width, so the pane shows the base
+///   zoom at any width: dragging the divider wider gives the note room (the page stays centred
+///   at the zoom the reader chose) but never zooms it (TSOFT-226). The shrink button returns the
+///   width only.
 /// - **Narrow (sheet / bottom panel):** the panel is as wide as the window, so following its full
 ///   width would pin every note at 176%–200%. Instead the note gets a column of its own when the
 ///   panel is at least `columnsMinimumWidth` wide (`noteColumnFraction` of the width, the lists
@@ -182,7 +184,8 @@ struct NotesPanelMetrics: Equatable {
     static let narrowMaximumFactor: CGFloat = 1.3
     /// The lists below the note take at most this share of the panel's height (stacked layout).
     static let lowerRegionMaximumFraction: CGFloat = 0.4
-    /// The base zoom is kept within this range (a pane at its widest can need a base below 1).
+    /// The base zoom is kept within this range (a wide narrow-presentation panel can need a base
+    /// below 1 to show 100%).
     static let baseRange: ClosedRange<CGFloat> = 0.5...2
 
     var presentation: NotesPanelPresentation
@@ -195,7 +198,7 @@ struct NotesPanelMetrics: Equatable {
     /// The width the zoom follows (see the type documentation).
     var zoomReferenceWidth: CGFloat {
         switch presentation {
-        case .pane: noteColumnWidth
+        case .pane: Self.defaultPaneWidth
         case .narrow: min(noteColumnWidth, Self.defaultPaneWidth * Self.narrowMaximumFactor)
         }
     }

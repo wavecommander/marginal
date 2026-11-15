@@ -181,7 +181,7 @@ final class NotePageUITests: XCTestCase {
         let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: -450, dy: 0)),
                     withVelocity: 300, thenHoldForDuration: 0.3)
-        XCTAssertGreaterThan(textView(app).frame.width, 500, "the note zoomed with the wider panel")
+        XCTAssertEqual(textView(app).frame.width, 320, accuracy: 2, "widening keeps the note's zoom (TSOFT-226)")
         // Narrowing the PDF re-fits it and can move the current page: go back to page 1.
         let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 Linear Systems")).firstMatch
         if heading.waitForExistence(timeout: 5) { heading.tap() }

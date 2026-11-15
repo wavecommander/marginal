@@ -16,10 +16,10 @@ import SwiftUI
 /// - **Section note:** the heading's title and pages, the note editor, then the collapsible level
 ///   picker over the heading path and "Open in Notebook" at the bottom.
 ///
-/// The note is zoomed by pinching it (100%–200%; there is no zoom button) and by widening the
-/// pane. Which note is shown, deferral while typing, the level choice and the zoom live in the
-/// window's `NotesPanelController`. One `NotePageView` stays on screen; it is given a new model
-/// when the target changes.
+/// The note is zoomed only by pinching it (100%–200%; there is no zoom button); widening the
+/// pane gives it room but never zooms it. Which note is shown, deferral while typing, the level
+/// choice and the zoom live in the window's `NotesPanelController`. One `NotePageView` stays on
+/// screen; it is given a new model when the target changes.
 struct NotesPanel: View {
     @Bindable var session: ReaderSession
     private let controller: NotesPanelController

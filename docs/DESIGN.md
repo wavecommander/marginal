@@ -148,7 +148,8 @@ ones even where the mockup draws an approximation.
   without leaving markup mode.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and the note
   is zoomed by pinching it (100% to 200%). There is no zoom button (owner decision,
-  14 November 2026: pinching is enough). Widening zooms the note page; it does not re-wrap it.
+  14 November 2026: pinching is enough). Widening neither zooms nor re-wraps the note page
+  (owner decision, 15 November 2026, TSOFT-226): the page keeps the zoom the reader pinched to.
   The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
   the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
   and snapping shut on release; a short slide that stops above the narrowest width just resizes.
