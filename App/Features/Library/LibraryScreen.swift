@@ -322,7 +322,9 @@ struct LibraryScreen: View {
         Task {
             do {
                 try await store.deleteBook(id: book.id, origin: origin)
+                ReaderScrollDirectionStore().removeDirection(for: book.id)
             } catch LibraryStoreError.bookFilesNotRemoved {
+                ReaderScrollDirectionStore().removeDirection(for: book.id)
                 // The book is gone; its leftover files are removed by the next launch's sweep.
             } catch {
                 errorMessage = "Couldn't delete “\(book.title)”: \(error)"

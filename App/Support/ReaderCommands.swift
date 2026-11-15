@@ -68,6 +68,11 @@ struct ReaderCommands: Commands {
             Button("Fit Width") { session?.zoomToFitWidth() }
                 .keyboardShortcut("9", modifiers: .command)
                 .disabled(session == nil)
+            Divider()
+            Button("Scroll Vertically") { session?.setScrollDirection(.vertical) }
+                .disabled(session == nil || session?.scrollDirection == .vertical)
+            Button("Scroll Horizontally") { session?.setScrollDirection(.horizontal) }
+                .disabled(session == nil || session?.scrollDirection == .horizontal)
         }
 
         // Notes are plain text (design): the system Format menu (Bold ⌘B, Bigger ⌘+, Smaller ⌘-…)

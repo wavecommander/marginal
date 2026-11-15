@@ -235,6 +235,25 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.scaleFactor = scale
     }
 
+    // MARK: Scroll direction
+
+    /// Re-lays the pages out in `direction`, fitted to the view, with `pageIndex` at the
+    /// top-left (the reader stays on the page they were reading). Positioned like a newly
+    /// attached document, so nothing PDFKit does while it re-lays out is taken as reading.
+    func scrollDirectionDidChange(to direction: ReaderScrollDirection, keepingPage pageIndex: Int) {
+        guard isViewLoaded, view.displayDirection != direction.pdfDisplayDirection else { return }
+        view.clearSelection()
+        hasPositionedInitially = false
+        readingAnchor = nil
+        isTrackingSuspended = true
+        refitRestoreGeneration += 1
+        view.displayDirection = direction.pdfDisplayDirection
+        view.autoScales = true
+        view.layoutDocumentView()
+        pendingPageIndex = pageIndex
+        applyPendingPageIfPossible()
+    }
+
     // MARK: Selection (WP7)
 
     /// The current text selection split per page and line, or `nil` when nothing is selected.
@@ -561,7 +580,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         // Must be set before a document is assigned for PDFKit to ask for overlays.
         view.pageOverlayViewProvider = self
         view.displayMode = .singlePageContinuous
-        view.displayDirection = .vertical
+        view.displayDirection = (session?.scrollDirection ?? .vertical).pdfDisplayDirection
         view.displaysPageBreaks = true
         view.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.autoScales = true
@@ -685,11 +704,19 @@ final class ReaderPDFView: PDFView {
     /// current), and a far-away page's frame is not valid before PDFKit has laid it out. So:
     /// let PDFKit bring the page near, then (next run-loop turns) set the scroll offset from the
     /// page's now-valid frame and check the result, retrying briefly.
+    ///
+    /// Scrolling horizontally, the page's leading edge goes to the left of the visible area too
+    /// (otherwise the horizontal offset is kept).
     func showTop(of page: PDFPage) {
         alignmentGeneration += 1
         go(to: page)
-        align(page, pageY: page.bounds(for: displayBox).maxY, pageX: nil, attemptsLeft: 4, generation: alignmentGeneration)
+        let bounds = page.bounds(for: displayBox)
+        align(page, pageY: bounds.maxY, pageX: isHorizontal ? bounds.minX : nil, attemptsLeft: 4,
+              generation: alignmentGeneration)
     }
+
+    /// Pages run side by side (`ReaderScrollDirection.horizontal`).
+    var isHorizontal: Bool { displayDirection == .horizontal }
 
     /// Scrolls so page-space `point` of `page` is at the top-left corner of the visible area, as
     /// near as the scrollable range allows (a `ReadingAnchor`: section history's exact place).
@@ -700,10 +727,14 @@ final class ReaderPDFView: PDFView {
         align(page, pageY: point.y, pageX: point.x, attemptsLeft: 4, generation: alignmentGeneration)
     }
 
-    /// The page at the top of the visible area and the page-space y there.
+    /// The page at the top of the visible area (scrolling horizontally: at its left edge) and
+    /// the page-space y there.
     func pageAndPointAtTop() -> (page: PDFPage, pageY: CGFloat)? {
         guard let scrollView = documentView?.superview as? UIScrollView else { return nil }
-        let probe = CGPoint(x: bounds.midX, y: bounds.minY + scrollView.adjustedContentInset.top + 1)
+        let insets = scrollView.adjustedContentInset
+        let probe = isHorizontal
+            ? CGPoint(x: bounds.minX + insets.left + 1, y: bounds.midY)
+            : CGPoint(x: bounds.midX, y: bounds.minY + insets.top + 1)
         guard let page = page(for: probe, nearest: true) else { return nil }
         let point = convert(probe, to: page)
         return (page, min(point.y, page.bounds(for: displayBox).maxY))
@@ -729,7 +760,8 @@ final class ReaderPDFView: PDFView {
             if target.y.isFinite, x.isFinite {
                 scrollView.setContentOffset(CGPoint(x: x, y: target.y), animated: false)
             }
-            // Verify: the page under the top of the visible area must be `page`.
+            // Verify: the page under the top (horizontally: the left edge) of the visible area
+            // must be `page`.
             if self.pageAndPointAtTop()?.page !== page {
                 self.align(page, pageY: pageY, pageX: pageX, attemptsLeft: attemptsLeft - 1, generation: generation)
             }
@@ -805,7 +837,8 @@ final class ReaderPDFView: PDFView {
     /// page on the main thread: measured 9.7 s and 3.4 M characters for `large.pdf` in one call,
     /// repeated per query. So the PDF view's accessibility children are, in this order:
     ///
-    /// 1. the page views on screen, in reading order (instead of the document view): VoiceOver
+    /// 1. the page views on screen, in reading order (top to bottom, or left to right when
+    ///    scrolling horizontally) instead of the document view: VoiceOver
     ///    reads the visible pages through PDFKit's own page accessibility;
     /// 2. every other direct subview of the PDF view that is not PDFKit's own machinery, in
     ///    subview order: the accessibility containers features add (page ink's
@@ -819,9 +852,10 @@ final class ReaderPDFView: PDFView {
     private var visiblePageViews: [UIView] {
         guard let documentView else { return [] }
         let visible = convert(bounds, to: documentView)
+        let horizontal = isHorizontal
         return documentView.subviews
             .filter { !($0 is UITextInput) && !$0.isHidden && $0.frame.intersects(visible) }
-            .sorted { $0.frame.minY < $1.frame.minY }
+            .sorted { horizontal ? $0.frame.minX < $1.frame.minX : $0.frame.minY < $1.frame.minY }
     }
 
     /// PDFKit's own views (its scroll view, the document view and anything containing it) as

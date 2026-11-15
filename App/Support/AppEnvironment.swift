@@ -53,6 +53,7 @@ final class AppEnvironment {
             // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
             UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
+            ReaderScrollDirectionStore().removeAll()
         }
         if let accent = launchOptions.accent {
             UserDefaults.standard.set(accent.rawValue, forKey: AccentChoice.storageKey)

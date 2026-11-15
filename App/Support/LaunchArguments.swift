@@ -97,6 +97,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `indigo`), written to the stored setting at launch. Unknown names are ignored.
     var accent: AccentChoice?
 
+    /// `-scrollDirection <vertical|horizontal>`: readers open in that direction instead of the
+    /// book's stored one (the stored choice is untouched). Unknown names are ignored.
+    var scrollDirection: ReaderScrollDirection?
+
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
@@ -163,6 +167,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeMarkupState = true
             case "-exposeAccent":
                 exposeAccent = true
+            case "-scrollDirection":
+                if let text = value(after: index) { scrollDirection = ReaderScrollDirection(rawValue: text); index += 1 }
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:
