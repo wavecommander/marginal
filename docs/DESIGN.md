@@ -413,8 +413,13 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   every window. Cancel is honoured until books are being swapped in.
 - **Automatic backups** (owner decision: manual plus automatic). Off by default. When on, a
   backup to the chosen destination is due when the library has changed and the last success is
-  at least a day old; it runs when a window becomes active and from a background processing
-  task. Failures are shown, with the date of the last success.
+  at least a day old. It is checked when a window becomes active, every 15 minutes while the
+  app stays in front, and from a background processing task scheduled when the app goes to the
+  background (the system decides whether and when that runs). After a failure it waits an hour
+  before trying again. The failure's message is shown, with the date of the last success.
+- **Where it lives.** Settings › Backup & Restore, the menu bar's Back Up & Restore…, and a
+  Restore from Backup… button in the empty Library. A `.ttbackup` file opened from Files goes
+  straight to the restore preview. There is no Library toolbar button for it.
 
 ## Technical decisions
 
