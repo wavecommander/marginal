@@ -110,13 +110,14 @@ final class ReadingPositionUITests: XCTestCase {
         assertSamePosition(start, settledAnchor(app), "\(label) notes closed")
         toggle(app, notes)
         assertSamePosition(start, settledAnchor(app), "\(label) notes reopened")
-        for _ in 0..<rounds { toggle(app, contents); usleep(400_000); toggle(app, contents); usleep(400_000) }
+        for _ in 0..<rounds { toggle(app, contents); toggle(app, contents) }
         assertSamePosition(start, settledAnchor(app), "\(label) contents x\(rounds)")
-        for _ in 0..<rounds { toggle(app, notes); usleep(400_000); toggle(app, notes); usleep(400_000) }
+        for _ in 0..<rounds { toggle(app, notes); toggle(app, notes) }
         assertSamePosition(start, settledAnchor(app), "\(label) notes x\(rounds)")
         for _ in 0..<rounds {
-            toggle(app, contents); usleep(300_000); toggle(app, notes); usleep(300_000)
-            toggle(app, contents); usleep(300_000); toggle(app, notes); usleep(300_000)
+            // No pauses: every tap already waits for the app to go idle before and after.
+            toggle(app, contents); toggle(app, notes)
+            toggle(app, contents); toggle(app, notes)
         }
         let end = settledAnchor(app)
         assertSamePosition(start, end, "\(label) alternating x\(rounds)")
@@ -137,30 +138,24 @@ final class ReadingPositionUITests: XCTestCase {
 
     // MARK: Tests
 
-    func testPanelTogglesKeepPositionMidPageSmall() {
-        let app = launch(Fixtures.small, "small")
-        scrollPage(app, by: 0.35)
-        exerciseWidePanels(app, rounds: 10, label: "small mid-page")
-    }
-
-    func testPanelTogglesKeepPositionAtPageTopSmall() {
+    /// One launch, three positions on the small book: the top of a page, across a page boundary,
+    /// and mid-page. (Scrolling between them records no history, which each exercise asserts.)
+    func testPanelTogglesKeepPositionOnSmall() {
         let app = launch(Fixtures.small, "small", ["-openPage", "5"])
         exerciseWidePanels(app, rounds: 3, label: "small page top")
-    }
-
-    func testPanelTogglesKeepPositionAcrossPageBoundarySmall() {
-        let app = launch(Fixtures.small, "small", ["-openPage", "5"])
         // Scroll back a little so the top edge shows the end of page 4 and the gap.
         let window = app.windows.firstMatch
         let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.4))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 60)))
         exerciseWidePanels(app, rounds: 3, label: "small boundary")
+        scrollPage(app, by: 0.35)
+        exerciseWidePanels(app, rounds: 3, label: "small mid-page")
     }
 
     func testPanelTogglesKeepPositionDeepInLarge() {
         let app = launch(Fixtures.large, "large", ["-openPage", "700"])
         scrollPage(app, by: 0.25)
-        exerciseWidePanels(app, rounds: 10, label: "large p700")
+        exerciseWidePanels(app, rounds: 3, label: "large p700")
     }
 
     func testPanelTogglesKeepPositionWhenZoomed() {

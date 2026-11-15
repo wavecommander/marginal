@@ -598,19 +598,22 @@ final class SidebarUITests: XCTestCase {
         sleep(5)
         let idle = Self.parse(stats.value as? String ?? "")
         stats.tap()  // reset frame counters
+        // A fling at this velocity covers a few hundred pages; five each way reach deep into the
+        // book and return. `testAutoScrollThroughTheWholeBook` covers all 1,500 pages.
+        let flings = 5
         let started = Date()
-        for _ in 0..<25 { low.press(forDuration: 0.01, thenDragTo: high, withVelocity: 5000, thenHoldForDuration: 0) }
+        for _ in 0..<flings { low.press(forDuration: 0.01, thenDragTo: high, withVelocity: 5000, thenHoldForDuration: 0) }
         let downSeconds = Date().timeIntervalSince(started)
         sleep(2)
         let afterDown = Self.parse(stats.value as? String ?? "")
-        for _ in 0..<25 { high.press(forDuration: 0.01, thenDragTo: low, withVelocity: 5000, thenHoldForDuration: 0) }
+        for _ in 0..<flings { high.press(forDuration: 0.01, thenDragTo: low, withVelocity: 5000, thenHoldForDuration: 0) }
         sleep(2)
         let end = Self.parse(stats.value as? String ?? "")
         let report = """
             thumbnails: start \(start)
             idle 5 s (frame-gap baseline): \(idle)
-            after 25 fast swipes down (\(String(format: "%.1f", downSeconds)) s): \(afterDown)
-            after 25 fast swipes back: \(end)
+            after \(flings) fast swipes down (\(String(format: "%.1f", downSeconds)) s): \(afterDown)
+            after \(flings) fast swipes back: \(end)
             """
         print(report)
         let attachment = XCTAttachment(string: report)
