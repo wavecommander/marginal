@@ -137,15 +137,22 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
     /// The URL scheme the content is served under. Lower case (WebKit requires it).
     nonisolated static let scheme = "tactile-content"
     nonisolated static let host = "document"
-    nonisolated static let ruleListIdentifier = "software.tactile.marginal.block-network.v1"
+    nonisolated static let ruleListIdentifier = "software.tactile.marginal.block-network.v2"
     /// Everything is blocked, then the content scheme is let through. Alternation is not allowed
     /// in rule-list regexes, and `^(https?|…):` was rejected (F0 findings).
+    ///
+    /// `x-apple-ql-id:` is also let through: when WebKit converts an Office or iWork document
+    /// itself (QuickLook), the pictures of the converted page are served under that scheme from
+    /// the converted package in memory; blocked, every picture in a Word file or a slide is lost.
+    /// Nothing under it reaches the network. `data:` URLs are not loads and are never blocked.
+    nonisolated static let quickLookScheme = "x-apple-ql-id"
     nonisolated static let ruleListJSON = """
         [{"trigger":{"url-filter":".*"},"action":{"type":"block"}},\
-        {"trigger":{"url-filter":"^\(scheme):"},"action":{"type":"ignore-previous-rules"}}]
+        {"trigger":{"url-filter":"^\(scheme):"},"action":{"type":"ignore-previous-rules"}},\
+        {"trigger":{"url-filter":"^\(quickLookScheme):"},"action":{"type":"ignore-previous-rules"}}]
         """
 
-    let configuration: Configuration
+    private(set) var configuration: Configuration
     let schemeHandler: WebResourceSchemeHandler
     private(set) var webView: WKWebView?
     private var navigation: WKNavigation?
@@ -169,6 +176,15 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
     /// The provider path a content URL names, or `nil` for any other URL.
     nonisolated static func path(of url: URL) -> String? {
         WebResourcePath.path(of: url, scheme: scheme, host: host)
+    }
+
+    /// Changes the paper (for a document that sets its own page size, known only once it has
+    /// loaded). The web view is resized to the new printable width. Takes effect for the next
+    /// `printPDF`.
+    func setPage(size: CGSize, margins: UIEdgeInsets) {
+        configuration.pageSize = size
+        configuration.margins = margins
+        webView?.frame = CGRect(origin: .zero, size: configuration.printableRect.size)
     }
 
     // MARK: Lifecycle
@@ -297,7 +313,8 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
     /// - every element that comes before the first text or picture loses its forced breaks,
     ///   and the first content's ancestors lose `break-before`;
     /// - every empty element that comes after the last text or picture is hidden (it has nothing
-    ///   to show, but its margins or a forced break can push an empty page out), and the last
+    ///   to show, but its margins or a forced break can push an empty page out) unless it is
+    ///   positioned out of the flow (a shape on a slide), and the last
     ///   content and its ancestors lose `break-after` and their bottom margin and padding, which
     ///   otherwise spill onto an empty page when the content ends near the foot of a page.
     /// Breaks between pieces of content are kept. Hidden elements (other segments) are left alone.
@@ -324,6 +341,13 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
           const firstElement = element(first), lastElement = element(last);
           const before = ['break-before', 'page-break-before'], after = ['break-after', 'page-break-after'];
           const off = (el, names) => { if (el.style) { names.forEach(name => el.style.setProperty(name, 'auto', 'important')); } };
+          const outOfFlow = el => {
+            for (let node = el; node && node !== body; node = node.parentElement) {
+              const position = getComputedStyle(node).position;
+              if (position === 'absolute' || position === 'fixed') { return true; }
+            }
+            return false;
+          };
           const all = body.getElementsByTagName('*');
           for (let i = 0; i < all.length; i++) {
             const el = all[i];
@@ -340,6 +364,9 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
             // Only elements with nothing to show anywhere: a wrapper whose content belongs to a
             // later segment must stay.
             if (el.textContent.trim() || el.querySelector(mediaSelector)) { continue; }
+            // Out of the flow (a shape on a slide, positioned absolutely): it cannot push a
+            // page out, and may be drawn (a coloured box).
+            if (outOfFlow(el)) { continue; }
             trailing.push(el);
           }
           trailing.forEach(el => el.style && el.style.setProperty('display', 'none', 'important'));
@@ -615,11 +642,11 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
 
     // MARK: Printing
 
-    /// Paginates the loaded document into a PDF at `url` (pages of `configuration.pageSize`).
-    /// Pages are drawn in batches sized to `configuration.sliceBudget`, with a yield between
-    /// batches so the main thread stays responsive. Cancelling stops between batches and
-    /// removes the partial file.
-    func printPDF(to url: URL) async throws -> WebPrintReport {
+    /// Paginates the loaded document into a PDF at `url` (pages of `configuration.pageSize`;
+    /// only the first `pageLimit` when given). Pages are drawn in batches sized to
+    /// `configuration.sliceBudget`, with a yield between batches so the main thread stays
+    /// responsive. Cancelling stops between batches and removes the partial file.
+    func printPDF(to url: URL, pageLimit: Int? = nil) async throws -> WebPrintReport {
         guard let webView, !contentProcessTerminated else {
             throw contentProcessTerminated ? WebRenderError.contentProcessTerminated : WebRenderError.notStarted
         }
@@ -639,7 +666,7 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         let renderer = WebPaperRenderer(paper: paper, printable: configuration.printableRect)
         renderer.addPrintFormatter(webView.viewPrintFormatter(), startingAtPageAt: 0)
         var sliceStart = CACurrentMediaTime()
-        let pageCount = renderer.numberOfPages
+        let pageCount = min(renderer.numberOfPages, pageLimit ?? .max)
         var longest = CACurrentMediaTime() - sliceStart
         configuration.trace?(String(format: "paginated %d pages in %.0f ms", pageCount, longest * 1000))
         var busy = longest

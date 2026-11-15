@@ -174,7 +174,7 @@ nonisolated struct EPUBConverter: DocumentConverter {
                          diagnostics: EPUBConversionDiagnostics?, progress: @Sendable (Double) -> Void) async throws -> Int {
         let total = printed.reduce(0) { $0 + $1.pageCount }
         guard total > 0 else { throw ConversionError.failed(reason: "The book's chapters printed no pages.") }
-        var locator = EPUBTargetLocator(book: book, printed: printed)
+        var locator = WebTargetLocator(printed: printed)
         let outline = locator.outline(from: book.package.navigation)
         try Task.checkCancellation()
         let links = locator.links()
@@ -205,15 +205,8 @@ nonisolated struct EPUBBookPlan: Sendable {
     var cover: URL?
 }
 
-/// A chapter (or one segment of a long chapter) after printing.
-nonisolated struct EPUBPrintedChapter: Sendable {
-    var chapter: EPUBChapter
-    /// Zero-based segment of the chapter (see `WebPDFRenderer.planSegments`).
-    var part: Int = 0
-    var pdf: URL
-    var pageCount: Int
-    var layout: WebDocumentLayout
-}
+/// A chapter (or one segment of a long chapter) after printing; `path` is the spine item's.
+typealias EPUBPrintedChapter = WebPrintedPart
 
 // MARK: - Printing
 
@@ -283,19 +276,14 @@ enum EPUBChapterPrinter {
                     book.resources.serveAsHTML(chapter.path)
                     try await renderer.load(path: chapter.path)
                 }
-                let segments = try await renderer.planSegments(pagesPerSegment: EPUBStyle.pagesPerSegment,
-                                                               splitAbove: EPUBStyle.splitAbove)
-                for segment in 0..<segments {
-                    try Task.checkCancellation()
-                    if segments > 1 { try await renderer.showSegment(segment) }
-                    let layout = try await renderer.collectLayout()
-                    let url = workspace.appendingPathComponent(String(format: "chapter-%04d-%03d.pdf", index, segment))
-                    let print = try await renderer.printPDF(to: url)
-                    printed.append(EPUBPrintedChapter(chapter: chapter, part: segment, pdf: url, pageCount: print.pageCount, layout: layout))
+                let parts = try await renderer.printSegments(path: chapter.path, into: workspace,
+                                                             prefix: String(format: "chapter-%04d", index))
+                for part in parts {
+                    printed.append(part)
                     diagnostics?.record(chapter: EPUBConversionDiagnostics.Chapter(
-                        path: chapter.path, part: segment, parts: segments, pageCount: print.pageCount,
-                        seconds: Date().timeIntervalSince(started), print: print, reloadedAsHTML: report.hasParserError,
-                        anchors: layout.anchors.count, links: layout.links.count))
+                        path: chapter.path, part: part.part, parts: part.parts, pageCount: part.pageCount,
+                        seconds: Date().timeIntervalSince(started), print: part.report, reloadedAsHTML: report.hasParserError,
+                        anchors: part.layout.anchors.count, links: part.layout.links.count))
                 }
             } catch let error as WebRenderError {
                 throw ConversionError.failed(reason: "\(name) could not be converted: \(error.reason).")
@@ -315,97 +303,8 @@ enum EPUBChapterPrinter {
 
 // MARK: - Targets and links
 
-/// Resolves table-of-contents targets and links to pages of the joined document, by searching
-/// the printed chapters for the target's text near the page its position suggests.
-nonisolated struct EPUBTargetLocator {
-    struct Key: Hashable {
-        var chapter: Int
-        var fragment: String?
-    }
-
-    enum Resolution {
-        /// Found by text (or the chapter start, which is exact).
-        case exact(Int)
-        /// From the position estimate only.
-        case estimated(Int)
-        /// The fragment is not in the chapter.
-        case missing
-    }
-
-    let printed: [EPUBPrintedChapter]
-    let starts: [Int]
-    let total: Int
-    let chapterByPath: [String: Int]
-    private var cache: [Key: Resolution] = [:]
-    private var texts: [Int: WebPrintedText] = [:]
-    private(set) var outlineStatistics = EPUBConversionDiagnostics.Outline()
-    private(set) var linkStatistics = EPUBConversionDiagnostics.Links()
-
-    init(book: EPUBBookPlan, printed: [EPUBPrintedChapter]) {
-        self.printed = printed
-        var starts: [Int] = []
-        var running = 0
-        for chapter in printed {
-            starts.append(running)
-            running += chapter.pageCount
-        }
-        self.starts = starts
-        total = running
-        var byPath: [String: Int] = [:]
-        for (index, chapter) in printed.enumerated() where byPath[chapter.chapter.path] == nil {
-            byPath[chapter.chapter.path] = index
-        }
-        chapterByPath = byPath
-    }
-
-    /// A chapter's first page in the joined document (the next chapter's for an empty one).
-    private func startPage(_ chapter: Int) -> Int { min(starts[chapter], max(0, total - 1)) }
-
-    private mutating func text(_ chapter: Int) -> WebPrintedText? {
-        if let cached = texts[chapter] { return cached }
-        // Keep one chapter open at a time: lookups arrive grouped by chapter.
-        texts.removeAll()
-        guard let text = WebPrintedText(url: printed[chapter].pdf) else { return nil }
-        texts[chapter] = text
-        return text
-    }
-
-    mutating func resolve(_ key: Key) -> Resolution {
-        if let cached = cache[key] { return cached }
-        let result = compute(key)
-        cache[key] = result
-        return result
-    }
-
-    private mutating func compute(_ key: Key) -> Resolution {
-        let start = startPage(key.chapter)
-        guard let fragment = key.fragment, !fragment.isEmpty else { return .exact(start) }
-        // The fragment may be in any segment of the chapter.
-        let path = printed[key.chapter].chapter.path
-        var part = key.chapter
-        var found: WebDocumentLayout.Anchor?
-        while part < printed.count, printed[part].chapter.path == path {
-            if let anchor = printed[part].layout.anchors.first(where: { $0.id == fragment }) {
-                found = anchor
-                break
-            }
-            part += 1
-        }
-        guard let anchor = found else { return .missing }
-        let partStart = min(starts[part], max(0, total - 1))
-        guard printed[part].pageCount > 0, let printedText = text(part) else { return .exact(partStart) }
-        let estimate = printedText.estimatedPage(forFraction: anchor.top)
-        if !anchor.text.isEmpty, let page = printedText.page(forText: anchor.text, near: estimate) {
-            return .exact(partStart + page)
-        }
-        if anchor.text.isEmpty, !anchor.following.isEmpty, let page = printedText.page(forText: anchor.following, near: estimate, window: 1) {
-            return .exact(partStart + page)
-        }
-        return .estimated(partStart + estimate)
-    }
-
-    // MARK: Outline
-
+/// The EPUB's table of contents, resolved against the printed chapters.
+nonisolated extension WebTargetLocator {
     mutating func outline(from points: [EPUBNavigationPoint]) -> [WebPDFOutlineItem] {
         // Resolve in chapter order so each chapter's PDF is opened once.
         var keys: [Key] = []
@@ -455,68 +354,6 @@ nonisolated struct EPUBTargetLocator {
         }
         return items
     }
-
-    // MARK: Links
-
-    /// The links that could be placed: their text found exactly once near where the web view put
-    /// them, and (for internal links) their target found by text. Everything else is dropped.
-    mutating func links() -> [WebPDFLink] {
-        struct Pending {
-            var page: Int
-            var rects: [CGRect]
-            var target: Key?
-            var url: URL?
-        }
-        var pending: [Pending] = []
-        for (index, chapter) in printed.enumerated() where chapter.pageCount > 0 {
-            for link in chapter.layout.links {
-                guard let url = URL(string: link.href) else { continue }
-                var target: Key?
-                var external: URL?
-                if let path = WebPDFRenderer.path(of: url) {
-                    linkStatistics.internalFound += 1
-                    guard let destination = chapterByPath[path] else {
-                        linkStatistics.dropped.append("\(link.href): target not in the spine")
-                        continue
-                    }
-                    let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment
-                    target = Key(chapter: destination, fragment: fragment)
-                } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    linkStatistics.externalFound += 1
-                    external = url
-                } else {
-                    continue
-                }
-                guard !link.text.isEmpty, let printedText = text(index) else {
-                    linkStatistics.dropped.append("\(link.href): no link text")
-                    continue
-                }
-                let estimate = printedText.estimatedPage(forFraction: link.top)
-                guard let found = printedText.linkRects(text: link.text, before: link.before, near: estimate) else {
-                    linkStatistics.dropped.append("\(link.href): '\(link.text.prefix(30))' after '\(link.before.suffix(30))' "
-                        + "not found once near page \(estimate + 1) of \(printed[index].chapter.path)")
-                    continue
-                }
-                pending.append(Pending(page: starts[index] + found.page, rects: found.rects, target: target, url: external))
-            }
-        }
-        var links: [WebPDFLink] = []
-        for item in pending.sorted(by: { ($0.target?.chapter ?? -1) < ($1.target?.chapter ?? -1) }) {
-            if let url = item.url {
-                links.append(WebPDFLink(pageIndex: item.page, rects: item.rects, target: .url(url)))
-                linkStatistics.externalPlaced += 1
-            } else if let key = item.target {
-                // A link whose target could only be estimated would risk landing a page out.
-                guard case let .exact(page) = resolve(key) else {
-                    linkStatistics.dropped.append("target \(printed[key.chapter].chapter.path)#\(key.fragment ?? ""): not found by text")
-                    continue
-                }
-                links.append(WebPDFLink(pageIndex: item.page, rects: item.rects, target: .page(page)))
-                linkStatistics.internalPlaced += 1
-            }
-        }
-        return links.sorted { $0.pageIndex < $1.pageIndex }
-    }
 }
 
 // MARK: - Diagnostics
@@ -537,21 +374,8 @@ nonisolated final class EPUBConversionDiagnostics: @unchecked Sendable {
         var links: Int
     }
 
-    struct Outline: Sendable, Equatable {
-        var exact = 0
-        var estimated = 0
-        var missingFragment = 0
-        var dropped = 0
-    }
-
-    struct Links: Sendable, Equatable {
-        var internalFound = 0
-        var internalPlaced = 0
-        var externalFound = 0
-        var externalPlaced = 0
-        /// Why each dropped link was dropped.
-        var dropped: [String] = []
-    }
+    typealias Outline = WebOutlineStatistics
+    typealias Links = WebLinkStatistics
 
     private let lock = NSLock()
     private var storedChapters: [Chapter] = []
