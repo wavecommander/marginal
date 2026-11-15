@@ -18,8 +18,8 @@ nonisolated enum ReaderDocumentLoader {
     /// PDFKit opens lazily: this reads the file's structure, not every page.
     @concurrent
     static func openDocument(at url: URL) async -> TransferBox<PDFDocument>? {
-        guard let document = PDFDocument(url: url) else { return nil }
-        return TransferBox(document)
+        guard let document = ReaderPDFDocument(url: url) else { return nil }
+        return TransferBox<PDFDocument>(document)
     }
 
     /// Flattens the PDF outline depth-first (pre-order) from a private document instance.
