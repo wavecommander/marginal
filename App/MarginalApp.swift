@@ -8,10 +8,16 @@ import SwiftUI
 /// place). One `AppEnvironment` is shared by all windows; each reader has its own session.
 @main
 struct MarginalApp: App {
-    @State private var environment = AppEnvironment.makeLive()
+    @State private var environment: AppEnvironment
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let environment = AppEnvironment.makeLive()
+        _environment = State(initialValue: environment)
         PerfMarks.mark("appInit")
+        // BGTaskScheduler requires every launch handler to be registered before the app
+        // finishes launching; the App is initialised before that.
+        environment.backupScheduler.registerBackgroundTask()
     }
 
     var body: some Scene {
@@ -21,6 +27,9 @@ struct MarginalApp: App {
                 .environment(\.launchOptions, environment.launchOptions)
         }
         .commands { ReaderCommands() }
+        // The app's phase (active while any window is): automatic backups run on activation and
+        // schedule their background task when every window is in the background.
+        .onChange(of: scenePhase) { _, phase in environment.backupScheduler.scenePhaseChanged(phase) }
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
             WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },

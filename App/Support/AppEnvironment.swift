@@ -30,6 +30,9 @@ final class AppEnvironment {
     @ObservationIgnored let googleDriveAccount: GoogleDriveAccount
     /// Automatic-backup preferences and the outcome of the last automatic run.
     @ObservationIgnored let backupAutomaticSettings: BackupAutomaticSettings
+    /// Runs automatic backups (`MarginalApp` registers its background task and forwards the
+    /// scene phase). Disarmed in a `-resetState` launch until automatic backups are switched on.
+    @ObservationIgnored let backupScheduler: BackupScheduler
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -53,9 +56,14 @@ final class AppEnvironment {
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
         self.fixtureImporter = FixtureImporter(store: store)
-        self.backupService = BackupService(store: store)
-        self.backupDestinations = BackupDestinationRegistry()
-        self.backupAutomaticSettings = BackupAutomaticSettings()
+        let backupService = BackupService(store: store)
+        let backupDestinations = BackupDestinationRegistry()
+        let backupAutomaticSettings = BackupAutomaticSettings()
+        self.backupService = backupService
+        self.backupDestinations = backupDestinations
+        self.backupAutomaticSettings = backupAutomaticSettings
+        self.backupScheduler = BackupScheduler(settings: backupAutomaticSettings, service: backupService,
+                                               destinations: backupDestinations, armed: !launchOptions.resetState)
         let local = BackupDestinationFactory.folderAndICloud()
         let cloud = CloudBackupDestinations.make()
         self.backupFolderStore = local.folderStore
@@ -70,6 +78,7 @@ final class AppEnvironment {
         for destination in local.all + cloud.all { backupDestinations.register(destination) }
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
         backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
+        backupScheduler.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
     }
 
     /// Saves every open reader's and note editor's pending text and ink, and waits for it (the
