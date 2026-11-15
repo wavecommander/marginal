@@ -109,7 +109,7 @@ public enum SnapshotName {
 
     private static let utc = TimeZone(identifier: "UTC")!
 
-    private static func timestamp(_ date: Date) -> String {
+    static func timestamp(_ date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = utc
         let p = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
@@ -118,7 +118,7 @@ public enum SnapshotName {
     }
 
     /// Parses exactly `YYYY-MM-DDTHH-MM-SSZ`.
-    private static func parseTimestamp(_ string: String) -> Date? {
+    static func parseTimestamp(_ string: String) -> Date? {
         let bytes = Array(string.utf8)
         guard bytes.count == 20 else { return nil }
         let template = Array("0000-00-00T00-00-00Z".utf8)
