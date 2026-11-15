@@ -378,6 +378,25 @@ line is the only shared edit and is merged by the orchestrator.
 
 Phase A ships after wave 2 without F5 if EPUB slips: the sheet, the flow and comics stand alone.
 
+### Wave 3 status (15 November 2026)
+
+F6 is merged into `build-v1`. F7 is merged on the branch `import-wave3` (on top of `build-v1`,
+which by then also held onboarding and horizontal scrolling); it is not on `build-v1` yet because
+the main checkout had other uncommitted work. On `import-wave3`, 39 unit tests in six suites and
+9 UI tests (the EPUB journey, the comic import, Supported Formats, the Convert sheet) pass on the
+iOS 27 simulator.
+
+- Text, Markdown, HTML, web archive, `.docx`, `.doc`, RTF and `.pptx` convert from generated
+  fixtures. No real-world Word file or deck has been tried.
+- **Keynote is unproven:** the only `.key` tried (an empty Apple theme) became one grey page.
+  `.ppt` and iWork '09 files are untested. Pages was tried with one Apple template only.
+- Japanese and Chinese text can come out of the print path as look-alike characters, so search
+  may miss it (seen with "日本語"). This affects EPUB too. Not addressed.
+- RTF is read by the system RTF reader, not WebKit; Pages and Keynote go through WebKit's PDF
+  viewer; web archives are parsed by the app.
+- `SettingsUITests/testCommandCommaOpensSettingsAndResetRestoresRaspberry` fails with and without
+  this work. Not investigated.
+
 ### Wave 2 status (15 November 2026)
 
 F3, F4 and F5 are merged into `build-v1`; 86 unit tests in the seven import suites and 13 UI tests
