@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import PDFKit
+import ReaderBackup
 import ReaderCore
 import UIKit
 import UniformTypeIdentifiers
@@ -399,6 +400,30 @@ nonisolated enum ImportPipeline {
             try fileManager.copyItem(at: temporary, to: destination)
         }
         return destination
+    }
+
+    /// Whether `name` is one the app itself uses at the top of a book's directory: the cover,
+    /// the conversion record, the hash sidecar, a kept original, the ink folders, and
+    /// `records.json` (which a backup reserves). Compared without regard to case, because the
+    /// simulator's file system ignores it.
+    static func isReservedFileName(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        let reserved = [coverFileName, conversionRecordFileName, BookStorageLayout.contentHashFileName,
+                        BackupArchiveLayout.recordsFileName, "ink", "notes"]
+        return reserved.contains(lowered) || BookStorageLayout.isOriginalFileName(lowered)
+    }
+
+    /// The name a book's PDF is stored under in its directory: `sanitizedFileName`, and never a
+    /// name the app uses there itself. A PDF that arrives as `cover.jpg` would otherwise be
+    /// overwritten by its own cover, and one called `original.pdf` taken for a kept original; such
+    /// a name gets `-book` before its extension (`original-book.pdf`). The book's title still
+    /// comes from the name the file arrived with.
+    static func documentFileName(_ name: String) -> String {
+        let cleaned = sanitizedFileName(name)
+        guard isReservedFileName(cleaned) else { return cleaned }
+        let ext = (cleaned as NSString).pathExtension
+        let stem = (cleaned as NSString).deletingPathExtension
+        return ext.isEmpty ? "\(stem)-book" : "\(stem)-book.\(ext)"
     }
 
     /// A file name safe to use inside a book directory: no separators, not empty, not hidden,

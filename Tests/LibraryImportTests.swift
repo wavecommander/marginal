@@ -270,6 +270,55 @@ struct LibraryImportTests {
         #expect(ImportPipeline.sanitizedFileName(String(repeating: "x", count: 300) + ".pdf").count <= 125)
         #expect(ImportService.title(forFileName: "Linear Algebra.pdf") == "Linear Algebra")
     }
+
+    /// A book's PDF never takes a name the app uses in the book's directory itself.
+    @Test func documentFileNamesAvoidTheBookDirectorysOwnNames() {
+        #expect(ImportPipeline.documentFileName("Linear Algebra.pdf") == "Linear Algebra.pdf")
+        #expect(ImportPipeline.documentFileName("cover.jpg") == "cover-book.jpg")
+        #expect(ImportPipeline.documentFileName("Cover.JPG") == "Cover-book.JPG")
+        #expect(ImportPipeline.documentFileName("original.pdf") == "original-book.pdf")
+        #expect(ImportPipeline.documentFileName("original") == "original-book")
+        #expect(ImportPipeline.documentFileName("conversion.json") == "conversion-book.json")
+        #expect(ImportPipeline.documentFileName("document.sha256") == "document-book.sha256")
+        #expect(ImportPipeline.documentFileName("records.json") == "records-book.json")
+        #expect(ImportPipeline.documentFileName("ink") == "ink-book")
+        #expect(ImportPipeline.documentFileName("notes") == "notes-book")
+        // Names that only resemble a reserved one are left alone.
+        #expect(ImportPipeline.documentFileName("original.v2.pdf") == "original.v2.pdf")
+        #expect(ImportPipeline.documentFileName("cover.jpeg") == "cover.jpeg")
+        #expect(ImportService.convertedFileName(forFileName: "original.epub") == "original-book.pdf")
+        #expect(ImportService.convertedFileName(forFileName: "Dune.epub") == "Dune.pdf")
+        for name in ["cover.jpg", "original.pdf", "conversion.json", "document.sha256", "records.json", "ink", "notes"] {
+            #expect(!ImportPipeline.isReservedFileName(ImportPipeline.documentFileName(name)))
+        }
+    }
+
+    /// A PDF that arrives named like the book's cover used to be overwritten by that cover.
+    @Test func aPDFNamedLikeTheCoverKeepsItsPagesAndGetsACover() async throws {
+        let env = try makeEnv(); defer { cleanup(env) }
+        let source = env.scratch.appendingPathComponent(ImportPipeline.coverFileName)
+        try FileManager.default.copyItem(at: Self.small, to: source)
+        let book = try #require(try await env.service.importPDF(at: source).book)
+        #expect(book.title == "cover")
+        #expect(book.fileName == "cover-book.jpg")
+        let document = env.store.documentURL(for: book)
+        #expect(try Data(contentsOf: document) == Data(contentsOf: Self.small))
+        let cover = env.service.coverURL(for: book)
+        #expect(cover != document)
+        #expect(UIImage(contentsOfFile: cover.path) != nil)
+    }
+
+    /// A PDF named `original.pdf` is the book's document, not a converted book's kept original.
+    @Test func aPDFNamedOriginalIsNotStoredUnderAKeptOriginalsName() async throws {
+        let env = try makeEnv(); defer { cleanup(env) }
+        let source = env.scratch.appendingPathComponent("original.pdf")
+        try FileManager.default.copyItem(at: Self.small, to: source)
+        let book = try #require(try await env.service.importPDF(at: source).book)
+        #expect(book.title == "original")
+        #expect(book.fileName == "original-book.pdf")
+        #expect(!BookStorageLayout.isOriginalFileName(book.fileName))
+        #expect(book.pageCount == 12)
+    }
 }
 
 /// Lets a copy's progress callback cancel the task that runs it.

@@ -351,7 +351,7 @@ final class ImportService {
 
     private func importPDF(_ url: URL, probe: ImportPipeline.Probe, job: ImportJob, consume: Bool) async throws -> ImportOutcome {
         let name = job.fileName
-        let fileName = ImportPipeline.sanitizedFileName(name)
+        let fileName = ImportPipeline.documentFileName(name)
         let bookID = UUID()
         let staging = stagingRoot.appendingPathComponent(bookID.uuidString, isDirectory: true)
         job.set(phase: .copying)
@@ -720,8 +720,9 @@ final class ImportService {
         return trimmed.isEmpty ? name : trimmed
     }
 
-    /// The generated PDF's file name for an original named `name`: its stem plus `.pdf`.
+    /// The generated PDF's file name for an original named `name`: its stem plus `.pdf` (never a
+    /// name the book's directory reserves: `original.epub` gives `original-book.pdf`).
     nonisolated static func convertedFileName(forFileName name: String) -> String {
-        ImportPipeline.sanitizedFileName(title(forFileName: name) + ".pdf")
+        ImportPipeline.documentFileName(title(forFileName: name) + ".pdf")
     }
 }
