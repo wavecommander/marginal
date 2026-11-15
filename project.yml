@@ -20,6 +20,8 @@ packages:
     path: Packages/ReaderStore
   ReaderBackup:
     path: Packages/ReaderBackup
+  GoogleDriveKit:
+    path: Packages/GoogleDriveKit
 targets:
   Marginal:
     type: application
@@ -30,6 +32,7 @@ targets:
       - package: ReaderCore
       - package: ReaderStore
       - package: ReaderBackup
+      - package: GoogleDriveKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: software.tactile.marginal
