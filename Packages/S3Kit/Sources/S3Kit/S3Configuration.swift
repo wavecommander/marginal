@@ -36,3 +36,20 @@ public struct S3Configuration: Hashable, Sendable {
         self.prefix = trimmed(prefix).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
+
+extension S3Configuration: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// Every field except the secret access key, which is always shown as `<redacted>`, so a
+    /// configuration can be logged or interpolated without leaking it.
+    public var description: String {
+        "S3Configuration(host: \(host), region: \(region), bucket: \(bucket), accessKeyID: \(accessKeyID), "
+            + "secretAccessKey: <redacted>, prefix: \(prefix.isEmpty ? "<none>" : prefix))"
+    }
+
+    public var debugDescription: String { description }
+
+    /// `dump(_:)` and debugger summaries go through the mirror, so the secret is redacted there too.
+    public var customMirror: Mirror {
+        Mirror(self, children: ["host": host, "region": region, "bucket": bucket, "accessKeyID": accessKeyID,
+                                "secretAccessKey": "<redacted>", "prefix": prefix], displayStyle: .struct)
+    }
+}
