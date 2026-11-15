@@ -7,6 +7,8 @@ struct ContinueReadingCard: View {
     @Environment(\.accentTheme) private var accentTheme
     let book: Book
     let annotationCount: Int
+    /// The book's PDF is not on this iPad: the cover carries the "PDF missing" badge.
+    var isMissingPDF = false
     let onResume: () -> Void
     let onNotebook: () -> Void
 
@@ -38,8 +40,18 @@ struct ContinueReadingCard: View {
     private var cover: some View {
         Color.clear
             .frame(width: 88, height: 116)
-            .overlay { BookCoverView(book: book) }
+            .overlay { BookCoverView(book: book, isMissingPDF: isMissingPDF) }
             .bookCoverStyle(cornerRadius: 6)
+            .overlay(alignment: .bottom) {
+                if isMissingPDF {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.ink)
+                        .padding(Space.xs + 2)
+                        .background(.regularMaterial, in: Circle())
+                        .padding(.bottom, Space.xs)
+                }
+            }
             .accessibilityHidden(true)
     }
 
@@ -63,7 +75,8 @@ struct ContinueReadingCard: View {
     }
 
     private var detail: String {
-        [LibraryLogic.pageLine(book), LibraryLogic.annotationLine(count: annotationCount)]
+        [LibraryLogic.pageLine(book), LibraryLogic.annotationLine(count: annotationCount),
+         isMissingPDF ? MissingPDFText.badge : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 

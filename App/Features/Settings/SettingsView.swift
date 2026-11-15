@@ -7,14 +7,23 @@ import SwiftUI
 /// Appearance: the accent preset. Picking a swatch writes `AccentChoice.storageKey`; every
 /// window's `AccentRoot` reads the same key, so all windows, this sheet and its preview change
 /// at once.
+///
+/// Backup & Restore is a page of its own (`BackupScreen`); "Back Up & Restore…" in the menu bar
+/// opens the sheet straight on it (`WindowContext.showBackupSettings()`).
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(WindowContext.self) private var window: WindowContext?
     @AppStorage(AccentChoice.storageKey) private var storedAccent = AccentChoice.default.rawValue
+    @State private var path: [SettingsPage]
+
+    init(initialPage: SettingsPage? = nil) {
+        _path = State(initialValue: initialPage.map { [$0] } ?? [])
+    }
 
     private var selection: AccentChoice { AccentChoice(storedValue: storedAccent) }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
                 Section {
                     AccentSwatchGrid(selection: selection) { storedAccent = $0.rawValue }
@@ -31,6 +40,14 @@ struct SettingsView: View {
                 } footer: {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
                 }
+                Section {
+                    NavigationLink(value: SettingsPage.backup) {
+                        Label("Backup & Restore", systemImage: "externaldrive")
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
+                } footer: {
+                    Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -40,6 +57,15 @@ struct SettingsView: View {
                         .accessibilityIdentifier(AccessibilityID.Settings.done)
                 }
             }
+            .navigationDestination(for: SettingsPage.self) { page in
+                switch page {
+                case .backup: BackupScreen()
+                }
+            }
+        }
+        .environment(\.closeSettings, CloseSettingsAction { dismiss() })
+        .onChange(of: window?.settingsPageRequestCount) { _, _ in
+            if let page = window?.settingsPage, path != [page] { path = [page] }
         }
         .accessibilityIdentifier(AccessibilityID.Settings.sheet)
     }

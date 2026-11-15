@@ -31,6 +31,8 @@ struct ReaderCommands: Commands {
             Button("Import PDF…") { window?.requestImport() }
                 .keyboardShortcut("o", modifiers: .command)
                 .disabled(window == nil)
+            Button("Back Up & Restore…") { window?.showBackupSettings() }
+                .disabled(window == nil)
         }
 
         CommandGroup(replacing: .appSettings) {

@@ -11,11 +11,16 @@ final class LibraryModel {
     private(set) var books: [Book] = []
     /// Notes plus highlights of the "Continue reading" book.
     private(set) var continueAnnotationCount = 0
+    /// Books whose PDF is not on disk (restored without it, or the file went missing): their
+    /// covers carry "PDF missing" and opening them offers Locate PDF…. Checked off the main
+    /// thread whenever the list reloads (a book saved, linked or deleted).
+    private(set) var booksMissingPDF: Set<UUID> = []
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored let origin = ChangeOrigin(label: "library window")
     @ObservationIgnored private var observation: StoreChangeObservation?
     @ObservationIgnored private var continueBookID: UUID?
+    @ObservationIgnored private var documentCheck: Task<Void, Never>?
 
     init(store: LibraryStore) {
         self.store = store
@@ -27,6 +32,26 @@ final class LibraryModel {
         books = (try? store.books.allBooks()) ?? []
         continueBookID = LibraryLogic.continueReading(books)?.id
         recountContinueBook()
+        refreshMissingDocuments()
+    }
+
+    /// Whether `book` lacks its PDF (as of the last check).
+    func isMissingPDF(_ book: Book) -> Bool { booksMissingPDF.contains(book.id) }
+
+    private func refreshMissingDocuments() {
+        documentCheck?.cancel()
+        let books = books
+        let store = store
+        documentCheck = Task { [weak self] in
+            let missing = await Self.booksWithoutDocument(books, store: store)
+            guard !Task.isCancelled, let self, self.booksMissingPDF != missing else { return }
+            self.booksMissingPDF = missing
+        }
+    }
+
+    @concurrent
+    nonisolated private static func booksWithoutDocument(_ books: [Book], store: LibraryStore) async -> Set<UUID> {
+        Set(books.filter { !store.hasDocument($0) }.map(\.id))
     }
 
     private func handle(_ event: StoreChangeEvent) {
