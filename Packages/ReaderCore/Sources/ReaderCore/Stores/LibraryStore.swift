@@ -30,6 +30,10 @@ public enum LibraryStoreError: Error, Hashable, Sendable {
 /// - `books.save(book)` → `.bookSaved(book.id)`.
 /// - `books.deleteBook(id)` → `.bookDeleted(id)` if the book existed; nothing otherwise.
 ///   (Records only; prefer `deleteBook(id:origin:)`, which also removes files.)
+/// - `books.replaceBook(archive, removing: ids)` → `.bookDeleted(id)` for each ID of
+///   `ids ∪ {archive.book.id}` whose book existed (ascending by `uuidString`), then
+///   `.bookSaved(archive.book.id)`. The deletes come first on purpose: reader and Notebook windows
+///   on a replaced book close, exactly as for a delete. (Records only; the caller moves files.)
 /// - `notes.save(note)` returning a note → `.noteSaved(bookID, target, id)`; returning `nil`
 ///   (empty note) → `.noteRemoved(bookID, target, existing.id)` if a note existed there, else nothing.
 /// - `notes.deleteNote(id)` → `.noteRemoved(bookID, target, id)` if it existed.
@@ -215,6 +219,21 @@ public final class LibraryStore {
         }
     }
 
+    // MARK: Archives
+
+    /// Everything the record store holds for the book, as one value (the unit of backup), or
+    /// `nil` for an unknown book. Read in one synchronous main-actor pass through the wrapped
+    /// repositories, so it is a consistent snapshot: no mutation can land between the reads.
+    /// Records are in the order the repositories return them (highlights in reading order,
+    /// bookmarks by page; notes and user headings in no particular order).
+    public func archive(bookID: UUID) throws -> BookArchive? {
+        guard let book = try books.book(id: bookID) else { return nil }
+        return BookArchive(book: book, notes: try notes.notes(bookID: bookID),
+                           highlights: try highlights.highlights(bookID: bookID),
+                           bookmarks: try bookmarks.bookmarks(bookID: bookID),
+                           userHeadings: try headings.userHeadings(bookID: bookID))
+    }
+
     // MARK: File locations
 
     /// `rootDirectory` + a `BookStorageLayout` relative path.
@@ -230,6 +249,20 @@ public final class LibraryStore {
     /// `<root>/Books/<book.id>/<book.fileName>`: the imported PDF.
     public func documentURL(for book: Book) -> URL {
         url(forRelativePath: BookStorageLayout.documentPath(bookID: book.id, fileName: book.fileName))
+    }
+
+    /// `<root>/Books/<bookID>/document.sha256`: the PDF's full-content hash sidecar
+    /// (`BookStorageLayout.contentHashPath`). Callable from any thread.
+    public nonisolated func contentHashURL(bookID: UUID) -> URL {
+        rootDirectory.appendingPathComponent(BookStorageLayout.contentHashPath(bookID: bookID), isDirectory: false)
+    }
+
+    /// Whether the book's PDF exists at `documentURL(for:)` (a restored book can have records
+    /// but no PDF yet). A plain file-exists check: cheap, but a file-system call, not free.
+    /// Callable from any thread; callers checking many books batch the calls off the main thread.
+    public nonisolated func hasDocument(_ book: Book) -> Bool {
+        let path = BookStorageLayout.documentPath(bookID: book.id, fileName: book.fileName)
+        return FileManager.default.fileExists(atPath: rootDirectory.appendingPathComponent(path, isDirectory: false).path)
     }
 
     /// `<root>/Books/<bookID>/ink`
@@ -276,6 +309,14 @@ final class PostingBookRepository<Inner: BookRepository>: BookRepository {
         let existed = try inner.book(id: id) != nil
         try inner.deleteBook(id: id)
         if existed { context.post(.bookDeleted(bookID: id)) }
+    }
+
+    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
+        let candidates = ids.union([archive.book.id]).sorted { $0.uuidString < $1.uuidString }
+        let existing = try candidates.filter { try inner.book(id: $0) != nil }
+        try inner.replaceBook(archive, removing: ids)
+        context.hub.post(existing.map { .bookDeleted(bookID: $0) } + [.bookSaved(bookID: archive.book.id)],
+                         origin: context.origin)
     }
 }
 

@@ -30,6 +30,29 @@ public enum RepositoryError: Error, Hashable, Sendable {
     case noteTargetMismatch(noteID: UUID)
     /// The record with this ID does not exist.
     case notFound(UUID)
+
+    // `BookRepository.replaceBook(_:removing:)` refusals. Each one leaves the store unchanged.
+    // The first five are about the archive alone (`BookArchive.validateForReplacement()`); the
+    // last two compare it with the store.
+
+    /// The archive is not `isConsistent`: the record with this ID has a `bookID` other than
+    /// `archive.book.id`.
+    case archiveInconsistent(recordID: UUID)
+    /// Two records of one kind in the archive (two notes, two highlights, two bookmarks or two
+    /// user headings) share this ID.
+    case archiveDuplicateRecordID(UUID)
+    /// The archive holds two notes for one target; this is the ID of the second.
+    case archiveDuplicateNoteTarget(noteID: UUID)
+    /// The archive holds two bookmarks on this page.
+    case archiveDuplicateBookmarkPage(pageIndex: Int)
+    /// The archive holds an empty note (`Note.isEmpty`), which the store never keeps.
+    case archiveEmptyNote(noteID: UUID)
+    /// A record in the archive has the ID of a stored record of a book that is not being
+    /// replaced or removed (`bookID`). Inserting it would take the row from that book.
+    case recordOwnedByOtherBook(recordID: UUID, bookID: UUID)
+    /// Another book that is not being replaced or removed has the archive book's fingerprint
+    /// (the library holds one book per fingerprint).
+    case fingerprintInUse(existingBookID: UUID)
 }
 
 /// How many records a book owns; with `InkStore.inkedPageIndices` this is the "N notes, M
@@ -87,6 +110,24 @@ public protocol BookRepository {
     func deleteBook(id: UUID) throws
     /// Counts of the records `deleteBook` would remove (all zero for an unknown book).
     func recordCounts(bookID: UUID) throws -> BookRecordCounts
+    /// Replaces whole books with one archive, in one transaction (all or nothing; the restore of
+    /// a backup).
+    ///
+    /// Deletes the book and every record (notes, highlights, bookmarks, user headings) of each ID
+    /// in `ids` and of `archive.book.id` (unknown IDs are skipped), then inserts `archive.book`
+    /// and all of the archive's records verbatim: IDs, dates and every other field unchanged.
+    /// Idempotent: a second call with the same arguments leaves the same state. Does not touch
+    /// files (the caller moves the books' directories).
+    ///
+    /// Refuses, changing nothing, with:
+    /// - the archive's own errors, in this order (`BookArchive.validateForReplacement()`):
+    ///   `.archiveInconsistent`, `.archiveDuplicateRecordID`, `.archiveDuplicateNoteTarget`,
+    ///   `.archiveDuplicateBookmarkPage`, `.archiveEmptyNote`;
+    /// - `.fingerprintInUse` when a book outside `ids ∪ {archive.book.id}` has
+    ///   `archive.book.fingerprint`;
+    /// - `.recordOwnedByOtherBook` when a record ID in the archive is stored for a book outside
+    ///   `ids ∪ {archive.book.id}`.
+    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws
 }
 
 /// Notes. **At most one note per (book, target)**; an empty note is never stored.

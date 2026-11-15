@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import PDFKit
+import ReaderCore
 import UIKit
 
 /// The file work of an import. Everything here is `nonisolated` and the entry points are

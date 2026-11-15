@@ -222,6 +222,29 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         try await store.deleteBook(id: a.id, origin: nil)
     }
 
+    /// The ownership check runs in chunks of IDs; a foreign ID past the first chunk is still found,
+    /// and a large archive goes in whole.
+    @Test func replaceBookWithManyRecords() throws {
+        let book = try makeBook(in: store), other = try makeBook(in: store)
+        let foreign = Highlight(bookID: other.id, pageIndex: 0, rects: [], color: .blue, text: "theirs")
+        try store.highlights.save(foreign)
+        var archive = BookArchive(book: book)
+        archive.highlights = (0..<1_200).map {
+            Highlight(bookID: book.id, pageIndex: $0 % 50, rects: [CGRect(x: 0, y: Double($0), width: 5, height: 5)], color: .yellow, text: "\($0)")
+        }
+        archive.notes = (0..<700).map { Note(bookID: book.id, target: .page($0), text: "n\($0)") }
+        var clash = archive
+        clash.highlights[1_100] = Highlight(id: foreign.id, bookID: book.id, pageIndex: 1, rects: [], color: .blue, text: "stolen")
+        #expect(throws: RepositoryError.recordOwnedByOtherBook(recordID: foreign.id, bookID: other.id)) {
+            try store.books.replaceBook(clash, removing: [])
+        }
+        #expect(try store.books.recordCounts(bookID: book.id) == BookRecordCounts())
+        try store.books.replaceBook(archive, removing: [])
+        #expect(try store.books.recordCounts(bookID: book.id) == BookRecordCounts(notes: 700, highlights: 1_200))
+        #expect(try store.highlights.highlights(bookID: book.id) == archive.highlights.sorted(by: Highlight.readingOrder))
+        #expect(try store.highlights.highlight(id: foreign.id)?.bookID == other.id)
+    }
+
     @Test func deleteNoteRemovesInk() async throws {
         let book = try makeBook(in: store)
         let note = Note(bookID: book.id, target: .page(1), text: "", hasInk: true)
@@ -279,6 +302,51 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         // The store file lives inside the root.
         let db = root.url.appendingPathComponent("Database/Marginal.store")
         #expect(FileManager.default.fileExists(atPath: db.path))
+    }
+
+    /// `replaceBook` on the on-disk store: rows deleted and re-inserted with the same IDs, a
+    /// freed note target and bookmark page reused in the same save, all as expected after reopen.
+    @Test func replaceBookSurvivesReopen() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let date = Date(timeIntervalSince1970: 1_650_000_000.375)
+        let book = Book(title: "Replace", fingerprint: "fp-replace", fileName: "r.pdf", pageCount: 100, fileSize: 9, addedAt: date)
+        let other = Book(title: "Other", fingerprint: "fp-other", fileName: "o.pdf", pageCount: 10, fileSize: 1, addedAt: date)
+        let replacement: BookArchive
+        do {
+            let store = try LibraryStore.live(rootDirectory: root.url)
+            try store.books.save(book)
+            try store.books.save(other)
+            try store.notes.save(Note(bookID: other.id, target: .page(1), text: "other"))
+            let kept = Note(bookID: book.id, target: .page(1), text: "kept", createdAt: date, modifiedAt: date)
+            try store.notes.save(kept)
+            try store.notes.save(Note(bookID: book.id, target: .page(2), text: "dropped"))
+            try store.highlights.save(Highlight(bookID: book.id, pageIndex: 3, rects: [CGRect(x: 1, y: 2, width: 3, height: 4)],
+                                                color: .green, text: "h", createdAt: date))
+            try store.bookmarks.setBookmarked(true, bookID: book.id, pageIndex: 4)
+            var archive = try #require(try store.archive(bookID: book.id))
+            archive.book.title = "Restored"
+            archive.notes = [Note(id: kept.id, bookID: book.id, target: .page(1), text: "kept, edited", createdAt: date, modifiedAt: date),
+                             Note(bookID: book.id, target: .page(2), text: "new on 2", createdAt: date, modifiedAt: date)]
+            archive.highlights[0].pageIndex = 30
+            archive.bookmarks = [Bookmark(bookID: book.id, pageIndex: 4, createdAt: date)]
+            archive.userHeadings = [UserHeading(bookID: book.id, title: "U", pageIndex: 5, parent: nil, createdAt: date)]
+            try store.books.replaceBook(archive, removing: [])
+            try store.books.replaceBook(archive, removing: [])
+            replacement = archive
+        }
+        let again = try LibraryStore.live(rootDirectory: root.url)
+        let restored = try #require(try again.archive(bookID: book.id))
+        #expect(restored.book == replacement.book)
+        #expect(Set(restored.notes) == Set(replacement.notes))
+        #expect(restored.highlights == replacement.highlights)
+        #expect(restored.bookmarks == replacement.bookmarks)
+        #expect(restored.userHeadings == replacement.userHeadings)
+        #expect(try again.books.recordCounts(bookID: book.id) == BookRecordCounts(notes: 2, highlights: 1, bookmarks: 1, userHeadings: 1))
+        #expect(try again.notes.note(bookID: book.id, target: .page(2))?.text == "new on 2")
+        #expect(try again.highlights.highlights(bookID: book.id, pageIndex: 30).count == 1)
+        #expect(try again.highlights.highlights(bookID: book.id, pageIndex: 3).isEmpty)
+        #expect(try again.books.allBooks().count == 2)
+        #expect(try again.notes.notes(bookID: other.id).map(\.text) == ["other"])
     }
 
     @Test func resetWipesEverythingEvenWithJunk() async throws {

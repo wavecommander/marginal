@@ -17,26 +17,32 @@ import Foundation
 /// fingerprint even if they differ elsewhere. For textbook PDFs, which carry a cross-reference
 /// table and trailer at the end and change size when edited, that does not happen in practice;
 /// the cost of a false match is that the second import opens the first book.
-nonisolated enum BookFingerprint {
-    static let prefix = "sha256-v1:"
-    static let chunkSize = 64 * 1024
-    static let sampleCount = 32
+///
+/// **Frozen:** stored `Book.fingerprint` values and backups depend on this exact output; a test
+/// pins known digests. A different scheme needs a new prefix, never a change to this one.
+public enum BookFingerprint {
+    /// Prefix of every fingerprint this scheme produces.
+    public static let prefix = "sha256-v1:"
+    /// Size of one sampled chunk in bytes.
+    public static let chunkSize = 64 * 1024
+    /// Number of sampled chunks of a large file.
+    public static let sampleCount = 32
 
     /// `true` when the whole file is read (size at most `chunkSize * sampleCount`).
-    static func hashesWholeFile(size: Int64) -> Bool {
+    public static func hashesWholeFile(size: Int64) -> Bool {
         size <= Int64(chunkSize * sampleCount)
     }
 
     /// Start offsets of the sampled chunks for a file of `size` bytes (empty when the whole file
     /// is hashed).
-    static func sampleOffsets(forSize size: Int64) -> [Int64] {
+    public static func sampleOffsets(forSize size: Int64) -> [Int64] {
         guard !hashesWholeFile(size: size) else { return [] }
         let span = size - Int64(chunkSize)
         return (0..<sampleCount).map { span * Int64($0) / Int64(sampleCount - 1) }
     }
 
     /// Fingerprint of the file at `url`. Reads at most 2 MiB. Throws if it cannot be read.
-    static func fingerprint(ofFileAt url: URL) throws -> String {
+    public static func fingerprint(ofFileAt url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let size = Int64(try handle.seekToEnd())

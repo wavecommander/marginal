@@ -46,7 +46,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         guard count > 0 else { throw RepositoryError.bookNotFound(id) }
     }
 
-    private static func encode<T: Encodable>(_ value: T) throws -> Data {
+    private nonisolated static func encode<T: Encodable>(_ value: T) throws -> Data {
         try JSONEncoder().encode(value)
     }
 
@@ -105,12 +105,72 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
     }
 
     func deleteBook(id: UUID) throws {
+        try transaction { try deleteRecords(ofBook: id) }
+    }
+
+    /// The deletes of `deleteBook`, for use inside a `transaction`.
+    private func deleteRecords(ofBook id: UUID) throws {
+        try context.delete(model: NoteModel.self, where: #Predicate { $0.bookID == id })
+        try context.delete(model: HighlightModel.self, where: #Predicate { $0.bookID == id })
+        try context.delete(model: BookmarkModel.self, where: #Predicate { $0.bookID == id })
+        try context.delete(model: UserHeadingModel.self, where: #Predicate { $0.bookID == id })
+        try context.delete(model: BookModel.self, where: #Predicate { $0.id == id })
+    }
+
+    /// Every refusal is decided by reads before anything changes. Then one `transaction`: the
+    /// batch deletes of `deleteBook` for each removed ID and the inserts, saved together (rolled
+    /// back on failure). An inserted row may reuse the ID or composite key of a row deleted in the
+    /// same save; the checks guarantee every such row belongs to a removed book, so the unique
+    /// constraint's upsert never reaches a row that stays. After the save the rows are exactly the
+    /// archive's (`replaceBookSurvivesReopen` checks this on disk, after reopening).
+    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
+        try archive.validateForReplacement()
+        let removed = ids.union([archive.book.id])
+        let fingerprint = archive.book.fingerprint
+        let sameFingerprint = FetchDescriptor<BookModel>(predicate: #Predicate { $0.fingerprint == fingerprint },
+                                                         sortBy: [SortDescriptor(\.addedAt)])
+        if let other = try context.fetch(sameFingerprint).first(where: { !removed.contains($0.id) }) {
+            throw RepositoryError.fingerprintInUse(existingBookID: other.id)
+        }
+        try requireNoForeignOwner(archive.notes.map(\.id), removed: removed) { chunk in
+            try context.fetch(FetchDescriptor<NoteModel>(predicate: #Predicate { chunk.contains($0.id) })).map { ($0.id, $0.bookID) }
+        }
+        try requireNoForeignOwner(archive.highlights.map(\.id), removed: removed) { chunk in
+            try context.fetch(FetchDescriptor<HighlightModel>(predicate: #Predicate { chunk.contains($0.id) })).map { ($0.id, $0.bookID) }
+        }
+        try requireNoForeignOwner(archive.bookmarks.map(\.id), removed: removed) { chunk in
+            try context.fetch(FetchDescriptor<BookmarkModel>(predicate: #Predicate { chunk.contains($0.id) })).map { ($0.id, $0.bookID) }
+        }
+        try requireNoForeignOwner(archive.userHeadings.map(\.id), removed: removed) { chunk in
+            try context.fetch(FetchDescriptor<UserHeadingModel>(predicate: #Predicate { chunk.contains($0.id) })).map { ($0.id, $0.bookID) }
+        }
+        // Build every row first, so an encoding failure throws before anything changes.
+        let noteRows = try archive.notes.map(Self.newModel)
+        let highlightRows = try archive.highlights.map(Self.newModel)
+        let bookmarkRows = archive.bookmarks.map(Self.newModel)
+        let headingRows = archive.userHeadings.map(Self.newModel)
         try transaction {
-            try context.delete(model: NoteModel.self, where: #Predicate { $0.bookID == id })
-            try context.delete(model: HighlightModel.self, where: #Predicate { $0.bookID == id })
-            try context.delete(model: BookmarkModel.self, where: #Predicate { $0.bookID == id })
-            try context.delete(model: UserHeadingModel.self, where: #Predicate { $0.bookID == id })
-            try context.delete(model: BookModel.self, where: #Predicate { $0.id == id })
+            for id in removed.sorted(by: { $0.uuidString < $1.uuidString }) { try deleteRecords(ofBook: id) }
+            context.insert(BookModel(archive.book))
+            for row in noteRows { context.insert(row) }
+            for row in highlightRows { context.insert(row) }
+            for row in bookmarkRows { context.insert(row) }
+            for row in headingRows { context.insert(row) }
+        }
+    }
+
+    /// Throws `.recordOwnedByOtherBook` if any of `ids` is stored for a book outside `removed`.
+    /// `fetch` returns `(id, bookID)` of the stored rows among a chunk of IDs; chunks stay well
+    /// under SQLite's bound-variable limit.
+    private func requireNoForeignOwner(_ ids: [UUID], removed: Set<UUID>,
+                                       fetch: ([UUID]) throws -> [(UUID, UUID)]) throws {
+        var start = 0
+        while start < ids.count {
+            let chunk = Array(ids[start..<min(start + 500, ids.count)])
+            start += 500
+            if let (recordID, owner) = try fetch(chunk).first(where: { !removed.contains($0.1) }) {
+                throw RepositoryError.recordOwnedByOtherBook(recordID: recordID, bookID: owner)
+            }
         }
     }
 
@@ -168,6 +228,17 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         return try context.fetch(d).map(value)
     }
 
+    /// A new, uninserted row for `note`: the one place a note's columns are computed for an insert.
+    private static func newModel(_ note: Note) throws -> NoteModel {
+        NoteModel(id: note.id, bookID: note.bookID, targetKey: note.target.storageKey, pageIndex: note.target.pageIndex,
+                  text: note.text, hasInk: note.hasInk, bandLayoutData: try bandLayoutData(note),
+                  createdAt: note.createdAt, modifiedAt: note.modifiedAt)
+    }
+
+    private static func bandLayoutData(_ note: Note) throws -> Data? {
+        try note.bandLayout.map { try encode($0) }
+    }
+
     @discardableResult
     func save(_ note: Note) throws -> Note? {
         try requireBook(note.bookID)
@@ -184,7 +255,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         if let existing, existing.id != note.id {
             throw RepositoryError.noteTargetOccupied(existingNoteID: existing.id)
         }
-        let layoutData = try note.bandLayout.map { try Self.encode($0) }
+        let layoutData = try Self.bandLayoutData(note)
         try transaction {
             if let existing {
                 existing.text = note.text
@@ -193,10 +264,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 existing.createdAt = note.createdAt
                 existing.modifiedAt = note.modifiedAt
             } else {
-                context.insert(NoteModel(id: note.id, bookID: note.bookID, targetKey: note.target.storageKey,
-                                         pageIndex: note.target.pageIndex, text: note.text, hasInk: note.hasInk,
-                                         bandLayoutData: layoutData, createdAt: note.createdAt,
-                                         modifiedAt: note.modifiedAt))
+                context.insert(try Self.newModel(note))
             }
         }
         return note
@@ -282,29 +350,48 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         return try ordered(context.fetch(d))
     }
 
+    /// The stored rects and the denormalised `Highlight.readingOrder` columns of a highlight: the
+    /// one place they are computed, for inserts and updates alike.
+    private struct HighlightColumns {
+        var rectsData: Data
+        var sortRank: Int
+        var sortMaxY: Double
+        var sortMinX: Double
+
+        init(_ highlight: Highlight) throws {
+            rectsData = try SwiftDataRecordStore.encode(highlight.rects)
+            let bounds = highlight.bounds
+            sortRank = bounds.isNull ? 1 : 0
+            sortMaxY = bounds.isNull ? 0 : Double(bounds.maxY)
+            sortMinX = bounds.isNull ? 0 : Double(bounds.minX)
+        }
+    }
+
+    /// A new, uninserted row for `highlight`.
+    private static func newModel(_ highlight: Highlight) throws -> HighlightModel {
+        let columns = try HighlightColumns(highlight)
+        return HighlightModel(id: highlight.id, bookID: highlight.bookID, pageIndex: highlight.pageIndex,
+                              rectsData: columns.rectsData, colorRaw: highlight.color.rawValue,
+                              text: highlight.text, createdAt: highlight.createdAt,
+                              sortRank: columns.sortRank, sortMaxY: columns.sortMaxY, sortMinX: columns.sortMinX)
+    }
+
     func save(_ highlight: Highlight) throws {
         try requireBook(highlight.bookID)
-        let rectsData = try Self.encode(highlight.rects)
-        let bounds = highlight.bounds
-        let rank = bounds.isNull ? 1 : 0
-        let maxY = bounds.isNull ? 0 : Double(bounds.maxY)
-        let minX = bounds.isNull ? 0 : Double(bounds.minX)
+        let columns = try HighlightColumns(highlight)
         try transaction {
             if let m = try highlightModel(id: highlight.id) {
                 m.bookID = highlight.bookID
                 m.pageIndex = highlight.pageIndex
-                m.rectsData = rectsData
+                m.rectsData = columns.rectsData
                 m.colorRaw = highlight.color.rawValue
                 m.text = highlight.text
                 m.createdAt = highlight.createdAt
-                m.sortRank = rank
-                m.sortMaxY = maxY
-                m.sortMinX = minX
+                m.sortRank = columns.sortRank
+                m.sortMaxY = columns.sortMaxY
+                m.sortMinX = columns.sortMinX
             } else {
-                context.insert(HighlightModel(id: highlight.id, bookID: highlight.bookID, pageIndex: highlight.pageIndex,
-                                              rectsData: rectsData, colorRaw: highlight.color.rawValue,
-                                              text: highlight.text, createdAt: highlight.createdAt,
-                                              sortRank: rank, sortMaxY: maxY, sortMinX: minX))
+                context.insert(try Self.newModel(highlight))
             }
         }
     }
@@ -322,6 +409,11 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
 
     private func value(_ m: BookmarkModel) -> Bookmark {
         Bookmark(id: m.id, bookID: m.bookID, pageIndex: m.pageIndex, createdAt: m.createdAt)
+    }
+
+    /// A new, uninserted row for `bookmark` (the model's initialiser computes `compositeKey`).
+    private static func newModel(_ bookmark: Bookmark) -> BookmarkModel {
+        BookmarkModel(id: bookmark.id, bookID: bookmark.bookID, pageIndex: bookmark.pageIndex, createdAt: bookmark.createdAt)
     }
 
     private func bookmarkModels(bookID: UUID, pageIndex: Int) throws -> [BookmarkModel] {
@@ -346,7 +438,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
             guard existing.isEmpty else { return }
             try requireBook(bookID)
             try transaction {
-                context.insert(BookmarkModel(id: UUID(), bookID: bookID, pageIndex: pageIndex, createdAt: Date()))
+                context.insert(Self.newModel(Bookmark(bookID: bookID, pageIndex: pageIndex)))
             }
         } else if !existing.isEmpty {
             try transaction { for m in existing { context.delete(m) } }
@@ -365,6 +457,12 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         }
         return UserHeading(id: m.id, bookID: m.bookID, title: m.title, pageIndex: m.pageIndex, parent: parent,
                            createdAt: m.createdAt)
+    }
+
+    /// A new, uninserted row for `heading`.
+    private static func newModel(_ heading: UserHeading) -> UserHeadingModel {
+        UserHeadingModel(id: heading.id, bookID: heading.bookID, title: heading.title, pageIndex: heading.pageIndex,
+                         parentRaw: heading.parent?.rawValue, createdAt: heading.createdAt)
     }
 
     private func headingModel(id: UUID) throws -> UserHeadingModel? {
@@ -391,9 +489,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 m.parentRaw = heading.parent?.rawValue
                 m.createdAt = heading.createdAt
             } else {
-                context.insert(UserHeadingModel(id: heading.id, bookID: heading.bookID, title: heading.title,
-                                                pageIndex: heading.pageIndex, parentRaw: heading.parent?.rawValue,
-                                                createdAt: heading.createdAt))
+                context.insert(Self.newModel(heading))
             }
         }
     }
