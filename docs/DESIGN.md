@@ -416,7 +416,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Converted books** (an EPUB, a comic, a document; see `FORMAT_IMPORT_PLAN.md`). The PDF the
   app generated is the book, so it is what "Include PDFs" backs up, and a restore with it gives
   the book back exactly. Three things differ from a book imported as a PDF:
-  - *The kept original is not in a backup.* It is the reader's own file, it can be as large as
+  - *The kept original is not in a backup* (owner decision, 15 November 2026). It is the
+    reader's own file, it can be as large as
     the PDF, and nothing reads it. A restored book therefore has no kept original, unless the
     restore replaced a copy on the same iPad, whose original is carried over (so is Undo Last
     Restore's). `conversion.json` (the text size) is small and is backed up.
