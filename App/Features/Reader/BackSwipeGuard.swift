@@ -20,6 +20,17 @@ extension View {
     }
 }
 
+/// `backSwipeGuard()` only while `isActive`.
+struct BackSwipeGuardIf: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.background {
+            if isActive { BackSwipeGuardAnchor().accessibilityHidden(true) }
+        }
+    }
+}
+
 private struct BackSwipeGuardAnchor: UIViewRepresentable {
     func makeUIView(context: Context) -> BackSwipeGuardView { BackSwipeGuardView() }
     func updateUIView(_ uiView: BackSwipeGuardView, context: Context) {}

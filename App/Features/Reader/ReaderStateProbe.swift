@@ -10,7 +10,7 @@ import UIKit
 ///   `heardRedo=yes|no posts=N`. `shows` counts the tool picker's appearances. `undo`/`redo` are the
 ///   markup responder's undo manager (`MarkupRoutingUndoManager`) now; `heard…` is what a listener
 ///   of that manager's notifications (as the tool picker is) read in the last one, and `posts`
-///   how many it has heard.
+///   how many it has heard. `scroll=vertical|horizontal` is the book's scroll direction.
 /// - `reader.markupUndo` / `reader.markupRedo`: tapping calls `undo()` / `redo()` on the markup
 ///   responder's `undoManager`, the call the tool picker's own buttons make.
 @MainActor
@@ -69,7 +69,8 @@ enum ReaderStateProbe {
                         "responder=\(markup.firstResponderKind)",
                         "undo=\(word(manager?.canUndo ?? false))", "redo=\(word(manager?.canRedo ?? false))",
                         "heardUndo=\(word(heard.undo))", "heardRedo=\(word(heard.redo))",
-                        "posts=\(posts)"].joined(separator: " ")
+                        "posts=\(posts)",
+                        "scroll=\(session.scrollDirection.rawValue)"].joined(separator: " ")
             }
             set {}
         }
