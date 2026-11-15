@@ -2,8 +2,11 @@ import XCTest
 
 /// Settings ▸ Supported Formats (F7): the row in Settings opens a screen with the PDF row, the
 /// common conversion block, one block per kind of file the app can convert (with the Convert to
-/// PDF sheet's sentences), and the kinds it can't import. Screenshots in light, dark and at the
-/// largest text size (`build/shots/supported-formats-*.png`).
+/// PDF sheet's sentences), and the kinds it can't import. Screenshots at the default and the
+/// largest text size (`build/shots/supported-formats-*.png`). For Dark Mode shots, switch the
+/// simulator first (`xcrun simctl ui <udid> appearance dark`) and run with
+/// `TEST_RUNNER_SHOT_SUFFIX=-dark`: `XCUIDevice.appearance` did not change the app's appearance
+/// on the iOS 27 simulator.
 @MainActor
 final class SupportedFormatsUITests: XCTestCase {
     private enum ID {
@@ -18,14 +21,7 @@ final class SupportedFormatsUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
-        MainActor.assumeIsolated {
-            XCUIDevice.shared.orientation = .landscapeLeft
-            XCUIDevice.shared.appearance = .light
-        }
-    }
-
-    override func tearDown() {
-        MainActor.assumeIsolated { XCUIDevice.shared.appearance = .light }
+        MainActor.assumeIsolated { XCUIDevice.shared.orientation = .landscapeLeft }
     }
 
     private func any(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
@@ -49,17 +45,20 @@ final class SupportedFormatsUITests: XCTestCase {
     /// Scrolls the screen until `element` is on screen (rows off screen are not in the tree).
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement, in screen: String = "Supported Formats",
                         swipes: Int = 12) {
-        let anchor = app.navigationBars[screen]
+        // The list itself (the Supported Formats form, or the Settings form): a slow drag from
+        // low in it to high in it, never a flick, so no row is skipped.
+        let list = screen == "Supported Formats" ? app.collectionViews["supportedFormats.screen"].firstMatch
+            : app.collectionViews.matching(NSPredicate(format: "identifier != 'supportedFormats.screen'")).firstMatch
         for _ in 0..<swipes where !(element.exists && element.isHittable) {
-            let start = anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6))
-            start.press(forDuration: 0.05, thenDragTo: anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.5)))
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
         }
     }
 
     private func save(_ name: String) throws {
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try XCUIScreen.main.screenshot().pngRepresentation.write(to: directory.appendingPathComponent("\(name).png"))
+        try XCUIScreen.main.screenshot().pngRepresentation.write(to: directory.appendingPathComponent("\(name)\(ProcessInfo.processInfo.environment["SHOT_SUFFIX"] ?? "").png"))
     }
 
     func testListsWhatCanBeImportedAndWhatCannot() throws {
@@ -68,7 +67,7 @@ final class SupportedFormatsUITests: XCTestCase {
         XCTAssertTrue(any(app, ID.limitation("fixedPages")).exists, app.debugDescription)
         XCTAssertEqual(any(app, ID.limitation("fixedPages")).label,
                        "The pages are fixed once converted. You can zoom, but you can't change the text size or layout afterwards.")
-        try save("supported-formats-light")
+        try save("supported-formats")
 
         // The groups whose converters the app has (images and EPUB at least), each with its
         // formats and the sheet's sentences.
@@ -90,18 +89,7 @@ final class SupportedFormatsUITests: XCTestCase {
             XCTAssertTrue(row.exists, "not supported: \(kind)\n\(app.debugDescription)")
         }
         XCTAssertTrue(any(app, ID.notSupported("comicRar")).label.contains("CBZ"), any(app, ID.notSupported("comicRar")).label)
-        try save("supported-formats-light-end")
-
-        // Dark Mode.
-        XCUIDevice.shared.appearance = .dark
-        sleep(1)
-        try save("supported-formats-dark-end")
-        app.navigationBars["Supported Formats"].buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons[ID.row].firstMatch.waitForExistence(timeout: 5))
-        app.buttons[ID.row].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Supported Formats"].waitForExistence(timeout: 5))
-        sleep(1)
-        try save("supported-formats-dark")
+        try save("supported-formats-end")
     }
 
     func testWorksAtTheLargestTextSize() throws {
