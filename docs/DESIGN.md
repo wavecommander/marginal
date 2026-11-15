@@ -258,8 +258,8 @@ Added by the owner after the first plan. These rules apply to every screen and e
 Added by the owner (TSOFT-215, 14 November 2026).
 
 - **App icon.** An Icon Composer file, `App/AppIcon.icon` (a sheet of paper with text lines, a
-  yellow highlight and a red margin mark on a coral gradient; a near-black background in Dark
-  Mode). It is a resource of the app target and `ASSETCATALOG_COMPILER_APPICON_NAME` names it;
+  yellow highlight and a red margin mark on a berry gradient, `#B4486A` to `#7E2742`, matching
+  the raspberry accent; a near-black berry background, `#3A1E2A` to `#170C11`, in Dark Mode). It is a resource of the app target and `ASSETCATALOG_COMPILER_APPICON_NAME` names it;
   there is no `AppIcon.appiconset`. The system draws the Default, Dark, Clear and Tinted Home
   Screen styles from its layers. For the iPadOS 17 floor, Xcode flattens it into 1024 px Any,
   Dark and Tinted renditions in `Assets.car` plus `AppIcon60x60@2x.png` and
