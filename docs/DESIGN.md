@@ -413,7 +413,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   the first version could only replace). The preview lists each book in the backup as New or
   Already in Library (same ID or same PDF), with what each side holds. Every book is ticked; a
   book already in the Library is set to **Merge**, and a menu on its row switches it to Replace
-  with backup or Leave as is.
+  with Backup or Leave as Is (Leave as Is unticks it). The row says what the choice will do:
+  for a merge, what it adds and combines, worked out from the backup before anything changes.
   - *Merge adds, and never removes.* The merged book keeps this iPad's ID, title, PDF and
     reading position. Everything the backup has that this iPad lacks is added; merging the same
     backup twice changes nothing the second time.

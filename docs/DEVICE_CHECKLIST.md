@@ -158,7 +158,7 @@ runs or very large files. Open Settings › Backup & Restore.
       different paragraph to the same note with its own handwriting; merge. The note has both
       paragraphs, and each piece of handwriting sits on the paragraph it was written on.
       Handwriting in the blank space below the text from the two sides does not overlap.
-- [ ] **Replace still replaces.** Switch a book's menu to Replace with backup: it warns and asks
+- [ ] **Replace still replaces.** Switch a book's menu to Replace with Backup: it warns and asks
       for confirmation, and afterwards the book holds only what the backup had.
 - [ ] **Undo Last Restore.** After a merge or a replace, Undo Last Restore on the Backup screen
       names the books and warns that later work on them is lost; after it, the books are
