@@ -403,6 +403,7 @@ struct ReaderScreen: View {
             Divider()
             Button { window.showSettings() } label: { Label("Settings…", systemImage: "gearshape") }
                 .accessibilityIdentifier(AccessibilityID.Settings.readerMenuItem)
+            ConvertedFromMenuSection(book: session.book, identifier: AccessibilityID.Provenance.readerMenu)
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }

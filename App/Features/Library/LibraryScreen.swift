@@ -224,6 +224,7 @@ struct LibraryScreen: View {
             renameTarget = book
         }
         Button("Delete…", systemImage: "trash", role: .destructive) { prepareDelete(book) }
+        ConvertedFromMenuSection(book: book, identifier: AccessibilityID.Provenance.libraryMenu)
     }
 
     // MARK: Toolbar

@@ -4,6 +4,8 @@ import SwiftUI
 /// `Settings.bundle`, so this is the one place for preferences). Opened from the Library's gear
 /// button and from "Settings…" (⌘,) in any window (`WindowContext.showSettings()`).
 ///
+/// Importing: the Supported Formats screen (`SupportedFormatsView`).
+///
 /// Appearance: the accent preset. Picking a swatch writes `AccentChoice.storageKey`; every
 /// window's `AccentRoot` reads the same key, so all windows, this sheet and its preview change
 /// at once.
@@ -32,6 +34,23 @@ struct SettingsView: View {
                     Text("Appearance")
                 } footer: {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
+                }
+                Section {
+                    NavigationLink {
+                        SupportedFormatsView()
+                    } label: {
+                        Label {
+                            Text("Supported Formats", comment: "Settings: row that opens the list of file formats the app can import.")
+                        } icon: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                    }
+                    .accessibilityIdentifier(AccessibilityID.SupportedFormats.settingsRow)
+                } header: {
+                    Text("Importing", comment: "Settings: header of the section about importing books and documents.")
+                } footer: {
+                    Text("What Tactile Texts can import, and what changes when a file is converted to PDF.",
+                         comment: "Settings: line under the Supported Formats row.")
                 }
                 Section {
                     Button("Open the Quick Guide") {
