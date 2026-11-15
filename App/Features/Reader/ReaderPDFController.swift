@@ -120,6 +120,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             scheduleRefitRestore()
             return
         }
+        session?.revealPagePill()
         if hasPositionedInitially, let anchor = captureAnchor() {
             readingAnchor = anchor
             anchorScale = view.scaleFactor

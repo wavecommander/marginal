@@ -54,7 +54,7 @@ final class MockupScreenshotUITests: XCTestCase {
     /// The seeded book in the reader, on the same store as `test1Notebook`.
     private func reader(page: Int = 25, _ extra: [String]) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-openBook", "no-outline", "-openPage", "\(page)", "-inkAnyInput"] + extra + extraArguments
+        app.launchArguments = ["-pagePillStaysVisible", "-openBook", "no-outline", "-openPage", "\(page)", "-inkAnyInput"] + extra + extraArguments
         app.launch()
         XCTAssertTrue(app.buttons["reader.pagePill"].firstMatch.waitForExistence(timeout: 30))
         sleep(3)
