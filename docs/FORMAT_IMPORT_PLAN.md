@@ -358,6 +358,29 @@ line is the only shared edit and is merged by the orchestrator.
 
 Phase A ships after wave 2 without F5 if EPUB slips: the sheet, the flow and comics stand alone.
 
+### Wave 2 status (15 November 2026)
+
+F3, F4 and F5 are merged into `build-v1`; 86 unit tests in the seven import suites and 13 UI tests
+pass together on the iOS 27 simulator. Two real EPUBs (Project Gutenberg 79999 and 80000) convert
+through the whole flow with no blank pages and every contents entry on its heading's page.
+
+What differs from the plan above:
+- **Comics are not written through `CGPDFContext`.** It keeps every image's bytes in memory until
+  the file is closed (+93 MB for a 97 MB comic). `ImagesPDFWriter` writes the PDF file itself and
+  stays flat. Owner decision pending: keep it, or use the system writer with a size cap.
+- **The EPUB join still uses `CGPDFContext`**, so its memory grows with the book's image bytes
+  (about 20 MB for 17 MB of pictures). Known limit.
+- **Long chapters are printed in segments of about 16 pages** (`EPUBStyle.splitAbove`), because
+  WebKit lays out a whole chapter in one blocking step on the first page drawn. Each segment's
+  last page ends early. Owner decision pending.
+- **A batch with nothing convertible** shows alerts, not the sheet.
+- **`Book.fileSize`** counts the kept original as well as the PDF.
+- The text size and converter version of a converted book are stored in `Books/<id>/conversion.json`.
+
+Not yet checked: a real comic archive, a real iPad, iOS 17, Dark Mode and narrow widths of the
+sheet, a drag or "Open in" in a UI test, right-to-left and vertical-text EPUBs, and a section note
+on a converted heading in the reader (F7's journey test).
+
 ## Owner decisions (15 November 2026)
 
 1. The Convert to PDF sheet is shown every time, with no "don't show again".
