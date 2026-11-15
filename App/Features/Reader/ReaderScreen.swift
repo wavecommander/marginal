@@ -142,7 +142,6 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
-        .readerOnboardingTips(session)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session)
                 .presentationDetents([.medium, .large])

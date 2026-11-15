@@ -1,11 +1,9 @@
 import Foundation
 import Observation
 import ReaderCore
-import TipKit
 
 /// App-wide onboarding (docs/DESIGN.md, "First-run onboarding"): which window shows the welcome
-/// sheet, opening the Quick Guide, and resetting tips. One per process, owned by
-/// `AppEnvironment`; the per-reader tip logic is `ReaderTips`.
+/// sheet and opening the Quick Guide. One per process, owned by `AppEnvironment`.
 @Observable
 @MainActor
 final class OnboardingCoordinator {
@@ -13,19 +11,12 @@ final class OnboardingCoordinator {
 
     /// The window whose Library shows the welcome sheet, or `nil`.
     private(set) var welcomeWindow: ObjectIdentifier?
-    /// Goes up when tips are reset, so open readers pick their tips again.
-    private(set) var tipResetCount = 0
 
     @ObservationIgnored private var hasConsideredWelcome = false
     @ObservationIgnored private var isOpeningGuide = false
 
     init(state: OnboardingState = OnboardingState()) {
         self.state = state
-    }
-
-    /// Call once at startup, before any view shows a tip.
-    static func configureTips() {
-        try? Tips.configure([.displayFrequency(.immediate)])
     }
 
     // MARK: Welcome sheet
@@ -76,12 +67,5 @@ final class OnboardingCoordinator {
             // Cancelled, or the guide is missing from the bundle (a packaging error the
             // onboarding tests catch): nothing to show.
         }
-    }
-
-    // MARK: Tips
-
-    func showTipsAgain() {
-        state.resetTips()
-        tipResetCount += 1
     }
 }

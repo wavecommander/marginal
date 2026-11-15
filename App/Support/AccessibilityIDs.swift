@@ -10,7 +10,6 @@ nonisolated enum AccessibilityID {
         static let emptyLibraryOpenGuide = "library.emptyOpenGuide"
         /// Settings ▸ Help.
         static let settingsOpenGuide = "settings.help.openGuide"
-        static let settingsShowTips = "settings.help.showTips"
     }
 
     enum Library {

@@ -44,7 +44,6 @@ ones even where the mockup draws an approximation.
 | Onboarding · welcome sheet | First launch: a form sheet over the Library with three things worth knowing, "Open the Quick Guide", and "Not now". |
 | Onboarding · empty Library after Not now | The Library with no books: Import PDF, Open the Quick Guide, and the drag hint. |
 | Onboarding · Quick Guide, page 1 | The bundled six-page guide open in the ordinary reader, with a seeded page note that already carries ink. |
-| Onboarding · tip in a real book | A one-time tip popover pointing at Markup, for readers who skipped the guide. |
 
 ## Concepts
 
@@ -391,8 +390,8 @@ It has three parts, each optional.
   Swiping the sheet down counts as Not now.
 - It is marked as seen the moment it appears, so a crash or force-quit never shows it twice.
 - It is not shown when the first launch comes from "Open in" or a dropped PDF. That reader has a
-  book in hand: the import proceeds, the sheet is marked as seen, and the tips below do the
-  teaching.
+  book in hand: the import proceeds, the sheet is marked as seen, and the Quick Guide stays
+  one tap away in Settings.
 - No permission prompts, no account, no settings. The app needs none of them to start.
 
 ### 2. Quick Guide
@@ -424,31 +423,18 @@ It has three parts, each optional.
   handwriting the mockup shows.
 - Leaving is the normal Back to Library. Nothing tracks whether the guide was finished.
 
-### 3. Empty Library and tips
+### 3. Empty Library
 
 - **Empty Library.** Whenever the Library has no books it shows "No Books Yet", **Import PDF**,
   **Open the Quick Guide**, and a line about dropping PDFs in. This is what a reader who tapped Not now sees, and what anyone sees after deleting
   their last book.
-- **Tips** are small system popovers anchored to the control they describe, for readers who
-  skipped the guide. There are two:
-
-  | Tip | Anchor | Appears | Retired by |
-  | --- | --- | --- | --- |
-  | Write with Apple Pencil: "Tap Markup to write on the page or in a note. Your finger still scrolls." | Markup toggle | A book other than the guide is open and the first page has settled | Entering markup mode once |
-  | One note for the whole section: "Section note keeps a note for the heading this page is in." | The notes panel's tabs | From the second reader session in which the Notes panel is open on a page that has a heading path | Opening Section note once |
-
-  There is no third tip for adding headings: the Contents sidebar of a book with no outline
-  already says so and offers the button.
-- Tip rules: each tip is offered in one reader session only; at most one tip per reader session,
-  Markup first; never in markup mode, never while the keyboard is up, never inside the Quick
-  Guide. Doing the action anywhere, the guide included, retires its tip, so a reader who worked
-  through the guide sees none. A tip does not block the reader: it stays until its close button
-  or the control it points at is used, or the reader is left.
-- Settings ▸ Help ▸ **Show Tips Again** resets both.
+- There are no tips. A reader who skipped the guide finds it again under Settings ▸ Help ▸
+  **Open the Quick Guide**, and the Contents sidebar of a book with no outline already says how
+  to add headings.
 
 ### Rules that hold throughout
 
-- **State.** "Welcome seen", the guide's book ID and which tips are done are per-device
+- **State.** "Welcome seen", the guide's book ID are per-device
   preferences (`OnboardingState`), not SwiftData records.
 - **Narrow width.** The welcome sheet becomes a page sheet and its content scrolls. The guide
   opens with Contents closed and the notes sheet at its medium detent.
@@ -456,7 +442,7 @@ It has three parts, each optional.
   still reachable; VoiceOver reads title, the three rows, then the actions; nothing in onboarding
   is animated beyond the system sheet and popover transitions.
 - **Tests.** `-resetState`, which every UI test starts with, also switches onboarding off and
-  keeps it off for that test's later relaunches, so the welcome sheet and tips never interfere
+  keeps it off for that test's later relaunches, so the welcome sheet never interferes
   with another feature's test. `-onboarding reset` forgets all onboarding state (with
   `-resetState`: a true first launch) for the onboarding tests themselves; `-onboarding skip`
   switches onboarding off without touching the library, for screenshots.
@@ -483,9 +469,8 @@ It has three parts, each optional.
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
-| Onboarding tips | TipKit popovers (`popoverTip`); which tip a session offers, and that each is offered once, is decided by the app (`ReaderTipRules`, `OnboardingState`) | System look, placement and dismissal with no hand-built coach marks; rules that are unit-tested and can be reset without relaunching (TipKit's own datastore resets only before it is configured). |
 | Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
-| Onboarding state | `UserDefaults` keys for "welcome seen", the guide's book ID and finished tips | Device-local and trivially reset by the `-onboarding` launch argument; nothing to migrate. |
+| Onboarding state | `UserDefaults` keys for "welcome seen", the guide's book ID | Device-local and trivially reset by the `-onboarding` launch argument; nothing to migrate. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before

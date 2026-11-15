@@ -9,10 +9,8 @@ import SwiftUI
 /// at once.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
     /// Opens the Quick Guide in the window that presented Settings (`nil` in previews).
     var openQuickGuide: (() -> Void)? = nil
-    @State private var didResetTips = false
     @AppStorage(AccentChoice.storageKey) private var storedAccent = AccentChoice.default.rawValue
 
     private var selection: AccentChoice { AccentChoice(storedValue: storedAccent) }
@@ -41,12 +39,6 @@ struct SettingsView: View {
                         openQuickGuide?()
                     }
                     .accessibilityIdentifier(AccessibilityID.Onboarding.settingsOpenGuide)
-                    Button(didResetTips ? "Tips Will Show Again" : "Show Tips Again") {
-                        environment?.onboarding.showTipsAgain()
-                        didResetTips = true
-                    }
-                    .disabled(didResetTips)
-                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsShowTips)
                 } header: {
                     Text("Help")
                 } footer: {
