@@ -1,5 +1,6 @@
 # Copy to .dev.vars (git-ignored) and fill in. Used by `wrangler dev` and by `npm run prove`.
 # Use a DEVELOPMENT bucket and a token limited to it; never the production ones.
+# Values here override the `vars` of the same name in wrangler.jsonc.
 
 # The parent R2 API token: Object Read & Write, limited to the development bucket.
 # R2 dashboard > Manage API Tokens. The Worker derives every short-lived credential from it and
@@ -7,10 +8,25 @@
 R2_PARENT_ACCESS_KEY_ID=
 R2_PARENT_SECRET_ACCESS_KEY=
 
-# Any long random string. Keys the hash that turns a subscription into a folder name, so a
-# folder name cannot be worked back to a subscription.
+# Any long random string (at least 32 characters). Keys the hash that turns a subscription into a
+# folder name, so a folder name cannot be worked back to a subscription.
 USER_KEY_SECRET=
 
-# Only the proof script reads these two (the Worker takes them from wrangler.jsonc vars).
+# The account that owns the bucket (32 hex digits) and its S3 host. The Worker refuses to serve
+# until both are set. For a purely local run, any 32 hex digits and `localhost:8787` will do.
 R2_ACCOUNT_ID=
+R2_S3_HOST=
+
+# The 10-character App ID prefix (team ID). App Attest checks `<team ID>.<bundle ID>`.
+APPLE_TEAM_ID=
+
+# Optional, `dev` only: lets the simulator (which has no App Attest) through when the app sends
+# this value in the `X-App-Attest-Bypass` header. At least 32 characters. Never in production.
+APP_ATTEST_BYPASS_SECRET=
+
+# Optional, `dev` only: base64 DER of Xcode's StoreKit test certificate, so purchases made with
+# StoreKit Testing in Xcode are accepted (environment `Xcode`). Never in production.
+XCODE_STOREKIT_CERT=
+
+# Only the proof script reads this (the Worker takes it from wrangler.jsonc vars).
 R2_BUCKET_NAME=tactile-texts-backups-dev
