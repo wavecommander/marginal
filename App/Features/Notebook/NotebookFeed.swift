@@ -138,6 +138,30 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
     }
 
     var isHeader: Bool { if case .header = kind { true } else { false } }
+
+    /// The item this row shows (what selecting the row selects); `nil` for a header.
+    var itemID: NotebookItemID? {
+        switch kind {
+        case .header: nil
+        case .headingNote(let note, _), .unfiledHeadingNote(let note, _), .pageNote(let note, _): .note(note.id)
+        case .highlight(let highlight, _): .highlight(highlight.id)
+        case .handwriting(let page): .pageInk(page)
+        }
+    }
+}
+
+/// How much of a row is selected for export: an item row is `.none` or `.all`; a header is
+/// `.some` when only part of what the feed shows under it is selected.
+nonisolated enum NotebookRowSelection: Hashable, Sendable {
+    case none, some, all
+
+    var accessibilityValue: String {
+        switch self {
+        case .none: "Not selected"
+        case .some: "Partly selected"
+        case .all: "Selected"
+        }
+    }
 }
 
 /// One entry of the heading filter column.
@@ -256,6 +280,34 @@ nonisolated enum NotebookFeed {
     /// Whether `scope` still exists in `notebook` (a heading may lose its content or be deleted).
     static func contains(_ scope: NotebookScope, in notebook: Notebook) -> Bool {
         scopeEntries(for: notebook).contains { $0.scope == scope }
+    }
+
+    // MARK: Selection
+
+    /// The items of `rows`, in feed order.
+    static func items(in rows: [NotebookFeedRow]) -> [NotebookItemID] { rows.compactMap(\.itemID) }
+
+    /// For every header row of `rows` (by row `id`), the items the feed shows under it: its own
+    /// and those under its subheadings, down to the next header of the same or a higher level.
+    static func itemsByHeader(_ rows: [NotebookFeedRow]) -> [String: [NotebookItemID]] {
+        var result: [String: [NotebookItemID]] = [:]
+        var open: [(id: String, level: Int)] = []
+        for row in rows {
+            if case .header(let header) = row.kind {
+                while let last = open.last, last.level >= header.level { open.removeLast() }
+                open.append((row.id, header.level))
+                result[row.id] = []
+            } else if let item = row.itemID {
+                for header in open { result[header.id, default: []].append(item) }
+            }
+        }
+        return result
+    }
+
+    /// The selection state of `items` (a header's, or one row's) in `selection`.
+    static func selectionState(of items: [NotebookItemID], in selection: Set<NotebookItemID>) -> NotebookRowSelection {
+        let selected = items.count { selection.contains($0) }
+        return selected == 0 ? .none : (selected == items.count ? .all : .some)
     }
 
     // MARK: Helpers

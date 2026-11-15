@@ -4,7 +4,8 @@ import SwiftUI
 import UIKit
 
 /// Runs one export at a time for one Notebook screen (per window) and hands the result to the
-/// share sheet; removes the exported files when the share sheet is done with them.
+/// share sheet; removes the exported files when the share sheet is done with them. `notebook` is
+/// the whole Notebook or the reader's selection of it (`Notebook.selecting`).
 @Observable
 @MainActor
 final class NotebookExportController {

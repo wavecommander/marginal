@@ -94,8 +94,12 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       "Handwriting" rows with a preview of the ink on the page; the Handwriting filter shows only
       them; tapping one opens the reader at that page; erasing all the ink on a page removes its row.
 - [ ] **Heading-note rows** open the reader with that heading's note in the notes pane.
-- [ ] **Export.** Markdown and PDF export from the Notebook save to Files and open there; the PDF
-      shows notes with their ink and the handwriting previews.
+- [ ] **Export.** Markdown, Markdown (ZIP) and PDF export from the Notebook save to Files and
+      open there; the PDF shows notes with their ink and the handwriting previews. Plain Markdown
+      on a Notebook with handwriting says images are not included and offers the ZIP. The ZIP
+      expands in Files to a folder whose Markdown shows the images from `images/` and
+      `handwriting/` (open it in a Markdown app such as Obsidian).
+- [ ] **Export a selection.** Select, tick a few rows and a heading, export: only those appear.
 
 ## Appearance and accessibility
 

@@ -6,8 +6,9 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// Notebook export (WP9): Markdown against a golden file with the inked note's PNG, the PDF's
-/// pages, searchable text and vector ink, cancellation, file names.
+/// Notebook export (WP9): the Markdown ZIP against a golden file with the inked note's PNG, the
+/// text-only Markdown file, a selection of the Notebook, the PDF's pages, searchable text and
+/// vector ink, cancellation, file names.
 @MainActor
 struct NotebookExportTests {
     typealias Support = NotebookTestSupport
@@ -20,14 +21,14 @@ struct NotebookExportTests {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
 
-    @Test func markdownMatchesTheGoldenFileWithAnImageForTheInkedNote() async throws {
+    @Test func markdownZipMatchesTheGoldenFileWithAnImageForTheInkedNote() async throws {
         let (store, book, model) = try await Support.seeded()
         defer { Support.cleanUp(store) }
         let notebook = try #require(model.notebook)
         let root = makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let result = try await NotebookExporter.export(.markdown, notebook: notebook, book: book, store: store, root: root)
+        let result = try await NotebookExporter.export(.markdownZip, notebook: notebook, book: book, store: store, root: root)
         #expect(result.fileURL.lastPathComponent == "no-outline Notebook.zip")
         #expect(FileManager.default.fileExists(atPath: result.fileURL.path))
         let zipSize = try #require(try FileManager.default.attributesOfItem(atPath: result.fileURL.path)[.size] as? Int)
@@ -42,15 +43,64 @@ struct NotebookExportTests {
         #expect(markdown == golden, "compare build/notebook-seeded-actual.md with Tests/Fixtures/Notebook/seeded.md")
         #expect(markdown.contains("![Handwritten note](images/note-001.png)"))
 
-        // The inked note's image: the whole note (text and ink) at 3x.
+        // The inked note's image: the whole note (text and ink) at 3x. No page has handwriting.
         let png = try Data(contentsOf: folder.appendingPathComponent("images/note-001.png"))
         #expect(png.count > 10_000)
         let image = try #require(UIImage(data: png))
         #expect(image.size.width == NotePageStyle.pageWidth * 3)
         #expect(contents(folder.appendingPathComponent("images")) == ["note-001.png"])
+        #expect(contents(folder).sorted() == ["images", "no-outline Notebook.md"])
 
         NotebookExporter.cleanUp(result)
         #expect(await NotePageTestSupport.waitUntil { !FileManager.default.fileExists(atPath: result.workDirectory.path) })
+    }
+
+    @Test func markdownIsOneTextOnlyFile() async throws {
+        let (store, book, model) = try await Support.seeded()
+        defer { Support.cleanUp(store) }
+        let notebook = try #require(model.notebook)
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // The seeded Notebook has a note with ink: the screen says to use the ZIP for its image.
+        #expect(NotebookExporter.hasImages(notebook))
+        let result = try await NotebookExporter.export(.markdown, notebook: notebook, book: book, store: store, root: root)
+        #expect(result.fileURL.lastPathComponent == "no-outline Notebook.md")
+        #expect(contents(result.workDirectory) == ["no-outline Notebook.md"])
+        // The golden text without the image line: the inked note keeps its typed text.
+        let golden = try String(contentsOf: Support.goldenDirectory.appendingPathComponent("seeded.md"), encoding: .utf8)
+        let markdown = try String(contentsOf: result.fileURL, encoding: .utf8)
+        #expect(markdown == golden.replacingOccurrences(of: "![Handwritten note](images/note-001.png)\n\n", with: ""))
+        #expect(!markdown.contains("]("))
+    }
+
+    @Test func aSelectionExportsOnlyItsItems() async throws {
+        let (store, book, model) = try await Support.seeded()
+        defer { Support.cleanUp(store) }
+        let notebook = try #require(model.notebook)
+        let rows = NotebookFeed.rows(for: notebook, filter: NotebookFilter())
+        let inked = try #require(rows.first { $0.note?.hasInk == true })
+        let highlight = try #require(rows.first { if case .highlight = $0.kind { true } else { false } })
+        let plain = try #require(rows.first { $0.note?.hasInk == false })
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let chosen = notebook.selecting(Set([inked, highlight].compactMap(\.itemID)))
+        let result = try await NotebookExporter.export(.markdownZip, notebook: chosen, book: book, store: store, root: root)
+        let folder = result.workDirectory.appendingPathComponent("no-outline Notebook", isDirectory: true)
+        let markdown = try String(contentsOf: folder.appendingPathComponent("no-outline Notebook.md"), encoding: .utf8)
+        let full = NotebookExporter.markdown(for: notebook, bookTitle: book.title, images: true).text
+        #expect(markdown.count < full.count)
+        #expect(markdown.components(separatedBy: "\n> ").count == 2, "one highlight")
+        #expect(markdown.components(separatedBy: "![Handwritten note]").count == 2, "the inked note")
+        #expect(markdown.components(separatedBy: "**Page ").count <= 3)
+        #expect(contents(folder.appendingPathComponent("images")) == ["note-001.png"])
+
+        let pdf = try await NotebookExporter.export(.pdf, notebook: chosen, book: book, store: store, root: root)
+        #expect(try #require(PDFDocument(url: pdf.fileURL)).pageCount >= 1)
+
+        // A selection without ink has nothing a text-only export leaves out.
+        #expect(!NotebookExporter.hasImages(notebook.selecting(Set([plain, highlight].compactMap(\.itemID)))))
     }
 
     @Test func markdownWithoutInkIsASingleFile() async throws {
@@ -63,6 +113,7 @@ struct NotebookExportTests {
         let result = try await NotebookExporter.export(.markdown, notebook: try #require(model.notebook), book: book,
                                                        store: store, root: root)
         #expect(result.fileURL.lastPathComponent == "Plain A B Notebook.md")
+        #expect(!NotebookExporter.hasImages(try #require(model.notebook)))
         let text = try String(contentsOf: result.fileURL, encoding: .utf8)
         #expect(text == "# Plain: A/B\n\n## Front matter\n\n**Page 2**\n\nOnly text\n")
     }
@@ -153,6 +204,7 @@ struct NotebookExportTests {
         #expect(NotebookExporter.baseName(forBookTitle: " / ") == "Notebook")
         #expect(NotebookExporter.baseName(forBookTitle: String(repeating: "x", count: 200)).count == 80 + " Notebook".count)
         #expect(NotebookExporter.imageName(ordinal: 7) == "note-007.png")
+        #expect(NotebookExporter.handwritingName(pageIndex: 23) == "page-024.png")
     }
 }
 

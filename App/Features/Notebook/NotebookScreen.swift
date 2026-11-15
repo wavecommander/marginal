@@ -5,6 +5,12 @@ import SwiftUI
 /// a heading filter column, a type filter, search, and export (design: "Notebook · all notes by
 /// heading").
 ///
+/// Export offers Markdown (one text-only file), Markdown as a ZIP (with the images of handwritten
+/// notes and of pages with handwriting, in folders) and PDF. Choosing plain Markdown for an export
+/// that has such images first says so and offers the ZIP. Export takes the whole Notebook, or, after "Select", the rows the reader ticked: each row
+/// then has a checkbox, a header's checkbox ticks everything shown under it, and the selection
+/// is kept while the filters and the search change, so it can span headings.
+///
 /// Shown in place in any window (pushed on the window's navigation stack, so the system back
 /// button returns to the Library) and as the first screen of a Notebook window
 /// (`WindowID.notebook`, keyed by book ID). Filter, search and scroll position belong to the
@@ -84,6 +90,14 @@ private struct NotebookContent: View {
     @State private var export = NotebookExportController()
     /// The note whose deletion is being confirmed.
     @State private var deleteCandidate: Note?
+    /// Choosing what to export: rows show checkboxes and tapping one ticks it.
+    @State private var isSelecting = false
+    /// The ticked items (kept across filter changes; items that no longer exist are dropped).
+    @State private var selection: Set<NotebookItemID> = []
+    /// A Markdown export waiting for the reader's answer to "Images Are Not Included".
+    @State private var textOnlyCandidate: Notebook?
+    /// `NotebookFeed.itemsByHeader(rows)`: what each header's checkbox stands for.
+    @State private var headerItems: [String: [NotebookItemID]] = [:]
 
     /// Below this window width (or in a compact size class) the filter column collapses into a
     /// toolbar menu.
@@ -125,9 +139,9 @@ private struct NotebookContent: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .navigationTitle("Notebook")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .notebookSubtitle(model.book?.title ?? "")
+        .notebookSubtitle(model.book?.title ?? "", title: title)
         .searchable(text: $query, prompt: "Search Notes and Highlights")
         .toolbar { toolbar }
         // Same wording as the notes panel's Delete Note (design: "Deleting a note").
@@ -154,6 +168,18 @@ private struct NotebookContent: View {
         } message: {
             if case .failed(let message) = export.state { Text(message) }
         }
+        .alert("Images Are Not Included", isPresented: Binding(get: { textOnlyCandidate != nil },
+                                                               set: { if !$0 { textOnlyCandidate = nil } }),
+               presenting: textOnlyCandidate) { notebook in
+            Button("Export as ZIP") { start(.markdownZip, notebook) }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(NotebookAccessibilityID.exportAsZip)
+            Button("Export Text Only") { start(.markdown, notebook) }
+                .accessibilityIdentifier(NotebookAccessibilityID.exportTextOnly)
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Markdown exports text only. To include handwritten notes and handwriting on pages as images, export as Markdown (ZIP).")
+        }
         .task(id: FeedInput(build: model.buildCount, filter: filter)) { await recomputeFeed() }
         .onDisappear { if export.isRunning { export.cancel() } }
     }
@@ -169,12 +195,15 @@ private struct NotebookContent: View {
         guard let notebook = model.notebook else {
             rows = []
             entries = []
+            headerItems = [:]
             return
         }
         let computed = await Self.compute(notebook, filter: filter)
         guard !Task.isCancelled else { return }
+        if !selection.isEmpty { selection.formIntersection(computed.items) }
         if computed.entries.contains(where: { $0.scope == filter.scope }) || filter.scope == .all {
             rows = computed.rows
+            headerItems = computed.headerItems
         } else {
             // The chosen heading has no content any more (deleted from another window).
             scopeKey = NotebookScope.all.storageKey
@@ -186,8 +215,54 @@ private struct NotebookContent: View {
 
     @concurrent
     private static func compute(_ notebook: Notebook, filter: NotebookFilter) async
-        -> (rows: [NotebookFeedRow], entries: [NotebookScopeEntry]) {
-        (NotebookFeed.rows(for: notebook, filter: filter), NotebookFeed.scopeEntries(for: notebook))
+        -> (rows: [NotebookFeedRow], entries: [NotebookScopeEntry], headerItems: [String: [NotebookItemID]],
+            items: Set<NotebookItemID>) {
+        let rows = NotebookFeed.rows(for: notebook, filter: filter)
+        return (rows, NotebookFeed.scopeEntries(for: notebook), NotebookFeed.itemsByHeader(rows), notebook.itemIDs)
+    }
+
+    // MARK: Selection
+
+    private var title: String {
+        guard isSelecting else { return "Notebook" }
+        return selection.isEmpty ? "Select Items" : "\(selection.count) Selected"
+    }
+
+    /// The items a row's checkbox stands for: its own, or for a header everything shown under it.
+    private func items(of row: NotebookFeedRow) -> [NotebookItemID] {
+        row.itemID.map { [$0] } ?? headerItems[row.id] ?? []
+    }
+
+    /// Ticks the row, or unticks it when all of it is ticked already.
+    private func toggle(_ row: NotebookFeedRow) {
+        let items = items(of: row)
+        if NotebookFeed.selectionState(of: items, in: selection) == .all {
+            selection.subtract(items)
+        } else {
+            selection.formUnion(items)
+        }
+    }
+
+    /// Whether everything the feed shows now is ticked ("Select All" then reads "Deselect All").
+    private var allShownAreSelected: Bool {
+        let shown = NotebookFeed.items(in: rows)
+        return !shown.isEmpty && selection.isSuperset(of: shown)
+    }
+
+    private func toggleAllShown() {
+        let shown = NotebookFeed.items(in: rows)
+        if selection.isSuperset(of: shown) {
+            selection.subtract(shown)
+        } else {
+            selection.formUnion(shown)
+        }
+    }
+
+    private func setSelecting(_ selecting: Bool) {
+        withAnimation(.snappy(duration: 0.2)) {
+            isSelecting = selecting
+            if !selecting { selection = [] }
+        }
     }
 
     /// The type filter: segmented when wide; a menu when narrow, where five segments would be
@@ -231,7 +306,10 @@ private struct NotebookContent: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(rows) { row in
-                        NotebookRowView(row: row, model: model, actions: rowActions)
+                        NotebookRowView(row: row, model: model, actions: rowActions,
+                                        selection: isSelecting ? NotebookFeed.selectionState(of: items(of: row), in: selection)
+                                                               : nil,
+                                        toggle: { toggle(row) })
                             .id(row.id)
                     }
                 }
@@ -355,20 +433,34 @@ private struct NotebookContent: View {
                 .accessibilityLabel("Heading: \(currentScopeTitle)")
                 .accessibilityIdentifier(NotebookAccessibilityID.scopeMenu)
             }
-            Button {
-                window.openReader(bookID: model.bookID)
-            } label: {
-                Label("Open Book", systemImage: "book")
+            if isSelecting {
+                Button(allShownAreSelected ? "Deselect All" : "Select All") { toggleAllShown() }
+                    .disabled(rows.isEmpty)
+                    .accessibilityIdentifier(NotebookAccessibilityID.selectAll)
+            } else {
+                Button {
+                    window.openReader(bookID: model.bookID)
+                } label: {
+                    Label("Open Book", systemImage: "book")
+                }
+                .disabled(model.phase != .ready)
+                .accessibilityIdentifier(NotebookAccessibilityID.openBook)
+                Button("Select") { setSelecting(true) }
+                    .disabled(model.notebook.map { NotebookFeed.itemCount($0) == 0 } ?? true)
+                    .accessibilityHint("Choose which notes to export")
+                    .accessibilityIdentifier(NotebookAccessibilityID.select)
             }
-            .disabled(model.phase != .ready)
-            .accessibilityIdentifier(NotebookAccessibilityID.openBook)
             Menu {
-                ForEach(NotebookExportFormat.allCases) { format in
-                    Button(format.title, systemImage: format == .markdown ? "doc.plaintext" : "doc.richtext") {
-                        startExport(format)
+                Section(isSelecting ? "Export \(selection.count) Selected" : "Export Whole Notebook") {
+                    ForEach(NotebookExportFormat.allCases) { format in
+                        Button {
+                            startExport(format)
+                        } label: {
+                            Label(format.title, systemImage: format.systemImage)
+                            Text(format.subtitle)
+                        }
+                        .accessibilityIdentifier(format.accessibilityID)
                     }
-                    .accessibilityIdentifier(format == .markdown ? NotebookAccessibilityID.exportMarkdown
-                                                                 : NotebookAccessibilityID.exportPDF)
                 }
             } label: {
                 if isWide {
@@ -377,13 +469,30 @@ private struct NotebookContent: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
             }
-            .disabled(model.notebook == nil || export.state != .idle)
+            .disabled(model.notebook == nil || export.state != .idle || (isSelecting && selection.isEmpty))
             .accessibilityIdentifier(NotebookAccessibilityID.exportMenu)
+            if isSelecting {
+                Button("Done") { setSelecting(false) }
+                    .fontWeight(.semibold)
+                    .accessibilityIdentifier(NotebookAccessibilityID.selectDone)
+            }
         }
     }
 
+    /// Exports the whole Notebook, or the ticked items while choosing. Plain Markdown is text
+    /// only: when the export has images, the reader is first told to use the ZIP for them.
     private func startExport(_ format: NotebookExportFormat) {
-        guard let notebook = model.notebook, let book = model.book else { return }
+        guard let whole = model.notebook else { return }
+        let notebook = isSelecting ? whole.selecting(selection) : whole
+        if format == .markdown, NotebookExporter.hasImages(notebook) {
+            textOnlyCandidate = notebook
+        } else {
+            start(format, notebook)
+        }
+    }
+
+    private func start(_ format: NotebookExportFormat, _ notebook: Notebook) {
+        guard let book = model.book else { return }
         export.start(format, notebook: notebook, book: book, store: environment.store)
     }
 
@@ -418,14 +527,14 @@ private extension View {
     /// The book title under "Notebook". iPadOS 26+: the system subtitle. Earlier: a two-line
     /// principal toolbar item. The only availability check of the Notebook screen.
     @ViewBuilder
-    func notebookSubtitle(_ subtitle: String) -> some View {
+    func notebookSubtitle(_ subtitle: String, title: String) -> some View {
         if #available(iOS 26.0, *) {
             self.navigationSubtitle(subtitle)
         } else {
             self.toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
-                        Text("Notebook").font(.headline).lineLimit(1)
+                        Text(title).font(.headline).lineLimit(1)
                         if !subtitle.isEmpty {
                             Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }

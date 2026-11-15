@@ -10,6 +10,16 @@ nonisolated enum NotebookAccessibilityID {
     static let typeFilter = "notebook.typeFilter"
     static let exportMenu = "notebook.export"
     static let exportMarkdown = "notebook.export.markdown"
+    static let exportMarkdownZip = "notebook.export.markdownZip"
+    /// The "Images Are Not Included" alert's buttons.
+    static let exportAsZip = "notebook.export.useZip"
+    static let exportTextOnly = "notebook.export.textOnly"
+    /// "Select": starts choosing which notes to export.
+    static let select = "notebook.select"
+    /// "Select All" / "Deselect All" while choosing.
+    static let selectAll = "notebook.selectAll"
+    /// "Done": stops choosing.
+    static let selectDone = "notebook.selectDone"
     static let exportPDF = "notebook.export.pdf"
     static let exportProgress = "notebook.export.progress"
     static let exportCancel = "notebook.export.cancel"
@@ -53,11 +63,17 @@ struct NotebookRowActions {
 /// reader at the row's page (a header: its heading's start page; a heading note: its heading's
 /// start page with that heading's note in the notes panel); the context menu also offers
 /// "Open in New Window", and on a note's row "Delete Note" (also a VoiceOver action).
+///
+/// While the reader is choosing what to export (`selection` is not `nil`), the row shows a
+/// checkbox in front and tapping it calls `toggle` instead of opening the reader; a header's
+/// checkbox stands for everything the feed shows under it.
 struct NotebookRowView: View {
     @Environment(\.accentTheme) private var accentTheme
     let row: NotebookFeedRow
     let model: NotebookModel
     let actions: NotebookRowActions
+    var selection: NotebookRowSelection?
+    var toggle: () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .footnote) private var labelWidth: CGFloat = 62
@@ -66,21 +82,33 @@ struct NotebookRowView: View {
         let target = row.targetPage
         let heading = row.noteHeading
         Button {
-            if let target { actions.open(target, heading) }
+            if selection != nil {
+                toggle()
+            } else if let target {
+                actions.open(target, heading)
+            }
         } label: {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            HStack(alignment: row.isHeader ? .bottom : .top, spacing: 12) {
+                if let selection {
+                    checkbox(selection)
+                        .padding(row.isHeader ? .bottom : .top, 7)
+                }
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(NotebookRowButtonStyle())
         .hoverEffect(.highlight)
-        .disabled(target == nil)
+        .disabled(selection == nil && target == nil)
         .contextMenu {
-            if let target {
+            if selection != nil {
+                // Choosing what to export: no row actions.
+            } else if let target {
                 Button("Open", systemImage: "book") { actions.open(target, heading) }
                 Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target, heading) }
             }
-            if let note = row.note {
+            if selection == nil, let note = row.note {
                 Divider()
                 Button(role: .destructive) { actions.deleteNote(note) } label: {
                     Label("Delete Note", systemImage: "trash")
@@ -91,10 +119,30 @@ struct NotebookRowView: View {
         // Modifiers on the button itself (no wrapping element): one element per row, read as
         // section, page and note text, with handwriting announced.
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(target == nil ? "" : (heading == nil ? "Opens the book at this page" : "Opens the book at this section's note"))
+        .accessibilityValue(selection?.accessibilityValue ?? "")
+        .accessibilityHint(accessibilityHint(target: target, heading: heading))
         .accessibilityAddTraits(row.isHeader ? .isHeader : [])
+        .accessibilityAddTraits(selection == .all ? .isSelected : [])
         .accessibilityIdentifier(identifier)
-        .modifier(DeleteNoteAccessibilityAction(note: row.note, delete: actions.deleteNote))
+        .modifier(DeleteNoteAccessibilityAction(note: selection == nil ? row.note : nil, delete: actions.deleteNote))
+    }
+
+    private func accessibilityHint(target: Int?, heading: HeadingAnchor?) -> String {
+        if selection != nil {
+            return row.isHeader ? "Selects or deselects everything under this heading for export"
+                                : "Selects or deselects this for export"
+        }
+        guard target != nil else { return "" }
+        return heading == nil ? "Opens the book at this page" : "Opens the book at this section's note"
+    }
+
+    /// An empty circle, a tick (selected) or a dash (a header with part of its items selected).
+    private func checkbox(_ selection: NotebookRowSelection) -> some View {
+        Image(systemName: selection == .all ? "checkmark.circle.fill"
+                                            : (selection == .some ? "minus.circle.fill" : "circle"))
+            .font(.title3)
+            .foregroundStyle(selection == .none ? Color(uiColor: .tertiaryLabel) : accentTheme.accent)
+            .accessibilityHidden(true)
     }
 
     // MARK: Content

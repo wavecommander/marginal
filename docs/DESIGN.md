@@ -221,9 +221,17 @@ ones even where the mockup draws an approximation.
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
-- **Export.** Markdown export carries note text, and for each note with ink an image of the whole
-  note (text and ink together) saved beside the Markdown file. Notebook export to PDF is the
-  faithful format: every note drawn exactly as it looks, ink included.
+- **Export.** Three formats, from the Notebook's Export menu, through the share sheet:
+  - *Markdown*: one `.md` file, text only. If the export has a note with ink or a page with
+    handwriting, the app first says that images are not included and offers the ZIP.
+  - *Markdown (ZIP)*: a folder with the `.md` and the images it links: `images/` holds an image of
+    each note with ink (text and ink together), `handwriting/` an image of each page with
+    handwriting (the page of the book with its ink).
+  - *PDF*: the faithful format, every note drawn exactly as it looks, ink included.
+- **Choosing what to export.** Export takes the whole Notebook. "Select" puts a checkbox on every
+  row (a heading's checkbox ticks everything shown under it; "Select All" ticks what the filters
+  show); Export then takes only the ticked notes, highlights and handwriting, in any format. The
+  selection is kept while the heading, type filter and search change, and ends with "Done".
 
 ## Windows and scenes
 
