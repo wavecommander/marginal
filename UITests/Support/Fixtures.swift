@@ -12,6 +12,9 @@ enum Fixtures {
     static var small: String { path("small.pdf") }
     /// `small.pdf`'s pages and outline plus links between sections.
     static var links: String { path("links.pdf") }
+    /// `small.pdf`'s pages and outline with links encoded as real textbooks encode them
+    /// (named destinations, hyperref GoTo actions, /Fit and null /XYZ views; written by hand).
+    static var linkForms: String { path("link-forms.pdf") }
     static var large: String { path("large.pdf") }
     static var noOutline: String { path("no-outline.pdf") }
 

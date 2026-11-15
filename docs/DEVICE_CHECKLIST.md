@@ -57,6 +57,16 @@ Scribble **on**, double-tap and squeeze set to their defaults.
 - [ ] Hold ⌘ to see the shortcut list: nothing is listed twice, and ⌘[ / ⌘] step the section
       history.
 
+## Section history and links
+
+- [ ] **Links in a real textbook behave like Contents** (TSOFT-214, TSOFT-220). In a real
+      textbook (one exported by a publisher and, if you have one, a LaTeX/hyperref PDF), scroll
+      partway into a section and tap a link in the text that goes to another section (a figure,
+      a glossary term, "see Section…"). Back returns to the same spot in the same section;
+      Forward goes to the link's target again; press and hold Back / Forward lists the two
+      places by section and page, as after choosing a heading in Contents. Repeat link → link →
+      Back → Back. A web link opens outside the app and adds nothing to the history.
+
 ## Text, highlights and notes
 
 - [ ] **Highlights by finger.** Markup off: long-press a word, drag the handles, choose

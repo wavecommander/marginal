@@ -21,9 +21,9 @@ final class SectionHistoryUITests: XCTestCase {
 
     // MARK: Helpers
 
-    private func launch() -> XCUIApplication {
-        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.links)
-                                              + ["-openBook", "links", "-exposeViewportAnchor"])
+    private func launch(_ fixture: String = Fixtures.links, book: String = "links") -> XCUIApplication {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(fixture)
+                                              + ["-openBook", book, "-exposeViewportAnchor"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["reader.viewportAnchor"].firstMatch.waitForExistence(timeout: 10))
         return app
@@ -85,6 +85,15 @@ final class SectionHistoryUITests: XCTestCase {
         let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7))
         let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7 - fraction))
         start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    /// Drags the page area upward a little and holds before lifting, so the scroll does not
+    /// coast (keeps link boxes near the top of the page in view).
+    private func nudgePage(_ app: XCUIApplication, by fraction: Double = 0.06) {
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7 - fraction))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.4)
     }
 
     /// Taps page-space point (`x`, `y`) of the page at the top of the view, placed from the
@@ -161,5 +170,108 @@ final class SectionHistoryUITests: XCTestCase {
         back(app).tap()
         XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"))
         XCTAssertFalse(back(app).isEnabled)
+    }
+
+    /// TSOFT-220: links encoded the ways real textbooks encode them (`link-forms.pdf`, written
+    /// byte by byte: a plain `/Dest` array, a named destination through the `/Names /Dests`
+    /// name tree, hyperref's `/A << /S /GoTo /D (name) >>`, `/Fit` and null-coordinate `/XYZ`
+    /// views). Each is followed from a scrolled position in "1.1 Foundations" (page 3) into
+    /// another section; Back returns to the exact place, Forward to the link's target.
+    func testLinkFormsRecordHistoryLikeTheContentsSidebar() {
+        let app = launch(Fixtures.linkForms, book: "link-forms")
+        // (page-space y of the link box's middle, page it lands on)
+        let links: [(name: String, y: Double, target: Int)] = [
+            ("Dest array", 622, 6),
+            ("Dest string via name tree", 542, 10),
+            ("GoTo named (hyperref)", 502, 12),
+            ("GoTo array /Fit", 462, 9),
+            ("GoTo array /XYZ null null null", 422, 11),
+        ]
+        for link in links {
+            let left = scrolledIntoPageThree(app, toSee: link.y, link.name)
+            tapPagePoint(app, x: 110, y: link.y, anchor: left)
+            XCTAssertTrue(waitForLabel(pill(app), "Page \(link.target) of 12"),
+                          "\(link.name) was followed: \(pill(app).label)")
+
+            back(app).tap()
+            XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"), "\(link.name): Back went to \(pill(app).label)")
+            assertSamePlace(settledAnchor(app), left, "\(link.name): Back")
+            XCTAssertTrue(forward(app).isEnabled, link.name)
+            forward(app).tap()
+            XCTAssertTrue(waitForLabel(pill(app), "Page \(link.target) of 12"),
+                          "\(link.name): Forward went to \(pill(app).label)")
+        }
+    }
+
+    /// TSOFT-220: link → link → Back → Back → Forward → Forward with the link forms
+    /// (page 3 → 6 by a `/Dest` array, 6 → 12 by hyperref's named GoTo).
+    func testChainedLinkFormsBackAndForward() {
+        let app = launch(Fixtures.linkForms, book: "link-forms")
+        let onThree = scrolledIntoPageThree(app, toSee: 622, "Dest array")
+        tapPagePoint(app, x: 110, y: 622, anchor: onThree)
+        XCTAssertTrue(waitForLabel(pill(app), "Page 6 of 12"))
+        nudgePage(app)
+        let onSix = settledAnchor(app)
+        XCTAssertEqual(onSix.page, 6, "\(onSix)")
+        XCTAssertGreaterThan(onSix.y, 680, "page 6's link is in view: \(onSix)")
+        XCTAssertLessThan(onSix.y, 780, "scrolled into page 6: \(onSix)")
+        tapPagePoint(app, x: 110, y: 652, anchor: onSix)
+        XCTAssertTrue(waitForLabel(pill(app), "Page 12 of 12"))
+        back(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 6 of 12"))
+        assertSamePlace(settledAnchor(app), onSix, "first Back")
+        back(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"))
+        assertSamePlace(settledAnchor(app), onThree, "second Back")
+        forward(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 6 of 12"))
+        assertSamePlace(settledAnchor(app), onSix, "Forward")
+        forward(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 12 of 12"))
+    }
+
+    /// TSOFT-220: a link whose action is a named page action (`/S /Named /N /NextPage`) is a
+    /// link inside the PDF like any other: page 3 ("1.1 Foundations") → page 4 ("1.2
+    /// Exercises"), Back returns to the exact place, Forward to page 4.
+    func testNamedPageActionLinkRecordsHistory() {
+        let app = launch(Fixtures.linkForms, book: "link-forms")
+        let left = scrolledIntoPageThree(app, toSee: 342, "Named NextPage")
+        tapPagePoint(app, x: 110, y: 342, anchor: left)
+        XCTAssertTrue(waitForLabel(pill(app), "Page 4 of 12"), "the link was followed: \(pill(app).label)")
+        back(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"), "Back went to \(pill(app).label)")
+        assertSamePlace(settledAnchor(app), left, "Back after NextPage")
+        XCTAssertTrue(forward(app).isEnabled)
+        forward(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 4 of 12"))
+    }
+
+    /// A destination PDFKit cannot resolve (a name object looked up in the catalog's `/Dests`)
+    /// is not followed, so nothing moves and nothing is recorded.
+    func testUnresolvableNamedDestinationChangesNothing() {
+        let app = launch(Fixtures.linkForms, book: "link-forms")
+        let left = scrolledIntoPageThree(app, toSee: 582, "unresolvable names")
+        for y in [582.0, 382.0] {                              // /Dest /sec22, /A /GoTo /D /ch2
+            tapPagePoint(app, x: 110, y: y, anchor: left)
+            sleep(2)
+            assertSamePlace(settledAnchor(app), left, "after tapping the link at y \(y)")
+            XCTAssertEqual(pill(app).label, "Page 3 of 12")
+            XCTAssertFalse(forward(app).isEnabled)
+        }
+        back(app).tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"), "Back went to \(pill(app).label)")
+    }
+
+    /// Goes to page 3 of `link-forms.pdf` and scrolls a little into it, keeping the link box
+    /// centred at page-space `y` in view. Returns the place on screen.
+    private func scrolledIntoPageThree(_ app: XCUIApplication, toSee y: Double, _ context: String,
+                                       file: StaticString = #filePath, line: UInt = #line) -> Anchor {
+        goToPage(app, 3)
+        nudgePage(app)
+        let left = settledAnchor(app)
+        XCTAssertEqual(left.page, 3, "\(context): \(left)", file: file, line: line)
+        XCTAssertLessThan(left.y, 780, "\(context): scrolled into the page: \(left)", file: file, line: line)
+        XCTAssertGreaterThan(left.y, y + 20, "\(context): the link is in view: \(left)", file: file, line: line)
+        return left
     }
 }

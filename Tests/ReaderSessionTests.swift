@@ -364,6 +364,26 @@ struct ReaderSessionTests {
         await host.close()
     }
 
+    /// TSOFT-220: the page a named page action link (`/S /Named`) goes to, recorded as a jump.
+    @Test func namedPageActionTargets() {
+        let target = ReaderPDFController.namedActionTarget
+        #expect(target(.nextPage, 2, 12) == 3)
+        #expect(target(.previousPage, 2, 12) == 1)
+        #expect(target(.firstPage, 2, 12) == 0)
+        #expect(target(.lastPage, 2, 12) == 11)
+        // No move, no jump: at either end, or already on the page.
+        #expect(target(.nextPage, 11, 12) == nil)
+        #expect(target(.previousPage, 0, 12) == nil)
+        #expect(target(.firstPage, 0, 12) == nil)
+        #expect(target(.lastPage, 11, 12) == nil)
+        // Not page actions (PDFKit's own visitation history, find, print, zoom).
+        for name in [PDFActionNamedName.goBack, .goForward, .goToPage, .find, .print, .zoomIn, .zoomOut, .none] {
+            #expect(target(name, 2, 12) == nil)
+        }
+        #expect(target(.nextPage, 0, 0) == nil)
+        #expect(target(.nextPage, 12, 12) == nil)
+    }
+
     /// A link followed from mid-page records that exact place; a link that lands in the section
     /// the reader is already in adds no entry (design), so Back then leaves the section.
     @Test func linksFromMidPageAndWithinTheSectionFollowTheRules() async throws {

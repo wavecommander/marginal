@@ -398,11 +398,41 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// A link inside the PDF is about to be followed (`ReaderPDFView.perform(_:)`): record it as
     /// a jump to the page PDFKit is going to, whatever form the link takes. PDFKit then moves.
+    /// Go-to links (a `/Dest` or a GoTo action, direct or through a named destination) arrive
+    /// with their destination resolved; a named page action (`/S /Named`, e.g. NextPage) moves
+    /// relative to PDFKit's current page (TSOFT-220). A destination PDFKit cannot resolve is
+    /// not followed, so nothing is recorded.
     func willPerform(_ action: PDFAction) {
         acceptCurrentScale()
-        guard let goTo = action as? PDFActionGoTo, let page = goTo.destination.page,
-              let index = pageIndex(of: page) else { return }
-        session?.pdfWillFollowLink(toPage: index)
+        let target: Int?
+        switch action {
+        case let goTo as PDFActionGoTo:
+            target = goTo.destination.page.flatMap { pageIndex(of: $0) }
+        case let named as PDFActionNamed:
+            target = view.currentPage.flatMap { pageIndex(of: $0) }.flatMap { current in
+                Self.namedActionTarget(named.name, currentPage: current, pageCount: document?.pageCount ?? 0)
+            }
+        default:
+            target = nil
+        }
+        guard let target else { return }
+        session?.pdfWillFollowLink(toPage: target)
+    }
+
+    /// The page a named page action goes to from `currentPage`, or `nil` when it does not
+    /// change the page (already at the end, or not a page action: GoBack and GoForward are
+    /// PDFKit's own visitation history, Find, Print and zooming are not navigation).
+    nonisolated static func namedActionTarget(_ name: PDFActionNamedName, currentPage: Int, pageCount: Int) -> Int? {
+        guard pageCount > 0, (0..<pageCount).contains(currentPage) else { return nil }
+        let target: Int
+        switch name {
+        case .nextPage: target = currentPage + 1
+        case .previousPage: target = currentPage - 1
+        case .firstPage: target = 0
+        case .lastPage: target = pageCount - 1
+        default: return nil
+        }
+        return (0..<pageCount).contains(target) && target != currentPage ? target : nil
     }
 
     func selectionMenuElements() -> [UIMenuElement] {
