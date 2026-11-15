@@ -73,6 +73,23 @@
 	<array>
 		<string>software.tactile.marginal.openBook</string>
 	</array>
+	<key>S3Backup</key>
+	<dict>
+		<key>AccessKeyID</key>
+		<string>$(S3_BACKUP_ACCESS_KEY_ID)</string>
+		<key>Bucket</key>
+		<string>$(S3_BACKUP_BUCKET)</string>
+		<key>DisplayName</key>
+		<string>$(S3_BACKUP_NAME)</string>
+		<key>Host</key>
+		<string>$(S3_BACKUP_HOST)</string>
+		<key>Prefix</key>
+		<string>$(S3_BACKUP_PREFIX)</string>
+		<key>Region</key>
+		<string>$(S3_BACKUP_REGION)</string>
+		<key>SecretAccessKey</key>
+		<string>$(S3_BACKUP_SECRET_ACCESS_KEY)</string>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

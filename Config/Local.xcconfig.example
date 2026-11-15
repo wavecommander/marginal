@@ -15,3 +15,16 @@ CODE_SIGNING_REQUIRED = YES
 // software.tactile.marginal in a Google Cloud project with the Drive API enabled, and put its
 // client ID here (it ends in .apps.googleusercontent.com). Leave commented out otherwise.
 // GOOGLE_DRIVE_CLIENT_ID = 000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+
+// Backup to an S3-compatible bucket you run, for example Cloudflare R2. Create the bucket and
+// an API token limited to object read and write on that one bucket. The keys are compiled into
+// the app and can be read out of it, so use this for your own builds only.
+// The host has no "https://" in front: "//" starts a comment in this file.
+// S3_BACKUP_HOST = <account id>.r2.cloudflarestorage.com
+// S3_BACKUP_REGION = auto
+// S3_BACKUP_BUCKET = tactile-texts-backups
+// S3_BACKUP_ACCESS_KEY_ID = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+// S3_BACKUP_SECRET_ACCESS_KEY = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+// Optional: a key prefix inside the bucket, and the name the app shows for this destination.
+// S3_BACKUP_PREFIX = ipad
+// S3_BACKUP_NAME = Cloudflare R2

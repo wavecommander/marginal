@@ -13,7 +13,19 @@ CODE_SIGNING_REQUIRED = NO
 // - MARGINAL_ENTITLEMENTS: the app target's entitlements file. Empty: none, which is what an
 //   unsigned simulator build and a free Personal Team need.
 // - GOOGLE_DRIVE_CLIENT_ID: the iOS OAuth client ID for the direct Google Drive integration.
+// - S3_BACKUP_*: an S3-compatible bucket (Amazon S3, Cloudflare R2, MinIO) as a backup
+//   destination. Host, region, bucket and both keys must all be set for it to appear.
+//   The keys end up in the built app's Info.plist, where anyone holding the app can read them:
+//   use a token limited to object read and write on this one bucket, and never distribute a
+//   build configured this way. Never put these values in this file; it is committed.
 MARGINAL_ENTITLEMENTS =
 GOOGLE_DRIVE_CLIENT_ID =
+S3_BACKUP_HOST =
+S3_BACKUP_REGION =
+S3_BACKUP_BUCKET =
+S3_BACKUP_ACCESS_KEY_ID =
+S3_BACKUP_SECRET_ACCESS_KEY =
+S3_BACKUP_PREFIX =
+S3_BACKUP_NAME =
 
 #include? "Local.xcconfig"

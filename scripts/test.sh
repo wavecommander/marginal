@@ -55,7 +55,7 @@ mkdir -p build
 failed=0
 
 if [[ $packages -eq 1 ]]; then
-  for p in ReaderCore ReaderStore ReaderBackup GoogleDriveKit; do
+  for p in ReaderCore ReaderStore ReaderBackup GoogleDriveKit S3Kit; do
     echo "== swift test: $p"
     if ! (cd "$REPO/Packages/$p" && swift test 2>&1 | tee "$REPO/build/swift-test-$p.log" | tail -n 15; exit "${PIPESTATUS[0]}"); then
       echo "FAILED: swift test $p" >&2
