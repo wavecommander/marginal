@@ -357,7 +357,7 @@ struct ReaderScreen: View {
     /// reach VoiceOver (see `markupToggle`). Tests read it from `ReaderStateProbe`.
     private var notesToggle: some View {
         Button { withAnimation { session.toggleNotes() } } label: {
-            Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "note.text")
+            Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "rectangle.rightthird.inset.filled")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.notesToggle)
     }
