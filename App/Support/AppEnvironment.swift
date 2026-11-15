@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import ReaderBackup
 import ReaderCore
 import ReaderStore
 import SwiftUI
@@ -19,6 +20,10 @@ final class AppEnvironment {
     let storeErrorMessage: String?
     /// The fixture importer (`-importFixture`); WP3 owns the real import pipeline.
     @ObservationIgnored let fixtureImporter: FixtureImporter
+    /// Backup and restore, one job at a time for the app (beside the import service).
+    @ObservationIgnored let backupService: BackupService
+    /// The backup destinations the app offers.
+    @ObservationIgnored let backupDestinations: BackupDestinationRegistry
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -42,6 +47,21 @@ final class AppEnvironment {
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
         self.fixtureImporter = FixtureImporter(store: store)
+        self.backupService = BackupService(store: store)
+        self.backupDestinations = BackupDestinationRegistry()
+        if let folder = launchOptions.backupFolder {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            backupDestinations.register(FolderBackupDestination(root: folder))
+        }
+        // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
+        backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
+    }
+
+    /// Saves every open reader's and note editor's pending text and ink, and waits for it (the
+    /// backup engine runs this before reading a snapshot and before a restore commits). Editors
+    /// whose book was deleted or replaced save nothing.
+    func flushOpenEditors() async {
+        await OpenEditorRegistry.shared.flushAll(store: store)
     }
 
     /// The live environment: `LibraryStore.live(reset: -resetState)`, falling back to an
@@ -59,6 +79,11 @@ final class AppEnvironment {
         }
         do {
             let store = try LibraryStore.live(reset: launchOptions.resetState)
+            if launchOptions.resetState {
+                // A reset wipes `Database` and `Books`; an interrupted restore left by an earlier
+                // run must not be rolled forward into the empty library.
+                try? FileManager.default.removeItem(at: RestoreLayout.root(storeRoot: store.rootDirectory))
+            }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {
             return AppEnvironment(store: .inMemory(), launchOptions: launchOptions,
@@ -68,7 +93,9 @@ final class AppEnvironment {
 
     // MARK: Launch
 
-    /// Launch work, run once per process and shared by every caller: sweep orphaned book
+    /// Launch work, run once per process and shared by every caller: finish any restore a crash
+    /// interrupted (`RestoreRecovery`, which must come first: the sweep would delete a
+    /// swapped-in book directory whose record is not committed yet), sweep orphaned book
     /// directories (before any import), import `-importFixture` files in order, then resolve
     /// `-openBook`, `-screen` and `-alsoOpenWindow` into a plan.
     func launchPlan() async -> LaunchPlan {
@@ -96,6 +123,11 @@ final class AppEnvironment {
         PerfMarks.mark("launchTasks")
         defer { PerfMarks.mark("launchPlan") }
         var plan = LaunchPlan()
+        backupService.removeStaleTemporaryFiles()
+        let recovery = await RestoreRecovery.recover(store: store, origin: backupService.origin)
+        if !recovery.rolledForward.isEmpty || !recovery.rolledBack.isEmpty || !recovery.keptSessions.isEmpty {
+            backupLog.notice("restore recovery: \(recovery.rolledForward.count) finished, \(recovery.rolledBack.count) undone, \(recovery.keptSessions.count) kept")
+        }
         _ = try? await store.sweepOrphanedBookDirectories()
         PerfMarks.mark("sweepDone")
         var imported: [Book] = []

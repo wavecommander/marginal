@@ -47,7 +47,8 @@ final class PageInkOverlayProvider: ReaderPageOverlayProviding {
 
     init(session: ReaderSession) {
         self.session = session
-        context = PageInkContext(store: session.store, bookID: session.book.id, origin: session.origin)
+        context = PageInkContext(store: session.store, bookID: session.book.id, origin: session.origin,
+                                 saveToken: session.saveToken)
         session.pdf.pageOverlayProvider = self
         observation = session.observeBookChanges { [weak self] event in
             self?.handle(event)
