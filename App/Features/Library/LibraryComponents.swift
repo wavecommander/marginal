@@ -101,7 +101,7 @@ struct ImportProgressRow: View {
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                ProgressView(value: job.phase == .waiting || job.phase == .checking ? nil : job.fraction)
+                ProgressView(value: job.phase == .waiting || job.phase == .checking || job.phase == .finishing ? nil : job.fraction)
             }
             Button(role: .cancel) {
                 job.cancel()
@@ -120,11 +120,18 @@ struct ImportProgressRow: View {
     }
 
     private var status: String {
-        switch job.phase {
-        case .waiting: "Waiting…"
-        case .checking: "Checking…"
-        case .copying: "Importing… \(Int((job.fraction * 100).rounded()))%"
-        case .finishing: "Finishing…"
+        let percent = Int((job.fraction * 100).rounded())
+        return switch job.phase {
+        case .waiting:
+            String(localized: "Waiting…", comment: "Library import progress row: the import has not started.")
+        case .checking:
+            String(localized: "Checking…", comment: "Library import progress row: reading the file's format.")
+        case .copying:
+            String(localized: "Importing… \(percent)%", comment: "Library import progress row: copying the file. The argument is a percentage.")
+        case .converting:
+            String(localized: "Converting to PDF… \(percent)%", comment: "Library import progress row: converting the file. The argument is a percentage.")
+        case .finishing:
+            String(localized: "Finishing…", comment: "Library import progress row: final checks.")
         }
     }
 }

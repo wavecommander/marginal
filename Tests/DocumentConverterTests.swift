@@ -5,32 +5,8 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// A converter for tests: writes a PDF of blank 6 × 9 in pages, reporting progress per page.
-nonisolated struct StubDocumentConverter: DocumentConverter {
-    var version = 7
-    var formats: Set<ImportFormat> = [.epub]
-    var pageCount = 3
-    var title: String? = "Stub Title"
-    var failure: ConversionError?
-
-    func convert(_ input: ConversionInput, progress: @escaping @Sendable (Double) -> Void) async throws -> ConvertedDocument {
-        if let failure { throw failure }
-        try Task.checkCancellation()
-        let bounds = CGRect(origin: .zero, size: ConversionOptions.reflowPageSize)
-        var box = bounds
-        guard let context = CGContext(input.outputURL as CFURL, mediaBox: &box, nil) else {
-            throw ConversionError.failed(reason: "could not create the PDF")
-        }
-        for page in 0..<pageCount {
-            try Task.checkCancellation()
-            context.beginPDFPage(nil)
-            context.endPDFPage()
-            progress(Double(page + 1) / Double(pageCount))
-        }
-        context.closePDF()
-        return ConvertedDocument(pdf: input.outputURL, pageCount: pageCount, title: title, coverImage: nil)
-    }
-}
+// `StubDocumentConverter` lives in the app target (App/Features/Import/StubDocumentConverter.swift,
+// DEBUG only) so UI tests can register it with `-stubConverters`.
 
 struct DocumentConverterTests {
     private func makeInput(format: ImportFormat = .epub) throws -> ConversionInput {

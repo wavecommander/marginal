@@ -208,13 +208,13 @@ struct LibraryImportTests {
         let temp = env.scratch.appendingPathComponent("inbox.pdf")
         try FileManager.default.copyItem(at: Self.small, to: temp)
         let outcome = try await env.service.importPDF(at: temp, consumeSource: true)
-        #expect(outcome.book.pageCount == 12)
+        #expect(outcome.book?.pageCount == 12)
         #expect(!FileManager.default.fileExists(atPath: temp.path))
     }
 
     @Test func dedupeRepairsAMissingDocumentFile() async throws {
         let env = try makeEnv(); defer { cleanup(env) }
-        let book = try await env.service.importPDF(at: Self.small).book
+        let book = try #require(try await env.service.importPDF(at: Self.small).book)
         try FileManager.default.removeItem(at: env.store.documentURL(for: book))
         _ = try await env.service.importPDF(at: Self.small)
         #expect(FileManager.default.fileExists(atPath: env.store.documentURL(for: book).path))
@@ -230,7 +230,7 @@ struct LibraryImportTests {
             ticks += 1
             if ticks > 4000 { break }
         }
-        let book = try await importing.value.book
+        let book = try #require(try await importing.value.book)
         #expect(book.pageCount == 1500)
         #expect(ticks > 0)
     }
@@ -250,7 +250,7 @@ struct LibraryImportTests {
 
     @Test func deleteRemovesRecordsAndFiles() async throws {
         let env = try makeEnv(); defer { cleanup(env) }
-        let book = try await env.service.importPDF(at: Self.small).book
+        let book = try #require(try await env.service.importPDF(at: Self.small).book)
         let note = Note(bookID: book.id, target: .page(2), text: "a note")
         try env.store.notes.save(note)
         let summary = try await env.store.deletionSummary(bookID: book.id)

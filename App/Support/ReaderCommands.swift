@@ -28,7 +28,7 @@ struct ReaderCommands: Commands {
             .keyboardShortcut("n", modifiers: [.command, .shift])
             .disabled(session == nil)
             Divider()
-            Button("Import PDF…") { window?.requestImport() }
+            Button("Import…") { window?.requestImport() }
                 .keyboardShortcut("o", modifiers: .command)
                 .disabled(window == nil)
         }

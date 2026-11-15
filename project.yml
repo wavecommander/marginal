@@ -60,12 +60,106 @@ targets:
         LSSupportsOpeningDocumentsInPlace: false
         NSUserActivityTypes:
           - software.tactile.marginal.openBook
+        # "Open in" for every format the app imports (docs/FORMAT_IMPORT_PLAN.md, "Formats").
+        # The same list is App/Features/Import/ImportContentTypes.swift `importable`.
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF Document
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - com.adobe.pdf
+          - CFBundleTypeName: EPUB Book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+          - CFBundleTypeName: Comic Book Archive
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - software.tactile.marginal.cbz
+              - public.zip-archive
+          - CFBundleTypeName: Image
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.jpeg
+              - public.png
+              - public.heic
+              - public.heif
+              - public.tiff
+          - CFBundleTypeName: Text Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+              - net.daringfireball.markdown
+              - public.html
+              - public.xhtml
+              - com.apple.webarchive
+          - CFBundleTypeName: Word Processing Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.openxmlformats.wordprocessingml.document
+              - com.microsoft.word.doc
+              - public.rtf
+              - com.apple.iwork.pages.sffpages
+              - com.apple.iwork.pages.pages
+          - CFBundleTypeName: Presentation
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.openxmlformats.presentationml.presentation
+              - com.microsoft.powerpoint.ppt
+              - com.apple.iwork.keynote.sffkey
+              - com.apple.iwork.keynote.key
+        # Types the system may not declare. The iWork package types and Markdown are Apple's and
+        # usually present; declaring them makes a `.pages`/`.key` folder a document even on a
+        # device without Pages or Keynote. The `software.tactile.marginal.*` types exist so the
+        # Files picker and drops can offer comics, and the formats the app names when it turns
+        # them down (Kindle, DjVu, CBR).
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: software.tactile.marginal.cbz
+            UTTypeDescription: Comic Book Archive
+            UTTypeConformsTo: [public.zip-archive, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [cbz]
+              public.mime-type: [application/vnd.comicbook+zip]
+          - UTTypeIdentifier: software.tactile.marginal.cbr
+            UTTypeDescription: Comic Book Archive (RAR)
+            UTTypeConformsTo: [public.archive, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [cbr]
+              public.mime-type: [application/vnd.comicbook-rar]
+          - UTTypeIdentifier: software.tactile.marginal.kindle-book
+            UTTypeDescription: Kindle Book
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [mobi, azw, azw3, kfx, prc]
+              public.mime-type: [application/x-mobipocket-ebook]
+          - UTTypeIdentifier: software.tactile.marginal.djvu
+            UTTypeDescription: DjVu Document
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [djvu, djv]
+              public.mime-type: [image/vnd.djvu]
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown Document
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [md, markdown, mdown, mkd]
+              public.mime-type: [text/markdown]
+          - UTTypeIdentifier: com.apple.iwork.pages.pages
+            UTTypeDescription: Pages Document
+            UTTypeConformsTo: [com.apple.package, public.composite-content]
+            UTTypeTagSpecification:
+              public.filename-extension: [pages]
+          - UTTypeIdentifier: com.apple.iwork.keynote.key
+            UTTypeDescription: Keynote Presentation
+            UTTypeConformsTo: [com.apple.package, public.presentation]
+            UTTypeTagSpecification:
+              public.filename-extension: [key]
   MarginalTests:
     type: bundle.unit-test
     platform: iOS
