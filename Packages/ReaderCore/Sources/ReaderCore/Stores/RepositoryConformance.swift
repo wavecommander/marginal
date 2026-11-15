@@ -154,6 +154,209 @@ public enum RepositoryConformance {
         try check(try notes.notes(bookID: bookID).isEmpty && headings.userHeadings(bookID: bookID).isEmpty
                   && highlights.highlights(bookID: bookID).isEmpty && bookmarks.bookmarks(bookID: bookID).isEmpty,
                   "deleteBook must leave no records behind")
+
+        try verifyBookReplacement(books: books, notes: notes, highlights: highlights, bookmarks: bookmarks, headings: headings)
+    }
+
+    /// Checks `BookRepository.replaceBook(_:removing:)` (also run by `verifyRecordStores`):
+    /// verbatim insert of a new book (every field, IDs and dates, and the lookups that depend on
+    /// derived columns: note by target, page ranges, highlight order, bookmarked pages); replacing
+    /// a book with the same ID, including reused record IDs, a freed note target and a freed
+    /// bookmark page; removing other IDs (a book with the archive's fingerprint, an unknown ID);
+    /// idempotence; every refusal leaving the store untouched; and other books never touched.
+    @MainActor
+    public static func verifyBookReplacement(books: some BookRepository, notes: some NoteRepository,
+                                             highlights: some HighlightRepository,
+                                             bookmarks: some BookmarkRepository,
+                                             headings: some HeadingRepository) throws {
+        let fresh = UUID(), target = UUID(), other = UUID(), extra = UUID(), successor = UUID()
+        let all = [fresh, target, other, extra, successor]
+        defer { for id in all { try? books.deleteBook(id: id) } }
+
+        func normalized(_ archive: BookArchive) -> BookArchive {
+            var a = archive
+            a.notes.sort { $0.id.uuidString < $1.id.uuidString }
+            a.highlights.sort(by: Highlight.readingOrder)
+            a.bookmarks.sort { $0.pageIndex < $1.pageIndex }
+            a.userHeadings.sort { $0.id.uuidString < $1.id.uuidString }
+            return a
+        }
+        func stored(_ id: UUID) throws -> BookArchive? {
+            guard let book = try books.book(id: id) else { return nil }
+            return normalized(BookArchive(book: book, notes: try notes.notes(bookID: id),
+                                          highlights: try highlights.highlights(bookID: id),
+                                          bookmarks: try bookmarks.bookmarks(bookID: id),
+                                          userHeadings: try headings.userHeadings(bookID: id)))
+        }
+        func state() throws -> [BookArchive?] { try all.map(stored) }
+        func date(_ seconds: Double) -> Date { Date(timeIntervalSince1970: 1_600_000_000 + seconds) }
+        func book(_ id: UUID, _ title: String) -> Book {
+            Book(id: id, title: title, fingerprint: "replace-\(id.uuidString)", fileName: "\(title).pdf", pageCount: 200,
+                 fileSize: 4_321, addedAt: date(0.25), lastOpenedAt: date(9.5), lastReadPageIndex: 17)
+        }
+        /// Seeds a book through the ordinary save paths.
+        func seed(_ id: UUID, _ title: String) throws -> BookArchive {
+            try books.save(book(id, title))
+            try notes.save(Note(bookID: id, target: .page(1), text: "\(title) p1", createdAt: date(1), modifiedAt: date(2)))
+            try notes.save(Note(bookID: id, target: .page(2), text: "\(title) p2", createdAt: date(1), modifiedAt: date(2)))
+            try highlights.save(Highlight(bookID: id, pageIndex: 3, rects: [CGRect(x: 1, y: 2, width: 3, height: 4)],
+                                          color: .green, text: title, createdAt: date(3)))
+            try bookmarks.setBookmarked(true, bookID: id, pageIndex: 5)
+            try bookmarks.setBookmarked(true, bookID: id, pageIndex: 6)
+            try headings.save(UserHeading(bookID: id, title: title, pageIndex: 7, parent: nil, createdAt: date(4)))
+            return try stored(id)!
+        }
+
+        let otherBefore = try seed(other, "Other")
+        let targetBefore = try seed(target, "Target")
+        let extraBefore = try seed(extra, "Extra")
+
+        // 1. A new book, inserted verbatim.
+        let anchor = HeadingAnchor(pdfPath: [0, 3], pageIndex: 12, title: "2.1 Restored")
+        let layout = NoteBandLayout(pageWidth: 400.5, paragraphs: [NoteParagraphBand(text: "a", top: 0.5, height: 19.25)],
+                                    trailingTop: 19.75)
+        let parentHeading = UserHeading(bookID: fresh, title: "Parent", pageIndex: 20, parent: anchor, createdAt: date(5.125))
+        let freshArchive = BookArchive(
+            book: book(fresh, "Fresh"),
+            notes: [Note(bookID: fresh, target: .page(9), text: "nine", hasInk: true, bandLayout: layout,
+                         createdAt: date(6.5), modifiedAt: date(7.75)),
+                    Note(bookID: fresh, target: .page(4), text: "", hasInk: true, createdAt: date(6), modifiedAt: date(6)),
+                    Note(bookID: fresh, target: .heading(anchor), text: "section", createdAt: date(8), modifiedAt: date(8.5)),
+                    Note(bookID: fresh, target: .heading(parentHeading.anchor), text: "mine", createdAt: date(8), modifiedAt: date(8))],
+            highlights: [Highlight(bookID: fresh, pageIndex: 9, rects: [], color: .pink, text: "no rects", createdAt: date(1)),
+                         Highlight(bookID: fresh, pageIndex: 9, rects: [CGRect(x: 10.5, y: 100.25, width: 50, height: 12)],
+                                   color: .yellow, text: "low", createdAt: date(2)),
+                         Highlight(bookID: fresh, pageIndex: 9, rects: [CGRect(x: 10.5, y: 600.75, width: 50, height: 12)],
+                                   color: .blue, text: "high", createdAt: date(3)),
+                         Highlight(bookID: fresh, pageIndex: 2, rects: [CGRect(x: 0, y: 0, width: 1, height: 1)],
+                                   color: .green, text: "early", createdAt: date(4))],
+            bookmarks: [Bookmark(bookID: fresh, pageIndex: 30, createdAt: date(10.5)),
+                        Bookmark(bookID: fresh, pageIndex: 3, createdAt: date(11))],
+            userHeadings: [parentHeading,
+                           UserHeading(bookID: fresh, title: "Child", pageIndex: 21, parent: parentHeading.anchor, createdAt: date(12))])
+        try books.replaceBook(freshArchive, removing: [])
+        try check(try stored(fresh) == normalized(freshArchive), "replaceBook must insert the archive verbatim")
+        try check(try books.book(fingerprint: freshArchive.book.fingerprint)?.id == fresh, "replaceBook: book(fingerprint:) must find the book")
+        try check(try notes.note(bookID: fresh, target: .heading(anchor))?.text == "section", "replaceBook: note(bookID:target:) must find an inserted note")
+        try check(try notes.pageNotes(bookID: fresh, in: 0...10).compactMap(\.target.pageIndex) == [4, 9], "replaceBook: pageNotes(in:) must see inserted notes")
+        try check(try highlights.highlights(bookID: fresh, pageIndex: 9).map(\.text) == ["high", "low", "no rects"],
+                  "replaceBook: inserted highlights must be in reading order")
+        try check(try bookmarks.isBookmarked(bookID: fresh, pageIndex: 30) && !bookmarks.isBookmarked(bookID: fresh, pageIndex: 5),
+                  "replaceBook: isBookmarked must see inserted bookmarks")
+        try check(try books.recordCounts(bookID: fresh) == BookRecordCounts(notes: 4, highlights: 4, bookmarks: 2, userHeadings: 2),
+                  "replaceBook: recordCounts wrong after insert")
+        try check(try stored(other) == otherBefore && stored(target) == targetBefore && stored(extra) == extraBefore,
+                  "replaceBook must not touch other books")
+
+        // 2. Replacing a book with the same ID: reused IDs, a freed target, a freed bookmark page.
+        let keptNote = targetBefore.notes.first { $0.target == .page(1) }!
+        let droppedNote = targetBefore.notes.first { $0.target == .page(2) }!
+        let keptBookmark = targetBefore.bookmarks.first { $0.pageIndex == 5 }!
+        let droppedBookmark = targetBefore.bookmarks.first { $0.pageIndex == 6 }!
+        var renamed = book(target, "Target restored")
+        renamed.lastReadPageIndex = 99
+        renamed.lastOpenedAt = nil
+        var movedNote = keptNote
+        movedNote.text = "kept, edited"
+        movedNote.modifiedAt = date(50)
+        var movedHighlight = targetBefore.highlights[0]
+        movedHighlight.pageIndex = 40
+        movedHighlight.color = .pink
+        let replacement = BookArchive(
+            book: renamed,
+            notes: [movedNote, Note(bookID: target, target: .page(2), text: "new owner of page 2", createdAt: date(51), modifiedAt: date(52))],
+            highlights: [movedHighlight],
+            bookmarks: [Bookmark(id: keptBookmark.id, bookID: target, pageIndex: 8, createdAt: date(53)),
+                        Bookmark(bookID: target, pageIndex: 6, createdAt: date(54))],
+            userHeadings: [])
+        try books.replaceBook(replacement, removing: [])
+        try check(try stored(target) == normalized(replacement), "replaceBook must replace a book with the same ID verbatim")
+        try check(try notes.note(id: droppedNote.id) == nil && bookmarks.bookmarks(bookID: target).allSatisfy { $0.id != droppedBookmark.id },
+                  "replaceBook must delete the replaced book's records that are not in the archive")
+        try check(try notes.note(bookID: target, target: .page(2))?.text == "new owner of page 2", "replaceBook must free and reuse a note target")
+        try check(try highlights.highlights(bookID: target, pageIndex: 3).isEmpty && highlights.highlights(bookID: target, pageIndex: 40).count == 1,
+                  "replaceBook must move a reused highlight's page")
+        try books.replaceBook(replacement, removing: [])
+        try check(try stored(target) == normalized(replacement), "replaceBook must be idempotent (same ID)")
+
+        // 3. Removing another book: the successor takes the removed book's fingerprint and one of
+        //    its record IDs; an unknown ID in `ids` is skipped.
+        let inherited = extraBefore.notes.first { $0.target == .page(1) }!
+        var successorBook = book(successor, "Successor")
+        successorBook.fingerprint = extraBefore.book.fingerprint
+        let successorArchive = BookArchive(
+            book: successorBook,
+            notes: [Note(id: inherited.id, bookID: successor, target: .page(1), text: "inherited", createdAt: date(60), modifiedAt: date(61))],
+            highlights: [], bookmarks: [Bookmark(bookID: successor, pageIndex: 5, createdAt: date(62))], userHeadings: [])
+        try books.replaceBook(successorArchive, removing: [extra, UUID()])
+        let afterSuccession = try state()
+        try check(try books.book(id: extra) == nil && books.recordCounts(bookID: extra) == BookRecordCounts(),
+                  "replaceBook must delete each removed book and all its records")
+        try check(try stored(successor) == normalized(successorArchive), "replaceBook must insert the successor verbatim")
+        try check(try notes.note(id: inherited.id)?.bookID == successor, "replaceBook: a removed book's record ID may be reused")
+        try check(try books.book(fingerprint: successorBook.fingerprint)?.id == successor, "replaceBook: the successor must own the fingerprint")
+        try books.replaceBook(successorArchive, removing: [extra, UUID()])
+        try check(try state() == afterSuccession, "replaceBook must be idempotent (with removals)")
+        try check(try stored(other) == otherBefore && stored(fresh) == normalized(freshArchive), "replaceBook must not touch other books")
+
+        // 4. Refusals change nothing.
+        let before = try state()
+        func refuses(_ expected: RepositoryError, _ label: String, _ archive: BookArchive, removing ids: Set<UUID> = []) throws {
+            try expectError(expected, "replaceBook refuses \(label)") { try books.replaceBook(archive, removing: ids) }
+            try check(try state() == before, "replaceBook refusing \(label) must leave the store untouched")
+        }
+        var base = replacement
+        base.book.title = "Refused"
+
+        var a = base
+        let stray = Highlight(bookID: other, pageIndex: 1, rects: [], color: .blue, text: "stray")
+        a.highlights.append(stray)
+        try refuses(.archiveInconsistent(recordID: stray.id), "an inconsistent archive", a)
+
+        a = base
+        a.highlights.append(a.highlights[0])
+        try refuses(.archiveDuplicateRecordID(movedHighlight.id), "a repeated record ID", a)
+
+        a = base
+        let twin = Note(bookID: target, target: movedNote.target, text: "twin")
+        a.notes.append(twin)
+        try refuses(.archiveDuplicateNoteTarget(noteID: twin.id), "two notes on one target", a)
+
+        a = base
+        a.bookmarks.append(Bookmark(bookID: target, pageIndex: 8))
+        try refuses(.archiveDuplicateBookmarkPage(pageIndex: 8), "two bookmarks on one page", a)
+
+        a = base
+        let blank = Note(bookID: target, target: .page(77), text: " \n")
+        a.notes.append(blank)
+        try refuses(.archiveEmptyNote(noteID: blank.id), "an empty note", a)
+
+        a = base
+        a.book.fingerprint = otherBefore.book.fingerprint
+        try refuses(.fingerprintInUse(existingBookID: other), "another book's fingerprint", a)
+        var newcomer = book(UUID(), "Newcomer")
+        newcomer.fingerprint = renamed.fingerprint
+        try refuses(.fingerprintInUse(existingBookID: target), "a fingerprint held by a book not being removed",
+                    BookArchive(book: newcomer))
+
+        let foreignNote = otherBefore.notes[0], foreignHighlight = otherBefore.highlights[0]
+        let foreignBookmark = otherBefore.bookmarks[0], foreignHeading = otherBefore.userHeadings[0]
+        a = base
+        a.notes.append(Note(id: foreignNote.id, bookID: target, target: .page(70), text: "stolen"))
+        try refuses(.recordOwnedByOtherBook(recordID: foreignNote.id, bookID: other), "another book's note ID", a)
+        a = base
+        a.highlights.append(Highlight(id: foreignHighlight.id, bookID: target, pageIndex: 70, rects: [], color: .blue, text: "stolen"))
+        try refuses(.recordOwnedByOtherBook(recordID: foreignHighlight.id, bookID: other), "another book's highlight ID", a)
+        a = base
+        a.bookmarks.append(Bookmark(id: foreignBookmark.id, bookID: target, pageIndex: 70))
+        try refuses(.recordOwnedByOtherBook(recordID: foreignBookmark.id, bookID: other), "another book's bookmark ID", a)
+        a = base
+        a.userHeadings.append(UserHeading(id: foreignHeading.id, bookID: target, title: "stolen", pageIndex: 70, parent: nil))
+        try refuses(.recordOwnedByOtherBook(recordID: foreignHeading.id, bookID: other), "another book's user heading ID", a)
+        // The same IDs are fine once their book is being removed.
+        try books.replaceBook(a, removing: [other])
+        try check(try books.book(id: other) == nil && headings.userHeading(id: foreignHeading.id)?.bookID == target,
+                  "replaceBook must allow the IDs of a book it removes")
     }
 
     /// Checks an ink store: round trips, replacement, idempotent deletes, the sorted inked-page

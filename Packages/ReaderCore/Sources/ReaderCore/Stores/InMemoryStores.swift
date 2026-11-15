@@ -34,6 +34,29 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
         headingsByID = headingsByID.filter { $0.value.bookID != id }
     }
 
+    public func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
+        try archive.validateForReplacement()
+        let removed = ids.union([archive.book.id])
+        if let other = books.values.filter({ $0.fingerprint == archive.book.fingerprint && !removed.contains($0.id) })
+            .min(by: { $0.addedAt < $1.addedAt }) {
+            throw RepositoryError.fingerprintInUse(existingBookID: other.id)
+        }
+        let stored: [(UUID, UUID?)] = archive.notes.map { ($0.id, notesByID[$0.id]?.bookID) }
+            + archive.highlights.map { ($0.id, highlightsByID[$0.id]?.bookID) }
+            + archive.bookmarks.map { ($0.id, bookmarksByID[$0.id]?.bookID) }
+            + archive.userHeadings.map { ($0.id, headingsByID[$0.id]?.bookID) }
+        for case let (recordID, owner?) in stored where !removed.contains(owner) {
+            throw RepositoryError.recordOwnedByOtherBook(recordID: recordID, bookID: owner)
+        }
+        // Nothing below throws, so the replacement is all or nothing.
+        for id in removed { try deleteBook(id: id) }
+        books[archive.book.id] = archive.book
+        for note in archive.notes { notesByID[note.id] = note }
+        for highlight in archive.highlights { highlightsByID[highlight.id] = highlight }
+        for bookmark in archive.bookmarks { bookmarksByID[bookmark.id] = bookmark }
+        for heading in archive.userHeadings { headingsByID[heading.id] = heading }
+    }
+
     public func recordCounts(bookID: UUID) throws -> BookRecordCounts {
         BookRecordCounts(
             notes: notesByID.values.count { $0.bookID == bookID },

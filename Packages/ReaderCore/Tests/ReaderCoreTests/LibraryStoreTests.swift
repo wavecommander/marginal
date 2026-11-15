@@ -52,6 +52,7 @@ final class BrokenBookRepository: BookRepository {
     func book(fingerprint: String) throws -> Book? { try inner.book(fingerprint: fingerprint) }
     func save(_ book: Book) throws { throw Broken() }
     func deleteBook(id: UUID) throws { throw Broken() }
+    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws { throw Broken() }
     func recordCounts(bookID: UUID) throws -> BookRecordCounts { try inner.recordCounts(bookID: bookID) }
 }
 
@@ -314,6 +315,100 @@ struct LibraryStoreTests {
         try await RepositoryConformance.verifyInkStore(store.inkStore)
         #expect(!recorder.events.isEmpty)
         #expect(recorder.changes.last.map { if case .bookDeleted = $0 { true } else { false } } == true)
+    }
+
+    @Test func replaceBookPostsDeletesThenSave() throws {
+        let (store, recorder) = try makeStore()
+        let removed = uuid(3001), unknown = uuid(3002), newcomer = uuid(4001)
+        try store.books.save(Book(id: removed, title: "Old", fingerprint: "fp-old", fileName: "o.pdf", pageCount: 5, fileSize: 1))
+        recorder.reset()
+
+        // Replacing an existing book and removing another: a delete for each book that existed
+        // (ascending by uuidString; nothing for the unknown ID), then the save.
+        let archive = BookArchive(book: Book(id: bookID, title: "Restored", fingerprint: "fp", fileName: "book.pdf", pageCount: 50, fileSize: 1),
+                                  notes: [Note(id: uuid(1), bookID: bookID, target: .page(2), text: "n", createdAt: fixedDate)])
+        try store.perform(as: origin) { try store.books.replaceBook(archive, removing: [unknown, removed]) }
+        #expect(recorder.events == [
+            StoreChangeEvent(change: .bookDeleted(bookID: bookID), origin: origin),
+            StoreChangeEvent(change: .bookDeleted(bookID: removed), origin: origin),
+            StoreChangeEvent(change: .bookSaved(bookID: bookID), origin: origin),
+        ])
+        #expect(try store.books.book(id: removed) == nil)
+        #expect(try store.notes.note(id: uuid(1)) == archive.notes[0])
+
+        // A book that did not exist before: only the save.
+        recorder.reset()
+        try store.books.replaceBook(BookArchive(book: Book(id: newcomer, title: "New", fingerprint: "fp-new", fileName: "n.pdf",
+                                                           pageCount: 1, fileSize: 1)), removing: [])
+        #expect(recorder.events == [StoreChangeEvent(change: .bookSaved(bookID: newcomer), origin: nil)])
+
+        // A refusal posts nothing.
+        recorder.reset()
+        #expect(throws: RepositoryError.fingerprintInUse(existingBookID: bookID)) {
+            try store.books.replaceBook(BookArchive(book: Book(id: newcomer, title: "Clash", fingerprint: "fp", fileName: "n.pdf",
+                                                               pageCount: 1, fileSize: 1)), removing: [])
+        }
+        let broken = LibraryStore(books: BrokenBookRepository(), notes: InMemoryRecordStore(), highlights: InMemoryRecordStore(),
+                                  bookmarks: InMemoryRecordStore(), headings: InMemoryRecordStore(), inkStore: InMemoryInkStore(),
+                                  rootDirectory: URL(fileURLWithPath: "/tmp"))
+        let brokenRecorder = EventRecorder(broken.hub)
+        #expect(throws: BrokenBookRepository.Broken.self) { try broken.books.replaceBook(archive, removing: []) }
+        #expect(recorder.events.isEmpty)
+        #expect(brokenRecorder.events.isEmpty)
+    }
+
+    @Test func archiveIsTheBookWithAllItsRecords() throws {
+        let (store, _) = try makeStore()
+        #expect(try store.archive(bookID: uuid(404)) == nil)
+        let other = uuid(3001)
+        try store.books.save(Book(id: other, title: "Other", fingerprint: "fp-other", fileName: "o.pdf", pageCount: 5, fileSize: 1))
+        try store.notes.save(Note(bookID: other, target: .page(1), text: "not mine"))
+        let notes = [Note(id: uuid(1), bookID: bookID, target: .page(3), text: "p3", createdAt: fixedDate),
+                     Note(id: uuid(2), bookID: bookID, target: .heading(HeadingAnchor(userHeadingID: uuid(5))), text: "h",
+                          hasInk: true, createdAt: fixedDate)]
+        for note in notes { try store.notes.save(note) }
+        try store.highlights.save(highlight(3, page: 9))
+        try store.highlights.save(highlight(4, page: 1))
+        try store.bookmarks.setBookmarked(true, bookID: bookID, pageIndex: 7)
+        let heading = UserHeading(id: uuid(5), bookID: bookID, title: "U", pageIndex: 1, parent: nil, createdAt: fixedDate)
+        try store.headings.save(heading)
+
+        let archive = try #require(try store.archive(bookID: bookID))
+        #expect(archive.book == (try store.books.book(id: bookID)))
+        #expect(Set(archive.notes) == Set(notes))
+        #expect(archive.highlights == [highlight(4, page: 1), highlight(3, page: 9)])
+        #expect(archive.bookmarks == (try store.bookmarks.bookmarks(bookID: bookID)))
+        #expect(archive.bookmarks.map(\.pageIndex) == [7])
+        #expect(archive.userHeadings == [heading])
+        #expect(archive.isConsistent)
+
+        // Restoring it into an empty store reproduces it exactly.
+        let copy = LibraryStore.inMemory()
+        try copy.books.replaceBook(archive, removing: [])
+        let restored = try #require(try copy.archive(bookID: bookID))
+        #expect(restored.book == archive.book && Set(restored.notes) == Set(archive.notes)
+                && restored.highlights == archive.highlights && restored.bookmarks == archive.bookmarks
+                && Set(restored.userHeadings) == Set(archive.userHeadings))
+    }
+
+    @Test func contentHashURLAndHasDocument() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LibraryStoreTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore.inMemory(rootDirectory: root)
+        let book = Book(id: bookID, title: "B", fingerprint: "fp", fileName: "book.pdf", pageCount: 50, fileSize: 1)
+        #expect(store.contentHashURL(bookID: bookID).path == root.appendingPathComponent("Books/\(bookID.uuidString)/document.sha256").path)
+        #expect(store.contentHashURL(bookID: bookID).path
+                == store.url(forRelativePath: BookStorageLayout.contentHashPath(bookID: bookID)).path)
+        #expect(!store.hasDocument(book))
+        try FileManager.default.createDirectory(at: store.bookDirectoryURL(bookID: bookID), withIntermediateDirectories: true)
+        try Data("%PDF-".utf8).write(to: store.documentURL(for: book))
+        #expect(store.hasDocument(book))
+        // Callable off the main actor.
+        let offMain = await Task.detached { store.hasDocument(book) }.value
+        #expect(offMain)
+        var renamed = book
+        renamed.fileName = "other.pdf"
+        #expect(!store.hasDocument(renamed))
     }
 
     @Test func fileLocations() throws {
