@@ -252,8 +252,12 @@ Added by the owner after the first plan. These rules apply to every screen and e
 - **System chrome.** Navigation bars and toolbars are the system ones, so window controls and the
   menu bar get their space without custom layout. Every reader action has a menu bar command with a
   keyboard shortcut, and commands act on the focused window.
-- **Files and drag and drop.** A PDF opened from Files or another app ("Open in") is imported and
-  shown in a window. PDFs can be dropped onto the Library to import them.
+- **Files and drag and drop.** A PDF opened from Files or another app is imported and shown in a
+  window: Files lists Tactile Texts under a PDF's Open With, and the share sheet offers it too.
+  PDFs can be dropped onto the Library to import them. A backup file (`.ttbackup`) opened the
+  same ways starts the restore preview. The app declares that it opens documents in place
+  (owner request, 15 November 2026: without that, Files shows "No Apps Available" under Open
+  With); it still copies a PDF into the library, and the reader's own file is only ever read.
 
 ## Icon, accent and launch screen
 
@@ -418,8 +422,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   background (the system decides whether and when that runs). After a failure it waits an hour
   before trying again. The failure's message is shown, with the date of the last success.
 - **Where it lives.** Settings › Backup & Restore, the menu bar's Back Up & Restore…, and a
-  Restore from Backup… button in the empty Library. A `.ttbackup` file opened from Files goes
-  straight to the restore preview. There is no Library toolbar button for it.
+  Restore from Backup… button in the empty Library. A `.ttbackup` file opened from Files (Open With, or
+  Share) goes straight to the restore preview. There is no Library toolbar button for it.
 
 ## Technical decisions
 

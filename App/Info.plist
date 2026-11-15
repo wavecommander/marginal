@@ -56,7 +56,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<false/>
+	<true/>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.software.tactile.marginal</key>

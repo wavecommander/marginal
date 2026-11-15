@@ -2,7 +2,8 @@ import Foundation
 import ReaderBackup
 import UniformTypeIdentifiers
 
-/// What happens when a file arrives from outside the app (Files "Open in", AirDrop, another app).
+/// What happens when a file arrives from outside the app (Files "Open With", the share sheet,
+/// AirDrop, another app).
 ///
 /// - A **PDF** is imported through the shared `ImportService` (so with the same fingerprint
 ///   check, copy, cover and errors as the Files picker) and shown in the window that received
@@ -46,8 +47,10 @@ enum IncomingPDFHandler {
         return UTType(filenameExtension: url.pathExtension)?.conforms(to: .tactileTextsBackup) ?? false
     }
 
-    /// "Open in" copies the file into `<Documents>/Inbox` (the app does not open documents in
-    /// place); that copy is the app's to consume.
+    /// A file sent through the share sheet is copied into `<Documents>/Inbox`; that copy is the
+    /// app's to consume. A file opened from Files ("Open With", or tapping a backup) arrives where
+    /// it is, security-scoped: it is the reader's own file and is only read, never removed
+    /// (`ImportService` and `BackupService.openBackup(at:)` hold the access they need).
     static func isInInbox(_ url: URL) -> Bool {
         url.deletingLastPathComponent().lastPathComponent == "Inbox"
     }

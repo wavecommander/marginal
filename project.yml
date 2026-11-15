@@ -69,7 +69,12 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        LSSupportsOpeningDocumentsInPlace: false
+        # Files only lists an app under a file's "Open With" (and opens a tapped file in its
+        # owning app) when the app accepts the file where it is. The app still copies what it
+        # keeps: a PDF is imported into the library and a backup is only read for restore, so
+        # the reader's file is never modified or deleted. A file sent through the share sheet
+        # still arrives as a copy in the app's Inbox; both forms are handled.
+        LSSupportsOpeningDocumentsInPlace: true
         NSUserActivityTypes:
           - software.tactile.marginal.openBook
         CFBundleDocumentTypes:

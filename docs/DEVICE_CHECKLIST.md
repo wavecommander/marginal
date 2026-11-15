@@ -143,8 +143,12 @@ runs or very large files. Open Settings › Backup & Restore.
       starting instead of failing part-way.
 - [ ] **A file over 4 GB.** If the Library is large enough, a single-file backup over 4 GB
       saves and then restores. (Only a forced test covers this size on the simulator.)
-- [ ] **Open in.** In Files, tap a `.ttbackup` file: Tactile Texts opens on the restore preview
-      for it.
+- [ ] **Open With, backup.** In Files, touch and hold a `.ttbackup` file › Open With › Tactile
+      Texts: the app opens on the restore preview for it. The same from Share › Tactile Texts,
+      and from a file in iCloud Drive. Afterwards the file is still where it was in Files.
+- [ ] **Open With, PDF.** In Files, touch and hold a PDF › Open With › Tactile Texts: the book
+      is imported and opens. The PDF is still where it was in Files. Doing it again opens the
+      same book without importing a second copy.
 - [ ] **Restore replaces, per book.** Change a note, then restore the earlier backup: the book
       shows as Already in Library and unticked; ticking it warns that its notes will be replaced;
       after restoring, the note is the earlier one and ink on pages and notes is intact.
