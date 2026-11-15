@@ -15,8 +15,10 @@ ones even where the mockup draws an approximation.
 
 ## Principles
 
-1. **The PDF is never modified.** Ink, highlights, notes and bookmarks live in the app's own store
-   beside the imported file. Exporting an annotated copy is an explicit action.
+1. **The PDF is never modified after import.** Ink, highlights, notes and bookmarks live in the
+   app's own store beside the imported file. Exporting an annotated copy is an explicit action. A
+   book converted from another format (see "Importing other formats") has its PDF generated once,
+   during the import, and never touched after that; the original file is kept beside it, untouched.
 2. **Notes have two anchors: a page or a heading.** Both are first-class and one tap apart.
 3. **A 1,500-page, 600 MB PDF must feel like a 20-page one.** Nothing walks every page on the main
    thread, and nothing loads the whole file into memory.
@@ -34,7 +36,7 @@ ones even where the mockup draws an approximation.
 
 | Artboard | What it shows |
 | --- | --- |
-| Library | Imported books in a grid with progress, search, sort, Import PDF, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
+| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
 | Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
@@ -49,7 +51,12 @@ ones even where the mockup draws an approximation.
 ## Concepts
 
 - **Book**: one imported PDF, copied into the app container. Has page count, file size, cover
-  thumbnail, last-read page, and a progress fraction.
+  thumbnail, last-read page, and a progress fraction. A *converted* book was imported from another
+  format (EPUB, a comic or images, and the other formats in "Importing other formats"): its PDF was
+  generated at import and is read like any other, and the original file is kept unchanged beside
+  it, so the book's file size counts both. A converted book records the format it came from and
+  the original file's name, and says "Converted from …" in the Library's book menu and the
+  reader's More menu. Converting the same file again makes a new book.
 - **Outline**: a tree of headings. It starts from the PDF's own outline and merges in headings the
   reader adds by hand ("Add heading at page N"). A PDF with no outline is fully usable: the reader
   builds the tree as they go.
@@ -257,7 +264,8 @@ Added by the owner after the first plan. These rules apply to every screen and e
   menu bar get their space without custom layout. Every reader action has a menu bar command with a
   keyboard shortcut, and commands act on the focused window.
 - **Files and drag and drop.** A PDF opened from Files or another app ("Open in") is imported and
-  shown in a window. PDFs can be dropped onto the Library to import them.
+  shown in a window. PDFs can be dropped onto the Library to import them. The same holds for the
+  formats the app converts, after the Convert to PDF sheet (see "Importing other formats").
 
 ## Icon, accent and launch screen
 
@@ -491,11 +499,30 @@ It has three parts, each optional.
 Agents must check every Apple API named here against the installed SDK's documentation before
 building on it. This table records intent, not verified signatures.
 
+## Importing other formats
+
+Added by the owner on 15 November 2026; the plan and its decisions are in
+`docs/FORMAT_IMPORT_PLAN.md`. Books and documents that are not PDFs are converted to a PDF **once,
+at import**, and from then on are ordinary books with every feature a PDF has.
+
+- **What converts:** reflowable EPUB 2 and 3 without DRM; comic archives (CBZ, or a ZIP of
+  pictures) and images; plain text, Markdown, HTML and web archives; Word, RTF and Pages
+  documents; PowerPoint and Keynote presentations (one slide per page). Which of these a build
+  accepts follows the converters it has; Settings ▸ Supported Formats lists them.
+- **Ask first.** Any import that includes a file needing conversion shows one Convert to PDF sheet
+  first, every time, saying what converting costs; Cancel leaves the Library and the disk as they
+  were. Settings ▸ Supported Formats shows the same limitations at any time.
+- **Not supported:** DRM-protected books (Kindle, Apple Books, Adobe DRM), Kindle MOBI and AZW3,
+  DjVu, CBR (RAR) comics, fixed-layout EPUB and spreadsheets. The app names the kind of file when
+  one is chosen.
+
 ## Not in version 1
 
-iCloud sync, collections or tags in the Library, EPUB, OCR for scanned books, handwriting search,
+iCloud sync, collections or tags in the Library, OCR for scanned books, handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two
-windows cover this), sharing single notes, PaperKit shapes and text boxes on the page. The store layout should not rule these out.
+windows cover this), sharing single notes, PaperKit shapes and text boxes on the page, and the
+formats listed under "Importing other formats" ▸ Not supported (DRM-protected books, Kindle MOBI
+and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should not rule these out.
 
 ## Open questions for the owner
 

@@ -401,6 +401,7 @@ struct ReaderScreen: View {
             Divider()
             Button { session.zoomToFitWidth() } label: { Label("Fit Width", systemImage: "arrow.left.and.right") }
             Button { session.zoomToActualSize() } label: { Label("Actual Size", systemImage: "1.magnifyingglass") }
+            ConvertedFromMenuSection(book: session.book, identifier: AccessibilityID.Provenance.readerMenu)
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
