@@ -8,8 +8,8 @@ and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marg
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
 
-Mockups: https://claude.ai/artifact/DGC3WWVFeVmNY7pSaKknpP (seven screens; names below match the
-artboard titles). The mockups are drawn in HTML, so treat them as layout and behaviour intent.
+Mockups: https://claude.ai/artifact/DGC3WWVFeVmNY7pSaKknpP (seven screens plus four first-run
+onboarding screens; names below match the artboard titles). The mockups are drawn in HTML, so treat them as layout and behaviour intent.
 System controls (segmented controls, sheets, the PencilKit tool picker) should be the real system
 ones even where the mockup draws an approximation.
 
@@ -41,6 +41,10 @@ ones even where the mockup draws an approximation.
 | Reader · section note | Notes inspector on "Section note": the heading's note, with the level picker (the heading path) in a collapsible list under it. The mockup's level picker at the top and its list of page notes inside the heading were removed by the owner (see "Notes panel layout"). |
 | Notebook · all notes by heading | Every note and highlight for one book, laid out along the outline, filterable, exportable. |
 | Portrait · notes sheet | Narrow widths: the inspector becomes a resizable bottom sheet and the page stays scrollable behind it. |
+| Onboarding · welcome sheet | First launch: a form sheet over the Library with three things worth knowing, "Open the Quick Guide", and "Not now". |
+| Onboarding · empty Library after Not now | The Library with no books: Import PDF, Open the Quick Guide, and the drag hint. |
+| Onboarding · Quick Guide, page 1 | The bundled six-page guide open in the ordinary reader, with a seeded page note that already carries ink. |
+| Onboarding · tip in a real book | A one-time tip popover pointing at Markup, for readers who skipped the guide. |
 
 ## Concepts
 
@@ -472,6 +476,95 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Where it lives.** Settings › Backup & Restore, the menu bar's Back Up & Restore…, and a
   Restore from Backup… button in the empty Library. A `.ttbackup` file opened from Files (Open With, or
   Share) goes straight to the restore preview. There is no Library toolbar button for it.
+## First-run onboarding
+
+The app has three ideas a new reader will not guess: notes attach to a page or to a heading,
+markup is a mode in which the Pencil writes and a finger still scrolls, and the PDF is never
+changed. Onboarding teaches those three and nothing else. It never stands between the reader and
+their own book: every step can be skipped, and skipping loses nothing that cannot be found again.
+
+It has three parts, each optional.
+
+### 1. Welcome sheet
+
+- Shown once, on the first launch that lands on an empty Library. It is a sheet over the
+  Library, not a full-screen takeover, so the app behind it is visible. A Library that already
+  has books (an install from before onboarding existed) marks it as seen without showing it.
+- One screen, no paging: the app name, a one-line description, and three rows (a note on every
+  page and every heading; Pencil writes, finger scrolls; your PDFs stay untouched).
+- Two actions: **Open the Quick Guide** (primary, captioned "Six short pages") and **Not now**.
+  Swiping the sheet down counts as Not now.
+- It is marked as seen the moment it appears, so a crash or force-quit never shows it twice.
+- It is not shown when the first launch comes from "Open in" or a dropped PDF. That reader has a
+  book in hand: the import proceeds, the sheet is marked as seen, and the tips below do the
+  teaching.
+- No permission prompts, no account, no settings. The app needs none of them to start.
+
+### 2. Quick Guide
+
+- A six-page PDF bundled with the app. Opening it imports it like any other book (copied into
+  the container, listed in the Library) and opens it in the ordinary reader with Contents and
+  the Notes panel showing. There is no tutorial mode and no overlay: the guide teaches by being
+  a book the reader can try things on.
+- One thing to try per page, three short paragraphs at most:
+
+  | Page | Heading | What the reader tries |
+  | --- | --- | --- |
+  | 1 | 1.1 Start here | Scroll; read the page note that is already there; type in it. |
+  | 2 | 1.2 Highlight a line | Select a sentence and pick a colour. One line is already highlighted. |
+  | 3 | 2.1 Write on the page | Tap Markup, write with the Pencil, scroll with a finger, tap Done. |
+  | 4 | 2.2 Notes for a page and a section | Switch to Section note; step up a level in the heading path. |
+  | 5 | 3.1 Contents you build | Add heading at page 5; see it appear in Contents. |
+  | 6 | 3.2 Notebook and export | Open the Notebook; ends with "Import your first PDF". |
+
+- It arrives with a little content already in it, so the reader sees what a used book looks
+  like before making anything: a page note on page 1 with ink over its text, a section note on
+  "2 Writing", and one highlight on page 2. These are ordinary records. The reader can edit or
+  clear them.
+- Seeding happens only when opening the guide creates the book. Opening it again goes to the
+  existing copy at its last-read page and never re-seeds or overwrites.
+- The guide can be deleted like any book. Settings ▸ Help ▸ **Open the Quick Guide** brings it
+  back, as new, with its seeded content (and opens the existing copy when there is one).
+- The seeded ink is shapes generated in code (an underline, an arrow, a wavy line), not the
+  handwriting the mockup shows.
+- Leaving is the normal Back to Library. Nothing tracks whether the guide was finished.
+
+### 3. Empty Library and tips
+
+- **Empty Library.** Whenever the Library has no books it shows "No Books Yet", **Import PDF**,
+  **Open the Quick Guide**, and a line about dropping PDFs in. This is what a reader who tapped Not now sees, and what anyone sees after deleting
+  their last book.
+- **Tips** are small system popovers anchored to the control they describe, for readers who
+  skipped the guide. There are two:
+
+  | Tip | Anchor | Appears | Retired by |
+  | --- | --- | --- | --- |
+  | Write with Apple Pencil: "Tap Markup to write on the page or in a note. Your finger still scrolls." | Markup toggle | A book other than the guide is open and the first page has settled | Entering markup mode once |
+  | One note for the whole section: "Section note keeps a note for the heading this page is in." | The notes panel's tabs | From the second reader session in which the Notes panel is open on a page that has a heading path | Opening Section note once |
+
+  There is no third tip for adding headings: the Contents sidebar of a book with no outline
+  already says so and offers the button.
+- Tip rules: each tip is offered in one reader session only; at most one tip per reader session,
+  Markup first; never in markup mode, never while the keyboard is up, never inside the Quick
+  Guide. Doing the action anywhere, the guide included, retires its tip, so a reader who worked
+  through the guide sees none. A tip does not block the reader: it stays until its close button
+  or the control it points at is used, or the reader is left.
+- Settings ▸ Help ▸ **Show Tips Again** resets both.
+
+### Rules that hold throughout
+
+- **State.** "Welcome seen", the guide's book ID and which tips are done are per-device
+  preferences (`OnboardingState`), not SwiftData records.
+- **Narrow width.** The welcome sheet becomes a page sheet and its content scrolls. The guide
+  opens with Contents closed and the notes sheet at its medium detent.
+- **Accessibility.** The welcome sheet scrolls at large Dynamic Type sizes with both actions
+  still reachable; VoiceOver reads title, the three rows, then the actions; nothing in onboarding
+  is animated beyond the system sheet and popover transitions.
+- **Tests.** `-resetState`, which every UI test starts with, also switches onboarding off and
+  keeps it off for that test's later relaunches, so the welcome sheet and tips never interfere
+  with another feature's test. `-onboarding reset` forgets all onboarding state (with
+  `-resetState`: a true first launch) for the onboarding tests themselves; `-onboarding skip`
+  switches onboarding off without touching the library, for screenshots.
 
 ## Technical decisions
 
@@ -497,6 +590,9 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
 | Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
+| Onboarding tips | TipKit popovers (`popoverTip`); which tip a session offers, and that each is offered once, is decided by the app (`ReaderTipRules`, `OnboardingState`) | System look, placement and dismissal with no hand-built coach marks; rules that are unit-tested and can be reset without relaunching (TipKit's own datastore resets only before it is configured). |
+| Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
+| Onboarding state | `UserDefaults` keys for "welcome seen", the guide's book ID and finished tips | Device-local and trivially reset by the `-onboarding` launch argument; nothing to migrate. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before
@@ -516,3 +612,6 @@ windows cover this), sharing single notes, PaperKit shapes and text boxes on the
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
 3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?
+4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build
+   seeds shapes generated in code; real handwriting has to be written once on an iPad by the
+   owner and bundled. Does the owner want to supply it?

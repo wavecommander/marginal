@@ -70,6 +70,13 @@ struct LibraryScreen: View {
         .searchable(text: $query, prompt: "Search titles and notes")
         .toolbar { toolbar }
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
+        .task { await considerWelcome() }
+        .sheet(isPresented: welcomeBinding) {
+            WelcomeSheet(openGuide: {
+                environment.onboarding.dismissWelcome()
+                openQuickGuide()
+            }, notNow: { environment.onboarding.dismissWelcome() })
+        }
         .task(id: query) { await updateNoteMatches() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importerMode.contentTypes,
                       allowsMultipleSelection: importerMode == .importDocuments) { result in
@@ -190,10 +197,16 @@ struct LibraryScreen: View {
                  comment: "Library empty state: description under 'No Books Yet'.")
         } actions: {
             ViewThatFits {
-                HStack(spacing: Space.m) { emptyImportButton; emptyRestoreButton }
-                VStack(spacing: Space.m) { emptyImportButton; emptyRestoreButton }
+                HStack(spacing: Space.m) { emptyImportButton; emptyGuideButton; emptyRestoreButton }
+                VStack(spacing: Space.m) { emptyImportButton; emptyGuideButton; emptyRestoreButton }
             }
         }
+    }
+
+    private var emptyGuideButton: some View {
+        Button("Open the Quick Guide", systemImage: "book.pages") { openQuickGuide() }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier(AccessibilityID.Onboarding.emptyLibraryOpenGuide)
     }
 
     private var emptyImportButton: some View {
@@ -335,6 +348,30 @@ struct LibraryScreen: View {
         }
     }
 
+    // MARK: Onboarding
+
+    /// The first Library on screen after launch decides whether the welcome sheet shows
+    /// (`OnboardingCoordinator.considerWelcome`). Waits for launch work, and a moment longer so
+    /// a PDF arriving through "Open in" is seen first.
+    private func considerWelcome() async {
+        _ = await environment.launchPlan()
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled, window.path.isEmpty else { return }
+        let books = (try? environment.store.books.allBooks()) ?? []
+        environment.onboarding.considerWelcome(in: windowKey, libraryIsEmpty: books.isEmpty && service.jobs.isEmpty)
+    }
+
+    private func openQuickGuide() {
+        let window = window
+        let environment = environment
+        Task { await environment.onboarding.openQuickGuide(environment: environment, window: window) }
+    }
+
+    private var welcomeBinding: Binding<Bool> {
+        Binding(get: { environment.onboarding.welcomeWindow == windowKey },
+                set: { if !$0 { environment.onboarding.dismissWelcome() } })
+    }
+
     // MARK: Search
 
     private func updateNoteMatches() async {
@@ -466,7 +503,9 @@ struct LibraryScreen: View {
         Task {
             do {
                 try await store.deleteBook(id: book.id, origin: origin)
+                ReaderScrollDirectionStore().removeDirection(for: book.id)
             } catch LibraryStoreError.bookFilesNotRemoved {
+                ReaderScrollDirectionStore().removeDirection(for: book.id)
                 // The book is gone; its leftover files are removed by the next launch's sweep.
             } catch {
                 errorMessage = "Couldn't delete “\(book.title)”: \(error)"

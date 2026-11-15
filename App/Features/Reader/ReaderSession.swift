@@ -92,6 +92,11 @@ final class ReaderSession: Identifiable {
         var exposesSelection = false
         /// `-exposeMarkupState` (UI tests only): add `ReaderStateProbe`'s elements.
         var exposesMarkupState = false
+        /// `-scrollDirection`: start in this direction instead of the book's stored one (not saved
+        /// unless the reader then chooses a direction).
+        var scrollDirection: ReaderScrollDirection?
+        /// Where each book's scroll direction is kept.
+        var scrollDirectionStore = ReaderScrollDirectionStore()
         /// Delay of the debounced `lastReadPageIndex` save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.
@@ -180,6 +185,8 @@ final class ReaderSession: Identifiable {
     var canGoForward: Bool { history.canGoForward }
     /// `true` while the PDF view auto-fits the page width (false after zooming in/out).
     private(set) var isFitWidth = true
+    /// Which way this book's pages run (stored per book). Change it with `setScrollDirection(_:)`.
+    private(set) var scrollDirection: ReaderScrollDirection
 
     // MARK: Outline and Notebook
 
@@ -295,6 +302,8 @@ final class ReaderSession: Identifiable {
         let startPage = configuration.initialPageIndex ?? restored?.pageIndex ?? book.lastReadPageIndex
         self.currentPageIndex = PageNumbering.isValid(startPage, pageCount: book.pageCount) ? startPage : 0
         self.lastSavedPageIndex = book.lastReadPageIndex
+        self.scrollDirection = configuration.scrollDirection
+            ?? configuration.scrollDirectionStore.direction(for: book.id)
         if let restored {
             isContentsVisible = restored.isContentsVisible
             isNotesVisible = restored.isNotesVisible
@@ -472,8 +481,19 @@ final class ReaderSession: Identifiable {
     func zoomOut() { pdf.zoomOut() }
     /// 100% (one PDF point per screen point).
     func zoomToActualSize() { pdf.zoomToActualSize() }
-    /// Fit the page width to the view (the default).
+    /// Fit the page width to the view (the default, in either scroll direction).
     func zoomToFitWidth() { pdf.zoomToFitWidth() }
+
+    // MARK: Scroll direction
+
+    /// Lays this book's pages out one above the other or side by side, staying on the current
+    /// page, and remembers the choice for this book. Not recorded in section history.
+    func setScrollDirection(_ direction: ReaderScrollDirection) {
+        configuration.scrollDirectionStore.setDirection(direction, for: book.id)
+        guard direction != scrollDirection else { return }
+        scrollDirection = direction
+        pdf.scrollDirectionDidChange(to: direction, keepingPage: currentPageIndex)
+    }
 
     // MARK: Mode
 

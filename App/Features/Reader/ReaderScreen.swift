@@ -142,6 +142,7 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
+        .readerOnboardingTips(session)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session)
                 .presentationDetents([.medium, .large])
@@ -230,6 +231,9 @@ struct ReaderScreen: View {
             ReaderPDFViewRepresentable(session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .ignoresSafeArea(.keyboard)
+                // Scrolling sideways, a rightward drag back through the pages must not leave
+                // the book (as on the notes pane, TSOFT-225). The left-edge swipe still goes back.
+                .modifier(BackSwipeGuardIf(isActive: session.scrollDirection == .horizontal))
             switch session.loadState {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -393,12 +397,27 @@ struct ReaderScreen: View {
                 Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
             }
             Divider()
+            scrollDirectionPicker
+            Divider()
             Button { session.zoomToFitWidth() } label: { Label("Fit Width", systemImage: "arrow.left.and.right") }
             Button { session.zoomToActualSize() } label: { Label("Actual Size", systemImage: "1.magnifyingglass") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.more)
+    }
+
+    /// Per book: pages one above the other, or side by side. Shown inline in the More menu with
+    /// a checkmark on the current choice.
+    private var scrollDirectionPicker: some View {
+        Picker("Scrolling", selection: Binding(get: { session.scrollDirection },
+                                               set: { session.setScrollDirection($0) })) {
+            Label("Scroll Vertically", systemImage: "arrow.up.and.down.text.horizontal")
+                .tag(ReaderScrollDirection.vertical)
+            Label("Scroll Horizontally", systemImage: "arrow.left.and.right.text.vertical")
+                .tag(ReaderScrollDirection.horizontal)
+        }
+        .pickerStyle(.inline)
     }
 }
 

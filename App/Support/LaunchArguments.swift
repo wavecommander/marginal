@@ -14,7 +14,8 @@ import SwiftUI
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
 /// (`-resetState` clears it first); `-stubConverters` and `-confirmConversions` are the import
-/// flow's test switches (`FixtureImporter`).
+/// flow's test switches (`FixtureImporter`); `-onboarding` is applied by
+/// `OnboardingState.applyLaunch`.
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -26,7 +27,14 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
         case page, section
     }
 
+    /// What `-onboarding` can ask for (see `OnboardingState`).
+    enum Onboarding: String, Sendable {
+        case skip, reset
+    }
+
     /// `-resetState`: wipe the app's store and files at launch (WP2/WP3 implement the wipe).
+    /// Also switches first-run onboarding off, and keeps it off for later launches, unless
+    /// `-onboarding reset` is passed too.
     var resetState = false
 
     /// `-importFixture <absolute path>`, repeatable: import the PDF at that host path at launch
@@ -102,10 +110,17 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// that folder (created if missing) in the backup destination list, so UI tests can back up
     /// and restore without the system folder picker.
     var backupFolder: URL?
+    /// `-scrollDirection <vertical|horizontal>`: readers open in that direction instead of the
+    /// book's stored one (the stored choice is untouched). Unknown names are ignored.
+    var scrollDirection: ReaderScrollDirection?
 
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
+
+    /// `-onboarding <skip|reset>`: `skip` switches the welcome sheet and tips off (and keeps
+    /// them off); `reset` forgets all onboarding state, so this launch is a first launch.
+    var onboarding: Onboarding?
 
     /// `-pagePillStaysVisible`: test-only. The reader's page pill never fades when the page stands
     /// still, so UI tests can tap it at any time (the fade has its own test without this flag).
@@ -191,6 +206,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                     index += 1
                     if path.hasPrefix("/") { backupFolder = URL(fileURLWithPath: path, isDirectory: true) }
                 }
+            case "-scrollDirection":
+                if let text = value(after: index) { scrollDirection = ReaderScrollDirection(rawValue: text); index += 1 }
+            case "-onboarding":
+                if let text = value(after: index) { onboarding = Onboarding(rawValue: text); index += 1 }
             case "-pagePillStaysVisible":
                 pagePillStaysVisible = true
             case "-confirmConversions":

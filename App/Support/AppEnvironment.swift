@@ -33,6 +33,8 @@ final class AppEnvironment {
     /// Runs automatic backups (`MarginalApp` registers its background task and forwards the
     /// scene phase). Disarmed in a `-resetState` launch until automatic backups are switched on.
     @ObservationIgnored let backupScheduler: BackupScheduler
+    /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.
+    let onboarding: OnboardingCoordinator
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -59,6 +61,7 @@ final class AppEnvironment {
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
         self.fixtureImporter = FixtureImporter(store: store, converters: FixtureImporter.converters(for: launchOptions))
+        self.onboarding = OnboardingCoordinator()
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
         let backupAutomaticSettings = BackupAutomaticSettings()
@@ -103,7 +106,9 @@ final class AppEnvironment {
             // A fresh state has no backup folder chosen and automatic backups off.
             UserDefaults.standard.removeObject(forKey: BackupFolderStore.defaultKey)
             BackupAutomaticSettings.reset(in: .standard)
+            ReaderScrollDirectionStore().removeAll()
         }
+        OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
             UserDefaults.standard.set(accent.rawValue, forKey: AccentChoice.storageKey)
         }
@@ -209,6 +214,7 @@ final class AppEnvironment {
     /// app): a PDF or any format the app converts. Every window root forwards `.onOpenURL` here.
     /// The behaviour is in `IncomingDocumentHandler` (in the Library folder).
     func handleIncomingPDF(_ url: URL, in window: WindowContext) {
+        onboarding.documentArrived()
         IncomingDocumentHandler.handle(url, environment: self, window: window)
     }
 }

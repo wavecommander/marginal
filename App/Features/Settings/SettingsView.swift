@@ -13,11 +13,16 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(WindowContext.self) private var window: WindowContext?
+    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
+    /// Opens the Quick Guide in the window that presented Settings (`nil` in previews).
+    var openQuickGuide: (() -> Void)?
+    @State private var didResetTips = false
     @AppStorage(AccentChoice.storageKey) private var storedAccent = AccentChoice.default.rawValue
     @State private var path: [SettingsPage]
 
-    init(initialPage: SettingsPage? = nil) {
+    init(initialPage: SettingsPage? = nil, openQuickGuide: (() -> Void)? = nil) {
         _path = State(initialValue: initialPage.map { [$0] } ?? [])
+        self.openQuickGuide = openQuickGuide
     }
 
     private var selection: AccentChoice { AccentChoice(storedValue: storedAccent) }
@@ -47,6 +52,23 @@ struct SettingsView: View {
                     .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
                 } footer: {
                     Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
+                }
+                Section {
+                    Button("Open the Quick Guide") {
+                        dismiss()
+                        openQuickGuide?()
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsOpenGuide)
+                    Button(didResetTips ? "Tips Will Show Again" : "Show Tips Again") {
+                        environment?.onboarding.showTipsAgain()
+                        didResetTips = true
+                    }
+                    .disabled(didResetTips)
+                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsShowTips)
+                } header: {
+                    Text("Help")
+                } footer: {
+                    Text("The Quick Guide is a six-page book that shows how notes, highlights and Markup work. If you deleted it, this brings it back.")
                 }
             }
             .navigationTitle("Settings")

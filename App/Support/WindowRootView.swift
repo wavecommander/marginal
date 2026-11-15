@@ -136,7 +136,9 @@ private struct WindowContent: View {
         .environment(context)
         .focusedSceneValue(context)
         .sheet(isPresented: $context.isSettingsPresented, onDismiss: context.settingsDidDismiss) {
-            SettingsView(initialPage: context.settingsPage)
+            SettingsView(initialPage: context.settingsPage, openQuickGuide: {
+                Task { await environment.onboarding.openQuickGuide(environment: environment, window: context) }
+            })
                 .environment(context)
         }
         .sheet(item: $context.restoreRequest) { request in
