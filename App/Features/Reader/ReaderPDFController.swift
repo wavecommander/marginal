@@ -42,7 +42,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// The reader's place: the page point at the top-left of the view. Updated only when the
     /// scroll position changes outside a size-change layout pass (scrolling, zooming, jumps,
-    /// links, accessibility scrolling); restored, never re-derived, after every size change, so
+    /// links, accessibility scrolling); restored, never re-derived, after every size change and
+    /// fit-width refit (`anchorScale`), so
     /// no rounding or transient layout can accumulate into drift.
     private(set) var readingAnchor: ReadingAnchor?
     /// True from the start of a size-change layout pass until the anchor has been restored.
@@ -52,6 +53,26 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// movement behind it (PDFKit re-deriving "current" for a new width) is ignored, so the
     /// current page, subtitle, pill and last-read save never flicker during a size change.
     private var positionMovedSinceReport = false
+    /// The scale `readingAnchor` was taken or last put back at.
+    ///
+    /// In fit width (`autoScales`: a double tap or Fit Width) PDFKit refits the scale on its
+    /// own, outside the size-change layout pass: a moment after each width change, and on the
+    /// next layout after a double tap. Taken as reading, those offset changes moved the reader
+    /// pages away when a panel opened (TSOFT-223). So a scale change the reader did not make
+    /// (no touch on the page, pinch or zoom command) is layout: the anchor is put back after it,
+    /// and after every other offset change PDFKit makes while it settles (`refitSettlesAt`).
+    private var anchorScale: CGFloat = 0
+    /// Until this time (set by a width change in fit width, or a refit), offset changes the
+    /// reader did not make are PDFKit settling its refit. A touch, zoom command or navigation
+    /// ends it.
+    private var refitSettlesAt: CFAbsoluteTime = 0
+    private static let refitSettleInterval: CFTimeInterval = 0.5
+    /// Until this time a scale change is the reader's own zoom (touch on the page, zoom command):
+    /// long enough for PDFKit's double-tap zoom animation.
+    private var readerZoomUntil: CFAbsoluteTime = 0
+    private static let readerZoomInterval: CFTimeInterval = 0.8
+    private var refitRestoreGeneration = 0
+    private var isRefitRestoreScheduled = false
     private let tapDelegate = SimultaneousGestureDelegate()
     private var offsetObservation: NSKeyValueObservation?
 
@@ -95,8 +116,13 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     private func scrollViewDidChangeOffset() {
         guard !isRestoringPosition else { return }
+        if isRefitByPDFKit {
+            scheduleRefitRestore()
+            return
+        }
         if hasPositionedInitially, let anchor = captureAnchor() {
             readingAnchor = anchor
+            anchorScale = view.scaleFactor
             positionMovedSinceReport = true
         }
         updateAnchorProbe()
@@ -155,6 +181,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             applyPendingPageIfPossible()
             return
         }
+        acceptCurrentScale()
         isTrackingSuspended = false
         view.showTop(of: page)
     }
@@ -166,6 +193,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             moveWithoutRecordingHistory(toPage: anchor.pageIndex)
             return
         }
+        acceptCurrentScale()
         isTrackingSuspended = false
         view.show(anchor.point, of: page)
     }
@@ -173,24 +201,28 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     // MARK: Zoom
 
     func zoomIn() {
+        readerDidZoom()
         freezeScale()
         view.zoomIn(nil)
         reportNavigationState()
     }
 
     func zoomOut() {
+        readerDidZoom()
         freezeScale()
         view.zoomOut(nil)
         reportNavigationState()
     }
 
     func zoomToActualSize() {
+        readerDidZoom()
         view.autoScales = false
         view.scaleFactor = 1
         reportNavigationState()
     }
 
     func zoomToFitWidth() {
+        readerDidZoom()
         view.scaleFactor = view.scaleFactorForSizeToFit
         view.autoScales = true
         reportNavigationState()
@@ -316,6 +348,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// background `PDFDocument`; this re-creates the selection on the on-screen one.
     func revealWithoutRecordingHistory(pageIndex: Int, rects: [CGRect], mark: Bool = true) {
         guard let page = page(at: pageIndex) else { return }
+        acceptCurrentScale()
         let union = rects.reduce(CGRect.null) { $0.union($1) }
         if !union.isNull {
             view.go(to: union.insetBy(dx: -8, dy: -40), on: page)
@@ -366,6 +399,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// A link inside the PDF is about to be followed (`ReaderPDFView.perform(_:)`): record it as
     /// a jump to the page PDFKit is going to, whatever form the link takes. PDFKit then moves.
     func willPerform(_ action: PDFAction) {
+        acceptCurrentScale()
         guard let goTo = action as? PDFActionGoTo, let page = goTo.destination.page,
               let index = pageIndex(of: page) else { return }
         session?.pdfWillFollowLink(toPage: index)
@@ -388,7 +422,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// captured here from the place the reader is looking at.
     func sizeChangeWillLayout() {
         guard hasPositionedInitially, view.document != nil else { return }
-        if readingAnchor == nil { readingAnchor = captureAnchor() }
+        if readingAnchor == nil {
+            readingAnchor = captureAnchor()
+            anchorScale = view.scaleFactor
+        }
+        // A panel or rotation is not a zoom: PDFKit's refit for the new width is layout.
+        readerZoomUntil = 0
         isRestoringPosition = true
     }
 
@@ -401,8 +440,71 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             isRestoringPosition = false
             updateAnchorProbe()
         }
-        guard isRestoringPosition, let anchor = readingAnchor, let page = page(at: anchor.pageIndex),
-              let scrollView else { return }
+        guard isRestoringPosition else { return }
+        placeReadingAnchor()
+        anchorScale = view.scaleFactor
+        if view.autoScales { refitSettlesAt = CFAbsoluteTimeGetCurrent() + Self.refitSettleInterval }
+    }
+
+    // MARK: Fit-width refits (see `anchorScale`)
+
+    /// The reader touched the page or chose a zoom command: the scale changes that follow are
+    /// theirs, and the place they leave is reading.
+    func readerDidZoom() {
+        readerZoomUntil = CFAbsoluteTimeGetCurrent() + Self.readerZoomInterval
+        refitSettlesAt = 0
+        refitRestoreGeneration += 1
+    }
+
+    /// A navigation is about to move the view: its offset change is reading even if a refit
+    /// restore is still pending (which it cancels).
+    private func acceptCurrentScale() {
+        anchorScale = view.scaleFactor
+        refitSettlesAt = 0
+        refitRestoreGeneration += 1
+    }
+
+    private var isReaderZooming: Bool {
+        if CFAbsoluteTimeGetCurrent() < readerZoomUntil { return true }
+        guard let scrollView else { return false }
+        return scrollView.isZooming || scrollView.isZoomBouncing || scrollView.isTracking
+    }
+
+    /// PDFKit is refitting (the scale moved away from the anchor's) or settling a refit, with
+    /// nothing from the reader behind it. A new refit opens the settle window.
+    private var isRefitByPDFKit: Bool {
+        guard hasPositionedInitially, readingAnchor != nil, !isReaderZooming else { return false }
+        let now = CFAbsoluteTimeGetCurrent()
+        if abs(view.scaleFactor - anchorScale) > 0.0001 {
+            refitSettlesAt = now + Self.refitSettleInterval
+            return true
+        }
+        return now < refitSettlesAt
+    }
+
+    /// Puts the reading anchor back once PDFKit has finished this refit (coalesced per turn:
+    /// PDFKit sets the zoom, then the offset).
+    private func scheduleRefitRestore() {
+        guard !isRefitRestoreScheduled else { return }
+        isRefitRestoreScheduled = true
+        let generation = refitRestoreGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isRefitRestoreScheduled = false
+            guard generation == self.refitRestoreGeneration, !self.isRestoringPosition,
+                  !self.isReaderZooming else { return }
+            self.isRestoringPosition = true
+            self.placeReadingAnchor()
+            self.anchorScale = self.view.scaleFactor
+            self.isRestoringPosition = false
+            self.updateAnchorProbe()
+        }
+    }
+
+    /// Scrolls so the reading anchor's page point is at the top-left corner, after laying out
+    /// the document view. Call with `isRestoringPosition` set.
+    private func placeReadingAnchor() {
+        guard let anchor = readingAnchor, let page = page(at: anchor.pageIndex), let scrollView else { return }
         scrollView.layoutIfNeeded()
         view.documentView?.layoutIfNeeded()
         let inView = view.convert(anchor.point, from: page)
@@ -450,6 +552,10 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         tap.cancelsTouchesInView = false
         tap.delegate = tapDelegate
         view.addGestureRecognizer(tap)
+
+        let touchDown = TouchDownObserver { [weak self] in self?.readerDidZoom() }
+        touchDown.delegate = tapDelegate
+        view.addGestureRecognizer(touchDown)
         return view
     }
 
@@ -473,12 +579,14 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         DispatchQueue.main.async { [weak self] in
             guard let self, let index = self.pendingPageIndex, let page = self.page(at: index) else { return }
             self.pendingPageIndex = nil
+            self.acceptCurrentScale()
             self.view.showTop(of: page)
             self.hasPositionedInitially = true
             PerfMarks.mark("positioned")
             self.isTrackingSuspended = false
             self.observeScrollViewIfNeeded()
             self.readingAnchor = self.captureAnchor()
+            self.anchorScale = self.view.scaleFactor
             self.session?.pdfReportedCurrentPage(index)
             self.reportVisiblePages()
             self.reportNavigationState()
@@ -498,6 +606,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     @objc private func navigationChanged(_ notification: Notification) {
         reportNavigationState()
+        updateAnchorProbe()
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -768,6 +877,25 @@ final class ReaderPDFView: PDFView {
         guard builder.system == .context, let elements = controller?.selectionMenuElements(),
               !elements.isEmpty else { return }
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: elements), atStartOfMenu: .root)
+    }
+}
+
+/// Reports every touch that begins on the PDF view (a finger or the Pencil on the page: a pinch
+/// or double tap may follow) and never recognises, so it takes nothing from PDFKit's or the features' gestures.
+final class TouchDownObserver: UIGestureRecognizer {
+    private let onTouchDown: () -> Void
+
+    init(onTouchDown: @escaping () -> Void) {
+        self.onTouchDown = onTouchDown
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouchDown()
+        state = .failed
     }
 }
 

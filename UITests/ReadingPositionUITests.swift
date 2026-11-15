@@ -168,6 +168,37 @@ final class ReadingPositionUITests: XCTestCase {
         exerciseWidePanels(app, rounds: 3, label: "small zoomed")
     }
 
+    /// TSOFT-223: a double tap on the page (PDFKit's own zoom toggle) can return the view to fit
+    /// width; opening and closing the notes panel afterwards must keep the place, not jump to
+    /// the top of the book.
+    func testPanelTogglesKeepPositionAfterDoubleTapZoom() {
+        let app = launch(Fixtures.small, "small", ["-openPage", "5"])
+        scrollPage(app, by: 0.3)
+        let page = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5))
+        let notes = "reader.toolbar.notes"
+        for round in 1...2 {
+            page.doubleTap()
+            sleep(2)  // PDFKit's zoom animation
+            let zoomed = settledAnchor(app)
+            print("READING-ANCHOR double tap \(round): \(zoomed)")
+            toggle(app, notes)
+            assertSamePosition(zoomed, settledAnchor(app), "double tap \(round) notes toggled")
+            toggle(app, notes)
+            assertSamePosition(zoomed, settledAnchor(app), "double tap \(round) notes toggled back")
+        }
+    }
+
+    /// TSOFT-223: in fit width (Fit Width, ⌘9) PDFKit refits the scale for every width the
+    /// panels leave; the place holds through all of it.
+    func testPanelTogglesKeepPositionInFitWidth() {
+        let app = launch(Fixtures.small, "small", ["-openPage", "5"])
+        sleep(1)
+        app.typeKey("9", modifierFlags: .command)
+        sleep(1)
+        scrollPage(app, by: 0.3)
+        exerciseWidePanels(app, rounds: 2, label: "small fit width")
+    }
+
     func testRotationAndKeyboardKeepPosition() {
         let app = launch(Fixtures.small, "small")
         scrollPage(app, by: 0.35)
