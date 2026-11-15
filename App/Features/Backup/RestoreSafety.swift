@@ -7,6 +7,9 @@ import ReaderCore
 //
 //     <store root>/RestoreSafety/<id>/books.ttbackup   the changed books, as they were
 //     <store root>/RestoreSafety/<id>/record.json      what the restore changed and added
+//     <store root>/RestoreSafety/<id>/records-<bookID>.json  a merged book's records at its commit,
+//                                                      when they had changed since the copy (see
+//                                                      `RestoreSafetyCopy.amend`)
 //
 // `BackupService.undoLastRestore()` puts the changed books back from the newest copy and removes
 // the books that restore had added. The newest `RestoreSafetyStore.keepCount` copies are kept.
@@ -80,6 +83,27 @@ nonisolated enum RestoreSafetyStore {
         directory(id: id, storeRoot: storeRoot).appendingPathComponent(archiveFileName, isDirectory: false)
     }
 
+    /// `<id>/records-<bookID>.json`: the records an undo puts back for a merged book instead of
+    /// the archive's (`RestoreSafetyCopy.amend`).
+    static func amendmentURL(id: UUID, bookID: UUID, storeRoot: URL) -> URL {
+        directory(id: id, storeRoot: storeRoot).appendingPathComponent("records-\(bookID.uuidString).json", isDirectory: false)
+    }
+
+    /// Writes an amendment durably (`BackupCoding`, like `records.json`).
+    static func writeAmendment(_ archive: BookArchive, id: UUID, storeRoot: URL) throws {
+        try RestoreDurability.writeDurably(try BackupCoding.makeEncoder().encode(archive),
+                                           to: amendmentURL(id: id, bookID: archive.book.id, storeRoot: storeRoot))
+    }
+
+    /// The amendment for `bookID`, or `nil` when there is none (or it cannot be read; the
+    /// archive's records are then used).
+    static func amendment(id: UUID, bookID: UUID, storeRoot: URL) -> BookArchive? {
+        guard let data = try? Data(contentsOf: amendmentURL(id: id, bookID: bookID, storeRoot: storeRoot)),
+              let archive = try? BackupCoding.makeDecoder().decode(BookArchive.self, from: data),
+              archive.book.id == bookID, archive.isConsistent else { return nil }
+        return archive
+    }
+
     /// Every readable record, newest first. A directory without a readable record (a copy that
     /// was being written when the app stopped) is not listed.
     static func records(storeRoot: URL) -> [RestoreSafetyRecord] {
@@ -146,8 +170,9 @@ final class RestoreSafetyCopy {
     private(set) var record: RestoreSafetyRecord
     private let storeRoot: URL
     /// The protected books' records as they were saved (`comparable`), to refuse a commit over a
-    /// book that changed after its safety copy was written.
-    private let saved: [UUID: BookArchive]
+    /// book that changed after its safety copy was written. A merged book's entry follows its
+    /// amendment (`amend`).
+    private var saved: [UUID: BookArchive]
 
     init(record: RestoreSafetyRecord, storeRoot: URL, saved: [UUID: BookArchive]) {
         self.record = record
@@ -175,6 +200,26 @@ final class RestoreSafetyCopy {
         guard let saved = saved[bookID] else { return (try? store.books.book(id: bookID)) == nil }
         guard let now = try? store.archive(bookID: bookID) else { return false }
         return Self.comparable(now) == saved
+    }
+
+    /// For a book about to be **merged**: whether `now` (its records at commit time) differs from
+    /// the saved records only in highlights, bookmarks and reader-made headings, which the
+    /// reader saves at once and which a merge's commit takes in (`BookMergeEngine`). Its book
+    /// record (reading position aside) and its notes must be as saved; its ink is paused.
+    func differsOnlyInMergeableRecords(_ now: BookArchive) -> Bool {
+        guard let saved = saved[now.book.id] else { return false }
+        let current = Self.comparable(now)
+        return current.book == saved.book && current.notes == saved.notes
+    }
+
+    /// Records `now` beside the copy as the records an undo puts back for this book instead of
+    /// the archive's, durably, and compares the book against them from now on. Only for a merged
+    /// book that `differsOnlyInMergeableRecords`: its notes are the archive's, so the archive's
+    /// ink still belongs to them. Without this an undo would lose a highlight, bookmark or
+    /// heading saved after the copy was made, which the merge itself keeps.
+    func amend(_ now: BookArchive) throws {
+        try RestoreSafetyStore.writeAmendment(now, id: record.id, storeRoot: storeRoot)
+        saved[now.book.id] = Self.comparable(now)
     }
 
     /// Call just before committing `book` over the local books `previous` (empty: a new book).
@@ -361,7 +406,15 @@ extension BackupService {
             let plan = RestorePlan(manifest: reader.manifest, localLibrary: await localSummaries(), destinationPDFHashes: [])
             let session = RestoreSession(source: .file(url), reader: reader, plan: plan, destinationPDFHashes: [],
                                          destination: nil, ownedDirectory: nil, scopedURL: nil)
-            summary = try await performRestore(wanted, from: session, restorePDFs: false, job: job, safety: .none)
+            // A merged book whose highlights, bookmarks or headings changed during the merge
+            // comes back with the records it had at the merge's commit.
+            var amended: [UUID: BookArchive] = [:]
+            for id in wanted {
+                amended[id] = RestoreSafetyStore.amendment(id: record.id, bookID: id, storeRoot: storeRoot)
+            }
+            summary = try await performRestore(Dictionary(uniqueKeysWithValues: wanted.map { ($0, RestoreAction.replace) }),
+                                               from: session, restorePDFs: false, job: job, safety: .none,
+                                               recordOverrides: amended)
 
             // A book that had no PDF and no recorded hash must not keep the archive's placeholder
             // hash as its sidecar: that would refuse every PDF linked to it later.

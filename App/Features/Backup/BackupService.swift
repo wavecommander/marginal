@@ -128,7 +128,33 @@ nonisolated struct RestoreSummary: Equatable, Sendable {
         var message: String
     }
 
+    /// A book already in the Library that the backup's copy was merged into (`RestoreAction.merge`).
+    struct MergedBook: Equatable, Sendable, Identifiable {
+        /// The local book's ID, which the merged book keeps.
+        var id: UUID
+        /// The backed-up book's ID (another ID when the same PDF was imported separately).
+        var backupBookID: UUID
+        var title: String
+        /// Notes, highlights, bookmarks and headings added and combined.
+        var report: BookMergeReport
+        /// Pages and notes whose ink was added or combined (counted as the preview counts them).
+        var ink: MergeInkCounts
+        /// Of `ink.pagesCombined + ink.notesCombined`: those whose ink on this iPad already held
+        /// every stroke of the backup's (after an earlier merge of the same backup), left as they
+        /// were.
+        var combinedInkAlreadyPresent: Int
+        /// Ink that could not be read and was kept exactly as it was (the other side's ink there
+        /// was not combined in). Empty when all ink was read.
+        var unreadableInk: [UnreadableInk]
+        /// `true` when the book had no PDF and got the backup's.
+        var tookPDFFromBackup: Bool
+    }
+
+    /// Every book committed: restored as new, replaced, or merged (`id` is then the local
+    /// book's ID).
     var restored: [RestoredBook] = []
+    /// The merged books among `restored`, with what each merge added and combined.
+    var merged: [MergedBook] = []
     /// Books removed from the Library: only an undo does this, to the books the undone restore
     /// had added as new.
     var removed: [RestoredBook] = []
@@ -227,6 +253,9 @@ final class BackupService {
     @ObservationIgnored var stopCommitAfter: RestoreCommit.Step?
     /// Tests only: runs just before a restore writes its safety copy; throwing makes that fail.
     @ObservationIgnored var beforeSafetyCopy: (@MainActor () throws -> Void)?
+    /// Tests only: runs once every merged book is prepared, just before the commits (the window
+    /// in which the reader can still save highlights, bookmarks and headings).
+    @ObservationIgnored var beforeMergeCommit: (@MainActor () -> Void)?
 
     /// Space kept free beyond an estimate.
     nonisolated static let spaceMargin: Int64 = 32 * 1024 * 1024
