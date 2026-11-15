@@ -430,6 +430,64 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   Restore from Backup… button in the empty Library. A `.ttbackup` file opened from Files (Open With, or
   Share) goes straight to the restore preview. There is no Library toolbar button for it.
 
+## Tactile Texts Cloud (the paid backup service)
+
+Added by the owner (15 November 2026). An optional subscription that keeps the reader's backups
+in the owner's Cloudflare R2 bucket. It is one more backup destination: the engine, the
+snapshot format, restore, and automatic backups are the ones above. It is absent from a build
+whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which is the default.
+
+- **Why there is a server.** A long-lived storage key can never ship in an app (see the
+  build-time S3 destination above). A small Cloudflare Worker (`Backend/backup-worker/`) decides
+  who may write where and hands the iPad **temporary R2 credentials**: they last 15 minutes,
+  reach one bucket and only that user's folder, and allow only the operations the user's
+  standing permits. Backups then travel directly between the iPad and R2; no file data passes
+  through the Worker. The Worker makes the credentials itself by signing with a parent R2 token
+  it keeps as a secret, so issuing them costs no call to Cloudflare, and revoking the parent
+  token ends every credential made from it.
+- **Identity is the App Store subscription** (owner decision). There is no account, sign-in,
+  email address or password. The iPad sends the signed subscription transaction Apple gave it;
+  the Worker checks Apple's signature chain to a pinned Apple root, the bundle ID, the product
+  and the environment. The user's folder is `users/<HMAC-SHA256(server secret, original
+  transaction ID)>/`, so Restore Purchases on a new iPad finds the same backups. App Store
+  Server Notifications keep the Worker's record current for renewals, expiry and refunds.
+- **That it is the real app.** App Attest: each install registers a device key once and signs
+  every request for credentials with it, so a copied subscription transaction alone cannot be
+  used from a script. The simulator has no App Attest; only the Worker's `dev` deployment
+  accepts a bypass, and the production deployment refuses to serve if the bypass is configured.
+- **Encrypted on the iPad** (owner decision). Everything is encrypted before upload; the owner
+  and Cloudflare hold only unreadable data. `EncryptedBackupDestination` (ReaderBackup) wraps a
+  plain object store, so the engine is unchanged. Files are AES-256-GCM in 4 MiB chunks with the
+  chunk position and a last-chunk mark authenticated, so tampering, reordering and truncation
+  are detected; each file has its own key derived from the master key. Object names give
+  nothing away: a PDF is named by a keyed hash of its SHA-256 (a well-known book cannot be
+  recognised), and a snapshot keeps only its timestamp in the clear, with the device name
+  encrypted. Sizes and times remain visible to the operator. The plaintext SHA-256 check on
+  restore is unchanged.
+- **The key.** A random 256-bit key in the Keychain, carried to the reader's other devices by
+  iCloud Keychain, plus a **recovery key** (56 characters in 14 groups of 4, with typo
+  detection) the reader can save. A small key-check object in the user's folder tells "wrong
+  key" apart from damage. A device that finds backups but has no key asks for the recovery key
+  and **never makes a new key while data exists**, because the key may simply not have arrived
+  from iCloud Keychain yet. A reader who loses both the Keychain key and the recovery key
+  cannot restore; nobody can.
+- **When a subscription ends** (owner decision). Apple's grace and billing-retry periods count
+  as subscribed. After the end: 30 days of read-only access (restore, no upload); then no
+  access with the data kept, and resubscribing restores it; 60 days after the end a daily job
+  deletes the folder. A refunded or revoked subscription gets no read-only period. Both periods
+  are Worker settings.
+- **Storage allowance.** Each product has an allowance in the Worker's settings. Usage is
+  counted when credentials are issued (cached for five minutes); over the allowance the iPad
+  gets credentials that can read and delete but not upload, and is told so. Credentials are
+  bearer tokens for 15 minutes and R2 does not cap object size, so the allowance is enforced
+  between sessions, not within one.
+- **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
+  them, then removes the key from the Keychain (on every device, since it is synchronised).
+- **Testing without Apple or Cloudflare accounts.** The Worker's tests run in the Workers
+  runtime with generated certificates; the app's tests use a StoreKit configuration file
+  (`Config/Marginal.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
+  kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance.
+
 ## Technical decisions
 
 | Area | Decision | Why |
@@ -453,6 +511,7 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
 | Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
+| Cloud backup service | A Cloudflare Worker (TypeScript, D1, a daily cron) that verifies the App Store subscription and App Attest and issues 15-minute R2 credentials limited to one user's folder; the iPad talks to R2 directly with `S3Kit` and encrypts with `ReaderBackup` | The only server code is the part that must hold a secret. File data never passes through it, so it stays small and cheap, and the storage holds nothing readable. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
 | Dependencies | None beyond Apple frameworks | |
 
