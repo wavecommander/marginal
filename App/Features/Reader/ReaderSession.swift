@@ -226,6 +226,18 @@ final class ReaderSession: Identifiable {
     /// The go-to-page field is shown (the page pill was tapped, or Go to Page… was chosen).
     var isGoToPageVisible = false
 
+    // MARK: Page pill
+
+    /// How long the page pill stays after the page last moved.
+    static let pagePillIdleDelay: Duration = .seconds(3)
+    /// The page has not moved for `pagePillIdleDelay`, so the page pill fades out until it
+    /// moves again (`revealPagePill()`). The pill itself decides when it never fades.
+    private(set) var isPagePillIdle = false
+    @ObservationIgnored private var lastPageMovement = ContinuousClock.now
+    @ObservationIgnored private var pagePillIdleTask: Task<Void, Never>?
+    /// How many times the idle pill has come back (test hook, `ReaderStateProbe`).
+    @ObservationIgnored private(set) var pagePillReturnCount = 0
+
     // MARK: Changes
 
     /// Every change to this book's stored data, from any origin (including this session).
@@ -608,6 +620,30 @@ final class ReaderSession: Identifiable {
     func pdfReportedCurrentPage(_ pageIndex: Int) {
         guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return }
         setCurrentPage(pageIndex)
+    }
+
+    /// Shows the page pill and restarts its idle countdown. Called by the PDF bridge whenever the
+    /// page moves (scrolling, zooming, jumps), and by the pill itself.
+    func revealPagePill() {
+        lastPageMovement = .now
+        if isPagePillIdle {
+            isPagePillIdle = false
+            pagePillReturnCount += 1
+        }
+        guard pagePillIdleTask == nil else { return }  // the running countdown sees the new time
+        pagePillIdleTask = Task { [weak self] in
+            // One task per idle period, not per scroll frame: it sleeps until the latest
+            // movement's deadline and checks again.
+            while true {
+                guard let due = self.map({ $0.lastPageMovement + Self.pagePillIdleDelay }) else { return }
+                if ContinuousClock.now >= due { break }
+                try? await Task.sleep(until: due, clock: .continuous)
+                if Task.isCancelled { return }
+            }
+            guard let self else { return }
+            self.pagePillIdleTask = nil
+            self.isPagePillIdle = true
+        }
     }
 
     /// Called by the PDF bridge when the visible pages change.

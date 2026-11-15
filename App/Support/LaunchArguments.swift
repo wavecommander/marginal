@@ -101,6 +101,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
 
+    /// `-pagePillStaysVisible`: test-only. The reader's page pill never fades when the page stands
+    /// still, so UI tests can tap it at any time (the fade has its own test without this flag).
+    var pagePillStaysVisible = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -163,6 +167,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeMarkupState = true
             case "-exposeAccent":
                 exposeAccent = true
+            case "-pagePillStaysVisible":
+                pagePillStaysVisible = true
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:

@@ -42,7 +42,7 @@ final class NotesPanelUITests: XCTestCase {
             app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + arguments)
         } else {
             app = XCUIApplication()
-            app.launchArguments = arguments
+            app.launchArguments = ["-pagePillStaysVisible"] + arguments
             app.launch()
         }
         XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 30), "reader open")
@@ -63,7 +63,7 @@ final class NotesPanelUITests: XCTestCase {
         sleep(1)
         seed.terminate()
         let app = XCUIApplication()
-        app.launchArguments = ["-openBook", "no-outline", "-openPage", "\(page)", "-notesPanel", tab] + extra
+        app.launchArguments = ["-pagePillStaysVisible", "-openBook", "no-outline", "-openPage", "\(page)", "-notesPanel", tab] + extra
         app.launch()
         XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 30), "reader open")
         return app

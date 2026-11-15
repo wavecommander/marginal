@@ -140,7 +140,7 @@ final class JourneyUITests: XCTestCase {
         // Relaunch (same store): the Notebook first, then the reader from a row.
         app.terminate()
         app = XCUIApplication()
-        app.launchArguments = ["-screen", "notebook", "-openBook", "small", "-inkAnyInput"]
+        app.launchArguments = ["-pagePillStaysVisible", "-screen", "notebook", "-openBook", "small", "-inkAnyInput"]
         app.launch()
         assertNotebookShowsEverything(app)
 

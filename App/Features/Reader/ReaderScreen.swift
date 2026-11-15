@@ -611,8 +611,15 @@ private struct NotesDivider: View {
 }
 
 /// "312 of 742": tap to type a page number (a standard text field, so Scribble works).
+///
+/// Fades out once the page has stood still for `ReaderSession.pagePillIdleDelay` and comes back
+/// as soon as it moves. It stays while the go-to-page field is open, and always with VoiceOver
+/// or Switch Control (nothing on screen says where it went), or with `-pagePillStaysVisible`.
 private struct PagePill: View {
     @Bindable var session: ReaderSession
+    @Environment(\.launchOptions) private var launchOptions
+    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverOn
+    @Environment(\.accessibilitySwitchControlEnabled) private var isSwitchControlOn
     @State private var text = ""
     @FocusState private var isFieldFocused: Bool
     /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
@@ -664,6 +671,15 @@ private struct PagePill: View {
         }
         .font(.subheadline.weight(.medium))
         .background(Capsule().fill(Color.black.opacity(0.78)))
+        .opacity(isFaded ? 0 : 1)
+        .allowsHitTesting(!isFaded)
+        .accessibilityHidden(isFaded)
+        // A slow fade out, a quick return.
+        .animation(.easeInOut(duration: isFaded ? 0.6 : 0.2), value: isFaded)
+        .onAppear { session.revealPagePill() }
+        .onChange(of: session.isGoToPageVisible) { _, visible in
+            if !visible { session.revealPagePill() }  // count the idle time from closing the field
+        }
         .onChange(of: isFieldFocused) { _, focused in
             if focused {
                 hasHadFocus = true
@@ -673,6 +689,11 @@ private struct PagePill: View {
                 session.markup.reassertToolPicker()
             }
         }
+    }
+
+    private var isFaded: Bool {
+        session.isPagePillIdle && !session.isGoToPageVisible && !isVoiceOverOn && !isSwitchControlOn
+            && !launchOptions.pagePillStaysVisible
     }
 
     private func submit() {

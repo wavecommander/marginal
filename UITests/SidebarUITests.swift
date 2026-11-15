@@ -346,7 +346,7 @@ final class SidebarUITests: XCTestCase {
         sleep(1)
         app.terminate()
         let again = XCUIApplication()
-        again.launchArguments = ["-openBook", "no-outline"]
+        again.launchArguments = ["-pagePillStaysVisible", "-openBook", "no-outline"]
         again.launch()
         XCTAssertTrue(Self.pill(again).waitForExistence(timeout: 40))
         Self.selectTab(again, "Contents")
@@ -489,7 +489,7 @@ final class SidebarUITests: XCTestCase {
         sleep(1)
         app.terminate()
         let again = XCUIApplication()
-        again.launchArguments = ["-openBook", "small"]
+        again.launchArguments = ["-pagePillStaysVisible", "-openBook", "small"]
         again.launch()
         XCTAssertTrue(Self.pill(again).waitForExistence(timeout: 40))
         Self.selectTab(again, "Bookmarks")

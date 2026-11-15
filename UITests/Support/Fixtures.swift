@@ -28,7 +28,7 @@ extension XCUIApplication {
     @discardableResult
     static func launchFresh(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-resetState"] + arguments
+        app.launchArguments = ["-pagePillStaysVisible", "-resetState"] + arguments
         app.launch()
         return app
     }

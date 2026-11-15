@@ -7,10 +7,11 @@ import UIKit
 /// - `reader.markupState`: value read live on every query, space-separated `key=value` tokens:
 ///   `markup=on|off picker=shown|hidden shows=N notes=shown|hidden`
 ///   `responder=markup|surface|auxiliary|other undo=yes|no redo=yes|no heardUndo=yes|no`
-///   `heardRedo=yes|no posts=N`. `shows` counts the tool picker's appearances. `undo`/`redo` are the
-///   markup responder's undo manager (`MarkupRoutingUndoManager`) now; `heard…` is what a listener
+///   `heardRedo=yes|no posts=N pill=shown|idle pillReturns=N`. `shows` counts the tool picker's
+///   appearances. `undo`/`redo` are the markup responder's undo manager (`MarkupRoutingUndoManager`) now; `heard…` is what a listener
 ///   of that manager's notifications (as the tool picker is) read in the last one, and `posts`
-///   how many it has heard.
+///   how many it has heard. `pill` is the page pill's idle state (`isPagePillIdle`) and
+///   `pillReturns` how many times it has come back after going idle.
 /// - `reader.markupUndo` / `reader.markupRedo`: tapping calls `undo()` / `redo()` on the markup
 ///   responder's `undoManager`, the call the tool picker's own buttons make.
 @MainActor
@@ -69,7 +70,9 @@ enum ReaderStateProbe {
                         "responder=\(markup.firstResponderKind)",
                         "undo=\(word(manager?.canUndo ?? false))", "redo=\(word(manager?.canRedo ?? false))",
                         "heardUndo=\(word(heard.undo))", "heardRedo=\(word(heard.redo))",
-                        "posts=\(posts)"].joined(separator: " ")
+                        "posts=\(posts)",
+                        "pill=\(session.isPagePillIdle ? "idle" : "shown")",
+                        "pillReturns=\(session.pagePillReturnCount)"].joined(separator: " ")
             }
             set {}
         }
