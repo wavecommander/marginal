@@ -11,6 +11,12 @@
 //   R2_PARENT_ACCESS_KEY_ID, R2_PARENT_SECRET_ACCESS_KEY   the parent R2 token (object read and
 //                                                          write on the one bucket)
 //   USER_KEY_SECRET                                        keys the hash that names a user's folder
+//   APP_ATTEST_BYPASS_SECRET                               `dev` only, optional: lets the simulator
+//                                                          through without App Attest. If it exists
+//                                                          in production the Worker refuses to serve.
+//
+// Every setting is checked when a request arrives (src/env.ts, readSettings); a missing or
+// malformed one makes every endpoint, /v1/health included, answer 500 and log which setting.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tactile-backup-dev",
@@ -27,6 +33,11 @@
     "R2_S3_HOST": "",
     "R2_BUCKET_NAME": "tactile-texts-backups-dev",
     "APP_BUNDLE_ID": "software.tactile.marginal",
+    // The 10-character App ID prefix (team ID) from the Apple Developer account. App Attest
+    // checks `<team ID>.<bundle ID>`. Empty until the owner fills it in.
+    "APPLE_TEAM_ID": "",
+    // The app's numeric Apple ID in App Store Connect. Required in production; optional here.
+    "APP_APPLE_ID": "",
     // Seconds a credential lasts. Short on purpose: it is a bearer token.
     "CREDENTIAL_TTL_SECONDS": "900",
     // After a subscription ends: days of read-only access, then the day the data is deleted.
@@ -34,7 +45,15 @@
     "DELETE_AFTER_DAYS": "60",
     // Storage allowance in bytes for each backup product. Placeholders: the owner sets the
     // real product IDs and sizes.
-    "PRODUCT_ALLOWANCES": "{\"software.tactile.marginal.backup.standard\": 10737418240}"
+    "PRODUCT_ALLOWANCES": "{\"software.tactile.marginal.backup.standard\": 10737418240}",
+    // Allowance for sandbox and Xcode purchases (App Review, TestFlight, development): 100 MB.
+    "SANDBOX_ALLOWANCE_BYTES": "104857600",
+    // Seconds a usage count is reused before the user's folder is listed again.
+    "USAGE_CACHE_SECONDS": "300",
+    // `dev` only: base64 DER of Xcode's StoreKit test certificate (open the .storekit file, then
+    // Editor > Save Public Certificate; `base64 -i StoreKitTestCertificate.cer`). Empty: the
+    // Xcode environment is refused. Never set in production (the Worker refuses to serve).
+    "XCODE_STOREKIT_CERT": ""
   },
   "d1_databases": [
     {
@@ -68,10 +87,14 @@
         "R2_S3_HOST": "",
         "R2_BUCKET_NAME": "tactile-texts-backups",
         "APP_BUNDLE_ID": "software.tactile.marginal",
+        "APPLE_TEAM_ID": "",
+        "APP_APPLE_ID": "",
         "CREDENTIAL_TTL_SECONDS": "900",
         "READ_ONLY_DAYS": "30",
         "DELETE_AFTER_DAYS": "60",
-        "PRODUCT_ALLOWANCES": "{\"software.tactile.marginal.backup.standard\": 10737418240}"
+        "PRODUCT_ALLOWANCES": "{\"software.tactile.marginal.backup.standard\": 10737418240}",
+        "SANDBOX_ALLOWANCE_BYTES": "104857600",
+        "USAGE_CACHE_SECONDS": "300"
       },
       "d1_databases": [
         {

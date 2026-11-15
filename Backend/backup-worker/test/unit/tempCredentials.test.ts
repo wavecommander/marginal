@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ACTIONS, MAX_TTL_SECONDS, createTempCredentials, userPrefix, type TempCredentialRequest } from "../src/tempCredentials";
-import { userKey } from "../src/userKey";
+import { ACTIONS, MAX_TTL_SECONDS, createTempCredentials, userPrefix, type TempCredentialRequest } from "../../src/tempCredentials";
+import { userKey } from "../../src/userKey";
 
 const USER = "a".repeat(64);
 const NOW = new Date("2026-11-15T12:00:00Z");

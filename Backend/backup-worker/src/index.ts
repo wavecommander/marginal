@@ -5,57 +5,34 @@
 // credentials that last minutes and reach only that user's folder. Backups then travel directly
 // between the iPad and R2: no file data passes through here.
 //
+//   GET  /v1/health
 //   POST /v1/challenge            a one-time value for App Attest
 //   POST /v1/attest               register this app install's attested key
 //   POST /v1/session              subscription + assertion -> scoped, short-lived credentials
 //   POST /v1/delete-my-data       remove everything stored for the caller
 //   POST /v1/apple/notifications  App Store Server Notifications (renewals, expiry, refunds)
-//   GET  /v1/health
 //
-// A daily cron makes ended subscriptions read-only and, later, deletes their data.
+// A daily cron deletes the data of subscriptions that ended DELETE_AFTER_DAYS ago, and expired
+// challenges. The HTTP contract is in README.md and src/contract.ts.
 
-import { readSettings, type Env } from "./env";
+import { reason } from "./appleJws";
+import type { Env } from "./env";
+import { logError } from "./log";
+import { defaultDeps, handle, runScheduled } from "./service";
+
+export type * from "./contract";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    try {
-      if (request.method === "GET" && url.pathname === "/v1/health") {
-        // Also proves the settings parse: a deployment with bad settings fails here, loudly.
-        const settings = readSettings(env);
-        return json(200, { ok: true, environment: settings.environment });
-      }
-      const route = `${request.method} ${url.pathname}`;
-      switch (route) {
-        case "POST /v1/challenge":
-        case "POST /v1/attest":
-        case "POST /v1/session":
-        case "POST /v1/delete-my-data":
-        case "POST /v1/apple/notifications":
-          return problem(501, "not-implemented", "This endpoint is not built yet.");
-        default:
-          return problem(404, "not-found", "No such endpoint.");
-      }
-    } catch (error) {
-      // Never echo an internal error to a client: it could carry a secret or a stack.
-      console.error("unhandled", error instanceof Error ? error.message : String(error));
-      return problem(500, "internal", "Something went wrong.");
-    }
+    return handle(request, env, defaultDeps());
   },
 
-  async scheduled(_controller: ScheduledController, _env: Env): Promise<void> {
-    // The lapse policy (read-only, then deletion) runs here.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runScheduled(env, defaultDeps()).then(
+        () => undefined,
+        (error: unknown) => logError("cron-failed", { reason: reason(error) }),
+      ),
+    );
   },
 } satisfies ExportedHandler<Env>;
-
-export function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  });
-}
-
-/** An error the app can act on: a stable `code` plus a sentence a person can read. */
-export function problem(status: number, code: string, message: string): Response {
-  return json(status, { error: { code, message } });
-}
