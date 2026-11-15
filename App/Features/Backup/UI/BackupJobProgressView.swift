@@ -9,6 +9,7 @@ enum BackupJobText {
         case .backUpToDestination(let name): "Backing Up to \(name)"
         case .openBackup: "Opening Backup"
         case .restore: "Restoring"
+        case .undoRestore: "Undoing Restore"
         }
     }
 
@@ -25,6 +26,7 @@ enum BackupJobText {
         case .downloading: "Downloading backup…"
         case .reading: "Reading backup…"
         case .extracting: "Checking books…"
+        case .savingSafetyCopy: "Saving a safety copy…"
         case .committing: "Putting books into the Library…"
         case .cleaningUp: "Finishing…"
         }
@@ -43,7 +45,7 @@ enum BackupJobText {
     /// The status line: phase and percentage, or why Cancel is gone.
     static func status(kind: BackupJob.Kind, phase: BackupJob.Phase, fraction: Double) -> String {
         let percent = "\(Int((min(max(fraction, 0), 1) * 100).rounded()))%"
-        if !canCancel(kind: kind, phase: phase), case .restore = kind {
+        if !canCancel(kind: kind, phase: phase), kind == .restore || kind == .undoRestore {
             return "\(Self.phase(phase)) \(percent). This can’t be cancelled now."
         }
         return "\(Self.phase(phase)) \(percent)"

@@ -46,6 +46,14 @@ final class RestoreSession: Identifiable {
 
     func update(plan: RestorePlan) { self.plan = plan }
 
+    /// The backup's name for display (a safety copy records which backup a restore read).
+    var sourceName: String {
+        switch source {
+        case .file(let url): url.lastPathComponent
+        case .destination(_, let name, let snapshot): "\(name): \(snapshot.name)"
+        }
+    }
+
     /// Releases the backup (deletes a downloaded copy). Idempotent.
     func close() {
         guard !isClosed else { return }
@@ -171,8 +179,15 @@ extension BackupService {
         var output: RestoreStaging.Output
     }
 
-    private func performRestore(_ bookIDs: Set<UUID>, from session: RestoreSession, restorePDFs: Bool,
-                                job: BackupJob) async throws -> RestoreSummary {
+    /// Whether a restore first keeps a safety copy of the local books it changes
+    /// (`RestoreSafetyCopy`). An undo, which restores *from* a safety copy, makes none.
+    enum RestoreSafetyMode: Sendable {
+        case protect
+        case none
+    }
+
+    func performRestore(_ bookIDs: Set<UUID>, from session: RestoreSession, restorePDFs: Bool,
+                        job: BackupJob, safety: RestoreSafetyMode = .protect) async throws -> RestoreSummary {
         guard !session.isClosed else { throw BackupServiceError.sessionClosed }
         if let unknown = bookIDs.first(where: { session.manifest.entry(for: $0) == nil }) {
             throw BackupError.bookNotInBackup(unknown)
@@ -197,6 +212,7 @@ extension BackupService {
         try checkSpace(stagingInputs.reduce(0) { $0 + RestoreStaging.weight(of: $1) }, at: store.rootDirectory)
 
         var keepSessionFiles = false
+        var safetyCopy: RestoreSafetyCopy?
         do {
             // Stage every book, verifying everything, before anything changes.
             job.set(phase: .extracting)
@@ -236,11 +252,30 @@ extension BackupService {
             let pause = await BookWriteGate.shared.pause(affected)
             defer { BookWriteGate.shared.resume(pause) }
 
+            // The local books about to be changed are saved first, so the restore can be undone.
+            // Their ink is paused, so the copy is exactly what the commit replaces; if this
+            // fails, the restore stops here with nothing changed.
+            if safety == .protect, !staged.isEmpty {
+                job.set(phase: .savingSafetyCopy)
+                var protected = Set<UUID>()
+                for book in staged { protected.formUnion(currentMatches(for: book.item.entry.book)) }
+                safetyCopy = try await makeSafetyCopy(protecting: protected, sourceName: session.sourceName)
+                try Task.checkCancellation()
+                job.set(phase: .committing)
+            }
+
             // From here to the end of the loop: no suspension point.
             commits: for book in staged {
                 let entryBook = book.item.entry.book
                 let current = currentMatches(for: entryBook)
                 guard Set(current).isSubset(of: Set(book.item.replacedBookIDs)) else {
+                    summary.failures.append(.init(id: entryBook.id, title: entryBook.title,
+                                                  message: BackupServiceError.libraryChanged(bookTitle: entryBook.title).localizedDescription))
+                    continue
+                }
+                // A book whose records changed after its safety copy was written is left alone:
+                // only what the copy holds may be replaced.
+                if let safetyCopy, !current.allSatisfy({ safetyCopy.isUnchanged($0, store: store) }) {
                     summary.failures.append(.init(id: entryBook.id, title: entryBook.title,
                                                   message: BackupServiceError.libraryChanged(bookTitle: entryBook.title).localizedDescription))
                     continue
@@ -252,6 +287,7 @@ extension BackupService {
                 }
                 let plan = RestoreCommit.Plan(sessionDirectory: sessionDirectory, archive: book.output.archive,
                                               replacedBookIDs: Set(current), localPDF: localPDF)
+                safetyCopy?.willCommit(entryBook, replacing: current)
                 do {
                     let outcome = try RestoreCommit.perform(plan, store: store, origin: origin, stopAfter: stopCommitAfter)
                     if case .stopped = outcome {
@@ -265,14 +301,18 @@ extension BackupService {
                                                   hasPDF: store.hasDocument(entryBook)))
                     summary.droppedEmptyNotes += book.output.droppedEmptyNotes
                 } catch {
+                    safetyCopy?.commitFailed(entryBook, replacing: current)
                     summary.failures.append(.init(id: entryBook.id, title: entryBook.title,
                                                   message: "“\(entryBook.title)” couldn’t be restored (\(error.localizedDescription)). It is unchanged."))
                 }
             }
         } catch {
+            // Nothing was committed (the loop above does not throw): no safety copy is kept.
+            safetyCopy?.finish()
             await BackupWork.remove(sessionDirectory)
             throw error
         }
+        safetyCopy?.finish()
         job.set(phase: .cleaningUp)
         if !keepSessionFiles { await BackupWork.remove(sessionDirectory) }
         return summary

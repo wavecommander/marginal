@@ -110,6 +110,7 @@ final class AppEnvironment {
                 // A reset wipes `Database` and `Books`; an interrupted restore left by an earlier
                 // run must not be rolled forward into the empty library.
                 try? FileManager.default.removeItem(at: RestoreLayout.root(storeRoot: store.rootDirectory))
+                try? FileManager.default.removeItem(at: RestoreSafetyStore.root(storeRoot: store.rootDirectory))
             }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {
@@ -151,6 +152,7 @@ final class AppEnvironment {
         defer { PerfMarks.mark("launchPlan") }
         var plan = LaunchPlan()
         backupService.removeStaleTemporaryFiles()
+        RestoreSafetyStore.removeStale(storeRoot: store.rootDirectory)
         let recovery = await RestoreRecovery.recover(store: store, origin: backupService.origin)
         if !recovery.rolledForward.isEmpty || !recovery.rolledBack.isEmpty || !recovery.keptSessions.isEmpty {
             backupLog.notice("restore recovery: \(recovery.rolledForward.count) finished, \(recovery.rolledBack.count) undone, \(recovery.keptSessions.count) kept")

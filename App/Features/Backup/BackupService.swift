@@ -19,6 +19,8 @@ final class BackupJob: Identifiable {
         case openBackup
         /// Restoring books from an open backup.
         case restore
+        /// Putting books back as they were before the last restore (`undoLastRestore`).
+        case undoRestore
     }
 
     enum Phase: Equatable, Sendable {
@@ -36,6 +38,8 @@ final class BackupJob: Identifiable {
         case reading
         /// Extracting and verifying the chosen books.
         case extracting
+        /// Saving the books a restore is about to change, so the restore can be undone.
+        case savingSafetyCopy
         /// Swapping the restored books into the Library.
         case committing
         case cleaningUp
@@ -125,6 +129,9 @@ nonisolated struct RestoreSummary: Equatable, Sendable {
     }
 
     var restored: [RestoredBook] = []
+    /// Books removed from the Library: only an undo does this, to the books the undone restore
+    /// had added as new.
+    var removed: [RestoredBook] = []
     /// Books not restored; each left exactly as it was.
     var failures: [Failure] = []
     /// Notes dropped because they were empty once their missing ink was accounted for.
@@ -149,6 +156,10 @@ nonisolated enum BackupServiceError: LocalizedError, Equatable, Sendable {
     case libraryChanged(bookTitle: String)
     /// The destination can't be used now (`reason` is reader-facing).
     case destinationUnavailable(reason: String)
+    /// The safety copy of the books a restore would change could not be made; nothing was changed.
+    case safetyCopyFailed(reason: String)
+    /// There is no restore to undo.
+    case nothingToUndo
 
     var errorDescription: String? {
         switch self {
@@ -164,6 +175,10 @@ nonisolated enum BackupServiceError: LocalizedError, Equatable, Sendable {
             "“\(title)” changed in the Library after the restore preview was shown, so it wasn’t restored. Open the backup again to see the current state."
         case .destinationUnavailable(let reason):
             reason
+        case .safetyCopyFailed(let reason):
+            "Nothing was restored: the app couldn’t first save a safety copy of the books that would change. \(reason)"
+        case .nothingToUndo:
+            "There is no restore to undo."
         }
     }
 
@@ -210,6 +225,8 @@ final class BackupService {
     /// Tests only: stop each book's commit after this step, as a crash would, and leave the
     /// session's files in place.
     @ObservationIgnored var stopCommitAfter: RestoreCommit.Step?
+    /// Tests only: runs just before a restore writes its safety copy; throwing makes that fail.
+    @ObservationIgnored var beforeSafetyCopy: (@MainActor () throws -> Void)?
 
     /// Space kept free beyond an estimate.
     nonisolated static let spaceMargin: Int64 = 32 * 1024 * 1024
