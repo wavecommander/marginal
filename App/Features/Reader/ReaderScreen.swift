@@ -167,20 +167,26 @@ struct ReaderScreen: View {
             pageArea
             if session.isNotesVisible {
                 let notesWidth = ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: width)
-                // Neither the divider nor the pane starts the system back swipe: a rightward drag
-                // that misses the divider's pill must not leave the book (TSOFT-225).
-                NotesDivider(session: session, windowWidth: width, collapsingWidth: $notesCollapsingWidth)
-                    .backSwipeGuard()
-                    .zIndex(1)  // the handle's hit area overlaps the page and the note
-                // While the handle slides the pane shut, the pane (laid out at its narrowest
-                // width, so the note does not re-wrap) is cut from its leading edge.
-                NotesPanel(session: session)
-                    .frame(width: notesWidth)
-                    .frame(width: notesCollapsingWidth ?? notesWidth, alignment: .leading)
-                    .clipped()
-                    .background(Color(uiColor: .systemBackground))
-                    .backSwipeGuard()
-                    .paneContainer(AccessibilityID.Reader.notesPane)
+                // The divider and the pane come and go as one, sliding in from and out to the
+                // trailing edge when the notes button shows or hides them.
+                HStack(spacing: 0) {
+                    // Neither the divider nor the pane starts the system back swipe: a rightward
+                    // drag that misses the divider's pill must not leave the book (TSOFT-225).
+                    NotesDivider(session: session, windowWidth: width, collapsingWidth: $notesCollapsingWidth)
+                        .backSwipeGuard()
+                        .zIndex(1)  // the handle's hit area overlaps the note
+                    // While the handle slides the pane shut, the pane (laid out at its narrowest
+                    // width, so the note does not re-wrap) is cut from its leading edge.
+                    NotesPanel(session: session)
+                        .frame(width: notesWidth)
+                        .frame(width: notesCollapsingWidth ?? notesWidth, alignment: .leading)
+                        .clipped()
+                        .background(Color(uiColor: .systemBackground))
+                        .backSwipeGuard()
+                        .paneContainer(AccessibilityID.Reader.notesPane)
+                }
+                .transition(.move(edge: .trailing))
+                .zIndex(1)  // the handle's hit area overlaps the page
             }
         }
     }
