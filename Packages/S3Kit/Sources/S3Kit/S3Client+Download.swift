@@ -43,6 +43,8 @@ extension S3Client {
             try? handle.close()
             try? FileManager.default.removeItem(at: partial)
             if error is S3Error || error is CancellationError { throw error }
+            // What the credentials provider threw passes through as it is, as for every other call.
+            if let provider = error as? CredentialsProviderFailure { throw provider.underlying }
             throw S3Error.fileAccess(path: destination.path, reason: error.localizedDescription)
         }
     }
@@ -64,7 +66,12 @@ extension S3Client {
                 request.signedHeaders["Range"] = "bytes=\(before.written)-"
                 if let eTag = before.eTag { request.signedHeaders["If-Match"] = eTag }
             }
-            let credentials = try await credentialsProvider.credentials()
+            let credentials: S3Credentials
+            do {
+                credentials = try await credentialsProvider.credentials()
+            } catch {
+                throw CredentialsProviderFailure(underlying: error)
+            }
             let outcome = await runDownloadTask(try urlRequest(for: request, credentials: credentials), state: state)
             let after = state.snapshot()
             if case .httpError(let status, let body) = outcome,
@@ -122,6 +129,12 @@ extension S3Client {
             task.cancel()
         }
     }
+}
+
+/// Marks an error the credentials provider threw during a download, so `download` can tell it
+/// from a local file error and rethrow it unchanged.
+private struct CredentialsProviderFailure: Error {
+    let underlying: any Error
 }
 
 enum DownloadOutcome: Sendable {

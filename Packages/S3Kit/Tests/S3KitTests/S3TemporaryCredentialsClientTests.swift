@@ -428,4 +428,21 @@ struct S3TemporaryCredentialsClientTests {
         #expect(server.requests.isEmpty)
         server.verify()
     }
+
+    @Test func aProviderErrorDuringADownloadIsThrownAsItIsAndLeavesNothing() async throws {
+        let server = StubServer()
+        let directory = Fixtures.temporaryURL()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = CredentialSource()
+        source.failNext()
+        let destination = directory.appendingPathComponent("x")
+        await #expect(throws: CredentialSource.Failure()) {
+            try await server.client(provider: source.provider()).download(key: S3DownloadTests.key, to: destination)
+        }
+        #expect(server.requests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        #expect(Fixtures.leftovers(in: directory, containing: "s3partial").isEmpty)
+        server.verify()
+    }
 }
