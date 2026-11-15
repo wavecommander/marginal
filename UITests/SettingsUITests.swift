@@ -70,7 +70,7 @@ final class SettingsUITests: XCTestCase {
         // Relaunch without -resetState: the choice is kept.
         app.terminate()
         app = XCUIApplication()
-        app.launchArguments = ["-exposeAccent"]
+        app.launchArguments = ["-pagePillStaysVisible", "-exposeAccent"]
         app.launch()
         waitForAccent(app, "indigo", timeout: 20)
     }

@@ -81,6 +81,8 @@ struct WindowRootView: View {
         }
         let plan = await environment.launchPlan()
         guard let context else { return }
+        // `-importFixture` files that need converting: this window shows their sheet.
+        environment.importService.address(plan.conversionRequestIDs, to: ObjectIdentifier(context))
         if environment.launchOptions.resetState, let own = (context.scene ?? scene)?.session {
             // A fresh launch shows one window: drop scene sessions restored from earlier runs.
             // Best effort: SpringBoard may report a killed process's sessions as unknown.

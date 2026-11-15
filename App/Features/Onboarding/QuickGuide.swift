@@ -41,11 +41,18 @@ enum QuickGuide {
     /// edited is never overwritten; a deleted guide comes back as new.
     static func open(with service: ImportService, state: OnboardingState) async throws -> (book: Book, isNew: Bool) {
         guard let url = bundledURL else { throw Failure.missingFromBundle }
-        let outcome = try await service.importPDF(at: url)
-        state.guideBookID = outcome.book.id
-        guard case .imported(let book) = outcome else { return (outcome.book, false) }
-        await seed(store: service.store, book: book)
-        return (book, true)
+        switch try await service.importPDF(at: url) {
+        case .imported(let book):
+            state.guideBookID = book.id
+            await seed(store: service.store, book: book)
+            return (book, true)
+        case .existing(let book):
+            state.guideBookID = book.id
+            return (book, false)
+        case .awaitingConversion:
+            // The guide is a PDF, so it never needs converting.
+            throw Failure.missingFromBundle
+        }
     }
 
     /// Writes the seeded content through the store, as the reader's own edits are written.

@@ -13,7 +13,9 @@ import SwiftUI
 /// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
-/// (`-resetState` clears it first); `-onboarding` is applied by `OnboardingState.applyLaunch`.
+/// (`-resetState` clears it first); `-stubConverters` and `-confirmConversions` are the import
+/// flow's test switches (`FixtureImporter`); `-onboarding` is applied by
+/// `OnboardingState.applyLaunch`.
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -116,6 +118,23 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// them off); `reset` forgets all onboarding state, so this launch is a first launch.
     var onboarding: Onboarding?
 
+    /// `-pagePillStaysVisible`: test-only. The reader's page pill never fades when the page stands
+    /// still, so UI tests can tap it at any time (the fade has its own test without this flag).
+    var pagePillStaysVisible = false
+
+    /// `-confirmConversions`: test-only. An `-importFixture` file that needs converting is
+    /// converted straight away (Medium text size), as if the reader had chosen Convert in the
+    /// Convert to PDF sheet. Without it a fixture import shows the sheet like any other import.
+    var confirmConversions = false
+
+    /// `-stubConverters` (DEBUG): register `StubDocumentConverter` for every converted format, so
+    /// UI tests can run the conversion flow without the real converters.
+    var stubConverters = false
+
+    /// `-stubConverterPageDelay <ms>` (DEBUG): with `-stubConverters`, pause this long after each
+    /// stub page (so a test can see or cancel a conversion in progress).
+    var stubConverterPageDelay: Int?
+
     init() {}
 
     init(arguments: [String]) {
@@ -182,6 +201,17 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let text = value(after: index) { scrollDirection = ReaderScrollDirection(rawValue: text); index += 1 }
             case "-onboarding":
                 if let text = value(after: index) { onboarding = Onboarding(rawValue: text); index += 1 }
+            case "-pagePillStaysVisible":
+                pagePillStaysVisible = true
+            case "-confirmConversions":
+                confirmConversions = true
+            case "-stubConverters":
+                stubConverters = true
+            case "-stubConverterPageDelay":
+                if let text = value(after: index) {
+                    index += 1
+                    if let ms = Int(text), ms >= 0 { stubConverterPageDelay = ms }
+                }
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:

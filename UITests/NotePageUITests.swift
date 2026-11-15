@@ -29,7 +29,7 @@ final class NotePageUITests: XCTestCase {
             app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + arguments)
         } else {
             app = XCUIApplication()
-            app.launchArguments = arguments
+            app.launchArguments = ["-pagePillStaysVisible"] + arguments
             app.launch()
         }
         XCTAssertTrue(textView(app).waitForExistence(timeout: 30), "note text view")

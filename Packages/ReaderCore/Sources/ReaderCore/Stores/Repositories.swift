@@ -210,6 +210,15 @@ public enum BookStorageLayout {
     public static func documentPath(bookID: UUID, fileName: String) -> String {
         "\(bookDirectory(bookID: bookID))/\(fileName)"
     }
+    /// File name of the kept original of a converted book: `original.<ext>` (`original` when the
+    /// source had no extension). The extension is lower-cased.
+    public static func originalFileName(extension ext: String) -> String {
+        ext.isEmpty ? "original" : "original.\(ext.lowercased())"
+    }
+    /// `Books/<bookID>/original.<ext>`: the unmodified file a converted book was made from.
+    public static func originalPath(bookID: UUID, extension ext: String) -> String {
+        "\(bookDirectory(bookID: bookID))/\(originalFileName(extension: ext))"
+    }
     /// `Books/<bookID>/ink`
     public static func pageInkDirectory(bookID: UUID) -> String {
         "\(bookDirectory(bookID: bookID))/ink"
