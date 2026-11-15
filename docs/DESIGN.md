@@ -56,10 +56,10 @@ ones even where the mockup draws an approximation.
 - **Note**: attached to exactly one target, a page or a heading, with at most one note per
   target. A note has two layers: typed text, and Pencil ink over the whole note. There is no
   separate sketch box; the blank space below the text is drawing space and grows as it is used.
-- **Note page**: the surface a note is laid out on. It has a fixed logical width (about 320 pt)
-  and grows downward. Every place a note appears (side panel, widened panel, bottom sheet,
-  Notebook) shows the same layout scaled, never re-wrapped, so ink stays registered to the words
-  it was drawn on.
+- **Note page**: the surface a note is laid out on. It is about 320 pt wide and grows downward.
+  The side panel, bottom sheet and Notebook show that layout, scaled. A widened notes pane
+  widens the page instead and the text re-wraps to it at the same size (TSOFT-226), so ink drawn
+  over a word at one width can sit off it at another; ink always stays with its paragraph.
 - **Highlight**: a coloured text range on a page, with the highlighted text stored for lists and
   export.
 - **Ink**: one PencilKit drawing per page.
@@ -148,8 +148,9 @@ ones even where the mockup draws an approximation.
   without leaving markup mode.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and the note
   is zoomed by pinching it (100% to 200%). There is no zoom button (owner decision,
-  14 November 2026: pinching is enough). Widening neither zooms nor re-wraps the note page
-  (owner decision, 15 November 2026, TSOFT-226): the page keeps the zoom the reader pinched to.
+  14 November 2026: pinching is enough). Widening the pane makes the note page wider, in
+  proportion to the pane, without zooming it: the text keeps the size the reader pinched to and
+  re-wraps to fill the page (owner decision, 15 November 2026, TSOFT-226).
   The handle on the pane's edge also closes it (owner requirement): sliding the handle towards
   the pane's own edge, past its narrowest width, collapses the notes pane, following the finger
   and snapping shut on release; a short slide that stops above the narrowest width just resizes.

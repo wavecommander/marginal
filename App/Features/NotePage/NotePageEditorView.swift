@@ -18,9 +18,11 @@ nonisolated enum NotePageAccessibilityID {
 ///
 /// ## Structure (design: "Note page")
 /// One zooming `UIScrollView` (owns scrolling and pinch, 100%–200%) whose zoomed content is the
-/// page view: a fixed-width (`NotePageStyle.pageWidth`), non-scrolling `UITextView` and, above it,
-/// a `PKCanvasView` of the same frame. Text and ink share the page view's coordinate space
-/// (note-page coordinates) at every zoom. The page grows downward: it is at least
+/// page view: a `pageWidth`-wide (`NotePageStyle.pageWidth` unless the host gives the note more
+/// room), non-scrolling `UITextView` and, above it, a `PKCanvasView` of the same frame. Text and
+/// ink share the page view's coordinate space (note-page coordinates) at every zoom. Zoom never
+/// changes line breaks; a new `pageWidth` re-wraps the text at the same text size and moves each
+/// stroke with its paragraph (`NotePageModel.relayoutInk`). The page grows downward: it is at least
 /// `NotePageStyle.minimumWritingRoom` below the text and `inkGrowthRoom` below the lowest stroke,
 /// and at least as tall as the visible area.
 ///
@@ -73,6 +75,14 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     /// Called when the reader pinches the note to a new zoom.
     var onZoomChange: ((CGFloat) -> Void)?
 
+    /// The page's width in note-page points (before zoom), at least `NotePageStyle.pageWidth`.
+    /// A wider host gives the note a wider page (TSOFT-226): the text re-wraps to it at the same
+    /// text size, and each stroke moves with its paragraph, as after typing.
+    var pageWidth: CGFloat {
+        get { currentPageWidth }
+        set { setPageWidth(newValue) }
+    }
+
     /// Markup mode when there is no session (with a session, the session's mode applies).
     var isMarkupStandalone = false {
         didSet { if session == nil { applyMode(isMarkupStandalone) } }
@@ -101,6 +111,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     private var isZoomingProgrammatically = false
     private var isRegistered = false
     private var pageHeight: CGFloat = 0
+    private var currentPageWidth = NotePageStyle.pageWidth
     private var bandLayout: NoteBandLayout?
     private let editorID = UUID()
     private var keyboardOverlap: CGFloat = 0
@@ -142,7 +153,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         textView.addInteraction(UIScribbleInteraction(delegate: self))
         pageView.addSubview(textView)
 
-        placeholderLabel.text = "Write a note"
+        placeholderLabel.text = "Write a note…"
         placeholderLabel.font = NotePageStyle.font
         placeholderLabel.textColor = .placeholderText
         placeholderLabel.isAccessibilityElement = false
@@ -224,7 +235,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         let visible = scrollView.bounds.height > 0 ? (scrollView.bounds.height - keyboardOverlap) / zoom : 0
         let height = ceil(max(textBottom + NotePageStyle.minimumWritingRoom,
                               inkBottom + NotePageStyle.inkGrowthRoom, visible))
-        let size = CGSize(width: NotePageStyle.pageWidth, height: height)
+        let size = CGSize(width: currentPageWidth, height: height)
         if pageView.bounds.size != size {
             pageView.bounds = CGRect(origin: .zero, size: size)
             textView.frame = pageView.bounds
@@ -241,6 +252,20 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
                                         height: NotePageStyle.lineHeight)
         pageView.updateAccessibility(layout: layout, inkBounds: inkPageBounds, strokeCount: currentModel?.strokeCount ?? 0,
                                      pageHeight: height)
+        // The zoom for UI tests (the root view is not an accessibility element, so VoiceOver
+        // never reads it): the page's width on screen no longer tells it.
+        accessibilityValue = "\(Int((zoom * 100).rounded()))%"
+    }
+
+    private func setPageWidth(_ value: CGFloat) {
+        let width = max(NotePageStyle.pageWidth, floor(value))
+        guard width != currentPageWidth else { return }
+        currentPageWidth = width
+        // Re-wrap before measuring: the band layout is read from the text view at its new width.
+        textView.frame.size.width = width
+        bandLayout = nil
+        currentModel?.relayoutInk()
+        layoutPage()
     }
 
     private var inkPageBounds: CGRect {
@@ -396,12 +421,15 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         isApplyingDrawing = true
         noteCanvas.drawing = currentModel?.displayInk() ?? PKDrawing()
         isApplyingDrawing = false
+        updatePlaceholder()
         layoutPage()
         updateInkAccessibility()
     }
 
+    /// The placeholder shows only on a blank page: no text, no ink, and no stroke in progress.
     private func updatePlaceholder() {
-        placeholderLabel.isHidden = !(textView.text ?? "").isEmpty
+        placeholderLabel.isHidden = !(textView.text ?? "").isEmpty || strokeActive
+            || !noteCanvas.drawing.strokes.isEmpty
     }
 
     private func updateInkAccessibility() {
@@ -546,6 +574,7 @@ extension NotePageEditorView: UITextViewDelegate {
 extension NotePageEditorView: PKCanvasViewDelegate {
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         strokeActive = true
+        updatePlaceholder()
         currentModel?.strokeDidBegin()
         session?.markup.surfaceDidBeginStroke(self)
     }
@@ -560,12 +589,14 @@ extension NotePageEditorView: PKCanvasViewDelegate {
         session?.markup.surfaceDidEndStroke(self)
         if needsInkRedisplay { redisplayInk() }
         if let pending = pendingModel { switchModel(to: pending) }
+        updatePlaceholder()
         layoutPage()
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isApplyingDrawing, let model = currentModel else { return }
         model.applyUserDrawing(canvasView.drawing)
+        updatePlaceholder()
         layoutPage()
         updateInkAccessibility()
     }

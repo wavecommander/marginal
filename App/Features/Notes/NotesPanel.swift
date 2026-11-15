@@ -17,7 +17,7 @@ import SwiftUI
 ///   picker over the heading path and "Open in Notebook" at the bottom.
 ///
 /// The note is zoomed only by pinching it (100%–200%; there is no zoom button); widening the
-/// pane gives it room but never zooms it. Which note is shown, deferral while typing, the level
+/// pane widens the note page (the text re-wraps at the same size) but never zooms it. Which note is shown, deferral while typing, the level
 /// choice and the zoom live in the window's `NotesPanelController`. One `NotePageView` stays on
 /// screen; it is given a new model when the target changes.
 struct NotesPanel: View {
@@ -303,7 +303,7 @@ struct NotesPanel: View {
     @ViewBuilder
     private func editorArea(_ metrics: NotesPanelMetrics) -> some View {
         if let model = controller.model {
-            NotePageView(model: model, session: session, zoom: zoomBinding(metrics))
+            NotePageView(model: model, session: session, zoom: zoomBinding(metrics), pageWidth: metrics.notePageWidth)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
         } else {

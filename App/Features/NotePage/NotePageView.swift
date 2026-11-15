@@ -8,26 +8,31 @@ import UIKit
 ///   finishes on the old note first, which is then flushed.
 /// - `session`: the reader window's session (markup mode, the shared tool picker, undo routing,
 ///   flush on leaving markup mode, background and close). `nil` only outside a reader (previews, tests).
-/// - `zoom`: 1 = 100%, clamped to 1...2. Pinching writes it back. A host's width never changes
-///   the page's width: the page is always `NotePageStyle.pageWidth` points wide before zoom
-///   (centred when the host is wider), so line breaks never change.
+/// - `zoom`: 1 = 100%, clamped to 1...2. Pinching writes it back. Zoom never changes line breaks.
+/// - `pageWidth`: the page's width before zoom, at least `NotePageStyle.pageWidth` (the default).
+///   A host with more room passes a wider page: the text re-wraps to it at the same size
+///   (TSOFT-226) and ink moves with its paragraph.
 /// - `isMarkup`: markup mode when `session` is `nil` (ignored with a session).
 struct NotePageView: UIViewRepresentable {
     let model: NotePageModel
     var session: ReaderSession?
     @Binding var zoom: CGFloat
+    var pageWidth: CGFloat = NotePageStyle.pageWidth
     var isMarkup = false
 
-    init(model: NotePageModel, session: ReaderSession?, zoom: Binding<CGFloat>, isMarkup: Bool = false) {
+    init(model: NotePageModel, session: ReaderSession?, zoom: Binding<CGFloat>,
+         pageWidth: CGFloat = NotePageStyle.pageWidth, isMarkup: Bool = false) {
         self.model = model
         self.session = session
         self._zoom = zoom
+        self.pageWidth = pageWidth
         self.isMarkup = isMarkup
     }
 
     func makeUIView(context: Context) -> NotePageEditorView {
         let view = NotePageEditorView(session: session)
         view.model = model
+        view.pageWidth = pageWidth
         view.zoom = zoom
         view.isMarkupStandalone = isMarkup
         return view
@@ -35,6 +40,7 @@ struct NotePageView: UIViewRepresentable {
 
     func updateUIView(_ view: NotePageEditorView, context: Context) {
         view.model = model
+        view.pageWidth = pageWidth
         if abs(view.zoom - NotePageStyle.clampZoom(zoom)) > 0.001 { view.zoom = zoom }
         view.isMarkupStandalone = isMarkup
         let binding = $zoom

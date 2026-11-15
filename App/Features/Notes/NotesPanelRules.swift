@@ -157,14 +157,16 @@ nonisolated enum NotesPanelPresentation: Equatable, Sendable {
 /// Layout and zoom of the panel, from the panel's own size (never the screen's).
 ///
 /// ## Zoom (design: "Writing room", "Note page")
-/// The note page is always 320 points wide before zoom; the panel never re-wraps it. The zoom on
-/// screen is `NotePageZoom.zoom(base:panelWidth:)` with `panelWidth = zoomReferenceWidth`:
+/// The note page is 320 points wide before zoom except in a widened pane (`notePageWidth`). The
+/// zoom on screen is `NotePageZoom.zoom(base:panelWidth:)` with `panelWidth = zoomReferenceWidth`:
 /// - `base` is the reader's chosen zoom at the default pane width (330), remembered per window;
 ///   until they choose one it is `NotePageStyle.defaultZoom(for: Dynamic Type)`.
 /// - **Pane:** the reference width is always the default pane width, so the pane shows the base
-///   zoom at any width: dragging the divider wider gives the note room (the page stays centred
-///   at the zoom the reader chose) but never zooms it (TSOFT-226). The shrink button returns the
-///   width only.
+///   zoom at any width. Dragging the divider wider widens the note page instead, in proportion
+///   (330 → 320, 660 → 640): the page grows on screen as much as it did when widening zoomed it,
+///   but the text keeps its size and re-wraps to fill it (TSOFT-226). Ink moves with its
+///   paragraph; ink drawn over a word may sit off it at another width (the lasso fixes that).
+///   The shrink button returns the width, and the page and its line breaks with it.
 /// - **Narrow (sheet / bottom panel):** the panel is as wide as the window, so following its full
 ///   width would pin every note at 176%–200%. Instead the note gets a column of its own when the
 ///   panel is at least `columnsMinimumWidth` wide (`noteColumnFraction` of the width, the lists
@@ -195,6 +197,14 @@ struct NotesPanelMetrics: Equatable {
     var usesColumns: Bool { presentation == .narrow && size.width >= Self.columnsMinimumWidth }
     /// The width the note editor gets.
     var noteColumnWidth: CGFloat { usesColumns ? floor(size.width * Self.noteColumnFraction) : size.width }
+    /// The note page's width before zoom (see the type documentation): in proportion to a pane's
+    /// width, never below `NotePageStyle.pageWidth`; that width in narrow presentations.
+    var notePageWidth: CGFloat {
+        switch presentation {
+        case .pane: max(NotePageStyle.pageWidth, floor(NotePageStyle.pageWidth * noteColumnWidth / Self.defaultPaneWidth))
+        case .narrow: NotePageStyle.pageWidth
+        }
+    }
     /// The width the zoom follows (see the type documentation).
     var zoomReferenceWidth: CGFloat {
         switch presentation {

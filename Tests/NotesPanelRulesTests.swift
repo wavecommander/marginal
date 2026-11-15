@@ -146,8 +146,8 @@ struct NotesPanelRulesTests {
 
     // MARK: Zoom and width
 
-    /// TSOFT-226: widening the pane never zooms the note.
-    @Test func paneZoomIgnoresWidthAndNeverReflows() {
+    /// TSOFT-226: widening the pane widens the note page but never zooms it.
+    @Test func paneZoomIgnoresWidthAndThePageWidens() {
         func pane(_ width: CGFloat) -> NotesPanelMetrics {
             NotesPanelMetrics(presentation: .pane, size: CGSize(width: width, height: 700))
         }
@@ -159,6 +159,10 @@ struct NotesPanelRulesTests {
         #expect(pane(330).zoom(base: 2.5) == 2, "clamped at 200%")
         #expect(!pane(660).usesColumns)
         #expect(pane(660).noteColumnWidth == 660)
+        // The note page widens with the pane instead, in proportion.
+        #expect(pane(330).notePageWidth == NotePageStyle.pageWidth)
+        #expect(pane(495).notePageWidth == 480)
+        #expect(pane(660).notePageWidth == 640)
         // A pinch in a wide pane is the zoom shown at every pane width.
         let wide = pane(495)
         #expect(abs(wide.base(forZoom: 1.5) - 1.5) < 0.0001)
@@ -169,6 +173,7 @@ struct NotesPanelRulesTests {
     @Test func narrowPresentationsGiveTheNoteAComfortableColumn() {
         let sheet = NotesPanelMetrics(presentation: .narrow, size: CGSize(width: 834, height: 560))
         #expect(sheet.usesColumns)
+        #expect(sheet.notePageWidth == NotePageStyle.pageWidth, "narrow presentations keep the default page")
         #expect(sheet.noteColumnWidth == 433)
         #expect(abs(sheet.zoom(base: 1) - 1.3) < 0.0001, "capped at 130% at the default base")
         #expect(abs(sheet.zoom(base: 1.5) - 1.95) < 0.0001)

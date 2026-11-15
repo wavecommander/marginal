@@ -211,8 +211,8 @@ final class ReaderSession: Identifiable {
     /// The notes panel's tab.
     var notesTab: NotesTab = .page
     /// Requested notes panel width in points. The shell clamps it to
-    /// `defaultNotesPanelWidth...windowWidth/2`. The width never zooms or re-wraps the note page
-    /// (`NotesPanelMetrics`).
+    /// `defaultNotesPanelWidth...windowWidth/2`. A wider pane widens the note page; it never zooms
+    /// it (`NotesPanelMetrics`).
     var notesPanelWidth: Double = ReaderSession.defaultNotesPanelWidth
     /// The search UI (WP10) is shown.
     var isSearchVisible = false

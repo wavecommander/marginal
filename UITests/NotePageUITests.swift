@@ -64,10 +64,11 @@ final class NotePageUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    /// A point on the note page, in note-page points from the page's top-left (any zoom: the
-    /// text view's frame is the page, 320 points wide at 100%).
+    /// A point on the note page, in note-page points from the page's top-left (any zoom and page
+    /// width: the zoom is the editor's accessibility value, "100%").
     private func pagePoint(_ app: XCUIApplication, x: CGFloat, y: CGFloat) -> XCUICoordinate {
-        let zoom = textView(app).frame.width / 320
+        let percent = Double(((editor(app).value as? String) ?? "100").trimmingCharacters(in: CharacterSet(charactersIn: "%"))) ?? 100
+        let zoom = CGFloat(percent / 100)
         return textView(app).coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x * zoom, dy: y * zoom))
     }
 
@@ -181,13 +182,13 @@ final class NotePageUITests: XCTestCase {
         let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: -450, dy: 0)),
                     withVelocity: 300, thenHoldForDuration: 0.3)
-        XCTAssertEqual(textView(app).frame.width, 320, accuracy: 2, "widening keeps the note's zoom (TSOFT-226)")
+        XCTAssertGreaterThan(textView(app).frame.width, 500, "the note page grew with the wider panel")
         // Narrowing the PDF re-fits it and can move the current page: go back to page 1.
         let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 Linear Systems")).firstMatch
         if heading.waitForExistence(timeout: 5) { heading.tap() }
         XCTAssertTrue(wait(textView(app), "value BEGINSWITH %@", "Why the determinant"))
         drawLine(app, y: 36, from: 14, to: 200)                       // underline the heading line
-        drawLine(app, y: 14 + 28 + 3 * 22 - 3, from: 150, to: 250)    // underline in the second paragraph
+        drawLine(app, y: 14 + 28 + 2 * 22 - 3, from: 150, to: 250)    // underline in the second paragraph (2 lines at the widened page's width)
         // A sketch in the blank space: axes and two eigenvector lines.
         pagePoint(app, x: 40, y: 335).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 280, y: 333))
         pagePoint(app, x: 160, y: 345).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: 161, y: 228))

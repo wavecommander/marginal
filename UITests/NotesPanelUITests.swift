@@ -138,9 +138,9 @@ final class NotesPanelUITests: XCTestCase {
                     withVelocity: 300, thenHoldForDuration: 0.3)
     }
 
-    /// A point on the note page in note-page points from its top-left (any zoom).
+    /// A point on the note page in note-page points from its top-left (any zoom, any page width).
     private func pagePoint(_ app: XCUIApplication, x: CGFloat, y: CGFloat) -> XCUICoordinate {
-        let scale = textView(app).frame.width / 320
+        let scale = CGFloat(percent(app)) / 100
         return textView(app).coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x * scale, dy: y * scale))
     }
 
@@ -148,9 +148,10 @@ final class NotesPanelUITests: XCTestCase {
         pagePoint(app, x: x0, y: y).press(forDuration: 0.2, thenDragTo: pagePoint(app, x: x1, y: y + 3))
     }
 
-    /// The note's zoom in whole percent, from the note page's width on screen (320 pt at 100%).
+    /// The note's zoom in whole percent (the editor's accessibility value, "100%"). The page's
+    /// width on screen does not tell it: a widened pane widens the page (TSOFT-226).
     private func percent(_ app: XCUIApplication) -> Int {
-        Int((textView(app).frame.width / 320 * 100).rounded())
+        Int(((editor(app).value as? String) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "%"))) ?? -1
     }
 
     // MARK: Tests
@@ -281,30 +282,32 @@ final class NotesPanelUITests: XCTestCase {
                                     "the note takes the space the list had: no divider, no empty region")
     }
 
-    /// Widening the pane neither zooms nor re-wraps the note (TSOFT-226); the shrink button
-    /// restores the width.
-    func testWideningKeepsTheNoteZoomAndShrinkRestoresTheWidth() {
+    /// Widening the pane widens the note page without zooming it: the text keeps its size and
+    /// re-wraps onto fewer lines (TSOFT-226). The shrink button restores the page and its lines.
+    func testWideningGrowsTheNoteWithoutZoomingAndShrinkRestoresIt() {
         let app = launch(fresh: true, page: 3)
         type(app, "A paragraph long enough to wrap onto several lines of the note page, so a reflow would show")
         XCTAssertEqual(percent(app), 100)
         let width = textView(app).frame.width
+        XCTAssertEqual(width, 320, accuracy: 1)
         let textHeight = writingSpace(app).frame.minY - textView(app).frame.minY
-        XCTAssertGreaterThan(textHeight / (width / 320), 14 + 2 * 22, "the paragraph wraps onto three lines")
+        XCTAssertGreaterThan(textHeight, 14 + 2 * 22, "the paragraph wraps onto three lines")
         let paneLeft = divider(app).frame.midX
 
         dragDivider(app, by: -220)
         XCTAssertTrue(app.buttons[ID.shrink].firstMatch.waitForExistence(timeout: 5), "shrink button while widened")
         XCTAssertLessThan(divider(app).frame.midX, paneLeft - 100, "the pane widened")
-        XCTAssertEqual(percent(app), 100, "the note kept its zoom in the wider pane")
-        XCTAssertEqual(textView(app).frame.width, width, accuracy: 1)
-        XCTAssertEqual(writingSpace(app).frame.minY - textView(app).frame.minY, textHeight, accuracy: 1,
-                       "same line breaks: not reflowed")
+        XCTAssertEqual(percent(app), 100, "the note did not zoom")
+        XCTAssertGreaterThan(textView(app).frame.width, width + 150, "the note page grew with the pane")
+        XCTAssertLessThan(writingSpace(app).frame.minY - textView(app).frame.minY, textHeight - 10,
+                          "same text size, re-wrapped onto fewer lines")
 
         app.buttons[ID.shrink].firstMatch.tap()
-        for _ in 0..<20 where divider(app).frame.midX < paneLeft - 1 { usleep(250_000) }
-        XCTAssertEqual(divider(app).frame.midX, paneLeft, accuracy: 1, "back to the default width")
+        for _ in 0..<20 where abs(textView(app).frame.width - width) > 1 { usleep(250_000) }
         XCTAssertEqual(percent(app), 100)
         XCTAssertEqual(textView(app).frame.width, width, accuracy: 1)
+        XCTAssertEqual(writingSpace(app).frame.minY - textView(app).frame.minY, textHeight, accuracy: 1,
+                       "the default line breaks are back")
         XCTAssertFalse(app.buttons[ID.shrink].firstMatch.exists)
     }
 

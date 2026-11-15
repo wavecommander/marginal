@@ -71,7 +71,8 @@ enum NotePageTextLayout {
             }
             bands.append(NoteParagraphBand(text: paragraphs[index], top: top, height: bottom - top))
         }
-        return NoteBandLayout(pageWidth: NotePageStyle.pageWidth, paragraphs: bands,
+        let pageWidth = textView.bounds.width > 0 ? textView.bounds.width : NotePageStyle.pageWidth
+        return NoteBandLayout(pageWidth: pageWidth, paragraphs: bands,
                               trailingTop: bands.last?.bottom ?? insetTop)
     }
 

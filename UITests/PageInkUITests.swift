@@ -368,7 +368,9 @@ final class PageInkUITests: XCTestCase {
         drawLine(app, x: 0.25, y: 0.32, length: 120)
         let noteText = app.textViews[ID.noteText].firstMatch
         if noteText.waitForExistence(timeout: 5) {
-            let zoom = noteText.frame.width / 320
+            // The editor's value is the zoom ("100%"); a widened pane widens the page instead.
+            let value = (app.otherElements[ID.noteEditor].firstMatch.value as? String) ?? "100%"
+            let zoom = CGFloat(Double(value.trimmingCharacters(in: CharacterSet(charactersIn: "%"))) ?? 100) / 100
             let top = noteText.coordinate(withNormalizedOffset: .zero)
             let lines: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [(20, 40, 250, 42), (40, 200, 280, 198), (160, 260, 161, 140)]
             for (x0, y0, x1, y1) in lines {

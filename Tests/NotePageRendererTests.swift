@@ -149,6 +149,53 @@ struct NotePageRendererTests {
         #expect(try store.notes.note(bookID: book.id, target: .page(0))?.text == "Inserted\nAlpha\nBeta word here")
     }
 
+    /// TSOFT-226: a wider page re-wraps the text at the same size, and ink moves with its
+    /// paragraph; the default width restores the line breaks and the ink.
+    @Test func editorPageWidthRewrapsTextAndMovesInkWithItsParagraph() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let model = NotePageModel(store: store, bookID: book.id, target: .page(0), origin: ChangeOrigin(),
+                                  autosaveDelay: .milliseconds(40))
+        let editor = NotePageEditorView(session: nil)
+        editor.frame = CGRect(x: 0, y: 0, width: 700, height: 700)
+        editor.isMarkupStandalone = true
+        editor.model = model
+        #expect(await Support.waitUntil { model.isLoaded })
+        editor.layoutIfNeeded()
+
+        let long = "A paragraph long enough to wrap onto several lines of the note page at its default width"
+        editor.textView.selectedRange = NSRange(location: 0, length: 0)
+        editor.textView.insertText(long + "\nSecond")
+        let narrow = try #require(editor.liveBandLayout(for: model.text))
+        #expect(narrow.pageWidth == NotePageStyle.pageWidth)
+        var drawing = editor.canvasView.drawing
+        drawing.strokes.append(Support.stroke(over: narrow.paragraphs[1]))
+        editor.canvasView.drawing = drawing
+        #expect(await Support.waitUntil { model.strokeCount == 1 })
+        let before = editor.canvasView.drawing.strokes[0].renderBounds
+
+        editor.pageWidth = 640
+        #expect(editor.pageWidth == 640)
+        #expect(editor.textView.frame.width == 640)
+        #expect(abs(editor.zoom - 1) < 0.0001, "a wider page is not a zoom")
+        let wide = try #require(editor.liveBandLayout(for: model.text))
+        #expect(wide.pageWidth == 640)
+        #expect(wide.paragraphs[0].height < narrow.paragraphs[0].height, "fewer lines on the wider page")
+        let moved = wide.paragraphs[1].top - narrow.paragraphs[1].top
+        #expect(moved < 0)
+        let wideStroke = editor.canvasView.drawing.strokes[0].renderBounds
+        #expect(abs((wideStroke.minY - before.minY) - moved) < 0.001, "the stroke moved with its paragraph")
+        #expect(abs(wideStroke.minX - before.minX) < 0.001)
+
+        editor.pageWidth = 100  // never narrower than the default page
+        #expect(editor.pageWidth == NotePageStyle.pageWidth)
+        #expect(editor.liveBandLayout(for: model.text) == narrow)
+        let back = editor.canvasView.drawing.strokes[0].renderBounds
+        #expect(abs(back.minY - before.minY) < 0.001)
+
+        await editor.flushPendingMarkup()
+    }
+
     @Test func editorRoutesTouchesByMode() async throws {
         let (store, book) = try Support.makeStore()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }

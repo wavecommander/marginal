@@ -108,7 +108,7 @@ final class MockupScreenshotUITests: XCTestCase {
 
     func test5MarkupPageAndNote() throws {
         let app = reader(["-markup", "-notesPanel", "page"])
-        // Widen the notes panel towards half the window (the note keeps its zoom and line breaks).
+        // Widen the notes panel towards half the window (the note page grows; it does not zoom).
         let divider = app.descendants(matching: .any)["reader.notesDivider"].firstMatch
         if divider.waitForExistence(timeout: 5) {
             let start = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
