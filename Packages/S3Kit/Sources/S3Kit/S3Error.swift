@@ -1,19 +1,34 @@
 import Foundation
 
-/// Everything S3Kit throws, apart from `CancellationError` when the calling task is cancelled.
+/// Everything S3Kit throws, apart from `CancellationError` when the calling task is cancelled
+/// and whatever an `S3CredentialsProvider` throws, which is passed through unchanged.
 ///
 /// Messages are plain language for the person using the app; the service's own error code,
 /// message and HTTP status are kept in the associated values for diagnostics. No case ever holds
-/// the secret access key (service messages are scrubbed of it before they are stored).
+/// the secret access key or a session token (service messages are scrubbed of both before they
+/// are stored).
+///
+/// Two outcomes of temporary credentials have their own reserved codes on existing cases (so
+/// code that switches over every case keeps compiling), each with its own message:
+/// `authenticationFailed(code: S3Error.temporaryCredentialsRejectedCode, …)` and
+/// `accessDenied(code: S3Error.notAllowedByCredentialsCode)`; test for them with
+/// `isTemporaryCredentialsRejected` and `isNotAllowedByCredentials`.
 public enum S3Error: Error, LocalizedError, Sendable, Equatable {
     /// The service rejected the access key or the request signature (`SignatureDoesNotMatch`,
     /// `InvalidAccessKeyId`, `AuthorizationHeaderMalformed`, R2's `Unauthorized`, ...).
     /// `clockSkewed` is true when it said the request time was too far from its own
     /// (`RequestTimeTooSkewed`, `RequestExpired`, R2's `ExpiredRequest`).
+    ///
+    /// With `temporaryCredentialsRejectedCode`: the service said the session token had expired
+    /// or was invalid, fresh credentials were fetched, and it rejected those too.
     case authenticationFailed(code: String, clockSkewed: Bool)
     /// `NoSuchBucket`.
     case bucketNotFound(bucket: String)
     /// `AccessDenied` (or a bare 403): the key is valid but lacks permission for this bucket or object.
+    ///
+    /// With `notAllowedByCredentialsCode`: the request was made with temporary credentials, which
+    /// don't cover this key or this action (outside their prefix, or a read-only credential
+    /// asked to write). Not retried.
     case accessDenied(code: String)
     /// `NoSuchKey` on a download.
     case objectNotFound(key: String)
@@ -39,6 +54,12 @@ public enum S3Error: Error, LocalizedError, Sendable, Equatable {
 
     public var errorDescription: String? {
         switch self {
+        case .authenticationFailed(Self.temporaryCredentialsRejectedCode, _):
+            return "The storage service didn't accept this device's access, even after it was renewed. "
+                + "Try again in a few minutes."
+        case .accessDenied(Self.notAllowedByCredentialsCode):
+            return "The storage service didn't allow this: the access this device was given doesn't cover this "
+                + "file or this change. The backup may be read-only at the moment."
         case .authenticationFailed(_, true):
             return "The storage service rejected the request because this device's clock is too far from the "
                 + "correct time. Turn on Set Automatically in Settings > General > Date & Time, then try again."
@@ -89,6 +110,41 @@ public enum S3Error: Error, LocalizedError, Sendable, Equatable {
         }
     }
 
+    /// The code of `authenticationFailed` when temporary credentials were rejected again after
+    /// being refreshed.
+    public static let temporaryCredentialsRejectedCode = "TemporaryCredentialsRejected"
+    /// The code of `accessDenied` when temporary credentials don't allow the key or the action.
+    public static let notAllowedByCredentialsCode = "NotAllowedByCredentials"
+
+    /// Temporary credentials were rejected as expired or invalid, and so were fresh ones.
+    public var isTemporaryCredentialsRejected: Bool {
+        if case .authenticationFailed(Self.temporaryCredentialsRejectedCode, _) = self { return true }
+        return false
+    }
+
+    /// Temporary credentials don't allow this key or action (for example, they are read-only).
+    public var isNotAllowedByCredentials: Bool {
+        if case .accessDenied(Self.notAllowedByCredentialsCode) = self { return true }
+        return false
+    }
+
+    /// The service codes that, for a request carrying a session token, mean "the credentials may
+    /// have expired or be invalid": refresh and retry once.
+    /// - From the documentation: R2's `Unauthorized` (HTTP 401, "Missing or invalid
+    ///   authentication credentials", whose documented fix includes checking they "have not
+    ///   expired"), and Amazon S3's `ExpiredToken` and `InvalidToken` (HTTP 400).
+    /// - Measured, not documented: on a real R2 bucket (15 November 2026) a request signed with a
+    ///   temporary credential whose JWT `exp` had passed was refused with HTTP 403
+    ///   `SignatureDoesNotMatch`. With a long-lived key it keeps meaning a wrong key or signature.
+    /// A bodiless 401 (a HEAD response) counts too; a bodiless 403 is ambiguous (see `S3Client`).
+    static let sessionTokenRejectedCodes: Set<String> = ["Unauthorized", "ExpiredToken", "InvalidToken",
+                                                         "SignatureDoesNotMatch"]
+    /// The codes that, for a request carrying a session token, mean "not allowed for this key or
+    /// action": R2's `AccessDenied` (HTTP 403), which its temporary-credentials example shows for
+    /// a key outside the credential's prefix (and which a real bucket returned for keys outside
+    /// the prefix and actions outside the allowed ones). Never retried.
+    static let notAllowedCodes: Set<String> = ["AccessDenied"]
+
     static let transientCodes: Set<String> = ["InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout",
                                               "TooManyRequests", "ClientDisconnect", "InternalErrors"]
     static let authenticationCodes: Set<String> = ["SignatureDoesNotMatch", "InvalidAccessKeyId", "Unauthorized",
@@ -111,7 +167,15 @@ public enum S3Error: Error, LocalizedError, Sendable, Equatable {
 
     static func from(status: Int, code: String?, message: String?, bucket: String, key: String?,
                      secret: String) -> S3Error {
-        let message = message.map { secret.isEmpty ? $0 : $0.replacingOccurrences(of: secret, with: "<redacted>") }
+        from(status: status, code: code, message: message, bucket: bucket, key: key, redacting: [secret])
+    }
+
+    /// `redacting`: every value (secret, session token) to scrub from a message kept.
+    static func from(status: Int, code: String?, message: String?, bucket: String, key: String?,
+                     redacting: [String]) -> S3Error {
+        let message = message.map { message in
+            redacting.filter { !$0.isEmpty }.reduce(message) { $0.replacingOccurrences(of: $1, with: "<redacted>") }
+        }
         if let code {
             if clockSkewCodes.contains(code) { return .authenticationFailed(code: code, clockSkewed: true) }
             if authenticationCodes.contains(code) { return .authenticationFailed(code: code, clockSkewed: false) }

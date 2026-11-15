@@ -11,27 +11,45 @@ import Foundation
 /// `x-amz-content-sha256` and every header passed in; pass only headers that are sent unchanged
 /// (`x-amz-*`, `Range`, `If-Match`, `Date`), not ones `URLSession` may rewrite.
 ///
-/// The secret access key is held privately and never appears in a description or mirror.
+/// With temporary credentials, the session token is sent as `X-Amz-Security-Token` and is one of
+/// the signed headers: AWS's "Create a signed AWS API request" requires every `x-amz-*` header
+/// sent, `x-amz-security-token` named among them, to be in the canonical headers, and Cloudflare
+/// R2 takes the token in that header on every request. Without a token, nothing changes.
+///
+/// The secret access key and session token are held privately and never appear in a description
+/// or mirror.
 public struct S3Signer: Sendable {
     /// The `x-amz-content-sha256` value for a payload that is not hashed.
     public static let unsignedPayload = "UNSIGNED-PAYLOAD"
     /// The SHA-256 of an empty payload, which bodiless requests (GET, HEAD, DELETE) sign.
     public static let emptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    /// The header that carries a session token.
+    public static let securityTokenHeader = "X-Amz-Security-Token"
 
     public let accessKeyID: String
     public let region: String
     public let service: String
     private let secretAccessKey: String
+    private let sessionToken: String?
     private let now: @Sendable () -> Date
 
-    /// - Parameter now: the clock used when `sign` is not given a date (injected for tests).
-    public init(accessKeyID: String, secretAccessKey: String, region: String, service: String = "s3",
-                now: @escaping @Sendable () -> Date = { Date() }) {
+    /// - Parameters:
+    ///   - sessionToken: the token of temporary credentials; `nil` (or empty) for a long-lived key.
+    ///   - now: the clock used when `sign` is not given a date (injected for tests).
+    public init(accessKeyID: String, secretAccessKey: String, sessionToken: String? = nil, region: String,
+                service: String = "s3", now: @escaping @Sendable () -> Date = { Date() }) {
         self.accessKeyID = accessKeyID
         self.secretAccessKey = secretAccessKey
+        self.sessionToken = sessionToken?.isEmpty == false ? sessionToken : nil
         self.region = region
         self.service = service
         self.now = now
+    }
+
+    public init(credentials: S3Credentials, region: String, service: String = "s3",
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(accessKeyID: credentials.accessKeyID, secretAccessKey: credentials.secretAccessKey,
+                  sessionToken: credentials.sessionToken, region: region, service: service, now: now)
     }
 
     public init(configuration: S3Configuration, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -39,7 +57,11 @@ public struct S3Signer: Sendable {
                   region: configuration.region, now: now)
     }
 
-    /// The headers to add to the request: `Authorization`, `x-amz-date` and `x-amz-content-sha256`.
+    /// Whether requests carry and sign `X-Amz-Security-Token`.
+    public var hasSessionToken: Bool { sessionToken != nil }
+
+    /// The headers to add to the request: `Authorization`, `x-amz-date` and `x-amz-content-sha256`,
+    /// and `X-Amz-Security-Token` when signing with a session token.
     ///
     /// - Parameters:
     ///   - headers: further headers that will be sent and must be signed (names in any case).
@@ -51,8 +73,10 @@ public struct S3Signer: Sendable {
                               date: date ?? now())
         let authorization = "AWS4-HMAC-SHA256 Credential=\(accessKeyID)/\(parts.scope),"
             + "SignedHeaders=\(parts.signedHeaders),Signature=\(parts.signature)"
-        return ["Authorization": authorization, "x-amz-date": parts.timestamp,
-                "x-amz-content-sha256": payloadSHA256]
+        var result = ["Authorization": authorization, "x-amz-date": parts.timestamp,
+                      "x-amz-content-sha256": payloadSHA256]
+        if let sessionToken { result[Self.securityTokenHeader] = sessionToken }
+        return result
     }
 
     /// The canonical request `sign` hashes, for diagnostics and tests.
@@ -118,10 +142,11 @@ public struct S3Signer: Sendable {
             .joined(separator: "&")
     }
 
-    /// The `host` header value `URLSession` sends for `url`: the host, plus the port when it is
-    /// not the scheme's default.
+    /// The `host` header value `URLSession` sends for `url`: the host (an IPv6 address in
+    /// brackets), plus the port when it is not the scheme's default.
     public static func hostHeader(for url: URL) -> String {
-        let host = url.host(percentEncoded: true) ?? ""
+        var host = url.host(percentEncoded: true) ?? ""
+        if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
         guard let port = url.port else { return host }
         let defaultPort = url.scheme?.lowercased() == "http" ? 80 : 443
         return port == defaultPort ? host : "\(host):\(port)"
@@ -157,6 +182,7 @@ public struct S3Signer: Sendable {
             let value = Self.canonicalHeaderValue(value)
             canonical[name] = canonical[name].map { "\($0),\(value)" } ?? value
         }
+        if let sessionToken { canonical["x-amz-security-token"] = Self.canonicalHeaderValue(sessionToken) }
         canonical["host"] = Self.hostHeader(for: url)
         canonical["x-amz-date"] = timestamp
         canonical["x-amz-content-sha256"] = payloadSHA256
@@ -200,12 +226,22 @@ public struct S3Signer: Sendable {
 }
 
 extension S3Signer: CustomStringConvertible, CustomReflectable {
+    /// With a session token the access key ID is redacted too: it belongs to temporary credentials.
     public var description: String {
-        "S3Signer(accessKeyID: \(accessKeyID), region: \(region), service: \(service), secretAccessKey: <redacted>)"
+        guard hasSessionToken else {
+            return "S3Signer(accessKeyID: \(accessKeyID), region: \(region), service: \(service), secretAccessKey: <redacted>)"
+        }
+        return "S3Signer(accessKeyID: <redacted>, region: \(region), service: \(service), secretAccessKey: <redacted>, "
+            + "sessionToken: <redacted>)"
     }
 
     public var customMirror: Mirror {
-        Mirror(self, children: ["accessKeyID": accessKeyID, "region": region, "service": service,
-                                "secretAccessKey": "<redacted>"], displayStyle: .struct)
+        guard hasSessionToken else {
+            return Mirror(self, children: ["accessKeyID": accessKeyID, "region": region, "service": service,
+                                           "secretAccessKey": "<redacted>"], displayStyle: .struct)
+        }
+        return Mirror(self, children: ["accessKeyID": "<redacted>", "region": region, "service": service,
+                                       "secretAccessKey": "<redacted>", "sessionToken": "<redacted>"],
+                      displayStyle: .struct)
     }
 }

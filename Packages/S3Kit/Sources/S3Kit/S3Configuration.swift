@@ -35,6 +35,14 @@ public struct S3Configuration: Hashable, Sendable {
         self.secretAccessKey = secretAccessKey
         self.prefix = trimmed(prefix).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
+
+    /// Where the bucket is: HTTPS to `host` (a `host:port` host gives the port).
+    public var endpoint: S3Endpoint { S3Endpoint(configuration: self) }
+
+    /// The long-lived key, with no session token and no expiry.
+    public var credentials: S3Credentials {
+        S3Credentials(accessKeyID: accessKeyID, secretAccessKey: secretAccessKey)
+    }
 }
 
 extension S3Configuration: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
