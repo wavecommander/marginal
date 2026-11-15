@@ -199,7 +199,12 @@ final class NotePageModel {
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.flush() }
+                // Taken before the task starts: the app can be suspended as soon as this returns.
+                let backgroundTask = BackgroundTaskAssertion(name: "Save note")
+                Task {
+                    await self.flush()
+                    backgroundTask.end()
+                }
             }
         }
         OpenEditorRegistry.shared.register(self)
@@ -297,8 +302,12 @@ final class NotePageModel {
     // MARK: Saving
 
     /// Saves anything pending now and waits for it (and for any save already running). Safe to
-    /// call repeatedly and when nothing is pending.
+    /// call repeatedly and when nothing is pending. Holds a background-task assertion until the
+    /// save is on disk, as page ink does (`PageInkPersistence`): a flush is what runs when a
+    /// window closes or the app backgrounds, and the app may be suspended right after.
     func flush() async {
+        let backgroundTask = BackgroundTaskAssertion(name: "Save note")
+        defer { backgroundTask.end() }
         debounceTask?.cancel()
         debounceTask = nil
         editor?.commitPendingInput(to: self)
