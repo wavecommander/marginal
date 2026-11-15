@@ -1,0 +1,186 @@
+// The HTTP contract between the app and this service, as TypeScript types. README.md describes
+// the same contract in prose; the two must agree. All bodies are JSON (UTF-8). Times are ISO 8601
+// strings in UTC; byte counts are whole numbers. Base64 is standard base64 with padding.
+
+import type { AccessMode } from "./tempCredentials";
+
+// ---------------------------------------------------------------------------------------------
+// Requests
+
+/** `POST /v1/challenge`: no body (or `{}`). */
+export type ChallengeRequest = Record<string, never>;
+
+/** `POST /v1/attest`. */
+export interface AttestRequest {
+  /** The App Attest key identifier, as `generateKey` returned it (base64). */
+  keyId: string;
+  /** A challenge from `/v1/challenge`, exactly as received. */
+  challenge: string;
+  /**
+   * The attestation object from `attestKey(keyId, clientDataHash:)` (base64), where
+   * `clientDataHash` = SHA-256 of the challenge's base64-decoded bytes.
+   */
+  attestation: string;
+}
+
+/**
+ * Body of `POST /v1/session` and `POST /v1/delete-my-data`. The exact body bytes are the App
+ * Attest `clientData`: the app signs SHA-256(body) with `generateAssertion(keyId,
+ * clientDataHash:)` and sends the result in headers (see `AUTH_HEADERS`).
+ */
+export interface AuthenticatedRequest {
+  /** Must name the endpoint: `"session"` for /v1/session, `"delete-my-data"` for /v1/delete-my-data. */
+  action: "session" | "delete-my-data";
+  /** A challenge from `/v1/challenge`, exactly as received. Single use. */
+  challenge: string;
+  /** The subscription's latest transaction (StoreKit `Transaction.jwsRepresentation`). */
+  signedTransaction: string;
+  /** Optional: its renewal info (`Product.SubscriptionInfo.RenewalInfo` JWS). Lets billing-retry and grace periods count. */
+  signedRenewalInfo?: string;
+}
+
+export const AUTH_HEADERS = {
+  /** The attested key's identifier (base64). */
+  keyId: "x-app-attest-key-id",
+  /** The assertion object from `generateAssertion` (base64). */
+  assertion: "x-app-attest-assertion",
+  /** `dev` deployment only, for the simulator (which has no App Attest). Ignored by production. */
+  bypass: "x-app-attest-bypass",
+} as const;
+
+/** `POST /v1/apple/notifications`: App Store Server Notifications V2. */
+export interface AppleNotificationRequest {
+  signedPayload: string;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Responses
+
+export interface HealthResponse {
+  ok: true;
+  environment: "dev" | "production";
+}
+
+export interface ChallengeResponse {
+  /** 32 random bytes, base64. */
+  challenge: string;
+  expiresAt: string;
+}
+
+export interface AttestResponse {
+  keyId: string;
+  /** Which App Attest environment the key belongs to. */
+  environment: "production" | "development";
+}
+
+export type SubscriptionStateName =
+  /** Paid and current. */
+  | "active"
+  /** Apple's billing grace period: renewal failed, access continues. */
+  | "grace-period"
+  /** Apple is retrying a failed renewal: access continues. */
+  | "billing-retry"
+  /** The subscription has ended (expired, or billing retry gave up). */
+  | "ended"
+  /** Apple refunded or revoked it. */
+  | "revoked";
+
+export interface SubscriptionInfo {
+  state: SubscriptionStateName;
+  /** `Production`, `Sandbox` or `Xcode`. Sandbox and Xcode data are kept apart from customers'. */
+  environment: "Production" | "Sandbox" | "Xcode";
+  productId: string;
+  /** End of the paid period Apple last reported (null if unknown). */
+  expiresAt: string | null;
+  /** When access ended; null while the subscription is active. */
+  endedAt: string | null;
+  /** Last moment restore is possible; null while active. */
+  readOnlyUntil: string | null;
+  /** When the backups are deleted unless the user resubscribes; null while active. */
+  deleteAfter: string | null;
+}
+
+export interface UsageInfo {
+  /** Bytes stored under the user's folder at the last count. */
+  bytes: number;
+  allowanceBytes: number;
+  /** True when `bytes` exceeds `allowanceBytes` (the mode is then `read-delete`). */
+  overAllowance: boolean;
+  countedAt: string;
+}
+
+/** `POST /v1/session`, 200. */
+export interface SessionResponse {
+  mode: AccessMode;
+  credentials: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    /** Send as `X-Amz-Security-Token` on every S3 request (and sign it). */
+    sessionToken: string;
+    expiresAt: string;
+  };
+  storage: {
+    /** `https://<host>`, the S3 endpoint. */
+    endpoint: string;
+    host: string;
+    /** Always `auto` for R2. */
+    region: "auto";
+    bucket: string;
+    /** The only folder these credentials reach, e.g. `users/<64 hex>/`. Every key starts with it. */
+    prefix: string;
+  };
+  subscription: SubscriptionInfo;
+  usage: UsageInfo;
+}
+
+/** `POST /v1/delete-my-data`, 200. Call again until `done` is true. */
+export interface DeleteMyDataResponse {
+  done: boolean;
+  /** Objects deleted by this call. */
+  deletedObjects: number;
+}
+
+/** `POST /v1/apple/notifications`, 200. */
+export interface AppleNotificationResponse {
+  ok: true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Errors: every non-2xx response is `ErrorResponse`.
+
+export const ERRORS = {
+  "bad-request": { status: 400, message: "The request was not understood." },
+  "not-found": { status: 404, message: "No such endpoint." },
+  "method-not-allowed": { status: 405, message: "That method is not allowed here." },
+  "body-too-large": { status: 413, message: "The request is too large." },
+  "unsupported-media-type": { status: 415, message: "Send the request as JSON." },
+  "challenge-invalid": { status: 401, message: "The request expired. Try again." },
+  "attestation-invalid": { status: 401, message: "This copy of the app could not be verified." },
+  "device-already-attested": { status: 409, message: "This device is already registered." },
+  "device-unknown": { status: 401, message: "This device needs to be registered again." },
+  "assertion-invalid": { status: 401, message: "This copy of the app could not be verified." },
+  "transaction-invalid": { status: 401, message: "The subscription could not be verified." },
+  "product-unknown": { status: 403, message: "This purchase does not include cloud backup." },
+  "environment-not-accepted": { status: 403, message: "Purchases from this environment are not accepted here." },
+  "subscription-revoked": { status: 403, message: "This subscription was refunded or revoked." },
+  "subscription-lapsed": { status: 403, message: "Your subscription has ended. Resubscribe to restore access to your backups before they are deleted." },
+  "data-deleted": { status: 403, message: "Your subscription ended and its backups have been deleted." },
+  "notification-invalid": { status: 401, message: "The notification could not be verified." },
+  internal: { status: 500, message: "Something went wrong. Try again later." },
+} as const satisfies Record<string, { status: number; message: string }>;
+
+export type ErrorCode = keyof typeof ERRORS;
+
+export interface ErrorResponse {
+  error: {
+    /** Stable; the app branches on this. */
+    code: ErrorCode;
+    /** A sentence for a person. */
+    message: string;
+  };
+  /**
+   * Present with `subscription-revoked`, `subscription-lapsed` and `data-deleted`, so the app
+   * can show the dates.
+   */
+  subscription?: SubscriptionInfo;
+}

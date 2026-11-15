@@ -45,7 +45,7 @@ public struct FolderBackupDestination: BackupDestination {
     public let displayName: String
     /// The destination's folder.
     public let root: URL
-    private let access: AccessHook
+    let access: AccessHook
 
     /// A destination rooted at `root`. `id` defaults to `folder:<root path>` and `displayName`
     /// to the folder's name.

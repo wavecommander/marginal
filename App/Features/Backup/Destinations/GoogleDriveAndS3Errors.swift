@@ -44,6 +44,16 @@ nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
     /// The service answered in a way the app does not handle. `diagnostic` is for logs (an HTTP
     /// status and the service's error code), not shown to the reader.
     case serviceError(destination: String, diagnostic: String?)
+    /// The temporary access the backup service gave this device does not cover this object or
+    /// this change (S3Kit's `isNotAllowedByCredentials`). With the Tactile Texts backup service
+    /// that means the backups are read-only for now (the subscription has ended) or over the
+    /// plan's storage allowance (only reading and deleting are allowed). Not retried; the UI
+    /// asks the service for the current status and explains which.
+    case notAllowedByAccess(destination: String)
+    /// The storage service refused this device's temporary access as expired or invalid, and
+    /// refused freshly issued access too (S3Kit's `isTemporaryCredentialsRejected`). The fix is
+    /// to ask the backup service for access again later.
+    case accessNeedsRenewal(destination: String)
 
     var errorDescription: String? {
         switch self {
@@ -73,6 +83,10 @@ nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
             "The storage that this build of Tactile Texts uses for \(destination) doesn’t exist."
         case .serviceError(let destination, _):
             "\(destination) gave an unexpected response. Try again later."
+        case .notAllowedByAccess(let destination):
+            "\(destination) didn’t allow this change. Your backups there may be read-only for now, or over your plan’s storage allowance."
+        case .accessNeedsRenewal(let destination):
+            "\(destination) didn’t accept this iPad’s access, even after renewing it. Try again in a few minutes."
         }
     }
 
@@ -91,12 +105,15 @@ nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
 nonisolated enum CloudErrorSubject: Sendable {
     case snapshot(name: String)
     case pdf(sha256: String)
+    /// An object of a `BackupBlobStore`, by its name within its folder.
+    case object(name: String)
     case other
 
     var fileName: String {
         switch self {
         case .snapshot(let name): name
         case .pdf(let sha256): BackupFolderLayout.pdfFileName(sha256: sha256)
+        case .object(let name): name
         case .other: ""
         }
     }
@@ -125,8 +142,14 @@ nonisolated extension CloudBackupError {
     }
 
     /// Maps anything an S3 call threw, for the destination named `destination`.
+    ///
+    /// The two outcomes of temporary credentials keep their own cases: a refusal of the key or
+    /// action becomes `notAllowedByAccess`, and access rejected again after a refresh becomes
+    /// `accessNeedsRenewal`. (A long-lived key never produces either.)
     static func mapping(s3 error: any Error, subject: CloudErrorSubject, destination: String) -> any Error {
         guard let s3 = error as? S3Error else { return mapping(other: error, subject: subject) }
+        if s3.isNotAllowedByCredentials { return CloudBackupError.notAllowedByAccess(destination: destination) }
+        if s3.isTemporaryCredentialsRejected { return CloudBackupError.accessNeedsRenewal(destination: destination) }
         switch s3 {
         case .authenticationFailed(_, let clockSkewed):
             return clockSkewed ? CloudBackupError.clockWrong(destination: destination)
@@ -154,6 +177,7 @@ nonisolated extension CloudBackupError {
         switch subject {
         case .snapshot(let name): BackupError.snapshotNotFound(name: name)
         case .pdf(let sha256): BackupError.pdfNotAtDestination(sha256: sha256)
+        case .object(let name): BackupError.fileNotFound(name: name)
         case .other: CloudBackupError.serviceError(destination: destination, diagnostic: "not found")
         }
     }

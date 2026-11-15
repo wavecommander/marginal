@@ -77,6 +77,26 @@ public enum BackupError: LocalizedError, Hashable, Sendable {
     /// The destination holds no PDF with this SHA-256.
     case pdfNotAtDestination(sha256: String)
 
+    // MARK: Encryption
+
+    /// The backups at the destination were encrypted with a different key than this device has.
+    /// The reader must enter their recovery key. Nothing is uploaded while this is so.
+    case wrongEncryptionKey
+    /// An encrypted object failed authentication: it was damaged, cut short, or changed by
+    /// someone without the key. `name` is what the reader would recognise (the snapshot name, a
+    /// PDF's file name, or the object's name).
+    case encryptedObjectDamaged(name: String)
+    /// Raw key bytes of the wrong length were given for a backup encryption key.
+    case invalidEncryptionKey
+    /// A recovery key has too many or too few characters.
+    case recoveryKeyWrongLength
+    /// A recovery key contains a character that cannot be part of one. `position` counts the
+    /// key's characters from 1, ignoring spaces and dashes.
+    case recoveryKeyInvalidCharacter(position: Int)
+    /// A recovery key's characters are all valid but its check characters do not match: it was
+    /// mistyped.
+    case recoveryKeyTypo
+
     // MARK: Files
 
     /// A file or folder does not exist.
@@ -144,6 +164,18 @@ public enum BackupError: LocalizedError, Hashable, Sendable {
             "“\(name)” isn’t a valid backup name."
         case .pdfNotAtDestination:
             "The PDF isn’t in the backup location."
+        case .wrongEncryptionKey:
+            "These backups were encrypted with a different key. Enter your recovery key to use them."
+        case .encryptedObjectDamaged(let name):
+            "Part of the backup (“\(name)”) is damaged or has been changed, so it can’t be used."
+        case .invalidEncryptionKey:
+            "The backup encryption key isn’t valid."
+        case .recoveryKeyWrongLength:
+            "That recovery key has the wrong number of characters. Check it and try again."
+        case .recoveryKeyInvalidCharacter(let position):
+            "Character \(position) of the recovery key isn’t one a recovery key can contain. Check it and try again."
+        case .recoveryKeyTypo:
+            "That recovery key has a typing mistake. Check each character and try again."
         case .fileNotFound(let name):
             "“\(name)” can’t be found. It may have been moved or deleted."
         case .permissionDenied(let name):

@@ -384,3 +384,23 @@ Package tests run with `swift test` in each of `ReaderBackup`, `GoogleDriveKit` 
 three are in `scripts/test.sh`). App tests are the `Backup*` classes in `Tests/` and
 `UITests/BackupUITests`. What only a device or a real account can check is in
 `docs/DEVICE_CHECKLIST.md` under "Backup and restore".
+
+## Tactile Texts Cloud (packages C0 to C5, added 15 November 2026)
+
+Design: "Tactile Texts Cloud (the paid backup service)" in `docs/DESIGN.md`. Built on branch
+`cloud-backup` with the same rules as above (Opus for every package, targeted tests only, at
+most three build or simulator agents at once, iOS 27 simulators). The Worker's own tests run in
+the Workers runtime.
+
+| Package | What it is | Where |
+| --- | --- | --- |
+| C0 | Scaffold and proof: the Worker project, minting scoped temporary R2 credentials, and a live test of the S3 client against a development bucket | `Backend/backup-worker/` |
+| C1 | S3Kit session tokens: temporary credentials with a session token, refreshed as a transfer goes, retried once when R2 rejects them | `Packages/S3Kit` |
+| C2 | Encryption on the device: `EncryptedBackupDestination` over a plain blob store, per-file keys, encrypted names, the key check, the recovery key with typo detection | `Packages/ReaderBackup` |
+| C3 | The Worker: App Store transaction and App Attest verification, sessions by subscription state, App Store Server Notifications, delete-my-data, the daily deletion job | `Backend/backup-worker/` |
+| C4 | App client and destination: S3 blob store, Keychain key store, StoreKit subscription model, App Attest, the service client, `CloudBackupAccount` and the `tactile-cloud` destination | `App/Features/Backup/CloudService/` |
+| C5 | UI: the offer, the status page with a banner per state, the recovery key and Enter Recovery Key, Delete My Cloud Backups, the Terms and Privacy build settings, and a debug-only UI-test mode on fakes (`-cloudBackupUITest`) | `App/Features/Backup/UI/` |
+
+App tests are the `BackupCloudService*` classes and `CloudBackupUILogicTests` in `Tests/`, and
+`UITests/CloudBackupUITests`. What only a device, a paid developer team and a sandbox account
+can check is in `docs/DEVICE_CHECKLIST.md` under "Tactile Texts Cloud".

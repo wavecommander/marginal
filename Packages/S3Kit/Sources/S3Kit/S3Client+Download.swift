@@ -43,13 +43,19 @@ extension S3Client {
             try? handle.close()
             try? FileManager.default.removeItem(at: partial)
             if error is S3Error || error is CancellationError { throw error }
+            // What the credentials provider threw passes through as it is, as for every other call.
+            if let provider = error as? CredentialsProviderFailure { throw provider.underlying }
             throw S3Error.fileAccess(path: destination.path, reason: error.localizedDescription)
         }
     }
 
-    /// Requests until the whole object has been written to `state`.
+    /// Requests until the whole object has been written to `state`. Each request (the first and
+    /// every ranged resumption) is signed with the provider's credentials of the moment; a
+    /// response rejecting the session token gets the provider told and the same request sent
+    /// once more, at once, with fresh credentials.
     private func receive(fullKey: String, key: String, into state: DownloadState) async throws {
         var failures = 0
+        var tokenJustRejected = false
         while true {
             try Task.checkCancellation()
             let before = state.snapshot()
@@ -60,8 +66,23 @@ extension S3Client {
                 request.signedHeaders["Range"] = "bytes=\(before.written)-"
                 if let eTag = before.eTag { request.signedHeaders["If-Match"] = eTag }
             }
-            let outcome = await runDownloadTask(try urlRequest(for: request), state: state)
+            let credentials: S3Credentials
+            do {
+                credentials = try await credentialsProvider.credentials()
+            } catch {
+                throw CredentialsProviderFailure(underlying: error)
+            }
+            let outcome = await runDownloadTask(try urlRequest(for: request, credentials: credentials), state: state)
             let after = state.snapshot()
+            if case .httpError(let status, let body) = outcome,
+               let rejection = failure(status: status, body: body, key: key, credentials: credentials)
+                as? SessionTokenRejected {
+                await credentialsProvider.credentialsRejected(credentials)
+                if tokenJustRejected { throw rejection.ifRepeated }
+                tokenJustRejected = true
+                continue
+            }
+            tokenJustRejected = false
             let lastError: S3Error
             switch outcome {
             case .finished:
@@ -73,8 +94,9 @@ extension S3Client {
                 guard after.written < total else { throw lastError }
                 failures = after.written > before.written ? 0 : failures + 1
             case .httpError(let status, let body):
-                let error = S3Error.from(status: status, body: body, bucket: configuration.bucket, key: key,
-                                         secret: configuration.secretAccessKey)
+                // Not a token rejection (handled above), so always an `S3Error`.
+                let mapped = failure(status: status, body: body, key: key, credentials: credentials)
+                let error = mapped as? S3Error ?? .unexpectedResponse(status: status, code: nil, message: nil)
                 if status == 412 || (status == 416 && before.written > 0) {
                     // The object changed since the download started, or the range no longer fits: start over.
                     try state.restart()
@@ -107,6 +129,12 @@ extension S3Client {
             task.cancel()
         }
     }
+}
+
+/// Marks an error the credentials provider threw during a download, so `download` can tell it
+/// from a local file error and rethrow it unchanged.
+private struct CredentialsProviderFailure: Error {
+    let underlying: any Error
 }
 
 enum DownloadOutcome: Sendable {

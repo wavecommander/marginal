@@ -9,6 +9,8 @@ Fixtures/out/
 xcuserdata/
 .DS_Store
 .swiftpm/
+# The Cloudflare CLI's local cache (account details)
+.cloudflare/
 # Claude Code agent worktrees
 .claude/worktrees/
 # Local signing settings (team ID); see Config/Local.xcconfig.example

@@ -28,3 +28,22 @@ CODE_SIGNING_REQUIRED = YES
 // Optional: a key prefix inside the bucket, and the name the app shows for this destination.
 // S3_BACKUP_PREFIX = ipad
 // S3_BACKUP_NAME = Cloudflare R2
+
+// The Tactile Texts cloud backup service (paid backups, encrypted on the iPad). Both values are
+// needed and neither is a secret. The host has no scheme ("//" starts a comment in this file):
+// a loopback host (localhost, 127.0.0.1, [::1]) is reached over plain HTTP, for a local
+// `wrangler dev` of Backend/backup-worker; any other host over HTTPS. The product IDs are the
+// auto-renewable subscriptions in App Store Connect, comma-separated; in the simulator the
+// scheme's StoreKit configuration (Config/Marginal.storekit) sells them with no App Store account.
+// App Attest needs no entitlement for development builds (they use Apple's sandbox servers).
+// BACKUP_SERVICE_HOST = localhost:8787
+// BACKUP_PRODUCT_IDS = software.tactile.marginal.backup.standard
+// Development only: the simulator has no App Attest, so against a local or `dev` Worker it sends
+// this value (the Worker's APP_ATTEST_BYPASS_SECRET in Backend/backup-worker/.dev.vars) instead.
+// Debug builds only; it is readable in the built app. Never with the production Worker.
+// BACKUP_SERVICE_ATTEST_BYPASS = <the dev Worker's APP_ATTEST_BYPASS_SECRET>
+// The Terms of Use and Privacy Policy the subscription offer links to (App Review requires both
+// for an auto-renewable subscription). Without "https://" ("//" starts a comment in this file);
+// the app adds it. A link left empty is not shown.
+// BACKUP_TERMS_URL = example.com/tactile-texts/terms
+// BACKUP_PRIVACY_URL = example.com/tactile-texts/privacy

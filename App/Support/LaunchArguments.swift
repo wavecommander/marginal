@@ -114,6 +114,14 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// book's stored one (the stored choice is untouched). Unknown names are ignored.
     var scrollDirection: ReaderScrollDirection?
 
+    #if DEBUG
+    /// `-cloudBackupUITest <state>` (DEBUG, UI tests and screenshots): Tactile Texts Cloud built
+    /// from fakes in that starting state (`CloudBackupUITestState`: `notSubscribed`, `active`,
+    /// `readOnly`, `needsRecoveryKey`, …) instead of from the build's settings, so its screens
+    /// work without a Worker or the App Store (`CloudBackupUITestMode`).
+    var cloudBackupUITest: String?
+    #endif
+
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
@@ -221,6 +229,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                     index += 1
                     if let ms = Int(text), ms >= 0 { stubConverterPageDelay = ms }
                 }
+            #if DEBUG
+            case "-cloudBackupUITest":
+                if let state = value(after: index) { cloudBackupUITest = state; index += 1 }
+            #endif
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:
