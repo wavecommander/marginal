@@ -1,0 +1,70 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "6C1F0A2E",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_GB",
+    "_storefront" : "GBR",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21800001",
+      "localizations" : [
+
+      ],
+      "name" : "Tactile Texts Cloud Backup",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6800000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Encrypted backups of your library, notes and ink (placeholder text).",
+              "displayName" : "Cloud Backup (placeholder)",
+              "locale" : "en_GB"
+            }
+          ],
+          "productID" : "software.tactile.marginal.backup.standard",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Cloud Backup Standard Monthly",
+          "subscriptionGroupID" : "21800001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
