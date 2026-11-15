@@ -94,5 +94,6 @@ nonisolated struct ConverterRegistry: Sendable {
     /// The app's converters. Each converter package adds its line here.
     static let standard = ConverterRegistry([
         ImagesConverter(),
+        EPUBConverter(),
     ])
 }

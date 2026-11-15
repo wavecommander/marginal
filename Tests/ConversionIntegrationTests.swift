@@ -71,4 +71,43 @@ struct ConversionIntegrationTests {
         if case .success(.existing(let existing)) = again.first?.result { #expect(existing.id == book.id) }
         else { Issue.record("a second import did not find the existing book") }
     }
+
+    /// A real EPUB from this machine's Downloads through the whole flow. Skipped when absent.
+    @Test(arguments: ["pg79999-images-3.epub", "pg80000-images-3.epub"])
+    func aRealEPUBBecomesABookThroughTheSheet(name: String) async throws {
+        let epub = URL(fileURLWithPath: "/Users/benw/Downloads").appendingPathComponent(name)
+        guard FileManager.default.isReadableFile(atPath: epub.path) else { return }
+        let (store, service, scratch) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: store.rootDirectory)
+            try? FileManager.default.removeItem(at: scratch)
+        }
+        let window = ObjectIdentifier(service)
+        _ = await service.importFiles([epub], requester: window)
+        let request = try #require(service.conversionRequest(for: window))
+        #expect(request.groups == [.epub])
+        #expect(request.offersTextSizeChoice)
+        let results = await service.convert(request.id, options: ConversionOptions())
+        guard case .success(.imported(let book)) = results.first?.result else {
+            Issue.record("the EPUB was not imported: \(String(describing: results.first?.result))"); return
+        }
+        #expect(book.sourceFormat == .epub)
+        #expect(book.originalFileName == name)
+        #expect(book.pageCount > 100)
+        #expect(!book.title.isEmpty && !book.title.hasPrefix("pg"))
+        let pdfURL = store.rootDirectory.appendingPathComponent(BookStorageLayout.documentPath(bookID: book.id, fileName: book.fileName))
+        let pdf = try #require(PDFDocument(url: pdfURL))
+        #expect(pdf.pageCount == book.pageCount)
+        #expect((pdf.outlineRoot?.numberOfChildren ?? 0) > 0)
+        #expect(FileManager.default.fileExists(atPath: service.coverURL(for: book).path))
+        // Keep a copy outside the sandboxed store for a look by eye.
+        let out = URL(fileURLWithPath: "/Users/benw/dev/marginal/build/converted", isDirectory: true)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let copy = out.appendingPathComponent(name + ".pdf")
+        try? FileManager.default.removeItem(at: copy)
+        try? FileManager.default.copyItem(at: pdfURL, to: copy)
+        try? FileManager.default.removeItem(at: out.appendingPathComponent(name + ".cover.jpg"))
+        try? FileManager.default.copyItem(at: service.coverURL(for: book), to: out.appendingPathComponent(name + ".cover.jpg"))
+        print("REALBOOK \(name): title=\(book.title) pages=\(book.pageCount) size=\(book.fileSize) outlineTop=\(pdf.outlineRoot?.numberOfChildren ?? 0)")
+    }
 }
