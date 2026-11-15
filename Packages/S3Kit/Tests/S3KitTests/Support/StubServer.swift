@@ -62,7 +62,10 @@ final class StubServer: @unchecked Sendable {
     static let accessKeyID = "AKIDTESTEXAMPLE"
     static let bucket = "backup-bucket"
 
-    let host = "s3-\(UUID().uuidString.lowercased()).stub.test"
+    /// A unique host, or a loopback host (`localhost`, `127.0.0.1`, `[::1]`) made unique by `port`.
+    let host: String
+    /// `nil` except for a loopback stub, which gets its own port so parallel tests don't collide.
+    let port: Int?
     let session: URLSession
     private let lock = NSLock()
     private var script: [Expectation] = []
@@ -74,31 +77,63 @@ final class StubServer: @unchecked Sendable {
     private(set) var sleeps: [Duration] { get { lock.withLock { _sleeps } } set { lock.withLock { _sleeps = newValue } } }
     private var _sleeps: [Duration] = []
 
-    init() {
+    /// - Parameter loopbackHost: serve a loopback host (on a port of its own) instead of a unique host.
+    init(loopbackHost: String? = nil) {
+        if let loopbackHost {
+            host = loopbackHost
+            port = StubProtocol.nextPort()
+        } else {
+            host = "s3-\(UUID().uuidString.lowercased()).stub.test"
+            port = nil
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubProtocol.self]
         session = URLSession(configuration: configuration)
         (stalls, stallContinuation) = AsyncStream<RecordedRequest>.makeStream()
-        StubProtocol.register(self, for: host)
+        StubProtocol.register(self, for: StubProtocol.key(host: host, port: port))
     }
 
-    deinit { StubProtocol.unregister(host) }
+    deinit { StubProtocol.unregister(StubProtocol.key(host: host, port: port)) }
 
     func configuration(prefix: String = "app/ipad") -> S3Configuration {
         S3Configuration(host: host, region: "auto", bucket: Self.bucket, accessKeyID: Self.accessKeyID,
                         secretAccessKey: Self.secret, prefix: prefix)!
     }
 
+    /// The stub's endpoint: HTTPS for a unique host, `http` with the port and `basePath` for a
+    /// loopback one.
+    func endpoint(prefix: String = "app/ipad", basePath: String = "") -> S3Endpoint {
+        port == nil
+            ? S3Endpoint(host: host, region: "auto", bucket: Self.bucket, prefix: prefix)!
+            : S3Endpoint(scheme: "http", host: host, port: port, basePath: basePath, region: "auto",
+                         bucket: Self.bucket, prefix: prefix)!
+    }
+
+    var retryPolicy: S3RetryPolicy { retryPolicy(maxAttempts: 4) }
+
+    /// Retries that don't wait (the waits are recorded in `sleeps`).
+    func retryPolicy(maxAttempts: Int) -> S3RetryPolicy {
+        S3RetryPolicy(maxAttempts: maxAttempts, initialDelay: .milliseconds(100), maximumDelay: .seconds(2),
+                      sleep: { [weak self] duration in
+                          self?.sleeps.append(duration)
+                          try Task.checkCancellation()
+                      }, random: { 1 })
+    }
+
+    static let signingDate = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01T00:00:00Z
+
     /// A client whose retries don't wait (the waits are recorded in `sleeps`).
     func client(prefix: String = "app/ipad", maxAttempts: Int = 4) -> S3Client {
-        let policy = S3RetryPolicy(maxAttempts: maxAttempts, initialDelay: .milliseconds(100), maximumDelay: .seconds(2),
-                                   sleep: { [weak self] duration in
-                                       self?.sleeps.append(duration)
-                                       try Task.checkCancellation()
-                                   }, random: { 1 })
-        let date = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01T00:00:00Z
-        return S3Client(configuration: configuration(prefix: prefix), session: session, retryPolicy: policy,
-                        now: { date })
+        let date = Self.signingDate
+        return S3Client(configuration: configuration(prefix: prefix), session: session,
+                        retryPolicy: retryPolicy(maxAttempts: maxAttempts), now: { date })
+    }
+
+    /// A client for `endpoint` (the stub's own by default) signing with `provider`.
+    func client(provider: any S3CredentialsProvider, endpoint: S3Endpoint? = nil, maxAttempts: Int = 4) -> S3Client {
+        let date = Self.signingDate
+        return S3Client(endpoint: endpoint ?? self.endpoint(), credentialsProvider: provider, session: session,
+                        retryPolicy: retryPolicy(maxAttempts: maxAttempts), now: { date })
     }
 
     func expect(_ method: String, _ target: String, sourceLocation: SourceLocation = #_sourceLocation,
@@ -126,8 +161,16 @@ final class StubServer: @unchecked Sendable {
     }
 
     /// Fails the test for unexpected requests, unmet expectations, and any header or URL that
-    /// carries the secret.
-    func verify(sourceLocation: SourceLocation = #_sourceLocation) {
+    /// carries the secret (or one of `secrets`).
+    func verify(secrets: [String] = [], sourceLocation: SourceLocation = #_sourceLocation) {
+        for request in requests {
+            for secret in secrets {
+                #expect(!request.url.absoluteString.contains(secret), sourceLocation: sourceLocation)
+                for (name, value) in request.headers {
+                    #expect(!value.contains(secret), "header \(name) carries a secret", sourceLocation: sourceLocation)
+                }
+            }
+        }
         let (unexpected, remaining, all) = lock.withLock { (unexpectedRequests, script, recorded) }
         for request in unexpected {
             Issue.record("Unexpected request: \(request.method) \(request.target)", sourceLocation: sourceLocation)
@@ -166,15 +209,28 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     private nonisolated(unsafe) static var servers: [String: StubServer] = [:]
     private static let lock = NSLock()
 
-    static func register(_ server: StubServer, for host: String) { lock.withLock { servers[host] = server } }
-    static func unregister(_ host: String) { lock.withLock { _ = servers.removeValue(forKey: host) } }
-    static func server(for host: String?) -> StubServer? { lock.withLock { host.flatMap { servers[$0] } } }
+    private nonisolated(unsafe) static var lastPort = 41_000
+
+    /// The registry key: the bare host (no IPv6 brackets), with the port when there is one.
+    static func key(host: String, port: Int?) -> String {
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        return port.map { "\(bare):\($0)" } ?? bare
+    }
+
+    static func nextPort() -> Int { lock.withLock { lastPort += 1; return lastPort } }
+    static func register(_ server: StubServer, for key: String) { lock.withLock { servers[key] = server } }
+    static func unregister(_ key: String) { lock.withLock { _ = servers.removeValue(forKey: key) } }
+    static func server(for url: URL) -> StubServer? {
+        guard let host = url.host() else { return nil }
+        let key = key(host: host, port: url.port)
+        return lock.withLock { servers[key] }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let url = request.url, let server = Self.server(for: url.host()) else {
+        guard let url = request.url, let server = Self.server(for: url) else {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }

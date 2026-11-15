@@ -98,51 +98,59 @@ extension S3Client {
                               query: [("partNumber", String(number)), ("uploadId", uploadID)],
                               body: .file(partFile), payloadSHA256: hash)
         return try await withRetries {
-            let (data, response) = try await perform(request)
-            guard (200..<300).contains(response.statusCode) else {
-                throw S3Error.from(status: response.statusCode, body: data, bucket: configuration.bucket, key: key,
-                                   secret: configuration.secretAccessKey)
+            try await withCredentials { credentials in
+                let (data, response) = try await perform(request, credentials: credentials)
+                guard (200..<300).contains(response.statusCode) else {
+                    throw failure(status: response.statusCode, body: data, key: key, credentials: credentials)
+                }
+                guard let eTag = Self.lowercasedHeaders(response)["etag"], !eTag.isEmpty else {
+                    throw S3Error.unexpectedResponse(status: response.statusCode, code: nil,
+                                                     message: "Part \(number) was stored without an ETag.")
+                }
+                return eTag
             }
-            guard let eTag = Self.lowercasedHeaders(response)["etag"], !eTag.isEmpty else {
-                throw S3Error.unexpectedResponse(status: response.statusCode, code: nil,
-                                                 message: "Part \(number) was stored without an ETag.")
-            }
-            return eTag
         }
     }
 
     /// `CompleteMultipartUpload`, treating an `<Error>` body as a failure even with HTTP 200.
-    /// `NoSuchUpload` on a retry means an earlier attempt completed it; `head` then confirms.
+    /// `NoSuchUpload` after an earlier attempt that may have reached the service means that
+    /// attempt completed it; `head` then confirms. (An attempt refused for its session token
+    /// did nothing, so it doesn't count.)
     func completeMultipartUpload(fullKey: String, key: String, uploadID: String,
                                  parts: [(number: Int, eTag: String)]) async throws {
         let body = S3XML.completeBody(parts: parts)
         var request = Request(method: "POST", key: fullKey, query: [("uploadId", uploadID)], body: .data(body),
                               payloadSHA256: S3Signer.hex(SHA256.hash(data: body)))
         request.otherHeaders["Content-Type"] = "application/xml"
-        var attempts = 0
+        var earlierAttempts = 0
         try await withRetries {
-            attempts += 1
-            let (data, response) = try await perform(request)
-            guard (200..<300).contains(response.statusCode) else {
-                let error = S3Error.from(status: response.statusCode, body: data, bucket: configuration.bucket,
-                                         key: key, secret: configuration.secretAccessKey)
-                if attempts > 1, case .unexpectedResponse(_, "NoSuchUpload", _) = error { return }
+            try await withCredentials { credentials in
+                let mayHaveCompleted = earlierAttempts > 0
+                earlierAttempts += 1
+                let (data, response) = try await perform(request, credentials: credentials)
+                let error: any Error
+                if (200..<300).contains(response.statusCode) {
+                    let result: S3XML.CompleteResult
+                    do { result = try S3XML.completeResult(from: data) } catch {
+                        throw S3Error.unexpectedResponse(status: response.statusCode, code: nil,
+                                                         message: "The upload's completion couldn't be confirmed.")
+                    }
+                    guard case .failed(let serviceError) = result else { return }
+                    error = failure(status: response.statusCode, code: serviceError.code,
+                                    message: serviceError.message, key: key, credentials: credentials)
+                } else {
+                    error = failure(status: response.statusCode, body: data, key: key, credentials: credentials)
+                }
+                if mayHaveCompleted, case S3Error.unexpectedResponse(_, "NoSuchUpload", _) = error { return }
+                if error is SessionTokenRejected { earlierAttempts -= 1 }
                 throw error
-            }
-            let result: S3XML.CompleteResult
-            do { result = try S3XML.completeResult(from: data) } catch {
-                throw S3Error.unexpectedResponse(status: response.statusCode, code: nil,
-                                                 message: "The upload's completion couldn't be confirmed.")
-            }
-            if case .failed(let serviceError) = result {
-                throw S3Error.from(status: response.statusCode, code: serviceError.code, message: serviceError.message,
-                                   bucket: configuration.bucket, key: key, secret: configuration.secretAccessKey)
             }
         }
     }
 
-    /// `AbortMultipartUpload`, retried on transient failures; failures are otherwise ignored
-    /// (the caller is already throwing, and the service expires stale uploads in the end).
+    /// `AbortMultipartUpload`, retried on transient failures and signed, like every request, with
+    /// the provider's credentials of the moment; failures are otherwise ignored (the caller is
+    /// already throwing, and the service expires stale uploads in the end).
     func abortMultipartUpload(fullKey: String, key: String, uploadID: String) async {
         let request = Request(method: "DELETE", key: fullKey, query: [("uploadId", uploadID)])
         _ = try? await send(request, key: key, accepting: [404])

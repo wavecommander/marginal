@@ -8,27 +8,34 @@ enum Fixtures {
 
     static func sha256(_ data: Data) -> String { S3Signer.hex(SHA256.hash(data: data)) }
 
+    static let stubCredentials = S3Credentials(accessKeyID: StubServer.accessKeyID, secretAccessKey: StubServer.secret)
+
     /// Checks a received request is signed for exactly what arrived: re-signs its URL and the
-    /// headers its `Authorization` names, with the stub's credentials, and compares.
-    static func expectSigned(_ request: RecordedRequest, sourceLocation: SourceLocation = #_sourceLocation) {
+    /// headers its `Authorization` names, with `credentials` (the stub's long-lived key by
+    /// default), and compares. With a session token, the request must carry it in
+    /// `X-Amz-Security-Token` and sign it; without one, it must carry none.
+    static func expectSigned(_ request: RecordedRequest, with credentials: S3Credentials = stubCredentials,
+                             sourceLocation: SourceLocation = #_sourceLocation) {
         guard let authorization = request.headers["authorization"] else {
             Issue.record("No Authorization header", sourceLocation: sourceLocation)
             return
         }
         #expect(authorization.hasPrefix(
-            "AWS4-HMAC-SHA256 Credential=\(StubServer.accessKeyID)/20260101/auto/s3/aws4_request,SignedHeaders="),
+            "AWS4-HMAC-SHA256 Credential=\(credentials.accessKeyID)/20260101/auto/s3/aws4_request,SignedHeaders="),
             sourceLocation: sourceLocation)
         #expect(request.headers["x-amz-date"] == signingDate, sourceLocation: sourceLocation)
+        #expect(request.headers["x-amz-security-token"] == credentials.sessionToken, sourceLocation: sourceLocation)
         guard let signedList = authorization.components(separatedBy: "SignedHeaders=").last?
             .components(separatedBy: ",").first else { return }
         let names = signedList.split(separator: ";").map(String.init)
         #expect(names.contains("host") && names.contains("x-amz-date") && names.contains("x-amz-content-sha256"),
                 sourceLocation: sourceLocation)
+        #expect(names.contains("x-amz-security-token") == (credentials.sessionToken != nil), sourceLocation: sourceLocation)
         var headers: [String: String] = [:]
-        for name in names where !["host", "x-amz-date", "x-amz-content-sha256"].contains(name) {
+        for name in names where !["host", "x-amz-date", "x-amz-content-sha256", "x-amz-security-token"].contains(name) {
             headers[name] = request.headers[name]
         }
-        let signer = S3Signer(accessKeyID: StubServer.accessKeyID, secretAccessKey: StubServer.secret, region: "auto")
+        let signer = S3Signer(credentials: credentials, region: "auto")
         let date = Date(timeIntervalSince1970: 1_767_225_600)
         let expected = signer.sign(method: request.method, url: request.url, headers: headers,
                                    payloadSHA256: request.headers["x-amz-content-sha256"] ?? "", date: date)
