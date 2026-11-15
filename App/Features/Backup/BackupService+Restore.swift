@@ -126,7 +126,9 @@ extension BackupService {
     }
 
     /// Every local book as the restore preview needs it: counts, last change, whether its PDF is
-    /// on disk, and the sidecar's hash (never computed here).
+    /// on disk, and the sidecar's hash. The hash is not computed here, except for a converted
+    /// book that has none yet: the preview must know whether its PDF is the backup's
+    /// (`RestorePlan.Item.hasDifferentConversion`), and only the full hash says so.
     func localSummaries() async -> [LocalBookSummary] {
         let books = (try? store.books.allBooks()) ?? []
         var archives: [BookArchive] = []
@@ -142,8 +144,12 @@ extension BackupService {
             let counts = BackupManifest.RecordCounts(notes: archive.notes.count, highlights: archive.highlights.count,
                                                      bookmarks: archive.bookmarks.count,
                                                      userHeadings: archive.userHeadings.count, inkedPages: inked)
+            var sha256 = files[id]?.sha256
+            if sha256 == nil, archive.book.isConverted, files[id]?.hasPDF == true {
+                sha256 = (try? await store.contentDigest(of: archive.book))?.sha256
+            }
             summaries.append(LocalBookSummary(book: archive.book, hasPDF: files[id]?.hasPDF ?? false,
-                                              sha256: files[id]?.sha256, counts: counts,
+                                              sha256: sha256, counts: counts,
                                               lastModifiedAt: archive.lastModifiedAt))
         }
         return summaries
@@ -368,8 +374,10 @@ extension BackupService {
                    let local = try? store.books.book(id: planned.bookID) {
                     localPDF = RestoreJournal.LocalPDF(bookID: local.id, fileName: local.fileName)
                 }
+                let localOriginal = RestoreCommit.keptOriginal(for: book.output.archive.book, sessionDirectory: sessionDirectory,
+                                                               replacing: current, store: store)
                 let plan = RestoreCommit.Plan(sessionDirectory: sessionDirectory, archive: book.output.archive,
-                                              replacedBookIDs: Set(current), localPDF: localPDF)
+                                              replacedBookIDs: Set(current), localPDF: localPDF, localOriginal: localOriginal)
                 safetyCopy?.willCommit(entryBook, replacing: current)
                 do {
                     let outcome = try RestoreCommit.perform(plan, store: store, origin: origin, stopAfter: stopCommitAfter)

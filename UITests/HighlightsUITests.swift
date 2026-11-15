@@ -25,7 +25,7 @@ final class HighlightsUITests: XCTestCase {
             app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + arguments)
         } else {
             app = XCUIApplication()
-            app.launchArguments = arguments
+            app.launchArguments = ["-pagePillStaysVisible"] + arguments
             app.launch()
         }
         XCTAssertTrue(app.buttons["reader.pagePill"].firstMatch.waitForExistence(timeout: 30))

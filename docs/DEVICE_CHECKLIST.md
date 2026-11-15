@@ -174,6 +174,16 @@ runs or very large files. Open Settings › Backup & Restore.
       each book shows "PDF missing". Locate PDF… with the right file links it and the cover
       appears; with a different PDF it is refused with an explanation and nothing changes.
       Dropping the right PDF onto the Library also links it.
+- [ ] **A converted book without its PDF.** Import an EPUB, annotate it, back up without PDFs
+      and restore into an empty Library: the book shows "PDF missing" and its prompt names the
+      EPUB. Locate PDF… with that EPUB converts it again; check that the notes, highlights and
+      ink sit on the same pages as before. A different EPUB or an unrelated PDF is refused.
+- [ ] **A converted book with its PDF.** Back up an annotated EPUB book with PDFs and restore
+      it into an empty Library: it opens at once with everything in place.
+- [ ] **The same EPUB converted on two iPads.** Convert one EPUB on two devices (or twice with
+      different text sizes, deleting in between), back up on one and open the backup on the
+      other: the book is unticked, the row says why it can't be merged, and its menu offers
+      only Replace with Backup and Leave as Is.
 - [ ] **Folder in iCloud Drive.** Choose Folder… and pick a folder in iCloud Drive; Back Up
       Now; the files appear under `Backups/` and `PDFs/` in Files and on another device. Quit
       and relaunch, then restart the iPad: the folder is still remembered each time.

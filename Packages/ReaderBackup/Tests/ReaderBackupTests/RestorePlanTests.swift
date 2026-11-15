@@ -53,6 +53,27 @@ struct RestorePlanTests {
         #expect(result.items.map(\.isSelectedByDefault) == [true, true, true])
     }
 
+    @Test func aSeparatelyConvertedCopyIsLeftAloneAndCanOnlyBeReplaced() {
+        func converted(_ entry: BackupManifest.BookEntry) -> BackupManifest.BookEntry {
+            var entry = entry
+            entry.book.sourceFormat = .epub
+            entry.book.originalFileName = "Book.epub"
+            return entry
+        }
+        let result = plan([converted(Self.entry(1, fingerprint: "f1", sha: Self.hash("a"))),   // same PDF here
+                           converted(Self.entry(2, fingerprint: "f2", sha: Self.hash("b"))),   // another PDF here
+                           converted(Self.entry(3, fingerprint: "f3", sha: Self.hash("c"))),   // this iPad's hash unknown
+                           converted(Self.entry(4, fingerprint: "f4", sha: Self.hash("d"))),   // not in the Library
+                           Self.entry(5, fingerprint: "f5", sha: Self.hash("e"))],             // a PDF book, other bytes
+                          [Self.local(1, fingerprint: "f1", sha: Self.hash("A")),
+                           Self.local(2, fingerprint: "f2", sha: Self.hash("9")),
+                           Self.local(3, fingerprint: "f3", sha: nil, hasPDF: false),
+                           Self.local(5, fingerprint: "f5", sha: Self.hash("9"))])
+        #expect(result.items.map(\.hasDifferentConversion) == [false, true, false, false, false])
+        #expect(result.items.map(\.isSelectedByDefault) == [true, false, true, true, true])
+        #expect(result.items.map(\.defaultAction) == [.merge, .replace, .merge, .restore, .merge])
+    }
+
     @Test func restoreActionCodesAsItsName() throws {
         #expect(RestoreAction.allCases == [.restore, .merge, .replace])
         let data = try JSONEncoder().encode(RestoreAction.allCases)

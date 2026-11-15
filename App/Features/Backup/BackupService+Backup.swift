@@ -238,7 +238,8 @@ nonisolated enum BackupWork {
         for item in snapshot.items {
             try Task.checkCancellation()
             let book = item.archive.book
-            let files = bookFiles(in: item.directory, excluding: [book.fileName, BookStorageLayout.contentHashFileName])
+            let files = bookFiles(in: item.directory, excluding: [book.fileName, BookStorageLayout.contentHashFileName],
+                                  excludingOriginal: book.isConverted)
             notesAndInk += files.reduce(0) { $0 + $1.size + entryOverhead + Int64($1.path.utf8.count) }
             notesAndInk += Int64((try? encoder.encode(item.archive).count) ?? 0) + entryOverhead + bookManifestOverhead
             notesAndInk += Int64(files.count) * 256  // manifest lines
@@ -306,8 +307,9 @@ nonisolated enum BackupWork {
     }
 
     /// Regular files under a book's directory, as the archive writer collects them (hidden and
-    /// temporary names skipped, symbolic links not followed), excluding top-level `excluding`.
-    static func bookFiles(in directory: URL, excluding: Set<String>) -> [(path: String, size: Int64)] {
+    /// temporary names skipped, symbolic links not followed), excluding top-level `excluding`
+    /// and, with `excludingOriginal` (a converted book), its kept original.
+    static func bookFiles(in directory: URL, excluding: Set<String>, excludingOriginal: Bool = false) -> [(path: String, size: Int64)] {
         var files: [(String, Int64)] = []
         func walk(_ url: URL, prefix: String) {
             let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
@@ -318,6 +320,7 @@ nonisolated enum BackupWork {
                 if name.hasPrefix(".") || name.hasSuffix("~") || lower.hasSuffix(".tmp") || lower.hasSuffix(".temp")
                     || lower.hasSuffix(".partial") { continue }
                 if prefix.isEmpty, excluding.contains(name) { continue }
+                if prefix.isEmpty, excludingOriginal, BookStorageLayout.isOriginalFileName(name) { continue }
                 guard let values = try? child.resourceValues(forKeys: Set(keys)), values.isSymbolicLink != true else { continue }
                 let path = prefix.isEmpty ? name : "\(prefix)/\(name)"
                 if values.isDirectory == true {

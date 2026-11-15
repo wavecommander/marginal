@@ -24,7 +24,7 @@ struct BackupLinkingTests {
     private func restoredWithoutPDF(_ pdf: URL) async throws -> Restored {
         let scratch = try Support.scratch("BackupLink")
         let source = try LibraryStore.ephemeral()
-        let book = try await ImportService(store: source).importPDF(at: pdf).book
+        let book = try #require(try await ImportService(store: source).importPDF(at: pdf).book)
         try source.notes.save(Note(bookID: book.id, target: .page(1), text: "made on this PDF"))
         let file = try await Support.makeService(source, scratch: scratch).backUpToFile(includePDFs: false)
         let target = try LibraryStore.ephemeral()

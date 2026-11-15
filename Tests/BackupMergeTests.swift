@@ -118,7 +118,7 @@ struct BackupMergeTests {
         let local = try LibraryStore.ephemeral()
         let origin = try LibraryStore.ephemeral()
         defer { for url in [scratch, local.rootDirectory, origin.rootDirectory] { try? FileManager.default.removeItem(at: url) } }
-        let book = try await ImportService(store: local).importPDF(at: Support.small).book
+        let book = try #require(try await ImportService(store: local).importPDF(at: Support.small).book)
         try await M.writeNote(local, book.id, target: .page(0), text: "Alpha\nBeta", strokesOver: [0])
         let base = try await Support.makeService(local, scratch: scratch).backUpToFile(includePDFs: true).url
         let originService = Support.makeService(origin, scratch: scratch)
@@ -164,7 +164,7 @@ struct BackupMergeTests {
         defer { d.cleanUp() }
         let other = try LibraryStore.ephemeral()
         defer { try? FileManager.default.removeItem(at: other.rootDirectory) }
-        let own = try await ImportService(store: other).importPDF(at: Support.small).book
+        let own = try #require(try await ImportService(store: other).importPDF(at: Support.small).book)
         #expect(own.id != d.book.id && own.fingerprint == d.book.fingerprint)
         let delta = try #require(try await M.writeNote(other, own.id, target: .page(1), text: "Alpha\nDelta", strokesOver: [1]).first)
         let ownPage = M.stroke(y: 600)

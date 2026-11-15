@@ -409,6 +409,22 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   "PDF missing" and offers Locate PDF…, and importing the right file by any route links it. A
   PDF is linked only when the fingerprint **and** the full SHA-256 match; a mismatch is refused
   with an explanation and there is no override (owner decision).
+- **Converted books** (an EPUB, a comic, a document; see `FORMAT_IMPORT_PLAN.md`). The PDF the
+  app generated is the book, so it is what "Include PDFs" backs up, and a restore with it gives
+  the book back exactly. Three things differ from a book imported as a PDF:
+  - *The kept original is not in a backup.* It is the reader's own file, it can be as large as
+    the PDF, and nothing reads it. A restored book therefore has no kept original, unless the
+    restore replaced a copy on the same iPad, whose original is carried over (so is Undo Last
+    Restore's). `conversion.json` (the text size) is small and is backed up.
+  - *A missing PDF comes back in one of two ways.* The fingerprint of a converted book is that
+    of the file it was made from, so Locate PDF… accepts that file and **converts it again**
+    with the text size the book was made with; the prompt names the file and warns that pages
+    can come out differently if iPadOS has changed since. It also accepts the generated PDF
+    itself, which only the full SHA-256 can vouch for. Anything else is refused.
+  - *Two separately converted copies are never merged.* The same file converted on two iPads,
+    or with two text sizes, gives two PDFs whose pages need not match, and notes, highlights and
+    ink are tied to pages. When this iPad's PDF is not the backup's, the preview leaves the
+    book unticked, says why, and offers only Replace with Backup or Leave as Is.
 - **Restore is per book, and an existing book is merged** (owner decisions, 15 November 2026;
   the first version could only replace). The preview lists each book in the backup as New or
   Already in Library (same ID or same PDF), with what each side holds. Every book is ticked; a

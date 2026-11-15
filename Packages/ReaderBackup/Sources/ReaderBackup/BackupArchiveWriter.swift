@@ -53,8 +53,11 @@ public struct BackupBookSource: Sendable {
 ///
 /// For each book it stores `records.json` and every regular file under the book's directory,
 /// recursively, except the PDF itself, the `document.sha256` sidecar (restore rewrites it from
-/// the manifest), and hidden or temporary files (names starting with `.`, or ending in `~`,
-/// `.tmp`, `.temp` or `.partial`), which are leftovers of atomic writes in progress. Each file's
+/// the manifest), a converted book's kept original (`BookStorageLayout.isOriginalFileName`: the
+/// reader's own file, which can be as large as the PDF and would be repeated in every snapshot;
+/// the generated PDF is the book), and hidden or temporary files (names starting with `.`, or
+/// ending in `~`, `.tmp`, `.temp` or `.partial`), which are leftovers of atomic writes in
+/// progress. Each file's
 /// SHA-256 and size are computed in the same pass that archives it. With `includePDFs`, each
 /// present PDF is embedded once per distinct hash at `pdfs/<sha256>.pdf`; a book whose PDF file
 /// is absent is still backed up, not embedded, with the hash the caller supplied.
@@ -196,7 +199,7 @@ public enum BackupArchiveWriter {
             pdfFileSize = FileOps.regularFileSize(pdfURL)
             var files: [PlannedFile] = []
             try Self.collect(source.directory, prefix: "", excludingTopLevel: [source.pdfFileName, BookStorageLayout.contentHashFileName],
-                             into: &files)
+                             excludingOriginal: source.archive.book.isConverted, into: &files)
             self.files = files.sorted { $0.path < $1.path }
             if let reserved = self.files.first(where: { $0.path == BackupArchiveLayout.recordsFileName }) {
                 throw BackupError.unsafeEntryName(name: reserved.path)
@@ -206,7 +209,7 @@ public enum BackupArchiveWriter {
         /// Regular files under `directory`, recursively, as `/`-separated relative paths.
         /// Symbolic links are not followed.
         private static func collect(_ directory: URL, prefix: String, excludingTopLevel excluded: Set<String>,
-                                    into files: inout [PlannedFile]) throws {
+                                    excludingOriginal: Bool, into files: inout [PlannedFile]) throws {
             let manager = FileManager.default
             var isDirectory: ObjCBool = false
             guard manager.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else { return }
@@ -218,11 +221,12 @@ public enum BackupArchiveWriter {
                 let name = child.lastPathComponent
                 if isTemporaryOrHidden(name) { continue }
                 if prefix.isEmpty, excluded.contains(name) { continue }
+                if prefix.isEmpty, excludingOriginal, BookStorageLayout.isOriginalFileName(name) { continue }
                 let values = try mappingFileErrors(child) { try child.resourceValues(forKeys: Set(keys)) }
                 if values.isSymbolicLink == true { continue }
                 let path = prefix.isEmpty ? name : "\(prefix)/\(name)"
                 if values.isDirectory == true {
-                    try collect(child, prefix: path, excludingTopLevel: excluded, into: &files)
+                    try collect(child, prefix: path, excludingTopLevel: excluded, excludingOriginal: excludingOriginal, into: &files)
                 } else if values.isRegularFile == true {
                     try ZipEntryName.validate(path, allowDirectory: false)
                     files.append(PlannedFile(path: path, url: child, size: Int64(values.fileSize ?? 0)))

@@ -46,6 +46,12 @@ final class PDFLinker {
             failure = Failure(title: "Couldn’t Open the File", message: error.localizedDescription)
         }
     }
+
+    /// What the picker offers for `book`: its PDF, and for a converted book also the kinds of
+    /// file it can have been made from (`ImportService.linkPDF` converts that file again).
+    nonisolated static func contentTypes(for book: Book) -> [UTType] {
+        book.isConverted ? [.pdf] + ImportContentTypes.importable.filter { $0 != .pdf } : [.pdf]
+    }
 }
 
 /// "Locate PDF…" for one view: set `target` to a book to show the PDF picker for it. A view
@@ -61,7 +67,7 @@ private struct LocatePDFModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .fileImporter(isPresented: $isPresented, allowedContentTypes: [.pdf], allowsMultipleSelection: false) { result in
+            .fileImporter(isPresented: $isPresented, allowedContentTypes: pending.map(PDFLinker.contentTypes(for:)) ?? [.pdf], allowsMultipleSelection: false) { result in
                 guard let book = pending else { return }
                 pending = nil
                 linker.importerCompleted(result, book: book, environment: environment, onLinked: onLinked)
@@ -131,7 +137,7 @@ struct ReaderUnavailableView: View {
         ContentUnavailableView {
             Label("Cannot Open Book", systemImage: "exclamationmark.triangle")
         } description: {
-            Text(isMissing == true ? MissingPDFText.readerMessage : message)
+            Text(isMissing == true ? MissingPDFText.readerMessage(for: book) : message)
         } actions: {
             if isMissing == true {
                 Button(MissingPDFText.locateTitle) { locateTarget = book }

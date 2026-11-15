@@ -63,13 +63,27 @@ public struct RestorePlan: Hashable, Sendable {
         public var localMatches: [LocalBookSummary]
         /// Whether the book is ticked when the preview opens: every book is (owner decision,
         /// 15 November 2026: a book already in the Library is ticked and set to Merge, which
-        /// keeps everything on this iPad; the reader can switch it to Replace or Leave as is).
+        /// keeps everything on this iPad; the reader can switch it to Replace or Leave as is),
+        /// except one with `hasDifferentConversion`, which cannot be merged and so is left alone
+        /// unless the reader chooses Replace.
         public var isSelectedByDefault: Bool
         /// What restoring this book does unless the reader picks otherwise: `.restore` for a new
         /// book, `.merge` for a book already in the Library (owner decision, 15 November 2026:
-        /// a merge keeps everything on this iPad and adds what the backup has).
+        /// a merge keeps everything on this iPad and adds what the backup has); `.replace` when
+        /// `hasDifferentConversion`.
         public var defaultAction: RestoreAction
         public var pdfSource: PDFSource
+
+        /// `true` for a converted book already in the Library whose PDF here is known not to be
+        /// the backup's: the same file was converted separately (another iPad, another text size,
+        /// another iPadOS), so page numbers and positions in one copy say nothing about the other.
+        /// Notes, highlights and ink are tied to pages, so such a book is never merged: it is
+        /// unticked by default and can only be replaced or left as it is.
+        public var hasDifferentConversion: Bool {
+            guard entry.book.isConverted else { return false }
+            let hash = entry.pdf.sha256.lowercased()
+            return localMatches.contains { local in local.sha256.map { $0.lowercased() != hash } ?? false }
+        }
 
         /// The backed-up book's ID.
         public var id: UUID { entry.book.id }
@@ -102,8 +116,13 @@ public struct RestorePlan: Hashable, Sendable {
             } else {
                 source = .missing
             }
-            return Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: true,
-                        defaultAction: status == .new ? .restore : .merge, pdfSource: source)
+            var item = Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: true,
+                            defaultAction: status == .new ? .restore : .merge, pdfSource: source)
+            if item.hasDifferentConversion {
+                item.isSelectedByDefault = false
+                item.defaultAction = .replace
+            }
+            return item
         }
     }
 }

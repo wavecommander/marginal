@@ -182,7 +182,7 @@ enum BackupMergeTestSupport {
         let scratch = try Support.scratch("BackupMerge")
         let local = try LibraryStore.ephemeral()
         let origin = try LibraryStore.ephemeral()
-        let book = try await ImportService(store: local).importPDF(at: Support.small).book
+        let book = try #require(try await ImportService(store: local).importPDF(at: Support.small).book)
         var strokes: [String: PKStroke] = [:]
         let date = Date(timeIntervalSinceReferenceDate: 780_000_000)
 

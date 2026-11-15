@@ -63,7 +63,9 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
     private func value(_ m: BookModel) -> Book {
         Book(id: m.id, title: m.title, fingerprint: m.fingerprint, fileName: m.fileName, pageCount: m.pageCount,
              fileSize: m.fileSize, addedAt: m.addedAt, lastOpenedAt: m.lastOpenedAt,
-             lastReadPageIndex: m.lastReadPageIndex)
+             lastReadPageIndex: m.lastReadPageIndex,
+             sourceFormat: m.sourceFormatRaw.flatMap(ImportFormat.init(rawValue:)),
+             originalFileName: m.originalFileName, converterVersion: m.converterVersion)
     }
 
     private func bookModel(_ id: UUID) throws -> BookModel? {
@@ -98,6 +100,9 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 m.addedAt = book.addedAt
                 m.lastOpenedAt = book.lastOpenedAt
                 m.lastReadPageIndex = book.lastReadPageIndex
+                m.sourceFormatRaw = book.sourceFormat?.rawValue
+                m.originalFileName = book.originalFileName
+                m.converterVersion = book.converterVersion
             } else {
                 context.insert(BookModel(book))
             }

@@ -60,4 +60,28 @@ public enum BookFingerprint {
         }
         return prefix + hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
+
+    /// Fingerprint of a package directory (an iWork `.pages` or `.key` document saved as a
+    /// folder): SHA-256 over `"marginal-package-v1\0"` and, for each regular file in path order,
+    /// its relative path, a NUL, its own `fingerprint(ofFileAt:)` and a NUL. Same prefix and
+    /// format as a file's fingerprint.
+    public static func fingerprint(ofPackageAt url: URL) throws -> String {
+        let root = url.standardizedFileURL.resolvingSymlinksInPath()
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        var files: [(path: String, url: URL)] = []
+        for case let file as URL in enumerator where try file.resourceValues(forKeys: Set(keys)).isRegularFile == true {
+            let full = file.standardizedFileURL.resolvingSymlinksInPath().path
+            let relative = full.hasPrefix(root.path + "/") ? String(full.dropFirst(root.path.count + 1)) : file.lastPathComponent
+            files.append((relative, file))
+        }
+        var hasher = SHA256()
+        hasher.update(data: Data("marginal-package-v1\0".utf8))
+        for file in files.sorted(by: { $0.path < $1.path }) {
+            hasher.update(data: Data("\(file.path)\0\(try fingerprint(ofFileAt: file.url))\0".utf8))
+        }
+        return prefix + hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }

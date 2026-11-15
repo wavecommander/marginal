@@ -294,7 +294,8 @@ private struct RestoreItemRow: View {
             .accessibilityLabel("\(title), \(RestorePreviewLogic.statusText(item.status))")
             .accessibilityValue(RestorePreviewLogic.tickValue(isSelected: isSelected))
             .accessibilityAddTraits(isSelected ? [.isToggle, .isSelected] : .isToggle)
-            .accessibilityHint(RestorePreviewLogic.tickHint(isSelected: isSelected, isExisting: item.status == .inLibrary))
+            .accessibilityHint(RestorePreviewLogic.tickHint(isSelected: isSelected, isExisting: item.status == .inLibrary,
+                                                                 canMerge: !item.hasDifferentConversion))
             .accessibilityIdentifier(AccessibilityID.Restore.book(title))
 
             VStack(alignment: .leading, spacing: Space.xs) {
@@ -324,7 +325,7 @@ private struct RestoreItemRow: View {
     private func actionMenu(_ choice: RestoreRowChoice) -> some View {
         Menu {
             Picker(selection: Binding(get: { choice }, set: { choose($0) })) {
-                ForEach(RestoreRowChoice.allCases) { option in
+                ForEach(RestoreRowChoice.choices(for: item)) { option in
                     Label(option.title, systemImage: option.systemImage).tag(option)
                 }
             } label: {

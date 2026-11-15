@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// cancel), and per-book actions. Layout follows the window's own size and size class.
 ///
 /// Environment it relies on: `AppEnvironment` (store, import service) and `WindowContext`
-/// (navigation, other windows, the "Import PDF…" menu command).
+/// (navigation, other windows, the "Import…" menu command).
 struct LibraryScreen: View {
     @Environment(\.accentTheme) private var accentTheme
     @Environment(AppEnvironment.self) private var environment
@@ -26,7 +26,7 @@ struct LibraryScreen: View {
     @State private var errorMessage: String?
     /// What the one file importer is for (a single `.fileImporter`: SwiftUI may honour only one
     /// document picker per view).
-    @State private var importerMode = ImporterMode.importPDFs
+    @State private var importerMode = ImporterMode.importDocuments
     /// A book without its PDF the reader tried to open: offers Locate PDF… and the Notebook.
     @State private var missingPrompt: Book?
     @State private var linker = PDFLinker()
@@ -34,13 +34,14 @@ struct LibraryScreen: View {
     init() {}
 
     private enum ImporterMode: Equatable {
-        case importPDFs
+        case importDocuments
         case locatePDF(Book)
         case restoreBackup
 
         var contentTypes: [UTType] {
             switch self {
-            case .importPDFs, .locatePDF: [.pdf]
+            case .importDocuments: ImportContentTypes.acceptable
+            case .locatePDF(let book): PDFLinker.contentTypes(for: book)
             case .restoreBackup: [.tactileTextsBackup]
             }
         }
@@ -71,11 +72,16 @@ struct LibraryScreen: View {
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task(id: query) { await updateNoteMatches() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importerMode.contentTypes,
-                      allowsMultipleSelection: importerMode == .importPDFs) { result in
+                      allowsMultipleSelection: importerMode == .importDocuments) { result in
             importerCompleted(result)
         }
-        .onChange(of: window.importRequestCount) { presentImporter(.importPDFs) }
-        .onDrop(of: [.pdf], isTargeted: $isDropTargeted, perform: handleDrop)
+        .onChange(of: window.importRequestCount) { presentImporter(.importDocuments) }
+        .onDrop(of: ImportContentTypes.acceptable, isTargeted: $isDropTargeted, perform: handleDrop)
+        .sheet(item: conversionBinding) { request in
+            ConversionSheet(request: request,
+                            onConvert: { options in convert(request, options: options) },
+                            onCancel: { cancel(request) })
+        }
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -117,8 +123,8 @@ struct LibraryScreen: View {
             }
             Button("Open Notebook") { window.openNotebook(bookID: book.id) }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text(MissingPDFText.promptMessage)
+        } message: { book in
+            Text(MissingPDFText.promptMessage(for: book))
         }
         .alert(linker.failure?.title ?? "", isPresented: linkFailureBinding, presenting: linker.failure) { _ in
             Button("OK", role: .cancel) {}
@@ -180,7 +186,8 @@ struct LibraryScreen: View {
                 // buttons' own ones.
                 .accessibilityIdentifier("library.emptyState")
         } description: {
-            Text("Import a PDF to start reading and taking notes. You can also drop PDFs here from Files or another app, or restore your books from a backup.")
+            Text("Import a book or document to start reading and taking notes. You can also drop files here from Files or another app, or restore your books from a backup.",
+                 comment: "Library empty state: description under 'No Books Yet'.")
         } actions: {
             ViewThatFits {
                 HStack(spacing: Space.m) { emptyImportButton; emptyRestoreButton }
@@ -190,7 +197,11 @@ struct LibraryScreen: View {
     }
 
     private var emptyImportButton: some View {
-        Button("Import PDF") { presentImporter(.importPDFs) }
+        Button {
+            presentImporter(.importDocuments)
+        } label: {
+            Text("Import", comment: "Library empty state: button that opens the Files picker.")
+        }
             .buttonStyle(.borderedProminent)
             .foregroundStyle(accentTheme.onAccent)
             .accessibilityIdentifier("library.emptyImportButton")
@@ -198,7 +209,11 @@ struct LibraryScreen: View {
 
     /// A fresh install is exactly when a reader wants this.
     private var emptyRestoreButton: some View {
-        Button("Restore from Backup…") { presentImporter(.restoreBackup) }
+        Button {
+            presentImporter(.restoreBackup)
+        } label: {
+            Text("Restore from Backup…", comment: "Library empty state: button that opens the Files picker to choose a backup to restore.")
+        }
             .buttonStyle(.bordered)
             .disabled(environment.backupService.isBusy)
             .accessibilityIdentifier(AccessibilityID.Library.emptyRestoreButton)
@@ -300,9 +315,10 @@ struct LibraryScreen: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
-                presentImporter(.importPDFs)
+                presentImporter(.importDocuments)
             } label: {
-                toolbarLabel("Import PDF", systemImage: "plus")
+                toolbarLabel(String(localized: "Import", comment: "Library toolbar: button that opens the Files picker to import books and documents."),
+                             systemImage: "plus")
             }
             .fontWeight(.semibold)
             .accessibilityIdentifier(AccessibilityID.Library.importButton)
@@ -350,9 +366,9 @@ struct LibraryScreen: View {
 
     private func importerCompleted(_ result: Result<[URL], any Error>) {
         let mode = importerMode
-        importerMode = .importPDFs
+        importerMode = .importDocuments
         switch (mode, result) {
-        case (.importPDFs, .success(let urls)):
+        case (.importDocuments, .success(let urls)):
             startImport(urls, consumeSources: false)
         case (.locatePDF(let book), .success):
             linker.importerCompleted(result, book: book, environment: environment) { linked in
@@ -367,6 +383,8 @@ struct LibraryScreen: View {
 
     // MARK: Import
 
+    /// One batch from the Files picker or a drop. Files that need converting show the Convert to
+    /// PDF sheet in this window; failures not listed there are alerts.
     private func startImport(_ urls: [URL], consumeSources: Bool) {
         guard !urls.isEmpty else { return }
         let key = windowKey
@@ -374,8 +392,8 @@ struct LibraryScreen: View {
         let environment = environment
         Task {
             let service = await environment.readyImportService()
-            let results = await service.importFiles(urls, consumeSources: consumeSources)
-            service.present(results.compactMap(\.error), in: key)
+            let results = await service.importFiles(urls, consumeSources: consumeSources, requester: key)
+            service.present(results.compactMap(\.alertError), in: key)
             // One file that is already in the Library: show that book.
             if results.count == 1, case .success(.existing(let book)) = results[0].result {
                 window.openReader(bookID: book.id)
@@ -384,19 +402,44 @@ struct LibraryScreen: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        let pdfProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) }
-        guard !pdfProviders.isEmpty else { return false }
+        let accepted = DropImport.acceptedProviders(providers)
+        guard !accepted.isEmpty else { return false }
         let staging = service.stagingRoot
-        for provider in pdfProviders {
-            let name = provider.suggestedName
-            _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.pdf.identifier) { url, _ in
-                // The system deletes `url` when this returns: take it now.
-                guard let url, let adopted = try? ImportPipeline.adoptDroppedFile(url, suggestedName: name, into: staging)
-                else { return }
-                Task { @MainActor in startImport([adopted], consumeSources: true) }
-            }
+        Task {
+            // The whole drop is one batch, so one sheet covers it.
+            let adopted = await DropImport.adopt(accepted, into: staging)
+            startImport(adopted, consumeSources: true)
         }
         return true
+    }
+
+    // MARK: Convert to PDF
+
+    /// The request this window shows. Dismissing the sheet by a swipe sets it to `nil`, which
+    /// counts as Cancel.
+    private var conversionBinding: Binding<ConversionRequest?> {
+        Binding(get: { service.conversionRequest(for: windowKey) },
+                set: { newValue in
+                    if newValue == nil, let request = service.conversionRequest(for: windowKey) { cancel(request) }
+                })
+    }
+
+    private func convert(_ request: ConversionRequest, options: ConversionOptions) {
+        let key = windowKey
+        let window = window
+        let service = service
+        Task {
+            let results = await service.convert(request.id, options: options)
+            service.present(results.compactMap(\.alertError), in: key)
+            if request.opensBookWhenDone, results.count == 1, let book = results[0].book {
+                window.openReader(bookID: book.id)
+            }
+        }
+    }
+
+    private func cancel(_ request: ConversionRequest) {
+        let service = service
+        Task { await service.discard(request.id) }
     }
 
     // MARK: Rename and delete
@@ -442,7 +485,9 @@ struct LibraryScreen: View {
     }
 
     private var failureBinding: Binding<Bool> {
-        Binding(get: { service.failure(for: windowKey) != nil },
+        // Held back while this window shows a Convert to PDF sheet (an alert cannot be presented
+        // over it); it appears once the sheet closes.
+        Binding(get: { service.failure(for: windowKey) != nil && service.conversionRequest(for: windowKey) == nil },
                 set: { if !$0, let failure = service.failure(for: windowKey) { service.dismissFailure(failure.id) } })
     }
 

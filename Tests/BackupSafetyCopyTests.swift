@@ -151,7 +151,7 @@ struct BackupSafetyCopyTests {
         // Another library imported the same PDF on its own: same fingerprint, another ID.
         let target = try LibraryStore.ephemeral()
         defer { try? FileManager.default.removeItem(at: target.rootDirectory) }
-        let local = try await ImportService(store: target).importPDF(at: Support.small).book
+        let local = try #require(try await ImportService(store: target).importPDF(at: Support.small).book)
         try target.notes.save(Note(bookID: local.id, target: .page(0), text: "local copy note"))
         try await target.savePageInk(Support.inkData("local-page-1"), bookID: local.id, pageIndex: 1, origin: nil)
         _ = try await target.contentDigest(of: local)
@@ -179,7 +179,7 @@ struct BackupSafetyCopyTests {
         defer { world.cleanUp() }
         let target = try LibraryStore.ephemeral()
         defer { try? FileManager.default.removeItem(at: target.rootDirectory) }
-        let own = try await ImportService(store: target).importPDF(at: Support.large).book
+        let own = try #require(try await ImportService(store: target).importPDF(at: Support.large).book)
         try target.notes.save(Note(bookID: own.id, target: .page(0), text: "already here"))
         let before = try Support.libraryState(target)
 

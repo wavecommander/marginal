@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import Testing
+import SwiftData
 import ReaderCore
 @testable import ReaderStore
 
@@ -349,6 +350,30 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         #expect(try again.notes.notes(bookID: other.id).map(\.text) == ["other"])
     }
 
+    @Test func convertedBookFieldsSurviveReopen() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let converted = Book(title: "Converted", fingerprint: "fp-epub", fileName: "Converted.pdf", pageCount: 12,
+                             fileSize: 9, sourceFormat: .epub, originalFileName: "Converted.epub", converterVersion: 3)
+        let native = Book(title: "Native", fingerprint: "fp-pdf", fileName: "Native.pdf", pageCount: 2, fileSize: 1)
+        do {
+            let store = try LibraryStore.live(rootDirectory: root.url)
+            try store.books.save(converted)
+            try store.books.save(native)
+        }
+        let again = try LibraryStore.live(rootDirectory: root.url)
+        #expect(try again.books.book(id: converted.id) == converted)
+        #expect(try again.books.book(id: converted.id)?.isConverted == true)
+        #expect(try again.books.book(id: native.id) == native)
+        #expect(try again.books.book(id: native.id)?.isConverted == false)
+        // Updating an existing row writes the new fields too.
+        var changed = native
+        changed.sourceFormat = .markdown
+        changed.originalFileName = "notes.md"
+        changed.converterVersion = 1
+        try again.books.save(changed)
+        #expect(try again.books.book(id: native.id) == changed)
+    }
+
     @Test func resetWipesEverythingEvenWithJunk() async throws {
         let root = TempRoot(); defer { root.cleanup() }
         let book = Book(title: "Gone", fingerprint: "fp", fileName: "p.pdf", pageCount: 10, fileSize: 1)
@@ -503,5 +528,60 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         try store.notes.save(edit)
         let single = clock.now - mark
         #expect(single < .seconds(1))
+    }
+}
+
+// MARK: - Migration
+
+@MainActor
+@Suite struct MigrationTests {
+    /// A store written by version 1 opens as version 2: every record is kept and the new book
+    /// fields read as `nil`. Then a converted book can be saved into the migrated store.
+    @Test func versionOneStoreOpensAsVersionTwo() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let storeURL = root.url.appendingPathComponent("Marginal.store")
+        let book = Book(title: "Old", fingerprint: "fp-old", fileName: "old.pdf", pageCount: 40, fileSize: 123,
+                        addedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        lastOpenedAt: Date(timeIntervalSince1970: 1_700_000_500), lastReadPageIndex: 7)
+        let noteID = UUID()
+        do {
+            let schema = Schema(versionedSchema: MarginalSchemaV1.self)
+            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
+            let context = ModelContext(container)
+            context.insert(MarginalSchemaV1.BookModel(book))
+            context.insert(MarginalSchemaV1.NoteModel(id: noteID, bookID: book.id, targetKey: NoteTarget.page(3).storageKey,
+                                                      pageIndex: 3, text: "kept", hasInk: false, bandLayoutData: nil,
+                                                      createdAt: book.addedAt, modifiedAt: book.addedAt))
+            context.insert(MarginalSchemaV1.BookmarkModel(id: UUID(), bookID: book.id, pageIndex: 5, createdAt: book.addedAt))
+            try context.save()
+        }
+
+        let store = SwiftDataRecordStore(container: try SchemaFactory.makeContainer(storeURL: storeURL))
+        let migrated = try #require(try store.book(id: book.id))
+        #expect(migrated == book)
+        #expect(migrated.sourceFormat == nil)
+        #expect(migrated.originalFileName == nil)
+        #expect(migrated.converterVersion == nil)
+        #expect(try store.note(id: noteID)?.text == "kept")
+        #expect(try store.isBookmarked(bookID: book.id, pageIndex: 5))
+
+        let converted = Book(title: "New", fingerprint: "fp-new", fileName: "new.pdf", pageCount: 3, fileSize: 1,
+                             sourceFormat: .comicArchive, originalFileName: "new.cbz", converterVersion: 1)
+        try store.save(converted)
+        #expect(try store.book(fingerprint: "fp-new") == converted)
+        #expect(try store.allBooks().count == 2)
+    }
+
+    /// A format name this build does not know (written by a newer build) reads as "not converted"
+    /// instead of failing the whole Library.
+    @Test func unknownSourceFormatReadsAsNil() throws {
+        let container = try SchemaFactory.makeContainer(storeURL: nil)
+        let book = Book(title: "B", fingerprint: "f", fileName: "b.pdf", pageCount: 1, fileSize: 1)
+        let model = BookModel(book)
+        model.sourceFormatRaw = "hologram"
+        let context = ModelContext(container)
+        context.insert(model)
+        try context.save()
+        #expect(try SwiftDataRecordStore(container: container).book(id: book.id)?.sourceFormat == nil)
     }
 }

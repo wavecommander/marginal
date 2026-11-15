@@ -218,8 +218,8 @@ struct BackupRoundTripTests {
 
         // The target imported the same PDF on its own: same fingerprint, another ID.
         let importer = ImportService(store: target)
-        let local = try await importer.importPDF(at: Support.small).book
-        let other = try await importer.importPDF(at: Support.noOutline).book
+        let local = try #require(try await importer.importPDF(at: Support.small).book)
+        let other = try #require(try await importer.importPDF(at: Support.noOutline).book)
         try target.notes.save(Note(bookID: local.id, target: .page(0), text: "local copy note"))
         #expect(local.id != seeded.small.id && local.fingerprint == seeded.small.fingerprint)
         let otherState = try Support.archive(target, other.id)
@@ -290,7 +290,7 @@ struct BackupRoundTripTests {
         let source = try LibraryStore.ephemeral()
         let target = try LibraryStore.ephemeral()
         defer { for url in [scratch, source.rootDirectory, target.rootDirectory] { try? FileManager.default.removeItem(at: url) } }
-        let book = try await ImportService(store: source).importPDF(at: Support.small).book
+        let book = try #require(try await ImportService(store: source).importPDF(at: Support.small).book)
         let claimsInk = Note(bookID: book.id, target: .page(1), text: "text stays", hasInk: true)
         let onlyInk = Note(bookID: book.id, target: .page(2), text: "  \n", hasInk: true)
         let hasFile = Note(bookID: book.id, target: .page(3), text: "file but no flag", hasInk: false)

@@ -65,7 +65,7 @@ final class PerformanceUITests: XCTestCase {
 
     private func launch(_ arguments: [String]) -> (XCUIApplication, TimeInterval) {
         let app = XCUIApplication()
-        app.launchArguments = arguments
+        app.launchArguments = ["-pagePillStaysVisible"] + arguments
         let started = Date()
         app.launch()
         let pill = app.buttons["reader.pagePill"].firstMatch

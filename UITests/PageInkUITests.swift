@@ -46,7 +46,7 @@ final class PageInkUITests: XCTestCase {
             app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + arguments)
         } else {
             app = XCUIApplication()
-            app.launchArguments = arguments
+            app.launchArguments = ["-pagePillStaysVisible"] + arguments
             app.launch()
         }
         XCTAssertTrue(pdf(app).waitForExistence(timeout: 30), "PDF view")

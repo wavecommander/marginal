@@ -182,6 +182,9 @@ nonisolated enum BackupServiceError: LocalizedError, Equatable, Sendable {
     case backupDamaged(bookTitle: String, reason: String)
     /// A local book with the same ID or content was added after the restore preview was built.
     case libraryChanged(bookTitle: String)
+    /// A merge was asked for between two separately converted copies of a book: their PDFs
+    /// differ, so page-bound notes and ink cannot be combined.
+    case differentConversion(bookTitle: String)
     /// The destination can't be used now (`reason` is reader-facing).
     case destinationUnavailable(reason: String)
     /// The safety copy of the books a restore would change could not be made; nothing was changed.
@@ -201,6 +204,8 @@ nonisolated enum BackupServiceError: LocalizedError, Equatable, Sendable {
             "Nothing was restored: the backup is damaged (found in “\(title)”). \(reason)"
         case .libraryChanged(let title):
             "“\(title)” changed in the Library after the restore preview was shown, so it wasn’t restored. Open the backup again to see the current state."
+        case .differentConversion(let title):
+            "“\(title)” was converted to a PDF separately on this iPad, so its pages may not match the backup’s and their notes can’t be merged. It is unchanged; choose Replace with Backup to take the backup’s copy instead."
         case .destinationUnavailable(let reason):
             reason
         case .safetyCopyFailed(let reason):

@@ -19,11 +19,12 @@ nonisolated enum DocumentLinking {
 
     /// Copies `source` to `directory/fileName`, hashing in the same pass, then checks, in order:
     /// the copy's full SHA-256 against `expected` (when the book has a sidecar), its sampled
-    /// fingerprint against `fingerprint`, and that it opens as an unlocked PDF with pages; then
-    /// renders a cover beside it. A wrong file throws `ImportError.pdfMismatch(bookTitle:)`.
-    /// On any error the caller removes `directory`.
+    /// fingerprint against `fingerprint` (`nil` for a converted book, whose fingerprint is its
+    /// original's: the caller then requires `expected`), and that it opens as an unlocked PDF
+    /// with pages; then renders a cover beside it. A wrong file throws
+    /// `ImportError.pdfMismatch(bookTitle:)`. On any error the caller removes `directory`.
     @concurrent
-    static func stage(source: URL, directory: URL, fileName: String, fingerprint: String, expected: ContentDigest?,
+    static func stage(source: URL, directory: URL, fileName: String, fingerprint: String?, expected: ContentDigest?,
                       bookTitle: String, size: Int64, progress: @Sendable (Double) -> Void) async throws -> Staged {
         let manager = FileManager.default
         let destination = directory.appendingPathComponent(fileName, isDirectory: false)
@@ -45,7 +46,7 @@ nonisolated enum DocumentLinking {
         } catch {
             throw ImportError.unreadable(fileName: source.lastPathComponent, reason: error.localizedDescription)
         }
-        guard stagedFingerprint == fingerprint else { throw ImportError.pdfMismatch(bookTitle: bookTitle) }
+        if let fingerprint, stagedFingerprint != fingerprint { throw ImportError.pdfMismatch(bookTitle: bookTitle) }
         try Task.checkCancellation()
 
         guard let document = PDFDocument(url: destination) else { throw ImportError.notAPDF(fileName: source.lastPathComponent) }

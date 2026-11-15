@@ -244,6 +244,12 @@ nonisolated enum RestoreRowChoice: String, CaseIterable, Identifiable, Sendable 
         }
     }
 
+    /// The menu for `item`: everything, except Merge for a converted book whose PDF here is not
+    /// the backup's (`RestorePlan.Item.hasDifferentConversion`).
+    static func choices(for item: RestorePlan.Item) -> [RestoreRowChoice] {
+        item.hasDifferentConversion ? [.replace, .leave] : allCases
+    }
+
     /// What the restore does for this choice; `nil` for Leave as Is (the book is not passed).
     var action: RestoreAction? {
         switch self {
@@ -265,6 +271,8 @@ nonisolated struct RestoreChoices: Equatable, Sendable {
     private(set) var existingActions: [UUID: RestoreAction] = [:]
     /// The books already in the Library, as of the last plan.
     private(set) var existing: Set<UUID> = []
+    /// Books that cannot be merged (`RestorePlan.Item.hasDifferentConversion`), as of the last plan.
+    private(set) var unmergeable: Set<UUID> = []
 
     init() {}
 
@@ -300,6 +308,7 @@ nonisolated struct RestoreChoices: Equatable, Sendable {
     /// The menu of a book already in the Library.
     mutating func choose(_ choice: RestoreRowChoice, for id: UUID) {
         guard existing.contains(id) else { return }
+        if choice == .merge, unmergeable.contains(id) { return }
         if let action = choice.action {
             existingActions[id] = action
             selection.insert(id)
@@ -335,9 +344,12 @@ nonisolated struct RestoreChoices: Equatable, Sendable {
         let ids = Set(plan.items.map(\.id))
         selection.formIntersection(ids)
         existing = Set(plan.items.filter { $0.status == .inLibrary }.map(\.id))
+        unmergeable = Set(plan.items.filter { $0.status == .inLibrary && $0.hasDifferentConversion }.map(\.id))
         existingActions = existingActions.filter { existing.contains($0.key) }
-        for item in plan.items where item.status == .inLibrary && existingActions[item.id] == nil {
-            existingActions[item.id] = item.defaultAction == .replace ? .replace : .merge
+        for item in plan.items where item.status == .inLibrary {
+            if existingActions[item.id] == nil || unmergeable.contains(item.id) {
+                existingActions[item.id] = item.defaultAction == .replace ? .replace : .merge
+            }
         }
     }
 }
@@ -376,6 +388,16 @@ nonisolated enum RestorePreviewLogic {
 
     /// Said on a book already in the Library that is set to Leave as Is.
     static let leaveText = "Left as it is: nothing from this backup is added to this book."
+
+    /// Why a converted book whose PDF here is not the backup's cannot be merged
+    /// (`RestorePlan.Item.hasDifferentConversion`).
+    static let differentConversionReason = "This book was converted to a PDF separately on this iPad, so its pages may not match the backup’s and their notes can’t be merged."
+
+    /// Said on such a book while it is left as it is (its default).
+    static let differentConversionLeaveText = "\(differentConversionReason) Left as it is."
+
+    /// Said on such a book set to Replace with Backup.
+    static let differentConversionReplaceWarning = "\(differentConversionReason) \(replaceWarning)"
 
     /// Said on a book set to Merge while its merge preview is being worked out.
     static let mergeLoadingText = "Working out what a merge adds…"
@@ -486,8 +508,8 @@ nonisolated enum RestorePreviewLogic {
             } else {
                 note = .merge(previewsLoaded ? mergeFallbackText : mergeLoadingText, isLoading: !previewsLoaded)
             }
-        case .replace: note = .replaceWarning(replaceWarning)
-        case .leave: note = .leave(leaveText)
+        case .replace: note = .replaceWarning(item.hasDifferentConversion ? differentConversionReplaceWarning : replaceWarning)
+        case .leave: note = .leave(item.hasDifferentConversion ? differentConversionLeaveText : leaveText)
         }
         return Row(menuChoice: choice, pdfLine: pdf, sideLines: sides, note: note)
     }
@@ -496,11 +518,11 @@ nonisolated enum RestorePreviewLogic {
     static func tickValue(isSelected: Bool) -> String { isSelected ? "Selected" : "Not selected" }
 
     /// The tick's VoiceOver hint.
-    static func tickHint(isSelected: Bool, isExisting: Bool) -> String {
+    static func tickHint(isSelected: Bool, isExisting: Bool, canMerge: Bool = true) -> String {
         switch (isSelected, isExisting) {
         case (true, _): "Double-tap to leave this book out."
         case (false, false): "Double-tap to restore this book."
-        case (false, true): "Double-tap to merge this book."
+        case (false, true): canMerge ? "Double-tap to merge this book." : "Double-tap to replace this book with the backup’s."
         }
     }
 
@@ -820,4 +842,27 @@ nonisolated enum MissingPDFText {
     static let promptMessage = "This book’s PDF isn’t on this iPad. Choose the original PDF to read it again; its notes, highlights and ink are kept, and the Notebook works without it."
 
     static let readerMessage = "The PDF for this book isn’t on this iPad. Choose the original PDF to read it; your notes, highlights and ink are safe, and the Notebook works without it."
+
+    /// The file a converted book was made from, as the reader knows it.
+    static func originalDescription(_ book: Book) -> String {
+        book.originalFileName.map { "the file it was made from (“\($0)”)" } ?? "the file it was made from"
+    }
+
+    /// What choosing a converted book's original does, and the one thing that can differ.
+    static func reconversionNote(_ book: Book) -> String {
+        "Choose \(originalDescription(book)) and it is converted to a PDF again. If iPadOS has been updated since the book was made, some pages can come out differently."
+    }
+
+    /// The Library's prompt for a book without its PDF (a converted book is rebuilt from the
+    /// file it was made from, not linked to a PDF).
+    static func promptMessage(for book: Book) -> String {
+        guard book.isConverted else { return promptMessage }
+        return "This book’s PDF isn’t on this iPad. \(reconversionNote(book)) Its notes, highlights and ink are kept, and the Notebook works without it."
+    }
+
+    /// The reader's "Cannot Open Book" message for a book without its PDF.
+    static func readerMessage(for book: Book) -> String {
+        guard book.isConverted else { return readerMessage }
+        return "The PDF for this book isn’t on this iPad. \(reconversionNote(book)) Your notes, highlights and ink are safe, and the Notebook works without it."
+    }
 }

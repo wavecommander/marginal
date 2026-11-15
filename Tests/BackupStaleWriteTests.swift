@@ -31,7 +31,7 @@ struct BackupStaleWriteTests {
     private func makeFixture() async throws -> Fixture {
         let scratch = try Support.scratch("BackupStale")
         let store = try LibraryStore.ephemeral()
-        let book = try await ImportService(store: store).importPDF(at: Support.small).book
+        let book = try #require(try await ImportService(store: store).importPDF(at: Support.small).book)
         let note = Note(bookID: book.id, target: .page(3), text: "original text", createdAt: Date(timeIntervalSinceReferenceDate: 790_000_000))
         try store.notes.save(note)
         let ink = PKDrawing(strokes: [PageInkTestSupport.stroke(from: CGPoint(x: 40, y: 40), to: CGPoint(x: 300, y: 60))])

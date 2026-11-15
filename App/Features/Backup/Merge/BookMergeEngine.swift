@@ -88,6 +88,15 @@ extension BackupService {
             throw BackupServiceError.libraryChanged(bookTitle: item.entry.book.title)
         }
         let incoming = staged.archive
+        // Two separately converted copies of a book have different PDFs: nothing page-bound
+        // can be combined. (The preview does not offer Merge for them; this is the guard.)
+        if local.book.isConverted || incoming.book.isConverted {
+            let mine = store.hasDocument(local.book) ? try await store.contentDigest(of: local.book)
+                                                     : store.storedContentDigest(bookID: localBookID)
+            if let mine, mine.sha256.lowercased() != item.entry.pdf.sha256.lowercased() {
+                throw BackupServiceError.differentConversion(bookTitle: item.entry.book.title)
+            }
+        }
         let result = BookMerge.merge(local: local, incoming: incoming)
         let localNotes = Dictionary(local.notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let incomingNotes = Dictionary(incoming.notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

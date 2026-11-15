@@ -44,7 +44,7 @@ struct BackupRecoveryTests {
         try Data("not a pdf".utf8).write(to: store.documentURL(for: x))
         try await store.savePageInk(Support.inkData("X-ink"), bookID: x.id, pageIndex: 0, origin: nil)
         try store.notes.save(Note(bookID: x.id, target: .page(0), text: "X's own note"))
-        let y = try await ImportService(store: store).importPDF(at: Support.small).book
+        let y = try #require(try await ImportService(store: store).importPDF(at: Support.small).book)
         try store.notes.save(Note(bookID: y.id, target: .page(1), text: "Y's own note"))
         #expect(y.fingerprint == s.fingerprint && y.id != s.id)
         // The restore hashes local candidates (caching `document.sha256`); do it now so "the
@@ -223,7 +223,7 @@ struct BackupRecoveryTests {
         _ = try await makeReplaceTarget(store, backups: backups)
         // Another book already owns one of the backup's note IDs: replaceBook refuses.
         let stray = try #require(backups.archive.notes.first)
-        let other = try await ImportService(store: store).importPDF(at: Support.noOutline).book
+        let other = try #require(try await ImportService(store: store).importPDF(at: Support.noOutline).book)
         try store.notes.save(Note(id: stray.id, bookID: other.id, target: .page(5), text: "owns the ID"))
         let before = try Support.libraryState(store)
 

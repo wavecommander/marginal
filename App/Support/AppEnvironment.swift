@@ -47,6 +47,9 @@ final class AppEnvironment {
         var alsoOpenBookID: UUID?
         /// `-alsoOpenWindowPage`: the zero-based page that window opens at.
         var alsoOpenPageIndex: Int?
+        /// `-importFixture` files waiting for the Convert to PDF sheet: the first window takes
+        /// these requests (`ImportService.address`).
+        var conversionRequestIDs: [UUID] = []
         /// Import failures, for diagnostics.
         var errors: [String] = []
     }
@@ -55,7 +58,7 @@ final class AppEnvironment {
         self.store = store
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
-        self.fixtureImporter = FixtureImporter(store: store)
+        self.fixtureImporter = FixtureImporter(store: store, converters: FixtureImporter.converters(for: launchOptions))
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
         let backupAutomaticSettings = BackupAutomaticSettings()
@@ -161,9 +164,12 @@ final class AppEnvironment {
         PerfMarks.mark("sweepDone")
         var imported: [Book] = []
         for url in launchOptions.importFixtures {
-            do {
-                imported.append(try await fixtureImporter.importPDF(at: url))
-            } catch {
+            let result = await fixtureImporter.importFixture(at: url, confirmConversions: launchOptions.confirmConversions)
+            if let book = result.book {
+                imported.append(book)
+            } else if let requestID = result.conversionRequestID {
+                plan.conversionRequestIDs.append(requestID)
+            } else if let error = result.error {
                 plan.errors.append("\(url.lastPathComponent): \(error)")
             }
         }
@@ -199,11 +205,11 @@ final class AppEnvironment {
 
     // MARK: Incoming documents (WP3 hook)
 
-    /// "A PDF URL arrived from outside" (Files "Open in", a document opened from another app).
-    /// Every window root forwards `.onOpenURL` here. WP3 implements the behaviour in
-    /// `IncomingPDFHandler` (in its own folder); this method does not change.
+    /// "A document URL arrived from outside" (Files "Open in", a document opened from another
+    /// app): a PDF or any format the app converts. Every window root forwards `.onOpenURL` here.
+    /// The behaviour is in `IncomingDocumentHandler` (in the Library folder).
     func handleIncomingPDF(_ url: URL, in window: WindowContext) {
-        IncomingPDFHandler.handle(url, environment: self, window: window)
+        IncomingDocumentHandler.handle(url, environment: self, window: window)
     }
 }
 

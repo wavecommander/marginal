@@ -110,7 +110,7 @@ final class ReaderUITests: XCTestCase {
         app.terminate()
 
         let again = XCUIApplication()
-        again.launchArguments = ["-openBook", "large"]
+        again.launchArguments = ["-pagePillStaysVisible", "-openBook", "large"]
         again.launch()
         XCTAssertTrue(pill(again).waitForExistence(timeout: 30))
         XCTAssertTrue(waitForLabel(pill(again), "Page 1200 of 1500"))
@@ -137,6 +137,29 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"))
         sleep(2)
         XCTAssertEqual(pill(app).label, "Page 1 of 12")
+    }
+
+    /// Without `-pagePillStaysVisible` the pill fades once the page stands still, and scrolling
+    /// brings it back (it fades again afterwards). The fade's state is read from the
+    /// `-exposeMarkupState` probe: XCUITest keeps listing a fully transparent button and cannot
+    /// always tell whether it is hittable.
+    func testPagePillFadesWhenIdleAndReturnsOnScroll() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetState"] + XCUIApplication.importing(Fixtures.small)
+            + ["-openBook", "small", "-exposeMarkupState"]
+        app.launch()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30), "reader open")
+        let state = app.buttons["reader.markupState"].firstMatch
+        XCTAssertTrue(waitForValue(state, containing: "pill=idle pillReturns=0", timeout: 10), "pill fades when idle")
+        scrollPage(app)
+        XCTAssertTrue(waitForValue(state, containing: "pillReturns=1", timeout: 5), "scrolling brings the pill back")
+        XCTAssertTrue(waitForValue(state, containing: "pill=idle pillReturns=1", timeout: 10), "pill fades again")
+    }
+
+    private func waitForValue(_ element: XCUIElement, containing text: String, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "value CONTAINS %@", text)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     func testSubtitleShowsSectionAfterJump() {

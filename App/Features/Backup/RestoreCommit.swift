@@ -99,6 +99,10 @@ nonisolated struct RestoreJournal: Codable, Equatable, Sendable {
     var pdfFileName: String
     /// Set when the PDF comes from a replaced local book.
     var localPDF: LocalPDF?
+    /// Set when the restored book is a converted one whose backup came without its kept original
+    /// (backups never hold it) and a replaced local book made from the same file still has it:
+    /// that entry (`original.<ext>`, a file or a package directory) moves across like the PDF.
+    var localOriginal: LocalPDF?
 
     /// Every `Books/<id>` the commit moves aside: the replaced books and the restored ID itself
     /// (a local book with that ID is replaced too), ascending by `uuidString`.
@@ -115,6 +119,10 @@ nonisolated struct RestoreJournal: Codable, Equatable, Sendable {
             && archivePath == RestoreLayout.archiveRelativePath(bookID: bookID)
             && RestoreNames.isSafeFileName(pdfFileName)
             && (localPDF.map { RestoreNames.isSafeFileName($0.fileName) && replacedBookIDs.contains($0.bookID) } ?? true)
+            && (localOriginal.map {
+                BookStorageLayout.isOriginalFileName($0.fileName) && $0.fileName != pdfFileName
+                    && replacedBookIDs.contains($0.bookID)
+            } ?? true)
     }
 }
 
@@ -240,6 +248,8 @@ enum RestoreCommit {
         var replacedBookIDs: Set<UUID>
         /// A replaced local book whose PDF is reused.
         var localPDF: RestoreJournal.LocalPDF?
+        /// A replaced local book whose kept original is carried over (`keptOriginal`).
+        var localOriginal: RestoreJournal.LocalPDF?
 
         var bookID: UUID { archive.book.id }
 
@@ -247,8 +257,30 @@ enum RestoreCommit {
             RestoreJournal(bookID: bookID, replacedBookIDs: replacedBookIDs.sorted { $0.uuidString < $1.uuidString },
                            stagedPath: RestoreLayout.stagedRelativePath(bookID: bookID),
                            archivePath: RestoreLayout.archiveRelativePath(bookID: bookID),
-                           pdfFileName: archive.book.fileName, localPDF: localPDF)
+                           pdfFileName: archive.book.fileName, localPDF: localPDF, localOriginal: localOriginal)
         }
+    }
+
+    /// The kept original to carry into a restored converted book: the `original.<ext>` of a
+    /// replaced local book made from the same file (same fingerprint, which for a converted book
+    /// is its original's), when the staged directory has none. `nil` otherwise.
+    static func keptOriginal(for restored: Book, sessionDirectory: URL, replacing replaced: [UUID],
+                             store: LibraryStore) -> RestoreJournal.LocalPDF? {
+        guard restored.isConverted else { return nil }
+        let manager = FileManager.default
+        func original(in directory: URL, besides pdf: String) -> String? {
+            (try? manager.contentsOfDirectory(atPath: directory.path))?
+                .first { BookStorageLayout.isOriginalFileName($0) && $0 != pdf }
+        }
+        let staged = RestoreLayout.stagedDirectory(session: sessionDirectory, bookID: restored.id)
+        guard original(in: staged, besides: restored.fileName) == nil else { return nil }
+        for id in replaced {
+            guard let local = try? store.books.book(id: id), local.isConverted, local.fingerprint == restored.fingerprint,
+                  let name = original(in: store.bookDirectoryURL(bookID: id), besides: local.fileName),
+                  name != restored.fileName else { continue }
+            return RestoreJournal.LocalPDF(bookID: id, fileName: name)
+        }
+        return nil
     }
 
     enum Outcome: Equatable, Sendable {
@@ -292,6 +324,7 @@ enum RestoreCommit {
 
             // 3. A reused local PDF joins the staged directory.
             try RestoreRecovery.moveLocalPDFIfNeeded(journal, session: session)
+            try RestoreRecovery.moveLocalOriginalIfNeeded(journal, session: session)
             if stopAfter == .pdfMoved { return .stopped(after: .pdfMoved) }
 
             // 4. The staged directory becomes the book's directory.
@@ -432,6 +465,7 @@ enum RestoreRecovery {
                     }
                 }
                 try moveLocalPDFIfNeeded(journal, session: session)
+                try moveLocalOriginalIfNeeded(journal, session: session)
                 try RestoreCommit.moveStagedIn(journal, session: session, store: store)
             } else if !manager.fileExists(atPath: store.bookDirectoryURL(bookID: journal.bookID).path) {
                 // Neither staged nor swapped in: nothing to commit the records to.
@@ -468,6 +502,19 @@ enum RestoreRecovery {
         try manager.moveItem(at: source, to: target)
     }
 
+    /// Step 3, second part (idempotent): moves a carried-over kept original from its set-aside
+    /// directory into the staged directory, when it is still aside and the target is absent.
+    static func moveLocalOriginalIfNeeded(_ journal: RestoreJournal, session: URL) throws {
+        guard let local = journal.localOriginal else { return }
+        let manager = FileManager.default
+        let source = RestoreLayout.asideDirectory(session: session, bookID: journal.bookID, replacedID: local.bookID)
+            .appendingPathComponent(local.fileName)
+        let target = RestoreLayout.stagedDirectory(session: session, bookID: journal.bookID)
+            .appendingPathComponent(local.fileName)
+        guard manager.fileExists(atPath: source.path), !manager.fileExists(atPath: target.path) else { return }
+        try manager.moveItem(at: source, to: target)
+    }
+
     /// Undoes steps 4, 3 and 2 (each only if done), leaving `Books/` as before the commit.
     /// The records are never touched: `replaceBook` either committed (then this is not called)
     /// or changed nothing.
@@ -486,6 +533,15 @@ enum RestoreRecovery {
             if manager.fileExists(atPath: aside.path), !manager.fileExists(atPath: original.path),
                manager.fileExists(atPath: reused.path) {
                 try manager.moveItem(at: reused, to: original)
+            }
+        }
+        if let local = journal.localOriginal {
+            let aside = RestoreLayout.asideDirectory(session: session, bookID: journal.bookID, replacedID: local.bookID)
+            let kept = aside.appendingPathComponent(local.fileName)
+            let carried = staged.appendingPathComponent(local.fileName)
+            if manager.fileExists(atPath: aside.path), !manager.fileExists(atPath: kept.path),
+               manager.fileExists(atPath: carried.path) {
+                try manager.moveItem(at: carried, to: kept)
             }
         }
         for id in journal.setAsideIDs {

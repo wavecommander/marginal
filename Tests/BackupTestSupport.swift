@@ -62,8 +62,8 @@ enum BackupTestSupport {
     /// parents, page ink, and a reading position.
     static func seedLibrary(_ store: LibraryStore) async throws -> Seeded {
         let importer = ImportService(store: store)
-        let small = try await importer.importPDF(at: Self.small).book
-        let noOutline = try await importer.importPDF(at: Self.noOutline).book
+        let small = try #require(try await importer.importPDF(at: Self.small).book)
+        let noOutline = try #require(try await importer.importPDF(at: Self.noOutline).book)
         try await seedRecords(store, book: small, label: "S")
         try await seedRecords(store, book: noOutline, label: "N")
         var a = try #require(try store.books.book(id: small.id))

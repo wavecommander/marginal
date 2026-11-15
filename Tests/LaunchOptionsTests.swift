@@ -39,6 +39,17 @@ struct LaunchOptionsTests {
         #expect(LaunchOptions().backupFolder == nil)
     }
 
+    @Test func parsesImportFlowSwitches() {
+        let options = LaunchOptions(arguments: ["app", "-stubConverters", "-confirmConversions",
+                                                "-stubConverterPageDelay", "40", "-importFixture", "/a.epub"])
+        #expect(options.stubConverters && options.confirmConversions)
+        #expect(options.stubConverterPageDelay == 40)
+        #expect(options.importFixtures.map(\.path) == ["/a.epub"])
+        #expect(LaunchOptions(arguments: ["app", "-stubConverterPageDelay", "soon"]).stubConverterPageDelay == nil)
+        let plain = LaunchOptions(arguments: ["app"])
+        #expect(!plain.stubConverters && !plain.confirmConversions)
+    }
+
     @Test func defaultsAreEmpty() {
         #expect(LaunchOptions(arguments: ["app"]) == LaunchOptions())
     }
