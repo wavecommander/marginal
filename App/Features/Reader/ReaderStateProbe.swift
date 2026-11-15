@@ -7,7 +7,7 @@ import UIKit
 /// - `reader.markupState`: value read live on every query, space-separated `key=value` tokens:
 ///   `markup=on|off picker=shown|hidden shows=N notes=shown|hidden`
 ///   `responder=markup|surface|auxiliary|other undo=yes|no redo=yes|no heardUndo=yes|no`
-///   `heardRedo=yes|no posts=N pill=shown|idle pillReturns=N`. `shows` counts the tool picker's
+///   `heardRedo=yes|no posts=N scroll=vertical|horizontal pill=shown|idle pillReturns=N`. `shows` counts the tool picker's
 ///   appearances. `undo`/`redo` are the markup responder's undo manager (`MarkupRoutingUndoManager`) now; `heard…` is what a listener
 ///   of that manager's notifications (as the tool picker is) read in the last one, and `posts`
 ///   how many it has heard. `scroll=vertical|horizontal` is the book's scroll direction. `pill` is

@@ -215,9 +215,19 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         XCTAssertTrue(wait(menu, "isEnabled == true", []), "export enabled")
         menu.tap()
-        let item = app.buttons[format].firstMatch
+        let identifiers = ["Markdown": "notebook.export.markdown", "Markdown (ZIP)": "notebook.export.markdownZip",
+                           "PDF": "notebook.export.pdf"]
+        // A menu item reads as its title and its subtitle ("Markdown, Text only").
+        let item = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@",
+                                                    identifiers[format] ?? format, format, format + ",")).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), "\(format) menu item")
         item.tap()
+        if format == "Markdown" {
+            // With a handwritten note or handwriting in the Notebook, plain Markdown first says it
+            // leaves images out and offers the ZIP.
+            let textOnly = app.alerts["Images Are Not Included"].buttons["Export Text Only"].firstMatch
+            if textOnly.waitForExistence(timeout: 3) { textOnly.tap() }
+        }
         XCTAssertTrue(waitForShareSheet(app), "share sheet for \(format)")
         let close = app.navigationBars["UIActivityContentView"].buttons.firstMatch
         if app.buttons["Close"].exists {

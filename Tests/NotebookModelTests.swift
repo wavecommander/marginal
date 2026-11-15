@@ -185,6 +185,34 @@ struct NotebookFeedTests {
         #expect(!rows.contains { $0.targetPage == 19 })
     }
 
+    @Test func headerCheckboxesStandForEverythingShownUnderThem() async throws {
+        let (store, _, model) = try await Support.seeded()
+        defer { Support.cleanUp(store) }
+        let notebook = try #require(model.notebook)
+        let rows = NotebookFeed.rows(for: notebook, filter: NotebookFilter())
+        let byHeader = NotebookFeed.itemsByHeader(rows)
+        #expect(Set(byHeader.keys) == Set(rows.filter(\.isHeader).map(\.id)))
+        #expect(Set(NotebookFeed.items(in: rows)) == notebook.itemIDs)
+
+        func header(_ title: String) throws -> String {
+            try #require(rows.first { $0.isHeader && Support.titles([$0]) == [title] }).id
+        }
+        // A chapter's checkbox covers its subsections; a subsection's only its own rows.
+        let chapter = try #require(byHeader[try header("5 Eigenvalues and Eigenvectors")])
+        let first = try #require(byHeader[try header("5.1 Invariant Directions")])
+        let second = try #require(byHeader[try header("5.2 The Characteristic Equation")])
+        #expect(second.count == 7)
+        #expect(!first.isEmpty)
+        #expect(Set(chapter).isSuperset(of: first + second))
+        #expect(Set(first).isDisjoint(with: second))
+        #expect(Set(try #require(byHeader[try header("4 Determinants")])).isDisjoint(with: chapter))
+
+        #expect(NotebookFeed.selectionState(of: second, in: []) == .none)
+        #expect(NotebookFeed.selectionState(of: second, in: [second[0]]) == .some)
+        #expect(NotebookFeed.selectionState(of: second, in: Set(second)) == .all)
+        #expect(NotebookFeed.selectionState(of: chapter, in: Set(second)) == (chapter.count == second.count ? .all : .some))
+    }
+
     @Test func typeFilterAndSearchNarrowTheFeed() async throws {
         let (store, _, model) = try await Support.seeded()
         defer { Support.cleanUp(store) }

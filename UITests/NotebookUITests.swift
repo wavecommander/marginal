@@ -13,6 +13,9 @@ final class NotebookUITests: XCTestCase {
     private enum ID {
         static let typeFilter = "notebook.typeFilter"
         static let export = "notebook.export"
+        static let select = "notebook.select"
+        static let selectAll = "notebook.selectAll"
+        static let selectDone = "notebook.selectDone"
         static let scopeMenu = "notebook.scopeMenu"
         static func header(_ title: String) -> String { "notebook.header.\(title)" }
         static func headingNote(_ title: String) -> String { "notebook.headingNote.\(title)" }
@@ -102,9 +105,19 @@ final class NotebookUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         XCTAssertTrue(waitFor(menu, enabled: true), "export enabled")
         menu.tap()
-        let item = app.buttons[format].firstMatch
+        let identifiers = ["Markdown": "notebook.export.markdown", "Markdown (ZIP)": "notebook.export.markdownZip",
+                           "PDF": "notebook.export.pdf"]
+        // A menu item reads as its title and its subtitle ("Markdown, Text only").
+        let item = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@",
+                                                    identifiers[format] ?? format, format, format + ",")).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), "\(format) menu item")
         item.tap()
+        if format == "Markdown" {
+            // The seeded Notebook has a handwritten note: plain Markdown says it leaves images out.
+            let textOnly = app.alerts["Images Are Not Included"].buttons["Export Text Only"].firstMatch
+            XCTAssertTrue(textOnly.waitForExistence(timeout: 5), "told to use the ZIP for images")
+            textOnly.tap()
+        }
         XCTAssertTrue(waitForShareSheet(app), "share sheet for \(format)")
         dismissShareSheet(app)
         XCTAssertTrue(waitFor(menu, enabled: true, timeout: 15), "export available again after \(format)")
@@ -256,6 +269,62 @@ final class NotebookUITests: XCTestCase {
         let app = launch()
         export(app, "Markdown")
         export(app, "PDF")
+    }
+
+    /// "Select" puts a checkbox on every row; export then takes the ticked rows only. Plain
+    /// Markdown says it leaves images out and offers the ZIP (screenshots:
+    /// `build/shots/notebook-select.png`, `notebook-export-images.png`).
+    func testSelectingRowsThenExportingThem() throws {
+        let app = launch()
+        let menu = app.buttons[ID.export].firstMatch
+        let select = app.buttons[ID.select].firstMatch
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        select.tap()
+        XCTAssertTrue(app.buttons[ID.selectDone].firstMatch.waitForExistence(timeout: 5), "choosing")
+        XCTAssertTrue(waitFor(menu, enabled: false), "nothing ticked: nothing to export")
+
+        // A row ticks instead of opening the reader.
+        let note = row(app, ID.pageNote(1))
+        XCTAssertEqual(note.value as? String, "Not selected")
+        note.tap()
+        XCTAssertEqual(note.value as? String, "Selected")
+        XCTAssertTrue(waitFor(menu, enabled: true), "one row ticked")
+
+        // A header ticks everything under it.
+        let header = row(app, ID.header("3 Matrices and Linear Maps"))
+        header.tap()
+        XCTAssertEqual(header.value as? String, "Selected")
+        try saveShot("notebook-select")
+        header.tap()
+        XCTAssertEqual(header.value as? String, "Not selected")
+        XCTAssertEqual(note.value as? String, "Selected", "other rows keep their tick")
+
+        let all = app.buttons[ID.selectAll].firstMatch
+        XCTAssertEqual(all.label, "Select All")
+        all.tap()
+        XCTAssertEqual(header.value as? String, "Selected")
+        XCTAssertEqual(all.label, "Deselect All")
+
+        export(app, "Markdown")
+        export(app, "Markdown (ZIP)")
+
+        // From the notice, "Export as ZIP" exports the ZIP.
+        menu.tap()
+        try saveShot("notebook-export-menu")
+        app.buttons.matching(NSPredicate(format: "identifier == 'notebook.export.markdown' OR label BEGINSWITH 'Markdown,'"))
+            .firstMatch.tap()
+        let alert = app.alerts["Images Are Not Included"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.containing(NSPredicate(format: "label CONTAINS 'export as Markdown (ZIP)'")).firstMatch.exists)
+        try saveShot("notebook-export-images")
+        alert.buttons["Export as ZIP"].firstMatch.tap()
+        XCTAssertTrue(waitForShareSheet(app), "share sheet for the ZIP")
+        dismissShareSheet(app)
+        XCTAssertTrue(waitFor(menu, enabled: true, timeout: 15), "export available again")
+
+        app.buttons[ID.selectDone].firstMatch.tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5), "back to the plain Notebook")
+        XCTAssertEqual(note.value as? String ?? "", "")
     }
 
     func testANoteAddedWhileOpenAppearsWithoutRelaunch() {

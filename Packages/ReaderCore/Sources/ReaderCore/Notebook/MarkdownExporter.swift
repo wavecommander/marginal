@@ -19,8 +19,9 @@ import Foundation
 /// A **page block** is emitted for a page with a note, highlights or page ink (bookmark-only
 /// pages are skipped): the line `**Page N**` (1-based), then the note block if any, then one
 /// quote block per highlight in reading order: `> <text> (p. N)`, where the text has all
-/// whitespace collapsed to single spaces; then, for a page with ink, the line
-/// `_Handwriting on page N_` (the ink itself is not exported to Markdown; the PDF export draws it).
+/// whitespace collapsed to single spaces; then, for a page with ink, the image line
+/// `![Handwriting on page N](path)` if `handwritingPath` returns a path (an image of the page
+/// with its ink, made by the caller), else the line `_Handwriting on page N_`.
 ///
 /// A **note block** is the note's text with line endings normalised to `"\n"`, trailing
 /// whitespace removed from each line, and leading and trailing blank lines removed; then, if
@@ -35,8 +36,12 @@ public enum MarkdownExporter {
     ///   - imagePath: called exactly once per exported note, in output order; returns the image's
     ///     path relative to the Markdown file (e.g. `"images/<noteID>.png"`) or `nil` for no image.
     ///     WP9 returns a path for notes with `hasInk` and renders those images.
+    ///   - handwritingPath: called exactly once per exported page with ink (zero-based page
+    ///     index), in output order; returns the path, relative to the Markdown file, of an image
+    ///     of the page with its ink, or `nil` for no image.
     public static func export(_ notebook: Notebook, bookTitle: String,
-                              imagePath: (Note) -> String? = { _ in nil }) -> String {
+                              imagePath: (Note) -> String? = { _ in nil },
+                              handwritingPath: (Int) -> String? = { _ in nil }) -> String {
         var blocks: [String] = ["# \(OutlineText.normalizedTitle(bookTitle))"]
 
         func noteBlocks(_ note: Note) -> [String] {
@@ -59,7 +64,12 @@ public enum MarkdownExporter {
                 result.append("> \(text) (\(PageNumbering.label(forPageIndex: highlight.pageIndex)))")
             }
             if page.hasInk {
-                result.append("_Handwriting on page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))_")
+                let label = "Handwriting on page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))"
+                if let path = handwritingPath(page.pageIndex) {
+                    result.append("![\(label)](\(markdownDestination(path)))")
+                } else {
+                    result.append("_\(label)_")
+                }
             }
             return result
         }

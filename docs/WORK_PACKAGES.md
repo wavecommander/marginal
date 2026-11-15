@@ -287,8 +287,12 @@ handwriting, which is the worst failure the app can have.
 - Notebook screen per the mockup from `NotebookBuilder`: heading filter column, feed, type
   filter, search within notes, tap a row to open the reader there. Notes with ink are drawn with
   `NotePageRenderer` (WP13), so the ink shows over the text.
-- Export through the share sheet: Markdown using `MarkdownExporter`, with an image of each
-  marked-up note beside it; and the Notebook as a PDF with every note drawn as it looks.
+- Export through the share sheet: Markdown using `MarkdownExporter` as one text-only file;
+  Markdown as a ZIP with an image of each marked-up note (`images/`) and of each page with
+  handwriting (`handwriting/`), linked from the Markdown; and the Notebook as a PDF with every
+  note drawn as it looks. Plain Markdown tells the reader to use the ZIP when there are images.
+- "Select" mode: a checkbox on every row, and export of the ticked items only
+  (`Notebook.selecting`).
 - **Done when** a UI test with seeded notes checks grouping under the right headings, the
   exported Markdown matches a golden file and references an image for the seeded marked-up note,
   and the exported PDF opens with at least one page.

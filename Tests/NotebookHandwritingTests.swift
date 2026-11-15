@@ -259,15 +259,52 @@ struct NotebookHandwritingTests {
     @Test func markdownNamesEveryInkedPage() async throws {
         let (store, book, model) = try await Self.seededWithPageInk()
         defer { Support.cleanUp(store) }
-        let (text, images) = NotebookExporter.markdown(for: try #require(model.notebook), bookTitle: book.title)
+        // Text only (and a page the ZIP could not draw): page ink is named, not pictured.
+        let (text, images) = NotebookExporter.markdown(for: try #require(model.notebook), bookTitle: book.title, images: true)
         for page in [2, 18, 25] { #expect(text.contains("_Handwriting on page \(page)_"), "page \(page)") }
-        #expect(images.count == 1)   // the inked note only: page ink is named, not pictured
+        #expect(images.count == 1)   // the inked note
         #expect(text.contains("> The eigenvalues of a triangular matrix are the entries on its main diagonal. (p. 29)"))
         // p. 25's block: note, highlights, then the handwriting line.
         let block = try #require(text.components(separatedBy: "**Page 25**").last)
         let handwriting = try #require(block.range(of: "_Handwriting on page 25_"))
         let highlight = try #require(block.range(of: "an n × n matrix has at most n distinct eigenvalues"))
         #expect(highlight.lowerBound < handwriting.lowerBound)
+    }
+
+    @Test func markdownZipPicturesEveryInkedPageInItsOwnFolder() async throws {
+        let (store, book, model) = try await Self.seededWithPageInk()
+        defer { Support.cleanUp(store) }
+        let notebook = try #require(model.notebook)
+        #expect(NotebookExporter.hasImages(notebook))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("NotebookHandwritingTests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var fractions: [Double] = []
+        let result = try await NotebookExporter.export(.markdownZip, notebook: notebook, book: book, store: store,
+                                                       root: root) { fractions.append($0) }
+        #expect(fractions.last == 1)
+        #expect(fractions == fractions.sorted())
+
+        let folder = result.workDirectory.appendingPathComponent("\(NotebookExporter.baseName(forBookTitle: book.title))")
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("handwriting").path)
+        #expect(names.sorted() == ["page-002.png", "page-018.png", "page-025.png"])
+        // Each image is the page of the book with its ink, 768 points wide at 2x.
+        let image = try #require(UIImage(contentsOfFile: folder.appendingPathComponent("handwriting/page-018.png").path))
+        #expect(image.size.width * image.scale == 1536)
+        #expect(image.size.height > image.size.width)
+
+        let markdownName = NotebookExporter.baseName(forBookTitle: book.title) + ".md"
+        let text = try String(contentsOf: folder.appendingPathComponent(markdownName), encoding: .utf8)
+        for page in [2, 18, 25] {
+            #expect(text.contains(String(format: "![Handwriting on page %d](handwriting/page-%03d.png)", page, page)), "page \(page)")
+        }
+        #expect(!text.contains("_Handwriting on page"))
+        #expect(text.contains("![Handwritten note](images/note-001.png)"))
+
+        // The text-only file names the pages and links nothing.
+        let plain = try await NotebookExporter.export(.markdown, notebook: notebook, book: book, store: store, root: root)
+        let plainText = try String(contentsOf: plain.fileURL, encoding: .utf8)
+        for page in [2, 18, 25] { #expect(plainText.contains("_Handwriting on page \(page)_"), "page \(page)") }
+        #expect(!plainText.contains("]("))
     }
 
     @Test func pdfDrawsEachInkedPageWithItsInkAsVector() async throws {
