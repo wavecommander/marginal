@@ -296,6 +296,43 @@ nonisolated enum EPUBTestFixtures {
         return book.data()
     }
 
+    /// Chapters shaped like Project Gutenberg's, which printed empty pages: each opens with an
+    /// empty `<div class="chapter">` with `page-break-before: always` before a heading that has
+    /// one too; one ends with an empty element with `page-break-after: always`; one ends with a
+    /// big bottom margin (as a figure or rule's margin does near the foot of a page); one ends
+    /// with a rule followed by an empty paragraph. Each chapter's text fits on one page.
+    static let edgeTitles = ["Edge One", "Edge Two", "Edge Three", "Edge Four"]
+
+    static func edgeBreaks() -> Data {
+        let css = """
+            .chapter { page-break-before: always; margin-top: 4em; }
+            h2 { page-break-before: always; padding-top: 1em; }
+            .end { page-break-after: always; margin-top: 3em; }
+            .tail { margin-bottom: 2000px; }
+            hr.species { margin: 4% 47.5%; border: 1px solid; }
+            """
+        let bodies = [
+            "<div class=\"chapter\"></div><h2>Edge One</h2>\(EPUBTestBook.paragraphs("E1", count: 3, words: 30))",
+            "<div class=\"chapter\"></div><h2>Edge Two</h2>\(EPUBTestBook.paragraphs("E2", count: 3, words: 30))<div class=\"end\"></div>",
+            "<h2>Edge Three</h2>\(EPUBTestBook.paragraphs("E3", count: 3, words: 30))<p class=\"tail\">Last line of edge three.</p>",
+            "<h2>Edge Four</h2>\(EPUBTestBook.paragraphs("E4", count: 3, words: 30))<hr class=\"species\"/><p><span id=\"pg9\"></span></p>",
+        ]
+        var book = EPUBTestBook()
+        for (index, body) in bodies.enumerated() {
+            book.add("OEBPS/e\(index + 1).xhtml", EPUBTestBook.xhtml(title: edgeTitles[index], body: body,
+                                                                    head: "<link rel=\"stylesheet\" href=\"edge.css\"/>"))
+        }
+        book.add("OEBPS/edge.css", css)
+        book.add("OEBPS/nav.xhtml", navDocument(edgeTitles.enumerated().map { NavEntry(title: $0.element, href: "e\($0.offset + 1).xhtml") }))
+        book.add("OEBPS/content.opf", opf(version: "3.0", title: "Edges", items: bodies.indices.map {
+            "<item id=\"e\($0 + 1)\" href=\"e\($0 + 1).xhtml\" media-type=\"application/xhtml+xml\"/>"
+        } + [
+            "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>",
+            "<item id=\"css\" href=\"edge.css\" media-type=\"text/css\"/>",
+        ], spine: bodies.indices.map { "<itemref idref=\"e\($0 + 1)\"/>" }))
+        return book.data()
+    }
+
     /// A one-chapter book with `body`, plus extra files and manifest items.
     static func single(body: String, title: String = "Single", head: String = "", files: [(String, Data)] = [], items: [String] = [],
                        metadata: String = "", spine: [String]? = nil, encryption: String? = nil, extraMeta: [(String, String)] = []) -> Data {
@@ -642,6 +679,33 @@ nonisolated enum EPUBTestPDF {
             }
         }
         return result
+    }
+
+    /// Pages with no extractable text whose rendered thumbnail is entirely white.
+    static func blankPages(_ document: PDFDocument) -> [Int] {
+        (0..<document.pageCount).filter { index in
+            guard let page = document.page(at: index) else { return false }
+            let text = (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty && isWhite(page)
+        }
+    }
+
+    /// Whether the page draws nothing but white (rendered at 216 × 324 px).
+    static func isWhite(_ page: PDFPage) -> Bool {
+        let bounds = page.bounds(for: .mediaBox)
+        let width = 216, height = Int((bounds.height / bounds.width * 216).rounded())
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        context.setFillColor(UIColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.scaleBy(x: CGFloat(width) / bounds.width, y: CGFloat(height) / bounds.height)
+        page.draw(with: .mediaBox, to: context)
+        guard let pixels = context.data?.bindMemory(to: UInt8.self, capacity: width * height * 4) else { return false }
+        for index in 0..<(width * height) where pixels[index * 4] < 250 || pixels[index * 4 + 1] < 250 || pixels[index * 4 + 2] < 250 {
+            return false
+        }
+        return true
     }
 
     /// Renders a page to a PNG (for looking at).

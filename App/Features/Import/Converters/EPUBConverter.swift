@@ -23,8 +23,11 @@ import UIKit
 // - A chapter longer than 24 pages is printed in segments of about 16 pages, cut between
 //   top-level blocks (at a heading when one is near), so no single print holds the main thread
 //   for long. Each segment's last page ends early, like a section break: a few extra pages in a
-//   book with long chapters (+2 for a 268-page chapter, +6 over the 283 pages of the test book).
-// - A forced page break before a chapter's first content is ignored (it printed an empty page).
+//   book with long chapters (+2 for a 268-page chapter).
+// - Forced page breaks before a chapter's (or segment's) first content and after its last are
+//   ignored, empty trailing elements are hidden and the trailing bottom margin is dropped: each
+//   printed an empty page (one per chapter in Project Gutenberg books). See
+//   `WebPDFRenderer.suppressEdgeBreaksJS`. Breaks between pieces of content are kept.
 
 /// Turns a reflowable, DRM-free EPUB 2 or 3 into a PDF.
 nonisolated struct EPUBConverter: DocumentConverter {
@@ -472,7 +475,10 @@ nonisolated struct EPUBTargetLocator {
                 var external: URL?
                 if let path = WebPDFRenderer.path(of: url) {
                     linkStatistics.internalFound += 1
-                    guard let destination = chapterByPath[path] else { continue }
+                    guard let destination = chapterByPath[path] else {
+                        linkStatistics.dropped.append("\(link.href): target not in the spine")
+                        continue
+                    }
                     let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment
                     target = Key(chapter: destination, fragment: fragment)
                 } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
@@ -481,9 +487,16 @@ nonisolated struct EPUBTargetLocator {
                 } else {
                     continue
                 }
-                guard !link.text.isEmpty, let printedText = text(index) else { continue }
+                guard !link.text.isEmpty, let printedText = text(index) else {
+                    linkStatistics.dropped.append("\(link.href): no link text")
+                    continue
+                }
                 let estimate = printedText.estimatedPage(forFraction: link.top)
-                guard let found = printedText.linkRects(text: link.text, before: link.before, near: estimate) else { continue }
+                guard let found = printedText.linkRects(text: link.text, before: link.before, near: estimate) else {
+                    linkStatistics.dropped.append("\(link.href): '\(link.text.prefix(30))' after '\(link.before.suffix(30))' "
+                        + "not found once near page \(estimate + 1) of \(printed[index].chapter.path)")
+                    continue
+                }
                 pending.append(Pending(page: starts[index] + found.page, rects: found.rects, target: target, url: external))
             }
         }
@@ -494,7 +507,10 @@ nonisolated struct EPUBTargetLocator {
                 linkStatistics.externalPlaced += 1
             } else if let key = item.target {
                 // A link whose target could only be estimated would risk landing a page out.
-                guard case let .exact(page) = resolve(key) else { continue }
+                guard case let .exact(page) = resolve(key) else {
+                    linkStatistics.dropped.append("target \(printed[key.chapter].chapter.path)#\(key.fragment ?? ""): not found by text")
+                    continue
+                }
                 links.append(WebPDFLink(pageIndex: item.page, rects: item.rects, target: .page(page)))
                 linkStatistics.internalPlaced += 1
             }
@@ -533,6 +549,8 @@ nonisolated final class EPUBConversionDiagnostics: @unchecked Sendable {
         var internalPlaced = 0
         var externalFound = 0
         var externalPlaced = 0
+        /// Why each dropped link was dropped.
+        var dropped: [String] = []
     }
 
     private let lock = NSLock()

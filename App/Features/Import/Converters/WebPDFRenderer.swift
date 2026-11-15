@@ -290,25 +290,64 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// Defines `suppressLeadingBreak()`: a forced break before the first visible content (a
-    /// chapter heading with `break-before: page`, say) would print an empty first page, so it is
-    /// switched off on that content and its ancestors.
-    nonisolated static let suppressLeadingBreakJS = """
-        const suppressLeadingBreak = () => {
-          if (!document.body) { return; }
-          const media = ['IMG', 'SVG', 'svg', 'VIDEO', 'OBJECT', 'EMBED', 'CANVAS', 'image'];
-          const visible = el => el && el.getClientRects().length > 0;
-          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-            acceptNode: node => node.nodeType === Node.TEXT_NODE
-              ? (node.nodeValue.trim() && visible(node.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP)
-              : (media.includes(node.nodeName) && visible(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP)
+    /// Defines `suppressEdgeBreaks()`. WebKit's print path honours a forced page break at the
+    /// very start or end of the document, which prints an empty page: Project Gutenberg books
+    /// open every chapter with an empty `<div class="chapter">` whose `page-break-before` is
+    /// `always`, and chapter headings often carry one too. So, for the visible content:
+    /// - every element that comes before the first text or picture loses its forced breaks,
+    ///   and the first content's ancestors lose `break-before`;
+    /// - every empty element that comes after the last text or picture is hidden (it has nothing
+    ///   to show, but its margins or a forced break can push an empty page out), and the last
+    ///   content and its ancestors lose `break-after` and their bottom margin and padding, which
+    ///   otherwise spill onto an empty page when the content ends near the foot of a page.
+    /// Breaks between pieces of content are kept. Hidden elements (other segments) are left alone.
+    nonisolated static let suppressEdgeBreaksJS = """
+        const suppressEdgeBreaks = () => {
+          const body = document.body;
+          if (!body) { return; }
+          const media = ['IMG', 'SVG', 'VIDEO', 'OBJECT', 'EMBED', 'CANVAS', 'IMAGE', 'HR'];  // compared upper case
+          const mediaSelector = media.map(name => name.toLowerCase()).join(',');
+          const visible = el => !!el && el.getClientRects().length > 0;
+          const isContent = node => node.nodeType === Node.TEXT_NODE
+            ? (!!node.nodeValue.trim() && visible(node.parentElement))
+            : (media.includes(node.nodeName.toUpperCase()) && visible(node));
+          const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+            acceptNode: node => isContent(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
           });
           const first = walker.nextNode();
-          for (let el = first && (first.nodeType === Node.TEXT_NODE ? first.parentElement : first);
-               el && el !== document.documentElement; el = el.parentElement) {
+          if (!first) { return; }
+          let deepest = body;
+          while (deepest.lastChild) { deepest = deepest.lastChild; }
+          walker.currentNode = deepest;
+          const last = isContent(deepest) ? deepest : (walker.previousNode() || first);
+          const element = node => node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+          const firstElement = element(first), lastElement = element(last);
+          const before = ['break-before', 'page-break-before'], after = ['break-after', 'page-break-after'];
+          const off = (el, names) => { if (el.style) { names.forEach(name => el.style.setProperty(name, 'auto', 'important')); } };
+          const all = body.getElementsByTagName('*');
+          for (let i = 0; i < all.length; i++) {
+            const el = all[i];
+            if (el === firstElement) { break; }
+            if (!visible(el)) { continue; }
+            off(el, el.contains(firstElement) ? before : before.concat(after));
+          }
+          for (let el = firstElement; el && el !== document.documentElement; el = el.parentElement) { off(el, before); }
+          const trailing = [];
+          for (let i = all.length - 1; i >= 0; i--) {
+            const el = all[i];
+            if (el === lastElement) { break; }
+            if (!visible(el) || el.contains(lastElement) || lastElement.contains(el)) { continue; }
+            // Only elements with nothing to show anywhere: a wrapper whose content belongs to a
+            // later segment must stay.
+            if (el.textContent.trim() || el.querySelector(mediaSelector)) { continue; }
+            trailing.push(el);
+          }
+          trailing.forEach(el => el.style && el.style.setProperty('display', 'none', 'important'));
+          for (let el = lastElement; el; el = el.parentElement) {
+            off(el, after);
             if (el.style) {
-              el.style.setProperty('break-before', 'auto', 'important');
-              el.style.setProperty('page-break-before', 'auto', 'important');
+              el.style.setProperty('margin-bottom', '0', 'important');
+              el.style.setProperty('padding-bottom', '0', 'important');
             }
           }
         };
@@ -326,8 +365,8 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
           style.textContent = css;
           (document.head || root).appendChild(style);
         }
-        \(suppressLeadingBreakJS)
-        suppressLeadingBreak();
+        \(suppressEdgeBreaksJS)
+        suppressEdgeBreaks();
         void root.offsetHeight;
         if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
         const pending = Array.from(document.images || []).filter(image => !image.complete);
@@ -521,12 +560,12 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         const hasText = el => Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim());
         if (hasText(body)) { return '1'; }
         // Ordered lists, tables, figures and the like are never cut (hidden items would renumber).
-        const whole = ['TABLE', 'OL', 'PRE', 'FIGURE', 'svg', 'SVG', 'math', 'MATH'];
+        const whole = ['TABLE', 'OL', 'PRE', 'FIGURE', 'SVG', 'MATH'];  // compared upper case (XHTML names are lower case)
         const leaves = [];
         const flatten = el => {
           for (const child of el.children) {
             const height = child.getBoundingClientRect().height;
-            if (height > maxHeight && child.children.length > 1 && !hasText(child) && !whole.includes(child.nodeName)) {
+            if (height > maxHeight && child.children.length > 1 && !hasText(child) && !whole.includes(child.nodeName.toUpperCase())) {
               flatten(child);
             } else {
               leaves.push(child);
@@ -558,7 +597,7 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         """
 
     nonisolated static let showSegmentScript = """
-        \(suppressLeadingBreakJS)
+        \(suppressEdgeBreaksJS)
         const xhtml = 'http://www.w3.org/1999/xhtml';
         let style = document.getElementById('tactile-segment-style');
         if (!style) {
@@ -568,7 +607,7 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
         }
         style.textContent = '[data-tactile-segment]:not([data-tactile-segment="' + index + '"]) { display: none !important; }';
         void document.documentElement.offsetHeight;
-        suppressLeadingBreak();
+        suppressEdgeBreaks();
         void document.documentElement.offsetHeight;
         if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
         return String(document.documentElement.scrollHeight);

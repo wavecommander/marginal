@@ -19,6 +19,7 @@ struct EPUBConverterRealBookTests {
         var diagnostics: EPUBConversionDiagnostics
         var outlineHits: Int
         var misses: [String]
+        var blankPages: [Int]
     }
 
     private func run(_ url: URL, name: String) async throws -> (Measured, EPUBTestWorkspace) {
@@ -76,7 +77,19 @@ struct EPUBConverterRealBookTests {
             }
         }
         print("EPUB real \(name): \(links.count) link annotations, \(empty) covering no text")
+        for reason in diagnostics.links.dropped { print("EPUB real \(name) dropped link: \(reason)") }
         #expect(empty == 0)
+        // Blank pages, and which printed part (chapter or segment) each comes from.
+        let blank = EPUBTestPDF.blankPages(document)
+        var partStart = 0
+        var located: [String] = []
+        for chapter in diagnostics.chapters {
+            for page in blank where page >= partStart && page < partStart + chapter.pageCount {
+                located.append("p\(page) = \(chapter.path) part \(chapter.part + 1)/\(chapter.parts) page \(page - partStart + 1)/\(chapter.pageCount)")
+            }
+            partStart += chapter.pageCount
+        }
+        print("EPUB real \(name): \(blank.count) blank pages \(located)")
         for miss in misses { print("EPUB real \(name) outline miss: \(miss)") }
         for chapter in diagnostics.chapters {
             print(String(format: "EPUB real %@ chapter %@: %d pages in %.2fs (print main %.0f ms, longest %.0f ms, %d batches)",
@@ -84,7 +97,7 @@ struct EPUBConverterRealBookTests {
                          chapter.print.longestMainThreadSlice * 1000, chapter.print.batches))
         }
         return (Measured(converted: converted, document: document, entries: entries, diagnostics: diagnostics,
-                         outlineHits: hits, misses: misses), workspace)
+                         outlineHits: hits, misses: misses, blankPages: blank), workspace)
     }
 
     /// Writes PNGs of a few pages for a person to look at; prints where.
@@ -108,6 +121,10 @@ struct EPUBConverterRealBookTests {
     func louisXIVConverts() async throws {
         let (measured, workspace) = try await run(Self.louisXIV, name: "louis-xiv")
         #expect(measured.entries.count == 31)
+        #expect(measured.blankPages.isEmpty)
+        #expect(measured.outlineHits == 31)
+        #expect(measured.diagnostics.links.internalPlaced >= 23)
+        #expect(measured.diagnostics.links.externalPlaced == 5)
         #expect(measured.converted.title != nil)
         #expect(measured.converted.coverImage != nil)
         // Accented text is searchable.
@@ -128,6 +145,10 @@ struct EPUBConverterRealBookTests {
         // The workspace (and the PDF in it) lives until the end of the test.
         defer { withExtendedLifetime(workspace) {} }
         #expect(measured.entries.count == 109)
+        #expect(measured.blankPages.isEmpty)
+        #expect(measured.outlineHits == 109)
+        #expect(measured.diagnostics.links.internalPlaced >= 170)
+        #expect(measured.diagnostics.links.externalPlaced == 5)
         #expect(measured.converted.coverImage != nil)
         let total = EPUBTestPDF.imageObjectCount(measured.converted.pdf)
         print("EPUB real birds: \(total) image objects in the PDF")

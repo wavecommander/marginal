@@ -101,6 +101,27 @@ struct EPUBConverterTests {
         #expect(document.findString("After the image.", withOptions: []).count == 1)
     }
 
+    // MARK: Blank pages
+
+    /// Forced breaks and margins at a chapter's edges printed empty pages (one per chapter in
+    /// Project Gutenberg books). Each chapter here fits on one page, so the book is four pages,
+    /// none blank, and each outline entry lands on its heading.
+    @Test func chapterEdgesPrintNoBlankPages() async throws {
+        let workspace = try EPUBTestWorkspace(EPUBTestFixtures.edgeBreaks())
+        let converted = try await convert(workspace)
+        let document = try #require(PDFDocument(url: converted.pdf))
+        #expect(EPUBTestPDF.blankPages(document) == [])
+        #expect(converted.pageCount == 4)
+        let entries = await ReaderDocumentLoader.outlineEntries(at: converted.pdf)
+        #expect(entries.map(\.title) == EPUBTestFixtures.edgeTitles)
+        #expect(entries.map(\.pageIndex) == [0, 1, 2, 3])
+        for (index, title) in EPUBTestFixtures.edgeTitles.enumerated() {
+            #expect(EPUBTestPDF.page(document, index, shows: title), "\(title) is not on page \(index)")
+        }
+        // The rule that ends chapter four is still drawn.
+        #expect(EPUBTestPDF.pageText(document, 3).contains("Paragraph E4.3"))
+    }
+
     // MARK: Outline
 
     private func checkOutline(_ converted: ConvertedDocument) async throws {
