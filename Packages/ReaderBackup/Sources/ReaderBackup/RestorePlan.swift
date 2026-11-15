@@ -61,8 +61,9 @@ public struct RestorePlan: Hashable, Sendable {
         /// The local books with the same ID or the same fingerprint, in Library order (the
         /// preview shows their counts and dates beside the backup's).
         public var localMatches: [LocalBookSummary]
-        /// Whether the book is ticked when the preview opens: new books yes, books already in
-        /// the Library no (the reader opts in to replacing them).
+        /// Whether the book is ticked when the preview opens: every book is (owner decision,
+        /// 15 November 2026: a book already in the Library is ticked and set to Merge, which
+        /// keeps everything on this iPad; the reader can switch it to Replace or Leave as is).
         public var isSelectedByDefault: Bool
         /// What restoring this book does unless the reader picks otherwise: `.restore` for a new
         /// book, `.merge` for a book already in the Library (owner decision, 15 November 2026:
@@ -101,7 +102,7 @@ public struct RestorePlan: Hashable, Sendable {
             } else {
                 source = .missing
             }
-            return Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: status == .new,
+            return Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: true,
                         defaultAction: status == .new ? .restore : .merge, pdfSource: source)
         }
     }

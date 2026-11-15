@@ -34,6 +34,14 @@ final class BackupUITests: XCTestCase {
         static func destination(_ id: String) -> String { "backup.destination.\(id)" }
         static func restoreBook(_ title: String) -> String { "restore.book.\(title)" }
         static func replaceWarning(_ title: String) -> String { "restore.book.\(title).replaceWarning" }
+        static func action(_ title: String) -> String { "restore.book.\(title).action" }
+        static func mergeText(_ title: String) -> String { "restore.book.\(title).mergeText" }
+        static func leaveText(_ title: String) -> String { "restore.book.\(title).leaveText" }
+        static let mergeFootnote = "restore.mergeFootnote"
+        static func merged(_ title: String) -> String { "restore.summary.merged.\(title)" }
+        static let undoHint = "restore.summary.undoHint"
+        static let undoRestore = "backup.undoRestore"
+        static let undoResult = "backup.undoRestore.result"
         static func locate(_ title: String) -> String { "restore.summary.locate.\(title)" }
     }
 
@@ -95,6 +103,52 @@ final class BackupUITests: XCTestCase {
         XCTAssertTrue(waitFor(app.staticTexts[ID.noteStatus].firstMatch, "label == 'Saved'"), "note saved")
         app.navigationBars.buttons["Library"].firstMatch.tap()
         XCTAssertTrue(book(app, "small").waitForExistence(timeout: 10))
+    }
+
+    /// Launches the app again on the same data (not fresh), with "small" open on page 1 and its
+    /// page note showing.
+    private func relaunchIntoReader(_ app: XCUIApplication) -> XCUIApplication {
+        app.terminate()
+        let again = XCUIApplication()
+        again.launchArguments = ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-backupFolder", folder.path]
+            + shotArguments
+        again.launch()
+        XCTAssertTrue(again.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 30), "the book opens")
+        XCTAssertTrue(again.textViews[ID.noteText].firstMatch.waitForExistence(timeout: 10), "note text view")
+        return again
+    }
+
+    /// The text of the page-1 note in the open reader.
+    private func noteValue(_ app: XCUIApplication) -> String {
+        app.textViews[ID.noteText].firstMatch.value as? String ?? ""
+    }
+
+    /// Picks `choice` from the Merge / Replace with Backup / Leave as Is menu of `title`'s row.
+    private func choose(_ choice: String, for title: String, in app: XCUIApplication) {
+        let menu = any(app, ID.action(title))
+        // A menu button can be reported as not hittable while it is on screen, so scroll only
+        // when it isn't there at all.
+        if !menu.waitForExistence(timeout: 2) { scrollTo(menu, in: app) }
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
+        menu.tap()
+        let item = app.buttons[choice].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        item.tap()
+        XCTAssertTrue(waitFor(menu, "value == '\(choice)'"), "\(String(describing: menu.value))")
+    }
+
+    /// Back up "small" (no notes) to the folder, then relaunch into the reader and write a page
+    /// note that only this iPad has. Returns the relaunched app, back in the Library.
+    private func backUpThenAddALaterNote(_ text: String) -> XCUIApplication {
+        let app = launch([Fixtures.small])
+        XCTAssertTrue(book(app, "small").waitForExistence(timeout: 20))
+        openBackupScreen(app)
+        openDestination(app)
+        backUpNow(app)
+        closeSettings(app)
+        let again = relaunchIntoReader(app)
+        addNote(again, text)
+        return again
     }
 
     private func openBackupScreen(_ app: XCUIApplication) {
@@ -276,9 +330,10 @@ final class BackupUITests: XCTestCase {
                       "the Notebook of a book without its PDF opens")
     }
 
-    /// (c) Restoring over a book still in the Library: unticked by default, with the replace
-    /// warning, and Restore asks first, naming the book.
-    func testRestoringOverAnExistingBookWarnsAndIsUntickedByDefault() {
+    /// (c) Restoring over a book still in the Library: ticked and set to Merge by default, with
+    /// what a merge adds; Replace with Backup shows the warning and Restore asks first, naming the
+    /// book; Leave as Is unticks it.
+    func testRestoringOverAnExistingBookDefaultsToMergeAndReplaceWarns() {
         let app = launch([Fixtures.small])
         XCTAssertTrue(book(app, "small").waitForExistence(timeout: 20))
         openBackupScreen(app)
@@ -287,22 +342,107 @@ final class BackupUITests: XCTestCase {
         openNewestBackup(app)
 
         let checkbox = any(app, ID.restoreBook("small"))
-        XCTAssertEqual(checkbox.value as? String, "Not selected", "an existing book is not ticked")
+        XCTAssertEqual(checkbox.value as? String, "Selected", "an existing book is ticked")
         XCTAssertTrue(checkbox.label.contains("Already in Library"), checkbox.label)
-        XCTAssertTrue(any(app, ID.replaceWarning("small")).label.contains("replaces"), app.debugDescription)
-        XCTAssertFalse(app.buttons[ID.confirm].isEnabled, "nothing ticked")
+        let menu = any(app, ID.action("small"))
+        XCTAssertEqual(menu.value as? String, "Merge", "and set to Merge")
+        XCTAssertTrue(waitFor(any(app, ID.mergeText("small")), "label CONTAINS 'already has everything'"), app.debugDescription)
+        XCTAssertFalse(any(app, ID.replaceWarning("small")).exists, "no replace warning for a merge")
+        XCTAssertTrue(any(app, ID.mergeFootnote).exists, "the footnote about deletions coming back")
+        XCTAssertEqual(app.buttons[ID.confirm].label, "Merge 1 Book")
 
-        checkbox.tap()
-        XCTAssertTrue(waitFor(checkbox, "value == 'Selected'"))
+        // Replace with Backup: the warning, and a confirmation naming the book.
+        choose("Replace with Backup", for: "small", in: app)
+        XCTAssertTrue(any(app, ID.replaceWarning("small")).label.contains("replaces"), app.debugDescription)
+        XCTAssertFalse(any(app, ID.mergeFootnote).exists, "no merge, no footnote")
+        XCTAssertEqual(app.buttons[ID.confirm].label, "Restore 1 Book")
         app.buttons[ID.confirm].tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         XCTAssertTrue(alert.label.contains("small") || alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'small'")).count > 0,
                       app.debugDescription)
         alert.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons[ID.restoreCancel].firstMatch.waitForExistence(timeout: 5))
+
+        // Leave as Is is unticking; ticking again brings Replace back.
+        choose("Leave as Is", for: "small", in: app)
+        XCTAssertTrue(waitFor(checkbox, "value == 'Not selected'"))
+        XCTAssertTrue(any(app, ID.leaveText("small")).exists, app.debugDescription)
+        XCTAssertFalse(app.buttons[ID.confirm].isEnabled, "nothing to restore")
+        checkbox.tap()
+        XCTAssertTrue(waitFor(checkbox, "value == 'Selected'"))
+        XCTAssertEqual(any(app, ID.action("small")).value as? String, "Replace with Backup")
+
         app.buttons[ID.restoreCancel].firstMatch.tap()
         XCTAssertTrue(app.buttons[ID.backUpNow].firstMatch.waitForExistence(timeout: 5))
+    }
+
+    /// (e) A merge keeps a note made on this iPad after the backup, and the summary says what it
+    /// did (the backup holds nothing this iPad lacks, so: nothing new). It can be undone.
+    func testMergeKeepsANoteMadeAfterTheBackup() {
+        let app = backUpThenAddALaterNote("Written after the backup")
+
+        openBackupScreen(app)
+        openDestination(app)
+        openNewestBackup(app)
+        XCTAssertEqual(any(app, ID.action("small")).value as? String, "Merge")
+        restoreAndFinish(app)
+        XCTAssertTrue(app.staticTexts["1 book merged"].exists, app.debugDescription)
+        let merged = any(app, ID.merged("small"))
+        XCTAssertTrue(merged.exists, app.debugDescription)
+        XCTAssertTrue(merged.label.contains("Nothing new") || merged.label.contains("Added"), merged.label)
+        XCTAssertTrue(any(app, ID.undoHint).exists, "the summary says the restore can be undone")
+        app.buttons[ID.restoreDone].firstMatch.tap()
+        closeSettings(app)
+
+        let again = relaunchIntoReader(app)
+        XCTAssertTrue(waitFor(again.textViews[ID.noteText].firstMatch, "value CONTAINS 'Written after the backup'"),
+                      noteValue(again))
+    }
+
+    /// (f) Replace with Backup removes a note made after the backup; Undo Last Restore brings it
+    /// back, and its row goes away.
+    func testReplaceRemovesALaterNoteAndUndoBringsItBack() {
+        let app = backUpThenAddALaterNote("Lost by the replace")
+
+        openBackupScreen(app)
+        XCTAssertFalse(any(app, ID.undoRestore).exists, "nothing to undo yet")
+        openDestination(app)
+        openNewestBackup(app)
+        choose("Replace with Backup", for: "small", in: app)
+        app.buttons[ID.confirm].tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Restore 1 Book"].tap()
+        XCTAssertTrue(any(app, ID.summary).waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["1 book restored"].exists, app.debugDescription)
+        app.buttons[ID.restoreDone].firstMatch.tap()
+        closeSettings(app)
+
+        var reader = relaunchIntoReader(app)
+        XCTAssertFalse(noteValue(reader).contains("Lost by the replace"), noteValue(reader))
+        reader.navigationBars.buttons["Library"].firstMatch.tap()
+        XCTAssertTrue(book(reader, "small").waitForExistence(timeout: 10))
+
+        // Undo Last Restore: the row says when and how many, asks first, then goes away.
+        openBackupScreen(reader)
+        let undo = any(reader, ID.undoRestore)
+        scrollTo(undo, in: reader)
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), reader.debugDescription)
+        XCTAssertTrue((undo.value as? String ?? "").contains("changed 1 book"), "\(String(describing: undo.value))")
+        undo.tap()
+        let confirm = reader.alerts.firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirm.staticTexts.matching(NSPredicate(format: "label CONTAINS '“small”' AND label CONTAINS 'will be lost'")).count > 0,
+                      reader.debugDescription)
+        confirm.buttons["Undo Restore"].tap()
+        let result = any(reader, ID.undoResult)
+        XCTAssertTrue(result.waitForExistence(timeout: 30), reader.debugDescription)
+        XCTAssertEqual(result.label, "Restore undone: 1 book put back as it was.")
+        XCTAssertTrue(undo.waitForNonExistence(timeout: 5), "nothing left to undo")
+        closeSettings(reader)
+
+        reader = relaunchIntoReader(reader)
+        XCTAssertTrue(waitFor(reader.textViews[ID.noteText].firstMatch, "value CONTAINS 'Lost by the replace'"), noteValue(reader))
     }
 
     /// (d) One job at a time, with progress in place and in the Library, and Cancel. Uses a
@@ -341,9 +481,11 @@ final class BackupUITests: XCTestCase {
         XCTAssertTrue(app.buttons[ID.saveFile].firstMatch.isEnabled)
     }
 
-    /// Screenshots of the Backup screen, a destination and the restore preview, landscape and
-    /// portrait, to `build/shots/backup-<name><suffix>.png` (`TEST_RUNNER_BACKUP_SHOT_SUFFIX`,
-    /// e.g. `-dark` after `xcrun simctl ui <device> appearance dark`).
+    /// Screenshots of the Backup screen, a destination, the restore preview (with the Merge /
+    /// Replace with Backup / Leave as Is menu open, and set to Replace), the summary of a merge and
+    /// the Backup screen with Undo Last Restore, landscape and portrait, to
+    /// `build/shots/backup-<name><suffix>.png` (`TEST_RUNNER_BACKUP_SHOT_SUFFIX`, e.g. `-dark` after
+    /// `xcrun simctl ui <device> appearance dark`).
     func testScreenshots() throws {
         let app = launch([Fixtures.small, Fixtures.noOutline], extra: ["-openBook", "small", "-openPage", "1", "-notesPanel", "page"])
         addNote(app, "A note to restore")
@@ -359,19 +501,41 @@ final class BackupUITests: XCTestCase {
         openBackupScreen(app)
         openDestination(app)
         openNewestBackup(app)
-        any(app, ID.restoreBook("small")).tap()
+        XCTAssertTrue(waitFor(any(app, ID.mergeText("small")), "label CONTAINS 'already has everything'"), app.debugDescription)
         sleep(1)
         try save("restore-preview", app)
+        let menu = any(app, ID.action("small"))
+        menu.tap()
+        XCTAssertTrue(app.buttons["Leave as Is"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        sleep(1)
+        try save("restore-preview-menu", app)
+        app.buttons["Replace with Backup"].firstMatch.tap()
+        XCTAssertTrue(any(app, ID.replaceWarning("small")).waitForExistence(timeout: 5))
+        sleep(1)
+        try save("restore-preview-replace", app)
+        choose("Merge", for: "small", in: app)
 
         XCUIDevice.shared.orientation = .portrait
         sleep(2)
         try save("restore-preview-portrait", app)
-        app.buttons[ID.restoreCancel].firstMatch.tap()
-        XCTAssertTrue(app.buttons[ID.backUpNow].firstMatch.waitForExistence(timeout: 5))
+        restoreAndFinish(app)
+        sleep(1)
+        try save("restore-summary-portrait", app)
+        app.buttons[ID.restoreDone].firstMatch.tap()
         closeSettings(app)
         openBackupScreen(app)
+        let undo = any(app, ID.undoRestore)
+        // The footnote under the Restore section, so the whole Undo row is on screen.
+        let footnote = any(app, "backup.footnote")
+        scrollTo(undo, in: app)
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), app.debugDescription)
+        scrollTo(footnote, in: app)
         sleep(1)
-        try save("screen-portrait", app)
+        try save("screen-undo-portrait", app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        scrollTo(footnote, in: app)
+        try save("screen-undo", app)
     }
 
     // MARK: Support

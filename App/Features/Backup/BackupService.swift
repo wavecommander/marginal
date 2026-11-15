@@ -40,6 +40,8 @@ final class BackupJob: Identifiable {
         case extracting
         /// Saving the books a restore is about to change, so the restore can be undone.
         case savingSafetyCopy
+        /// Building the merged books (books already in the Library set to Merge).
+        case merging
         /// Swapping the restored books into the Library.
         case committing
         case cleaningUp

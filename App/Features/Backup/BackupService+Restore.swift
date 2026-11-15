@@ -316,7 +316,7 @@ extension BackupService {
             // (their notes and ink are paused; what else changes meanwhile is taken in at commit).
             var prepared: [UUID: PreparedMerge] = [:]
             if staged.contains(where: { $0.mergeTarget != nil }) {
-                job.set(phase: .extracting)
+                job.set(phase: .merging)
                 for book in staged {
                     guard let target = book.mergeTarget else { continue }
                     do {

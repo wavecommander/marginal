@@ -79,11 +79,17 @@ private struct RestoreFlowContent: View {
                     Section { BackupJobProgressView(job: job) }
                 }
                 Section("Restoring") {
-                    ForEach(model.selectedItems) { Text($0.entry.book.title) }
+                    ForEach(model.selectedWithActions, id: \.item.id) { entry in
+                        if let action = RestorePreviewLogic.restoringActionText(entry.item, action: entry.action) {
+                            LabeledContent(entry.item.entry.book.title, value: action)
+                        } else {
+                            Text(entry.item.entry.book.title)
+                        }
+                    }
                 }
             }
         case .finished(let summary):
-            RestoreSummaryForm(summary: summary)
+            RestoreSummaryForm(summary: summary, canBeUndone: model.restoreCanBeUndone)
         case .failed(let failure):
             FailedView(failure: failure)
         }
@@ -103,8 +109,8 @@ private struct RestoreFlowContent: View {
                     .accessibilityIdentifier(AccessibilityID.Restore.cancel)
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(RestorePreviewLogic.restoreButtonTitle(count: model.selection.count)) { model.requestRestore() }
-                    .disabled(model.selection.isEmpty || environment.backupService.isBusy)
+                Button(model.restoreButtonTitle) { model.requestRestore() }
+                    .disabled(model.actions.isEmpty || environment.backupService.isBusy)
                     .accessibilityIdentifier(AccessibilityID.Restore.confirm)
             }
         case .restoring:
@@ -211,15 +217,25 @@ private struct RestorePreviewForm: View {
                     Text("This backup has no books.").foregroundStyle(.secondary)
                 }
                 ForEach(plan.items) { item in
-                    RestoreItemRow(item: item, isSelected: model.selection.contains(item.id),
-                                   restorePDFs: model.offersRestorePDFs ? model.restorePDFs : true) {
-                        model.toggle(item.id)
-                    }
+                    RestoreItemRow(item: item, isSelected: model.choices.isSelected(item.id),
+                                   row: RestorePreviewLogic.row(item, choices: model.choices,
+                                                                restorePDFs: model.offersRestorePDFs ? model.restorePDFs : true,
+                                                                preview: model.mergePreviews[item.id],
+                                                                previewsLoaded: model.mergePreviewsLoaded),
+                                   toggle: { model.toggle(item.id) },
+                                   choose: { model.choose($0, for: item.id) })
                 }
             } header: {
                 Text("Books")
             } footer: {
-                Text("New books are ticked. A book already in your Library is left as it is unless you tick it.")
+                VStack(alignment: .leading, spacing: Space.s) {
+                    Text(RestorePreviewLogic.booksFooter(hasExistingBooks: plan.items.contains { $0.status == .inLibrary }))
+                    if model.anyMerge {
+                        Label(RestorePreviewLogic.mergeFootnote, systemImage: "arrow.uturn.backward.circle")
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier(AccessibilityID.Restore.mergeFootnote)
+                    }
+                }
             }
 
             if model.offersRestorePDFs {
@@ -235,12 +251,14 @@ private struct RestorePreviewForm: View {
 }
 
 /// One book of the preview: checkbox, title, New / Already in Library, where the PDF comes from
-/// and, for a book already here, both sides and the replace warning.
+/// and, for a book already here, the Merge / Replace with Backup / Leave as Is menu, both sides
+/// and what the choice does.
 private struct RestoreItemRow: View {
     let item: RestorePlan.Item
     let isSelected: Bool
-    let restorePDFs: Bool
+    let row: RestorePreviewLogic.Row
     let toggle: () -> Void
+    let choose: (RestoreRowChoice) -> Void
 
     @Environment(\.accentTheme) private var accentTheme
     /// The checkbox column; the details below line up with the title at every text size.
@@ -274,34 +292,90 @@ private struct RestoreItemRow: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title), \(RestorePreviewLogic.statusText(item.status))")
-            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            .accessibilityValue(RestorePreviewLogic.tickValue(isSelected: isSelected))
             .accessibilityAddTraits(isSelected ? [.isToggle, .isSelected] : .isToggle)
-            .accessibilityHint("Double-tap to \(isSelected ? "leave this book out" : "restore this book").")
+            .accessibilityHint(RestorePreviewLogic.tickHint(isSelected: isSelected, isExisting: item.status == .inLibrary))
             .accessibilityIdentifier(AccessibilityID.Restore.book(title))
 
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text(RestorePreviewLogic.pdfText(item, restorePDFs: restorePDFs))
-                    .accessibilityIdentifier(AccessibilityID.Restore.pdfSource(title))
-                if item.status == .inLibrary {
-                    Text(RestorePreviewLogic.sideText(RestorePreviewLogic.backupSideLabel, counts: item.entry.counts,
-                                                      modified: item.entry.lastModifiedAt))
-                    ForEach(item.localMatches, id: \.book.id) { local in
-                        Text(RestorePreviewLogic.sideText(RestorePreviewLogic.localSideLabel, counts: local.counts,
-                                                          modified: local.lastModifiedAt))
-                    }
-                    Label(RestorePreviewLogic.replaceWarning, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Palette.margin)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier(AccessibilityID.Restore.replaceWarning(title))
-                } else {
-                    Text(RestorePreviewLogic.countsText(item.entry.counts))
+                // A book already here: the choice and what it does come first.
+                if let choice = row.menuChoice {
+                    actionMenu(choice)
+                    note
                 }
+                if let pdf = row.pdfLine {
+                    Text(pdf)
+                        .accessibilityIdentifier(AccessibilityID.Restore.pdfSource(title))
+                }
+                ForEach(Array(row.sideLines.enumerated()), id: \.offset) { Text($0.element) }
+                if row.menuChoice == nil { note }
             }
             .font(Typeface.caption)
             .foregroundStyle(Palette.inkSecondary)
             .padding(.leading, checkboxWidth + Space.m)
         }
         .padding(.vertical, Space.xs)
+        // The separator starts under the title, whatever the first label in the row is.
+        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + checkboxWidth + Space.m }
+    }
+
+    /// The standard menu: the current choice with up-and-down chevrons; the three choices, the
+    /// current one checked.
+    private func actionMenu(_ choice: RestoreRowChoice) -> some View {
+        Menu {
+            Picker(selection: Binding(get: { choice }, set: { choose($0) })) {
+                ForEach(RestoreRowChoice.allCases) { option in
+                    Label(option.title, systemImage: option.systemImage).tag(option)
+                }
+            } label: {
+                Text(RestorePreviewLogic.menuAccessibilityLabel(title: title))
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            // The current choice in the accent with the system's up-and-down chevrons, lined up
+            // with the lines below it (a menu-style picker would add its own inset).
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                Text(choice.title)
+                Image(systemName: "chevron.up.chevron.down")
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+            }
+            .font(Typeface.control)
+            .foregroundStyle(accentTheme.accent)
+            .frame(minHeight: Size.touch)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .accessibilityLabel(RestorePreviewLogic.menuAccessibilityLabel(title: title))
+        .accessibilityValue(choice.title)
+        .accessibilityIdentifier(AccessibilityID.Restore.action(title))
+    }
+
+    @ViewBuilder
+    private var note: some View {
+        switch row.note {
+        case .none:
+            EmptyView()
+        case .counts(let text):
+            Text(text)
+        case .merge(let text, let isLoading):
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                if isLoading { ProgressView().controlSize(.small) }
+                Text(text).foregroundStyle(Palette.ink)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AccessibilityID.Restore.mergeText(title))
+        case .replaceWarning(let text):
+            Label(text, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(Palette.margin)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AccessibilityID.Restore.replaceWarning(title))
+        case .leave(let text):
+            Text(text)
+                .accessibilityIdentifier(AccessibilityID.Restore.leaveText(title))
+        }
     }
 }
 
@@ -309,6 +383,8 @@ private struct RestoreItemRow: View {
 
 private struct RestoreSummaryForm: View {
     let summary: RestoreSummary
+    /// The restore kept a safety copy: say that Undo Last Restore can put things back.
+    let canBeUndone: Bool
 
     @Environment(AppEnvironment.self) private var environment
     @State private var locateTarget: Book?
@@ -323,6 +399,12 @@ private struct RestoreSummaryForm: View {
                     .accessibilityIdentifier(AccessibilityID.Restore.summary)
                 if let dropped = RestorePreviewLogic.droppedNotesLine(summary.droppedEmptyNotes) {
                     Text(dropped).font(Typeface.caption).foregroundStyle(.secondary)
+                }
+                if canBeUndone {
+                    Text(RestorePreviewLogic.undoHint)
+                        .font(Typeface.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(AccessibilityID.Restore.undoHint)
                 }
             }
 
@@ -345,7 +427,28 @@ private struct RestoreSummaryForm: View {
                 }
             }
 
-            let restored = summary.restored.filter { $0.hasPDF || linked.contains($0.id) }
+            if !summary.merged.isEmpty {
+                Section("Merged") {
+                    ForEach(summary.merged) { book in
+                        Label {
+                            VStack(alignment: .leading, spacing: Space.xs) {
+                                Text(book.title).font(.headline)
+                                ForEach(Array(MergeText.summaryLines(book).enumerated()), id: \.offset) { line in
+                                    Text(line.element)
+                                        .font(Typeface.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "arrow.triangle.merge")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(AccessibilityID.Restore.merged(book.title))
+                    }
+                }
+            }
+
+            let restored = RestorePreviewLogic.plainlyRestored(summary, linked: linked)
             if !restored.isEmpty {
                 Section("Restored") {
                     ForEach(restored) { book in

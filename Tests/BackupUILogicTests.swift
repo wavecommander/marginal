@@ -135,12 +135,16 @@ struct BackupUILogicTests {
 
     // MARK: Restore preview
 
-    @Test func newBooksAreTickedAndExistingOnesAreNot() {
+    @Test func everyBookIsTickedAndExistingOnesAreMerged() {
         let existing = book("Existing")
         let fresh = book("Fresh")
         let plan = RestorePlan(manifest: manifest([entry(existing), entry(fresh)]), localLibrary: [local(existing)],
                                destinationPDFHashes: [])
-        #expect(RestorePreviewLogic.initialSelection(plan) == [fresh.id])
+        let choices = RestoreChoices(plan: plan)
+        #expect(choices.selection == [existing.id, fresh.id])
+        #expect(choices.choice(for: plan.items[0]) == .merge)
+        #expect(choices.choice(for: plan.items[1]) == nil, "a new book has no menu")
+        #expect(choices.actions(in: plan) == [existing.id: .merge, fresh.id: .restore])
         #expect(RestorePreviewLogic.statusText(plan.items[0].status) == "Already in Library")
         #expect(RestorePreviewLogic.statusText(plan.items[1].status) == "New")
     }
@@ -179,15 +183,19 @@ struct BackupUILogicTests {
         let existing = book("Existing"), other = book("Other"), fresh = book("Fresh")
         let plan = RestorePlan(manifest: manifest([entry(existing), entry(other), entry(fresh)]),
                                localLibrary: [local(existing), local(other)], destinationPDFHashes: [])
-        #expect(RestorePreviewLogic.confirmation(selected: [plan.items[2]]) == nil)
-        let one = RestorePreviewLogic.confirmation(selected: [plan.items[0], plan.items[2]])
+        let items = plan.items
+        // Merges and new books need no confirmation.
+        #expect(RestorePreviewLogic.confirmation(selected: [(items[2], .restore)]) == nil)
+        #expect(RestorePreviewLogic.confirmation(selected: [(items[0], .merge), (items[2], .restore)]) == nil)
+        let one = RestorePreviewLogic.confirmation(selected: [(items[0], .replace), (items[1], .merge), (items[2], .restore)])
         #expect(one?.title == "Replace “Existing”?")
-        #expect(one?.message.contains("“Existing”") == true)
-        #expect(one?.message.contains("Fresh") == false)
-        #expect(one?.confirmTitle == "Restore 2 Books")
-        let two = RestorePreviewLogic.confirmation(selected: plan.items)
+        #expect(one?.message == "Restoring replaces the notes, highlights, bookmarks and ink of “Existing” on this iPad with the backup’s. What is there now is lost, unless you undo this restore from the Backup screen.")
+        #expect(one?.message.contains("Other") == false && one?.message.contains("Fresh") == false)
+        #expect(one?.confirmTitle == "Restore 3 Books")
+        let two = RestorePreviewLogic.confirmation(selected: [(items[0], .replace), (items[1], .replace)])
         #expect(two?.title == "Replace 2 Books?")
         #expect(two?.message.contains("“Existing”") == true && two?.message.contains("“Other”") == true)
+        #expect(two?.confirmTitle == "Restore 2 Books")
     }
 
     @Test func summaryHeadline() {
@@ -202,6 +210,15 @@ struct BackupUILogicTests {
         summary.restored[0].hasPDF = false
         summary.failures = [.init(id: UUID(), title: "X", message: "m")]
         #expect(RestorePreviewLogic.summaryHeadline(summary) == "3 books restored, 2 need their PDFs, 1 book not restored")
+        // Merged books are counted on their own.
+        summary.failures = []
+        summary.restored = summary.restored.map { var book = $0; book.hasPDF = true; return book }
+        summary.merged = [Self.merged(id: summary.restored[0].id, title: "A")]
+        #expect(RestorePreviewLogic.summaryHeadline(summary) == "1 book merged, 2 books restored")
+        summary.merged = summary.restored.map { Self.merged(id: $0.id, title: $0.title) }
+        #expect(RestorePreviewLogic.summaryHeadline(summary) == "3 books merged")
+        summary.merged = [Self.merged(id: summary.restored[1].id, title: "B")]
+        #expect(RestorePreviewLogic.plainlyRestored(summary, linked: []).map(\.title) == ["A", "C"])
         #expect(RestorePreviewLogic.droppedNotesLine(0) == nil)
         #expect(RestorePreviewLogic.droppedNotesLine(2) == "2 notes were left out because they were empty.")
         #expect(RestorePreviewLogic.headerLine(createdAt: Date(), deviceName: "iPad", dateText: fixedDate) == "Made DATE on iPad")
@@ -224,5 +241,21 @@ struct BackupUILogicTests {
         #expect(BackupJobText.status(kind: .restore, phase: .committing, fraction: 0.96).hasSuffix("can’t be cancelled now."))
         #expect(BackupJobText.status(kind: .backUpToFile, phase: .writingBackup, fraction: 0.425) == "Writing backup… 43%")
         #expect(BackupJobText.title(.backUpToDestination("iCloud")) == "Backing Up to iCloud")
+    }
+
+    @MainActor @Test func undoAndMergePhasesReadAsWhatTheyDo() {
+        #expect(BackupJobText.title(.undoRestore) == "Undoing Restore")
+        #expect(BackupJobText.status(kind: .restore, phase: .merging, fraction: 0.5) == "Merging books… 50%")
+        #expect(BackupJobText.canCancel(kind: .restore, phase: .merging))
+        #expect(BackupJobText.status(kind: .restore, phase: .savingSafetyCopy, fraction: 0.2) == "Saving a safety copy… 20%")
+        #expect(BackupJobText.status(kind: .undoRestore, phase: .reading, fraction: 0) == "Reading the safety copy… 0%")
+        #expect(BackupJobText.status(kind: .restore, phase: .reading, fraction: 0) == "Reading backup… 0%")
+        #expect(BackupJobText.status(kind: .undoRestore, phase: .committing, fraction: 0.9)
+                == "Putting books back… 90%. This can’t be cancelled now.")
+    }
+
+    static func merged(id: UUID, title: String) -> RestoreSummary.MergedBook {
+        RestoreSummary.MergedBook(id: id, backupBookID: id, title: title, report: BookMergeReport(), ink: MergeInkCounts(),
+                                  combinedInkAlreadyPresent: 0, unreadableInk: [], tookPDFFromBackup: false)
     }
 }

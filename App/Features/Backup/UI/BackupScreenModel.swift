@@ -28,6 +28,12 @@ final class BackupScreenModel {
     private(set) var pendingFile: BackupFileResult?
     var isMoverPresented = false
     private(set) var fileStatus: String?
+    /// The restore Undo Last Restore would undo, `nil` when there is none.
+    private(set) var lastRestore: RestoreSafetyRecord?
+    /// The confirmation waiting for an answer before an undo.
+    var undoConfirmation: RestorePreviewLogic.Confirmation?
+    /// What the last undo did.
+    private(set) var undoResult: String?
 
     @ObservationIgnored let environment: AppEnvironment
     @ObservationIgnored private var availabilityTask: Task<Void, Never>?
@@ -54,6 +60,7 @@ final class BackupScreenModel {
 
     func refresh() async {
         revision += 1
+        refreshLastRestore()
         async let sizes: Void = refreshEstimate()
         async let destinations: Void = refreshAvailability()
         _ = await (sizes, destinations)
@@ -81,6 +88,39 @@ final class BackupScreenModel {
     func update(_ id: String, availability value: BackupDestinationAvailability) {
         if availability[id] != value { availability[id] = value }
         revision += 1
+    }
+
+    // MARK: Undo Last Restore
+
+    /// Re-reads which restore can be undone (after a restore or an undo, in any window).
+    func refreshLastRestore() {
+        let record = service.latestRestoreSafetyRecord()
+        if lastRestore != record { lastRestore = record }
+    }
+
+    /// Undo Last Restore asks first, naming the books.
+    func requestUndo() {
+        refreshLastRestore()
+        guard let lastRestore, !service.isBusy else { return }
+        undoConfirmation = UndoRestoreLogic.confirmation(lastRestore)
+    }
+
+    func undoLastRestore() {
+        undoConfirmation = nil
+        guard !service.isBusy else {
+            failure = BackupFailure.from(BackupServiceError.busy, title: "Couldn’t Undo the Restore")
+            return
+        }
+        undoResult = nil
+        Task {
+            do {
+                let summary = try await service.undoLastRestore()
+                undoResult = UndoRestoreLogic.resultLine(summary)
+            } catch {
+                failure = BackupFailure.from(error, title: "Couldn’t Undo the Restore")
+            }
+            refreshLastRestore()
+        }
     }
 
     // MARK: Back up to a file

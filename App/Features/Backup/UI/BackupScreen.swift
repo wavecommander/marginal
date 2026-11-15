@@ -83,7 +83,19 @@ private struct BackupScreenContent: View {
                 }
         }
         .sheet(item: $restoreRequest) { RestoreFlowView(request: $0) }
+        .alert(model.undoConfirmation?.title ?? "", isPresented: undoConfirmationBinding,
+               presenting: model.undoConfirmation) { confirmation in
+            Button(confirmation.confirmTitle, role: .destructive) { model.undoLastRestore() }
+            Button("Cancel", role: .cancel) {}
+        } message: { confirmation in
+            Text(confirmation.message)
+        }
         .backupFailureAlert($model.failure)
+        .onAppear { model.refreshLastRestore() }
+    }
+
+    private var undoConfirmationBinding: Binding<Bool> {
+        Binding(get: { model.undoConfirmation != nil }, set: { if !$0 { model.undoConfirmation = nil } })
     }
 
     private var fileSection: some View {
@@ -133,6 +145,29 @@ private struct BackupScreenContent: View {
             Button("Restore from File…") { isRestoreImporterPresented = true }
                 .disabled(service.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.restoreFromFile)
+            if let record = model.lastRestore {
+                Button { model.requestUndo() } label: {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        Text(UndoRestoreLogic.rowTitle)
+                        Text(UndoRestoreLogic.rowDetail(record))
+                            .font(Typeface.caption)
+                            // Not `.secondary`: inside a button that would be the faded tint.
+                            .foregroundStyle(Color(.secondaryLabel))
+                    }
+                }
+                .disabled(service.isBusy)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(UndoRestoreLogic.rowTitle)
+                .accessibilityValue(UndoRestoreLogic.rowDetail(record))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier(AccessibilityID.Backup.undoRestore)
+            }
+            if let result = model.undoResult {
+                Text(result)
+                    .font(Typeface.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(AccessibilityID.Backup.undoResult)
+            }
         } header: {
             Text("Restore")
         } footer: {

@@ -36,6 +36,10 @@ nonisolated enum AccessibilityID {
         static let automaticStatus = "backup.automatic.status"
         // Restore
         static let restoreFromFile = "backup.restoreFromFile"
+        /// Undo Last Restore (shown only when a restore can be undone).
+        static let undoRestore = "backup.undoRestore"
+        /// The result of the last undo.
+        static let undoResult = "backup.undoRestore.result"
         static let footnote = "backup.footnote"
         // The running job (Backup screens, restore sheet)
         static let progress = "backup.progress"
@@ -68,10 +72,22 @@ nonisolated enum AccessibilityID {
         static func status(_ title: String) -> String { "restore.book.\(title).status" }
         static func replaceWarning(_ title: String) -> String { "restore.book.\(title).replaceWarning" }
         static func pdfSource(_ title: String) -> String { "restore.book.\(title).pdf" }
+        /// A book already in the Library: the Merge / Replace with Backup / Leave as Is menu
+        /// (value: the current choice's title).
+        static func action(_ title: String) -> String { "restore.book.\(title).action" }
+        /// What a merge would add and combine.
+        static func mergeText(_ title: String) -> String { "restore.book.\(title).mergeText" }
+        static func leaveText(_ title: String) -> String { "restore.book.\(title).leaveText" }
+        /// "In a merge, anything deleted on this iPad … comes back".
+        static let mergeFootnote = "restore.mergeFootnote"
         static let restorePDFs = "restore.restorePDFs"
         static let confirm = "restore.confirm"
         static let cancel = "restore.cancel"
         static let summary = "restore.summary"
+        /// A merged book in the summary: `restore.summary.merged.<title>`.
+        static func merged(_ title: String) -> String { "restore.summary.merged.\(title)" }
+        /// "To put things back as they were, use Undo Last Restore…".
+        static let undoHint = "restore.summary.undoHint"
         /// "Locate PDF…" for a restored book without its PDF: `restore.summary.locate.<title>`.
         static func locate(_ title: String) -> String { "restore.summary.locate.\(title)" }
         static let done = "restore.done"

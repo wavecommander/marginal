@@ -2,7 +2,7 @@ import SwiftUI
 
 /// What a running backup or restore says about itself.
 enum BackupJobText {
-    /// "Backing Up", "Backing Up to iCloud", "Opening Backup", "Restoring".
+    /// "Backing Up", "Backing Up to iCloud", "Opening Backup", "Restoring", "Undoing Restore".
     static func title(_ kind: BackupJob.Kind) -> String {
         switch kind {
         case .backUpToFile: "Making Backup File"
@@ -10,6 +10,17 @@ enum BackupJobText {
         case .openBackup: "Opening Backup"
         case .restore: "Restoring"
         case .undoRestore: "Undoing Restore"
+        }
+    }
+
+    /// The phase as the job's kind reads it: an undo reads the safety copy, not a backup, and
+    /// puts books back rather than into the Library.
+    static func phase(_ phase: BackupJob.Phase, kind: BackupJob.Kind) -> String {
+        guard kind == .undoRestore else { return self.phase(phase) }
+        switch phase {
+        case .reading: return "Reading the safety copy…"
+        case .committing: return "Putting books back…"
+        default: return self.phase(phase)
         }
     }
 
@@ -27,6 +38,7 @@ enum BackupJobText {
         case .reading: "Reading backup…"
         case .extracting: "Checking books…"
         case .savingSafetyCopy: "Saving a safety copy…"
+        case .merging: "Merging books…"
         case .committing: "Putting books into the Library…"
         case .cleaningUp: "Finishing…"
         }
@@ -46,9 +58,9 @@ enum BackupJobText {
     static func status(kind: BackupJob.Kind, phase: BackupJob.Phase, fraction: Double) -> String {
         let percent = "\(Int((min(max(fraction, 0), 1) * 100).rounded()))%"
         if !canCancel(kind: kind, phase: phase), kind == .restore || kind == .undoRestore {
-            return "\(Self.phase(phase)) \(percent). This can’t be cancelled now."
+            return "\(Self.phase(phase, kind: kind)) \(percent). This can’t be cancelled now."
         }
-        return "\(Self.phase(phase)) \(percent)"
+        return "\(Self.phase(phase, kind: kind)) \(percent)"
     }
 }
 

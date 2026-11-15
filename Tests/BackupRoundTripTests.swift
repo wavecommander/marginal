@@ -178,7 +178,7 @@ struct BackupRoundTripTests {
             let token = store.hub.observe { events.append($0.change) }
             let session = try await service.openBackup(at: file.url)
             let item = try #require(session.plan.items.first { $0.id == seeded.small.id })
-            #expect(item.status == .inLibrary && !item.isSelectedByDefault)
+            #expect(item.status == .inLibrary && item.isSelectedByDefault && item.defaultAction == .merge)
             #expect(item.replacedBookIDs == [seeded.small.id])
             #expect(item.pdfSource == .localBook(seeded.small.id))
             // Only the first book is ticked; the backup has no PDFs, so the local one is reused.

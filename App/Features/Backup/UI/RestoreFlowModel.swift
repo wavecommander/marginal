@@ -38,8 +38,15 @@ final class RestoreFlowModel {
 
     private(set) var stage: Stage = .opening
     private(set) var plan: RestorePlan?
-    /// Ticked books.
-    var selection: Set<UUID> = []
+    /// Ticked books, and Merge or Replace for each book already in the Library.
+    private(set) var choices = RestoreChoices()
+    /// What merging would do, per backed-up book already in the Library (filled in after the
+    /// preview opens).
+    private(set) var mergePreviews: [UUID: BookMergePreview] = [:]
+    /// `false` while the merge previews are being worked out.
+    private(set) var mergePreviewsLoaded = false
+    /// After a restore: whether it kept a safety copy, so Undo Last Restore can put things back.
+    private(set) var restoreCanBeUndone = false
     var restorePDFs = true
     /// The replace confirmation waiting for an answer.
     var confirmation: RestorePreviewLogic.Confirmation?
@@ -53,6 +60,7 @@ final class RestoreFlowModel {
     @ObservationIgnored private var openTask: Task<Void, Never>?
     @ObservationIgnored private var restoreTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var mergePreviewTask: Task<Void, Never>?
     @ObservationIgnored private var observation: StoreChangeObservation?
     @ObservationIgnored private var isDismissed = false
     @ObservationIgnored private var isFinishedWithFiles = false
@@ -67,8 +75,26 @@ final class RestoreFlowModel {
 
     /// The ticked items, in plan order.
     var selectedItems: [RestorePlan.Item] {
-        plan?.items.filter { selection.contains($0.id) } ?? []
+        plan.map { choices.selectedItems(in: $0) } ?? []
     }
+
+    /// What restoring each ticked book does (books left as they are are not listed).
+    var actions: [UUID: RestoreAction] {
+        plan.map { choices.actions(in: $0) } ?? [:]
+    }
+
+    /// The ticked items with what restoring each does, in plan order.
+    var selectedWithActions: [(item: RestorePlan.Item, action: RestoreAction)] {
+        selectedItems.compactMap { item in choices.action(for: item).map { (item, $0) } }
+    }
+
+    /// The Restore button's title ("Merge 1 Book", "Restore 3 Books").
+    var restoreButtonTitle: String {
+        RestorePreviewLogic.restoreButtonTitle(actions: selectedWithActions.map(\.action))
+    }
+
+    /// Whether any ticked book is set to Merge.
+    var anyMerge: Bool { plan.map { choices.anyMerge(in: $0) } ?? false }
 
     var offersRestorePDFs: Bool { plan.map(RestorePreviewLogic.offersRestorePDFs) ?? false }
 
@@ -100,9 +126,10 @@ final class RestoreFlowModel {
                 }
                 self.session = session
                 self.plan = session.plan
-                self.selection = RestorePreviewLogic.initialSelection(session.plan)
+                self.choices = RestoreChoices(plan: session.plan)
                 self.stage = .preview
                 self.observeLibrary()
+                self.loadMergePreviews()
             } catch {
                 guard let self else { return }
                 if let failure = BackupFailure.from(error, title: "Can’t Open Backup") {
@@ -120,13 +147,34 @@ final class RestoreFlowModel {
 
     func toggle(_ id: UUID) {
         guard case .preview = stage else { return }
-        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+        choices.toggle(id)
     }
 
-    /// Restore asks first when a ticked book replaces one in the Library.
+    /// The menu of a book already in the Library.
+    func choose(_ choice: RestoreRowChoice, for id: UUID) {
+        guard case .preview = stage else { return }
+        choices.choose(choice, for: id)
+    }
+
+    /// Works out what merging each book already in the Library would do, without blocking the
+    /// preview (rows show "Working out…" until it is done).
+    private func loadMergePreviews() {
+        guard let session else { return }
+        mergePreviewTask?.cancel()
+        mergePreviewsLoaded = false
+        let service = service
+        mergePreviewTask = Task { [weak self] in
+            let previews = await service.mergePreview(for: session)
+            guard !Task.isCancelled, let self else { return }
+            self.mergePreviews = previews
+            self.mergePreviewsLoaded = true
+        }
+    }
+
+    /// Restore asks first when a ticked book is set to Replace with Backup.
     func requestRestore() {
-        guard case .preview = stage, !selection.isEmpty else { return }
-        if let confirmation = RestorePreviewLogic.confirmation(selected: selectedItems) {
+        guard case .preview = stage, !actions.isEmpty else { return }
+        if let confirmation = RestorePreviewLogic.confirmation(selected: selectedWithActions) {
             self.confirmation = confirmation
         } else {
             restore()
@@ -136,15 +184,17 @@ final class RestoreFlowModel {
     func restore() {
         confirmation = nil
         guard case .preview = stage, let session, restoreTask == nil else { return }
-        let ids = Set(selectedItems.map(\.id))
-        guard !ids.isEmpty else { return }
+        let actions = actions
+        guard !actions.isEmpty else { return }
         let restorePDFs = offersRestorePDFs ? self.restorePDFs : true
         let service = service
+        mergePreviewTask?.cancel()
         stage = .restoring
         restoreTask = Task { [weak self] in
+            let started = Date()
             let outcome: Result<RestoreSummary, any Error>
             do {
-                outcome = .success(try await service.restore(ids, from: session, restorePDFs: restorePDFs))
+                outcome = .success(try await service.restore(actions, from: session, restorePDFs: restorePDFs))
             } catch {
                 outcome = .failure(error)
             }
@@ -152,6 +202,9 @@ final class RestoreFlowModel {
             self.restoreTask = nil
             switch outcome {
             case .success(let summary):
+                // The safety copy this restore kept, if any (one that changed or added nothing
+                // is not listed).
+                self.restoreCanBeUndone = service.latestRestoreSafetyRecord().map { $0.createdAt >= started } ?? false
                 self.stage = .finished(summary)
             case .failure(let error):
                 if let failure = BackupFailure.from(error, title: "Couldn’t Restore") {
@@ -161,6 +214,8 @@ final class RestoreFlowModel {
                     self.stage = .preview
                     await service.refreshPlan(of: session)
                     self.plan = session.plan
+                    self.choices.reconcile(with: session.plan)
+                    self.loadMergePreviews()
                 }
             }
             if self.isDismissed { self.finishWithFiles() }
@@ -194,7 +249,8 @@ final class RestoreFlowModel {
             await service.refreshPlan(of: session)
             guard case .preview = self.stage else { return }
             self.plan = session.plan
-            self.selection.formIntersection(Set(session.plan.items.map(\.id)))
+            self.choices.reconcile(with: session.plan)
+            self.loadMergePreviews()
         }
     }
 
@@ -204,6 +260,7 @@ final class RestoreFlowModel {
     func dismissed() {
         isDismissed = true
         refreshTask?.cancel()
+        mergePreviewTask?.cancel()
         if openTask != nil {
             openTask?.cancel()
             return  // the open task finishes the files

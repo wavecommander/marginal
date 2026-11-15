@@ -28,7 +28,7 @@ struct RestorePlanTests {
         return RestorePlan(manifest: manifest, localLibrary: library, destinationPDFHashes: destination)
     }
 
-    @Test func newBooksAreTickedAndExistingOnesAreNot() {
+    @Test func newAndExistingBooksAreTicked() {
         let result = plan([Self.entry(1, fingerprint: "f1", sha: Self.hash("a")),
                            Self.entry(2, fingerprint: "f2", sha: Self.hash("b"))],
                           [Self.local(2, fingerprint: "f2", sha: nil, hasPDF: false)])
@@ -37,7 +37,7 @@ struct RestorePlanTests {
         #expect(result.items[0].isSelectedByDefault)
         #expect(result.items[0].replacedBookIDs.isEmpty)
         #expect(result.items[1].status == .inLibrary)
-        #expect(!result.items[1].isSelectedByDefault)
+        #expect(result.items[1].isSelectedByDefault)
         #expect(result.items[1].replacedBookIDs == [Self.id(2)])
         #expect(result.items[1].localMatches.map(\.counts) == [.init(notes: 1)])
     }
@@ -49,8 +49,8 @@ struct RestorePlanTests {
                           [Self.local(2, fingerprint: "f2", sha: nil),
                            Self.local(9, fingerprint: "f3", sha: nil)])
         #expect(result.items.map(\.defaultAction) == [.restore, .merge, .merge])
-        // Ticking existing books waits for the app-side merge: until then a ticked book is replaced.
-        #expect(result.items.map(\.isSelectedByDefault) == [true, false, false])
+        // Every book is ticked: existing ones are merged unless the reader chooses otherwise.
+        #expect(result.items.map(\.isSelectedByDefault) == [true, true, true])
     }
 
     @Test func restoreActionCodesAsItsName() throws {
