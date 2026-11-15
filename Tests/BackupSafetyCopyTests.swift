@@ -160,7 +160,7 @@ struct BackupSafetyCopyTests {
 
         let service = Support.makeService(target, scratch: world.scratch)
         let session = try await service.openBackup(at: world.backup)
-        try await service.restore([world.seeded.small.id], from: session, restorePDFs: false)
+        _ = try await service.restore([world.seeded.small.id], from: session, restorePDFs: false)
         session.close()
         #expect(try target.books.book(id: local.id) == nil)
         let record = try #require(service.latestRestoreSafetyRecord())
@@ -263,7 +263,7 @@ struct BackupSafetyCopyTests {
 
         let service = Support.makeService(target, scratch: world.scratch)
         let session = try await service.openBackup(at: world.backup)
-        try await service.restore([s.id], from: session, restorePDFs: true)
+        _ = try await service.restore([s.id], from: session, restorePDFs: true)
         session.close()
         let record = try #require(service.latestRestoreSafetyRecord())
         #expect(record.changed.map(\.hasKnownPDFHash) == [false])
