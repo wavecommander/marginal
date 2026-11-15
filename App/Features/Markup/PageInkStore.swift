@@ -14,12 +14,14 @@ nonisolated struct PageInkVersion: Sendable {
     static let empty = PageInkVersion(data: nil, drawing: PKDrawing())
 }
 
-/// What a page needs to read and write its ink: the shared store, the book, and the window's
-/// change origin.
+/// What a page needs to read and write its ink: the shared store, the book, the window's
+/// change origin, and the window's save token (`ReaderSession.saveToken`): once the window has
+/// seen its book deleted or replaced by a restore, no save of this context lands.
 struct PageInkContext {
     let store: LibraryStore
     let bookID: UUID
     let origin: ChangeOrigin?
+    var saveToken: BookSaveToken? = nil
 }
 
 /// Serialises every read and write of one page's ink **across all windows** (process-wide,
@@ -111,8 +113,19 @@ enum PageInkPersistence {
     }
 
     /// Writes `local`, first merging any change stored since `base` (`PageInkMerge`). An empty
-    /// result deletes the page's file (an empty drawing is never stored).
+    /// result deletes the page's file (an empty drawing is never stored). Runs through
+    /// `BookWriteGate` (a restore's commit never overlaps it) and does nothing once the
+    /// context's save token is revoked (`.skipped`).
     static func write(_ context: PageInkContext, pageIndex: Int, local: PKDrawing, base: PageInkVersion) async
+        -> WriteOutcome {
+        guard context.saveToken?.isRevoked != true else { return .skipped }
+        let outcome = await BookWriteGate.shared.performSave(bookID: context.bookID, token: context.saveToken) {
+            await writeNow(context, pageIndex: pageIndex, local: local, base: base)
+        }
+        return outcome ?? .skipped
+    }
+
+    private static func writeNow(_ context: PageInkContext, pageIndex: Int, local: PKDrawing, base: PageInkVersion) async
         -> WriteOutcome {
         let store = context.store
         // A book deleted meanwhile (by any window) must not get its ink directory back.

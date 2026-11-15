@@ -271,7 +271,8 @@ final class NotesPanelController {
     /// can be stale and the PDF outline is read once per window, so one pass is enough; user
     /// heading changes rebuild the outline without changing any PDF anchor.
     private func repairAnchorsIfNeeded(_ session: ReaderSession) {
-        guard !didRepairAnchors, session.isOutlineLoaded else { return }
+        // A window whose book was deleted or replaced (a restore) writes nothing more.
+        guard !didRepairAnchors, session.isOutlineLoaded, !session.saveToken.isRevoked else { return }
         didRepairAnchors = true
         repairedAnchorCount = NotesHeadingAnchorRepair.apply(store: session.store, bookID: session.book.id,
                                                             outline: session.outline, origin: session.origin)

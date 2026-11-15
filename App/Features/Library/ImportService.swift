@@ -68,7 +68,11 @@ struct ImportFailureAlert: Identifiable, Equatable {
 ///
 /// Per file:
 /// 1. **Probe** (off the main thread): size, `%PDF-` header, `BookFingerprint`. If a book with
-///    that fingerprint exists the import ends here, returning `.existing` (nothing is copied).
+///    that fingerprint exists the import ends here, returning `.existing`: nothing is copied,
+///    unless that book lacks its PDF (restored without it), which the file then becomes after
+///    its full SHA-256 is checked against the book's `document.sha256` (`restoreMissingDocument`;
+///    a mismatch fails with `ImportError.pdfMismatch`). `linkPDF(at:to:)` is the same for one
+///    named book ("Locate PDF…").
 /// 2. **Stage** (off the main thread): stream the file into `Imports/<newBookID>/<fileName>` under
 ///    the store's root (not under `Books/`, so the launch-time orphan sweep never sees it),
 ///    check it opens and has pages and is not locked, render the cover to `cover.jpg` beside it.
@@ -195,7 +199,9 @@ final class ImportService {
         job.set(phase: .checking)
         let probe = try await ImportPipeline.probe(url, fileName: name)
         if let existing = try storeBook(fingerprint: probe.fingerprint) {
-            try await restoreMissingDocument(of: existing, from: url)
+            // Same content as a book in the Library: link it when that book lacks its PDF
+            // (verified against the book's full hash; a mismatch is refused).
+            try await restoreMissingDocument(of: existing, from: url, size: probe.size, job: job)
             return .existing(existing)
         }
 
@@ -251,14 +257,126 @@ final class ImportService {
         }
     }
 
-    /// A book whose PDF was removed from disk but whose record survives is repaired by
-    /// importing the same file again.
-    private func restoreMissingDocument(of book: Book, from source: URL) async throws {
+    private func storeBook(id: UUID) throws -> Book? {
+        do {
+            return try store.books.book(id: id)
+        } catch {
+            throw ImportError.storage(fileName: "", reason: String(describing: error))
+        }
+    }
+
+    // MARK: Linking a PDF to a book that lacks it
+
+    /// "Locate PDF…" on one book (a book restored without its PDF, or whose PDF went missing):
+    /// links the file at `url` to `book`, accepting only the PDF the book's notes were made on,
+    /// that is a file with the book's sampled fingerprint **and**, when the book has a
+    /// `document.sha256` sidecar, its full SHA-256. Anything else throws
+    /// `ImportError.pdfMismatch` naming the book; the file is never imported as another book and
+    /// there is no override. Shown as a job in `jobs` like an import.
+    /// - Returns: the book (unchanged record; its PDF is now on disk).
+    @discardableResult
+    func linkPDF(at url: URL, to book: Book) async throws -> Book {
+        let job = ImportJob(fileName: url.lastPathComponent)
+        jobs.append(job)
+        defer { jobs.removeAll { $0.id == job.id } }
+        let task = Task { await self.runLink(url: url, bookID: book.id, job: job) }
+        job.task = task
+        if job.isCancelled { task.cancel() }
+        let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        switch result.result {
+        case .success(let outcome): return outcome.book
+        case .failure(.cancelled): throw CancellationError()
+        case .failure(let error): throw error
+        }
+    }
+
+    private func runLink(url: URL, bookID: UUID, job: ImportJob) async -> ImportResult {
+        let name = job.fileName
+        await staleCleanup?.value
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            job.set(phase: .checking)
+            let probe = try await ImportPipeline.probe(url, fileName: name)
+            guard let book = try storeBook(id: bookID) else {
+                throw ImportError.storage(fileName: name, reason: "the book is no longer in the Library")
+            }
+            guard probe.fingerprint == book.fingerprint else { throw ImportError.pdfMismatch(bookTitle: book.title) }
+            if store.hasDocument(book) {
+                // Already linked: still only "accept" the very same file.
+                let mine = try await store.contentDigest(of: book)
+                let theirs = try await DocumentLinking.digest(of: url)
+                guard mine == theirs else { throw ImportError.pdfMismatch(bookTitle: book.title) }
+                return ImportResult(fileName: name, result: .success(.existing(book)))
+            }
+            job.set(phase: .copying)
+            try await restoreMissingDocument(of: book, from: url, size: probe.size, job: job)
+            return ImportResult(fileName: name, result: .success(.existing(book)))
+        } catch let error as ImportError {
+            return ImportResult(fileName: name, result: .failure(error))
+        } catch is CancellationError {
+            return ImportResult(fileName: name, result: .failure(.cancelled))
+        } catch {
+            return ImportResult(fileName: name, result: .failure(.unreadable(fileName: name, reason: error.localizedDescription)))
+        }
+    }
+
+    /// Links `source` to `book` when the book's PDF is missing (no-op when it is present). Used
+    /// by every import whose fingerprint matches an existing book, and by `linkPDF`.
+    ///
+    /// Stages a copy into `Imports/link-<uuid>/` (never into the book's directory), verifying
+    /// the full SHA-256 against the book's sidecar when it has one, the fingerprint, and that the
+    /// copy opens; renders a cover. Then, on the main actor with no suspension point: re-checks
+    /// the book and its sidecar, moves the PDF into the book's directory, the cover too if the
+    /// book has none (and drops the cached cover image), writes the sidecar if absent, and posts
+    /// `.bookSaved` so every window refreshes. A wrong file throws `ImportError.pdfMismatch` and
+    /// leaves nothing in the book's directory.
+    private func restoreMissingDocument(of book: Book, from source: URL, size: Int64? = nil, job: ImportJob? = nil) async throws {
+        guard !store.hasDocument(book) else { return }
+        let expected = store.storedContentDigest(bookID: book.id)
+        let staging = stagingRoot.appendingPathComponent("link-\(UUID().uuidString)", isDirectory: true)
+        do {
+            let staged = try await DocumentLinking.stage(
+                source: source, directory: staging, fileName: book.fileName, fingerprint: book.fingerprint,
+                expected: expected, bookTitle: book.title, size: size ?? book.fileSize,
+                progress: { fraction in Task { @MainActor in job?.set(fraction: fraction) } })
+            try Task.checkCancellation()
+            job?.set(phase: .finishing)
+            try commitLink(bookID: book.id, staged: staged)
+        } catch {
+            await ImportPipeline.remove(staging)
+            throw error
+        }
+        await ImportPipeline.remove(staging)
+    }
+
+    /// The link's commit. No suspension point between the checks and the moves.
+    private func commitLink(bookID: UUID, staged: DocumentLinking.Staged) throws {
+        guard let book = try storeBook(id: bookID) else {
+            throw ImportError.storage(fileName: staged.pdf.lastPathComponent, reason: "the book is no longer in the Library")
+        }
+        let fileManager = FileManager.default
         let destination = store.documentURL(for: book)
-        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
-        _ = try await ImportPipeline.stage(source: source, directory: destination.deletingLastPathComponent(),
-                                           fileName: book.fileName, consume: false, size: book.fileSize,
-                                           progress: { _ in })
+        if fileManager.fileExists(atPath: destination.path) { return }  // linked meanwhile
+        // The book may have been replaced (a restore) since staging: check against it as it is now.
+        guard destination.lastPathComponent == staged.pdf.lastPathComponent, staged.fingerprint == book.fingerprint else {
+            throw ImportError.pdfMismatch(bookTitle: book.title)
+        }
+        let sidecar = store.storedContentDigest(bookID: book.id)
+        if let sidecar, sidecar != staged.digest { throw ImportError.pdfMismatch(bookTitle: book.title) }
+        do {
+            try fileManager.createDirectory(at: store.bookDirectoryURL(bookID: book.id), withIntermediateDirectories: true)
+            try fileManager.moveItem(at: staged.pdf, to: destination)
+        } catch {
+            throw ImportError.storage(fileName: book.fileName, reason: error.localizedDescription)
+        }
+        let cover = coverURL(for: book)
+        if let stagedCover = staged.cover, !fileManager.fileExists(atPath: cover.path) {
+            try? fileManager.moveItem(at: stagedCover, to: cover)
+        }
+        CoverCache.shared.remove(at: cover)
+        if sidecar == nil { try? DocumentDigest.writeSidecar(staged.digest, to: store.contentHashURL(bookID: book.id)) }
+        store.hub.post(.bookSaved(bookID: book.id), origin: origin)
     }
 
     /// The title a new book gets: the file name without its extension.

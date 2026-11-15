@@ -85,6 +85,10 @@ final class NotePageModel {
     let target: NoteTarget
     /// The origin attached to every write (the reader window's `session.origin`).
     let origin: ChangeOrigin?
+    /// Revoked when the model (or the reader session that made it) sees `.bookDeleted` for its
+    /// book: from then on no save, autosave, flush or delete of this model touches the store, so
+    /// a closing window can never write over a book restored under the same ID.
+    let saveToken: BookSaveToken
     /// Undo stack of this note's ink. Returned as the note surface's
     /// `markupUndoManager` (typing undo stays the text view's own).
     @ObservationIgnored let undoManager: UndoManager
@@ -131,7 +135,8 @@ final class NotePageModel {
 
     // MARK: Private
 
-    @ObservationIgnored private let store: LibraryStore
+    /// The store the model reads and writes (`OpenEditorRegistry` flushes per store).
+    @ObservationIgnored let store: LibraryStore
     @ObservationIgnored private let autosaveDelay: Duration
     @ObservationIgnored weak var editor: (any NotePageEditing)?
     /// The ink, anchored to the band layout of `text`.
@@ -166,13 +171,17 @@ final class NotePageModel {
     /// - Parameters:
     ///   - observeChanges: how to subscribe to other windows' changes; defaults to the store's hub
     ///     filtered to this book and to origins other than `origin`.
+    ///   - parentSaveToken: the reader session's token (the model then also stops saving when
+    ///     the session saw its book deleted, even before it was created).
     init(store: LibraryStore, bookID: UUID, target: NoteTarget, origin: ChangeOrigin?,
          autosaveDelay: Duration = .milliseconds(800),
-         observeChanges: ((@escaping @MainActor (StoreChangeEvent) -> Void) -> StoreChangeObservation)? = nil) {
+         observeChanges: ((@escaping @MainActor (StoreChangeEvent) -> Void) -> StoreChangeObservation)? = nil,
+         parentSaveToken: BookSaveToken? = nil) {
         self.store = store
         self.bookID = bookID
         self.target = target
         self.origin = origin
+        self.saveToken = BookSaveToken(bookID: bookID, parent: parentSaveToken)
         self.autosaveDelay = autosaveDelay
         self.undoManager = UndoManager()
         self.ink = NoteInk(layout: NotePageLayoutEngine.shared.bandLayout(for: ""))
@@ -193,6 +202,7 @@ final class NotePageModel {
                 Task { await self.flush() }
             }
         }
+        OpenEditorRegistry.shared.register(self)
     }
 
     /// A model for the note of `target` in the session's book, writing with the session's origin
@@ -202,7 +212,8 @@ final class NotePageModel {
                   autosaveDelay: autosaveDelay,
                   observeChanges: { [weak session] handler in
                       session?.observeBookChanges(handler) ?? StoreChangeObservation.inactive
-                  })
+                  },
+                  parentSaveToken: session.saveToken)
     }
 
     deinit {
@@ -306,10 +317,15 @@ final class NotePageModel {
         debounceTask = nil
         var failure: (any Error)?
         await enqueue {
+            guard !self.saveToken.isRevoked else { return }
             do {
-                if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
-                    try await self.store.deleteNote(id: record.id, origin: self.origin)
+                let ran: Bool? = try await BookWriteGate.shared.performSave(bookID: self.bookID, token: self.saveToken) {
+                    if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
+                        try await self.store.deleteNote(id: record.id, origin: self.origin)
+                    }
+                    return true
                 }
+                if ran == nil { return }
             } catch {
                 failure = error
                 self.saveState = .failed(String(describing: error))
@@ -347,6 +363,7 @@ final class NotePageModel {
     }
 
     private func scheduleSave(after delay: Duration? = nil) {
+        guard !saveToken.isRevoked else { return }
         if isLoaded { saveState = hasUnsavedChanges ? .edited : saveState }
         debounceTask?.cancel()
         let delay = delay ?? autosaveDelay
@@ -381,8 +398,16 @@ final class NotePageModel {
         return (record, data)
     }
 
+    /// One save, through `BookWriteGate` (a restore's commit never overlaps it); nothing once
+    /// the save token is revoked.
     private func performSave() async {
-        guard isLoaded else { return }
+        guard isLoaded, !saveToken.isRevoked else { return }
+        _ = await BookWriteGate.shared.performSave(bookID: bookID, token: saveToken) {
+            await self.performSaveNow()
+        }
+    }
+
+    private func performSaveNow() async {
         do {
             // Pick up changes another window stored since the last sync, whether or not an event
             // announced them; this is also where deferred remote changes are applied. Never while
@@ -418,6 +443,7 @@ final class NotePageModel {
     }
 
     private func write(existing record: Note?) async throws {
+        guard !saveToken.isRevoked else { return }
         let snapshotText = text
         let snapshotInk = ink
         let snapshotGeneration = inkGeneration
@@ -537,6 +563,7 @@ final class NotePageModel {
         case .noteInkChanged(_, let changedNoteID):
             guard changedNoteID == noteID || changedNoteID == baseRecordID else { return }
         case .bookDeleted:
+            saveToken.revoke()
             debounceTask?.cancel()
             return
         default:

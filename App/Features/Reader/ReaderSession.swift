@@ -140,6 +140,10 @@ final class ReaderSession: Identifiable {
     let origin: ChangeOrigin
     /// The app's shared store (the same object in every window).
     let store: LibraryStore
+    /// This session's permission to save the book's data, revoked when it sees `.bookDeleted`
+    /// (a delete, or a restore replacing the book under the same ID): from then on no pending
+    /// save of this session lands (last-read page, page ink, note text and ink, anchor repairs).
+    let saveToken: BookSaveToken
     /// How the session was started.
     let configuration: Configuration
 
@@ -273,6 +277,7 @@ final class ReaderSession: Identifiable {
         self.configuration = configuration
         self.origin = ChangeOrigin(label: "reader \(book.title)")
         self.documentURL = store.documentURL(for: book)
+        self.saveToken = BookSaveToken(bookID: book.id)
 
         let restored = configuration.restoredState
         let startPage = configuration.initialPageIndex ?? restored?.pageIndex ?? book.lastReadPageIndex
@@ -297,6 +302,7 @@ final class ReaderSession: Identifiable {
         hubToken = store.hub.observe { [weak self] event in
             self?.handle(event)
         }
+        OpenEditorRegistry.shared.register(self)
         if configuration.installsFeatures {
             ReaderFeatureWiring.install(on: self)
         }
@@ -336,7 +342,9 @@ final class ReaderSession: Identifiable {
     }
 
     /// Flushes pending work: the debounced last-read save and every markup surface's ink. Called
-    /// by the host when the window goes to the background or closes and when the reader is left.
+    /// by the host when the window goes to the background or closes and when the reader is left,
+    /// and by the backup engine before a snapshot or a restore (`OpenEditorRegistry`). Saves
+    /// nothing once the session has seen its book deleted or replaced (`saveToken`).
     func suspend() async {
         saveLastReadPageNow()
         await markup.flushAll()
@@ -632,7 +640,7 @@ final class ReaderSession: Identifiable {
     func saveLastReadPageNow() {
         lastReadSaveTask?.cancel()
         lastReadSaveTask = nil
-        guard closeReason == nil, lastSavedPageIndex != currentPageIndex else { return }
+        guard closeReason == nil, !saveToken.isRevoked, lastSavedPageIndex != currentPageIndex else { return }
         do {
             guard var stored = try store.books.book(id: book.id) else { return }
             stored.lastReadPageIndex = currentPageIndex
@@ -694,7 +702,7 @@ final class ReaderSession: Identifiable {
     }
 
     private func markOpened() {
-        guard closeReason == nil, var stored = try? store.books.book(id: book.id) else { return }
+        guard closeReason == nil, !saveToken.isRevoked, var stored = try? store.books.book(id: book.id) else { return }
         stored.lastOpenedAt = Date()
         try? perform { try $0.books.save(stored) }
         book = stored
@@ -708,6 +716,7 @@ final class ReaderSession: Identifiable {
 
         switch change {
         case .bookDeleted:
+            saveToken.revoke()
             lastReadSaveTask?.cancel()
             closeReason = .bookDeleted
             if mode == .markup { mode = .reading; markup.modeDidChange(to: .reading) }

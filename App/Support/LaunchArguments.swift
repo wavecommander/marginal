@@ -97,6 +97,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `indigo`), written to the stored setting at launch. Unknown names are ignored.
     var accent: AccentChoice?
 
+    /// `-backupFolder <absolute path>`: test-only. Registers a `FolderBackupDestination` rooted at
+    /// that folder (created if missing) in the backup destination list, so UI tests can back up
+    /// and restore without the system folder picker.
+    var backupFolder: URL?
+
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
@@ -163,6 +168,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeMarkupState = true
             case "-exposeAccent":
                 exposeAccent = true
+            case "-backupFolder":
+                if let path = value(after: index) {
+                    index += 1
+                    if path.hasPrefix("/") { backupFolder = URL(fileURLWithPath: path, isDirectory: true) }
+                }
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:

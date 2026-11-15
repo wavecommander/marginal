@@ -30,6 +30,15 @@ struct LaunchOptionsTests {
         #expect(LaunchOptions(arguments: ["app", "-accent", "teal", "-markup"]).markup)
     }
 
+    @Test func parsesBackupFolder() {
+        let options = LaunchOptions(arguments: ["app", "-backupFolder", "/tmp/Backups Test", "-markup"])
+        #expect(options.backupFolder?.path == "/tmp/Backups Test")
+        #expect(options.markup)
+        #expect(LaunchOptions(arguments: ["app", "-backupFolder"]).backupFolder == nil)
+        #expect(LaunchOptions(arguments: ["app", "-backupFolder", "relative/path"]).backupFolder == nil)
+        #expect(LaunchOptions().backupFolder == nil)
+    }
+
     @Test func defaultsAreEmpty() {
         #expect(LaunchOptions(arguments: ["app"]) == LaunchOptions())
     }
