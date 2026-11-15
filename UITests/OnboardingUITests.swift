@@ -74,6 +74,8 @@ final class OnboardingUITests: XCTestCase {
         // Settings ▸ Help opens the same copy.
         app.buttons["settings.open"].firstMatch.tap()
         let fromSettings = app.buttons["settings.help.openGuide"]
+        // Help is the last section; on a short sheet it starts below the fold.
+        if !fromSettings.waitForExistence(timeout: 3) { app.collectionViews.firstMatch.swipeUp() }
         XCTAssertTrue(fromSettings.waitForExistence(timeout: 10))
         fromSettings.tap()
         XCTAssertTrue(element(app, "reader.pdfView").waitForExistence(timeout: 30))
