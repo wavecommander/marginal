@@ -333,3 +333,25 @@ only, so there is no sidebar or Pages-grid part and it does not depend on WP5.
   from the page to the note mid-session without the tool changing.
 - **Done when** the full gate passes from a clean clone and the checklist and difference list are
   committed under `docs/`.
+
+## Backup and restore (packages B0 to B7, added 15 November 2026)
+
+Design: "Backup and restore" in `docs/DESIGN.md`. Built on branch `backup-restore` with the same
+rules as above (Opus for every package, targeted tests only, at most three build or simulator
+agents at once, iOS 27 simulators).
+
+| Package | What it is | Where |
+| --- | --- | --- |
+| B0 | Scaffold: three packages, the `.ttbackup` type, background task identifier, iCloud container declaration, and the build switches (`MARGINAL_ENTITLEMENTS`, `GOOGLE_DRIVE_CLIENT_ID`, `S3_BACKUP_*`), all off by default | `project.yml`, `Config/`, `Packages/` |
+| B1 | Archive format core: stored ZIP with ZIP64, SHA-256, manifest, folder layout, `BackupDestination`, `FolderBackupDestination`, restore plan, retention | `Packages/ReaderBackup` |
+| B2 | Store support: `BookArchive`, one-transaction `replaceBook`, `BookFingerprint` moved to ReaderCore | `Packages/ReaderCore`, `Packages/ReaderStore` |
+| B3 | Engine: `BackupService`, restore staging, journalled commit and launch recovery, PDF linking with the full-hash check, guards against stale saves after a restore | `App/Features/Backup/` |
+| B4 | UI: Backup & Restore in Settings, restore preview, progress, "PDF missing" and Locate PDF… | `App/Features/Backup/UI/` |
+| B5 | Picked-folder and iCloud container destinations; automatic backup scheduling | `App/Features/Backup/Destinations/`, `Scheduling/` |
+| B6 | Google Drive: OAuth and REST client, then the app-side destination | `Packages/GoogleDriveKit`, `App/Features/Backup/Destinations/` |
+| B7 | S3-compatible storage: signing and object client, then the app-side destination | `Packages/S3Kit`, `App/Features/Backup/Destinations/` |
+
+Package tests run with `swift test` in each of `ReaderBackup`, `GoogleDriveKit` and `S3Kit` (all
+three are in `scripts/test.sh`). App tests are the `Backup*` classes in `Tests/` and
+`UITests/BackupUITests`. What only a device or a real account can check is in
+`docs/DEVICE_CHECKLIST.md` under "Backup and restore".

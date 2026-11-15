@@ -124,6 +124,21 @@ struct BackupManifestTests {
         #expect(throws: BackupError.newerFormatVersion(7)) { try BackupManifest.decode(future) }
     }
 
+    @Test func aPDFFileNameThatLeavesTheBookDirectoryIsRefused() throws {
+        for name in ["", "..", ".hidden.pdf", "a/b.pdf", "..\\b.pdf", "../../Database/Marginal.store", "x\u{0}.pdf",
+                     "document.sha256", "records.json", String(repeating: "a", count: 256)] {
+            var manifest = Self.manifest()
+            manifest.books[0].book.fileName = name
+            #expect(throws: BackupError.self, "\(name.debugDescription)") { try manifest.validate() }
+            #expect(!BackupManifest.isSafeDocumentFileName(name), "\(name.debugDescription)")
+        }
+        for name in ["calc.pdf", "Linear Algebra (4th ed.).pdf", "Analyse réelle.pdf", "cover.pdf"] {
+            var manifest = Self.manifest()
+            manifest.books[0].book.fileName = name
+            try manifest.validate()
+        }
+    }
+
     @Test func otherFilesAreNotBackups() throws {
         var manifest = Self.manifest()
         manifest.format = "something-else"

@@ -129,6 +129,64 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       Light Mode, black in Dark Mode), the Pages grid's note and highlight flags, and the filled
       Markup toggle.
 
+## Backup and restore
+
+The simulator tests cover the archive, the restore and its crash recovery, and every
+destination against stand-ins. They cannot cover real Files providers, the Keychain, background
+runs or very large files. Open Settings › Backup & Restore.
+
+- [ ] **Backup file, without PDFs.** Save Backup File… with Include PDFs off, into "On My
+      iPad". The file appears in Files with the `.ttbackup` extension and is a few megabytes.
+- [ ] **Backup file, with PDFs, large.** With `large.pdf` and a real textbook in the Library,
+      save with Include PDFs on. Progress moves, Cancel works part-way (no file is left behind),
+      and a second attempt completes. If the iPad is short of space, the app says so before
+      starting instead of failing part-way.
+- [ ] **A file over 4 GB.** If the Library is large enough, a single-file backup over 4 GB
+      saves and then restores. (Only a forced test covers this size on the simulator.)
+- [ ] **Open in.** In Files, tap a `.ttbackup` file: Tactile Texts opens on the restore preview
+      for it.
+- [ ] **Restore replaces, per book.** Change a note, then restore the earlier backup: the book
+      shows as Already in Library and unticked; ticking it warns that its notes will be replaced;
+      after restoring, the note is the earlier one and ink on pages and notes is intact.
+- [ ] **A book open during restore.** With a book open in a second window and a note half
+      typed, restore that book from a backup: the window closes and the restored note is the
+      backup's, not the half-typed one.
+- [ ] **Delete and reinstall.** Back up with PDFs to a folder in iCloud Drive, delete the app,
+      install it again (`scripts/device.sh`), choose the same folder, and restore: every book,
+      note, highlight, bookmark, heading and drawing is back, and each book opens at the page
+      it was on.
+- [ ] **PDF missing, then linked.** Restore a backup made without PDFs into an empty Library:
+      each book shows "PDF missing". Locate PDF… with the right file links it and the cover
+      appears; with a different PDF it is refused with an explanation and nothing changes.
+      Dropping the right PDF onto the Library also links it.
+- [ ] **Folder in iCloud Drive.** Choose Folder… and pick a folder in iCloud Drive; Back Up
+      Now; the files appear under `Backups/` and `PDFs/` in Files and on another device. Quit
+      and relaunch, then restart the iPad: the folder is still remembered each time.
+- [ ] **A backup that is only in iCloud.** On a second device, or after the system has evicted
+      the local copy, the backup is still listed and restoring it downloads it first. In
+      Aeroplane Mode the app reports that it cannot be downloaded instead of hanging.
+- [ ] **Folder gone.** Delete or rename the chosen folder in Files: the destination says to
+      choose the folder again and does not recreate it.
+- [ ] **Another provider's folder.** Try Choose Folder… on the Google Drive app's location in
+      Files. Note whether a folder can be picked at all; if not, that is expected.
+- [ ] **Automatic backup.** Turn it on for the iCloud Drive folder, make a note, and leave the
+      iPad for a day (on power overnight): the status line shows a backup with a new date. Make
+      no change the next day: no new backup appears.
+
+Only once the account side exists (see `Config/Local.xcconfig.example`):
+
+- [ ] **iCloud container** (paid developer team). The destination is available, "Tactile Texts"
+      appears in Files › iCloud Drive, and a backup made on one device is listed on another.
+- [ ] **Google Drive** (OAuth client ID). Sign In… shows Google's page and returns to the app;
+      this is the first real test of the redirect scheme. Back Up Now creates "Tactile Texts
+      Backups" in Drive; a large PDF uploads and survives a brief loss of network; restoring on
+      a fresh install works; Sign Out removes access. Quit and relaunch: still signed in (the
+      Keychain has never been exercised on the simulator).
+- [ ] **S3-compatible bucket** (for example Cloudflare R2). The destination appears under the
+      configured name; Back Up Now uploads a snapshot and a PDF of several hundred megabytes;
+      the objects are under `Backups/` and `PDFs/` in the bucket; restore works; a wrong key
+      and a wrong device clock each give a clear message.
+
 ## Install
 
 - [ ] **7-day expiry.** The build is signed with a free Personal Team profile, so it stops

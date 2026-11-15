@@ -47,7 +47,10 @@ public struct BackupSnapshotInfo: Hashable, Sendable, Identifiable {
 /// Contract every implementation keeps:
 /// - Writes are all-or-nothing: a failed or cancelled upload leaves no partial snapshot or PDF
 ///   visible under its final name.
-/// - Cancellation (of the calling task) throws `CancellationError`; failures throw `BackupError`.
+/// - Cancellation (of the calling task) throws `CancellationError`. Failures the format and the
+///   file system can describe throw `BackupError`; a destination with failures of its own (a
+///   sign-in that has lapsed, a full cloud account, rejected credentials) throws its own
+///   `LocalizedError` for those. Callers show any failure's `localizedDescription` as it is.
 /// - `downloadPDF` verifies the downloaded bytes against `sha256` before returning and leaves
 ///   nothing at the local URL when they differ (`contentMismatch`).
 /// - Progress callbacks report the fraction of the transfer, ending at 1 on success.

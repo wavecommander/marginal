@@ -176,6 +176,16 @@ public struct BackupManifest: Hashable, Codable, Sendable {
     /// level, `records.json` (reserved by the format), the book's PDF file name or
     /// `document.sha256` (so extracting a crafted backup can never plant an unverified PDF or
     /// hash sidecar in the book's directory).
+    /// Whether `name` can be a book's PDF file name: one path component, not empty, not hidden,
+    /// not `.` or `..`, free of separators and control characters, and not one of the names the
+    /// book directory reserves (`document.sha256`, `records.json`).
+    public static func isSafeDocumentFileName(_ name: String) -> Bool {
+        guard !name.isEmpty, !name.hasPrefix("."), name.utf8.count <= 255 else { return false }
+        guard !name.contains("/"), !name.contains("\\") else { return false }
+        guard !name.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else { return false }
+        return name != BookStorageLayout.contentHashFileName && name != BackupArchiveLayout.recordsFileName
+    }
+
     public func validate() throws {
         guard format == BackupFormat.name else { throw BackupError.notABackup }
         guard formatVersion <= BackupFormat.currentVersion else { throw BackupError.newerFormatVersion(formatVersion) }
@@ -186,6 +196,11 @@ public struct BackupManifest: Hashable, Codable, Sendable {
             guard ids.insert(id).inserted else { throw BackupError.manifestInvalid(detail: "book \(id) listed twice") }
             guard ContentHash.isValidSHA256(entry.pdf.sha256), entry.pdf.size >= 0 else {
                 throw BackupError.manifestInvalid(detail: "bad PDF hash for \(id)")
+            }
+            // A restore writes the PDF to `Books/<id>/<fileName>`, so the name must stay inside
+            // the book's directory and must not land on the hash sidecar.
+            guard Self.isSafeDocumentFileName(entry.book.fileName) else {
+                throw BackupError.manifestInvalid(detail: "unsafe PDF file name in \(id)")
             }
             var paths = Set<String>()
             for file in entry.files {

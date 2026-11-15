@@ -367,6 +367,55 @@ take full advantage of their SDKs.
   and were last exercised on the packages merged up to that date (reader engine, library, note
   page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
 
+## Backup and restore
+
+Added by the owner (15 November 2026). Everything a reader makes (notes, highlights, bookmarks,
+their own headings, ink on pages and on notes) can be backed up and restored, with or without
+the PDFs. This is backup, not sync: two iPads do not merge, and a restore replaces whole books.
+
+- **What a backup is.** A snapshot archive, `*.ttbackup`, plus PDFs addressed by hash. The
+  archive is a standard ZIP with every entry stored (no compression) and ZIP64, so it opens with
+  any unzip tool: `manifest.json` (format version, date, device, and per book its record, its
+  PDF's SHA-256 and size, counts, and every file with its size and SHA-256),
+  `books/<bookID>/records.json`, the book's ink files and cover, and `pdfs/<sha256>.pdf` only
+  when PDFs are embedded. A reader refuses a backup with a higher format version than it knows.
+  A checked-in version 1 archive pins the format: a model change that would stop old backups
+  restoring fails a test.
+- **Two layouts.** A *single file* (PDFs embedded or not) for saving anywhere in Files. A
+  *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
+  (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
+  when present. The newest 10 snapshots are kept; PDFs are never removed automatically.
+- **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
+  the app, and the screen says so.
+- **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
+  remembered across launches; the app's own iCloud container; Google Drive (the app can see only
+  the files it creates); and an S3-compatible bucket the developer configures at build time (for
+  example Cloudflare R2). The last three are switched on from `Config/Local.xcconfig` and are
+  off, or reported as not available, in a build without them. **S3 credentials set at build
+  time are compiled into the app and can be read out of it**: such a build is for the
+  developer's own devices, with a token limited to one bucket, and is never distributed.
+- **Linking PDFs by hash.** A book's identity is its sampled fingerprint, as before. A backup
+  also records the SHA-256 of the whole PDF, kept beside the book in `document.sha256`. A book
+  restored without its PDF is an ordinary book whose file is absent: the Library marks it
+  "PDF missing" and offers Locate PDF…, and importing the right file by any route links it. A
+  PDF is linked only when the fingerprint **and** the full SHA-256 match; a mismatch is refused
+  with an explanation and there is no override (owner decision).
+- **Restore is per book** (owner decision). The preview lists each book in the backup as New or
+  Already in Library (same ID or same PDF), with what each side holds; new books are ticked and
+  existing ones are not. Restoring an existing book replaces all of its notes, highlights and
+  ink with the backup's. There is no item-by-item merging.
+- **Restore cannot leave a book half-applied.** The chosen books are extracted and every file
+  verified first; a damaged backup restores nothing. Each book is then swapped in behind a
+  journal, and a crash at any point is finished at the next launch, before the orphan sweep.
+  Open reader and Notebook windows on a replaced book close, as they do for a delete, and
+  nothing they had pending is written over the restored book.
+- **One at a time.** One backup or restore runs for the whole app, with progress and Cancel in
+  every window. Cancel is honoured until books are being swapped in.
+- **Automatic backups** (owner decision: manual plus automatic). Off by default. When on, a
+  backup to the chosen destination is due when the library has changed and the last success is
+  at least a day old; it runs when a window becomes active and from a background processing
+  task. Failures are shown, with the date of the last success.
+
 ## Technical decisions
 
 | Area | Decision | Why |
@@ -389,6 +438,8 @@ take full advantage of their SDKs.
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
+| Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
+| PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before
@@ -396,7 +447,8 @@ building on it. This table records intent, not verified signatures.
 
 ## Not in version 1
 
-iCloud sync, collections or tags in the Library, EPUB, OCR for scanned books, handwriting search,
+iCloud sync (backup and restore to iCloud exist, see "Backup and restore"; keeping two devices in
+step does not), collections or tags in the Library, EPUB, OCR for scanned books, handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two
 windows cover this), sharing single notes, PaperKit shapes and text boxes on the page. The store layout should not rule these out.
 
