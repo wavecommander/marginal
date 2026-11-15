@@ -33,6 +33,12 @@ struct ReaderCommands: Commands {
                 .disabled(window == nil)
         }
 
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { window?.showSettings() }
+                .keyboardShortcut(",", modifiers: .command)
+                .disabled(window == nil)
+        }
+
         // Contents is the reader's sidebar: it replaces the system "Show Sidebar" item (⌃⌘S).
         // Adding ⌃⌘S beside the system item crashes the main-menu build ("Replacement elements
         // contain duplicates"), so the group is replaced, not appended to.

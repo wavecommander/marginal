@@ -17,10 +17,18 @@ struct DesignSystemGallery: View {
                 section("Ink and brand") {
                     HStack(spacing: Space.m) {
                         chip("ink", Palette.ink, fg: Palette.paper)
-                        chip("accent", Palette.accent, fg: Palette.onAccent)
-                        chip("tint", Palette.accentTint)
                         chip("margin", Palette.margin, fg: Palette.paper)
                         chip("margin tint", Palette.marginTint)
+                    }
+                }
+                section("Accent presets") {
+                    ForEach(AccentChoice.allCases) { choice in
+                        HStack(spacing: Space.m) {
+                            Text(choice.displayName).font(Typeface.caption).frame(width: 80, alignment: .leading)
+                            chip("accent", choice.theme.accent, fg: choice.theme.onAccent)
+                            chip("tint", choice.theme.tint, fg: choice.theme.accent)
+                            AccentPreview().environment(\.accentTheme, choice.theme).tint(choice.theme.accent)
+                        }
                     }
                 }
                 section("Highlighters") {

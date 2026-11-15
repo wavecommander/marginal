@@ -39,6 +39,7 @@ struct WindowRootView: View {
             if self.scene !== scene { self.scene = scene }
             context?.scene = scene
         })
+        .accentRoot(scene: scene)
         .onAppear(perform: makeContextIfNeeded)
         .task { await applyLaunchPlanIfFirstWindow() }
     }
@@ -120,6 +121,7 @@ private struct WindowContent: View {
         }
         .environment(context)
         .focusedSceneValue(context)
+        .sheet(isPresented: $context.isSettingsPresented) { SettingsView() }
         .onOpenURL { url in environment.handleIncomingPDF(url, in: context) }
         .onChange(of: context.path, initial: true) { _, path in
             storedPath = try? JSONEncoder().encode(path)

@@ -282,6 +282,7 @@ private struct SearchGroupHeader: View {
 }
 
 private struct SearchResultRow: View {
+    @Environment(\.accentTheme) private var accentTheme
     let result: SearchResult
     let isSelected: Bool
     let action: () -> Void
@@ -320,7 +321,7 @@ private struct SearchResultRow: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
-        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .listRowBackground(isSelected ? accentTheme.accent.opacity(0.15) : Color.clear)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(spokenKind), \(pageLabel). \(result.snippet.text)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)

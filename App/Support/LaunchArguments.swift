@@ -12,7 +12,8 @@ import SwiftUI
 /// `-importFixture` imports through `FixtureImporter`; `-openBook` opens that book in place in
 /// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
-/// `-alsoOpenWindow` opens a second reader window.
+/// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
+/// (`-resetState` clears it first).
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -92,6 +93,14 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// values to XCUITest), and buttons that undo / redo through the markup responder.
     var exposeMarkupState = false
 
+    /// `-accent <preset>`: start with that accent preset (`AccentChoice` raw value, e.g.
+    /// `indigo`), written to the stored setting at launch. Unknown names are ignored.
+    var accent: AccentChoice?
+
+    /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
+    /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
+    var exposeAccent = false
+
     init() {}
 
     init(arguments: [String]) {
@@ -152,6 +161,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeSelection = true
             case "-exposeMarkupState":
                 exposeMarkupState = true
+            case "-exposeAccent":
+                exposeAccent = true
+            case "-accent":
+                if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:
                 break
             }

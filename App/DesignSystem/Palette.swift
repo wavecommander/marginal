@@ -33,13 +33,8 @@ enum Palette {
 
     // MARK: Brand
 
-    /// Berry rose: actions, selection, progress. Matches the rose app icon but leans pink so
-    /// it never reads as `margin` red.
-    static let accent = dynamic(light: 0x9C3656, dark: 0xF4A3BE)
-    /// Tinted fill behind accent text (tonal buttons, selected rows).
-    static let accentTint = dynamic(light: 0xF5E0E8, dark: 0x46222F)
-    /// Text or icon on a solid `accent` fill.
-    static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x3A0F1F)
+    // The accent (accent, tint, on-accent) is the reader's choice: read `\.accentTheme` from
+    // the environment (`AccentChoice`, `AccentTheme` in Accent.swift), never a static colour.
 
     /// Margin red: the colour of marginalia. Note badges, "has a note" markers, destructive
     /// confirmations. Used sparingly so it always means "you wrote something here".
@@ -71,11 +66,11 @@ enum Palette {
 
     // MARK: Helpers
 
-    static func dynamic(light: UInt32, dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) -> Color {
+    nonisolated static func dynamic(light: UInt32, dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) -> Color {
         Color(uiColor: uiColor(light: light, dark: dark, lightAlpha: lightAlpha, darkAlpha: darkAlpha))
     }
 
-    static func uiColor(light: UInt32, dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) -> UIColor {
+    nonisolated static func uiColor(light: UInt32, dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) -> UIColor {
         UIColor { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(hex: dark, alpha: darkAlpha)
@@ -106,7 +101,7 @@ enum Highlighter: String, CaseIterable, Identifiable, Sendable {
 }
 
 extension Color {
-    init(hex: UInt32, alpha: Double = 1) {
+    nonisolated init(hex: UInt32, alpha: Double = 1) {
         self.init(.sRGB,
                   red: Double((hex >> 16) & 0xFF) / 255,
                   green: Double((hex >> 8) & 0xFF) / 255,
@@ -116,7 +111,7 @@ extension Color {
 }
 
 extension UIColor {
-    convenience init(hex: UInt32, alpha: Double = 1) {
+    nonisolated convenience init(hex: UInt32, alpha: Double = 1) {
         self.init(red: CGFloat((hex >> 16) & 0xFF) / 255,
                   green: CGFloat((hex >> 8) & 0xFF) / 255,
                   blue: CGFloat(hex & 0xFF) / 255,

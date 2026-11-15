@@ -65,6 +65,7 @@ struct NotebookScreen: View {
 
 /// The loaded screen.
 private struct NotebookContent: View {
+    @Environment(\.accentTheme) private var accentTheme
     let model: NotebookModel
     @Binding var scopeKey: String
     @Binding var typeKey: String
@@ -271,7 +272,7 @@ private struct NotebookContent: View {
                     } actions: {
                         Button("Open Book") { window.openReader(bookID: model.bookID) }
                             .buttonStyle(.borderedProminent)
-                            .foregroundStyle(Color(.onAccent))
+                            .foregroundStyle(accentTheme.onAccent)
                     }
                 } else if filter.isSearching {
                     ContentUnavailableView.search(text: filter.trimmedQuery)

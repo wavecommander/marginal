@@ -52,6 +52,7 @@ struct PagesGridView: View {
 }
 
 private struct PageThumbnailCell: View {
+    @Environment(\.accentTheme) private var accentTheme
     let pageIndex: Int
     let aspect: CGFloat
     let session: ReaderSession
@@ -92,7 +93,7 @@ private struct PageThumbnailCell: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(isCurrent ? Color.accentColor : Color(uiColor: .separator),
+                            .strokeBorder(isCurrent ? accentTheme.accent : Color(uiColor: .separator),
                                           lineWidth: isCurrent ? 3 : 0.5)
                     }
                 Text(verbatim: "\(number)")
@@ -153,10 +154,10 @@ private struct PageThumbnailCell: View {
                 if marks.contains(.highlight) { Image(systemName: "highlighter") }
             }
             .font(.caption2)
-            .foregroundStyle(Color(.onAccent))
+            .foregroundStyle(accentTheme.onAccent)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
-            .background(Capsule().fill(Color.accentColor))
+            .background(Capsule().fill(accentTheme.accent))
             .padding(4)
         }
     }

@@ -52,6 +52,17 @@ nonisolated enum AccessibilityID {
         static let notesDivider = "reader.notesDivider"
     }
 
+    enum Settings {
+        /// The Library toolbar's gear button.
+        static let openButton = "settings.open"
+        static let sheet = "settings.sheet"
+        static let done = "settings.done"
+        /// One swatch per preset: `settings.accent.<rawValue>`; value "selected" on the chosen one.
+        static func accent(_ rawValue: String) -> String { "settings.accent.\(rawValue)" }
+        static let reset = "settings.accent.reset"
+        static let preview = "settings.accent.preview"
+    }
+
     /// Placeholders the next packages replace (keep the identifiers if convenient).
     enum Placeholder {
         static let contents = "placeholder.contents"

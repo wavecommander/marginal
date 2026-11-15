@@ -82,6 +82,7 @@ private struct ContentsList: View {
 
 /// One heading: disclosure chevron, title, note badge, start page.
 private struct ContentsRowView: View {
+    @Environment(\.accentTheme) private var accentTheme
     let row: ContentsRow
     let session: ReaderSession
     let model: ContentsSidebarModel
@@ -158,12 +159,12 @@ private struct ContentsRowView: View {
         .padding(.trailing, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isCurrent ? Color.accentColor.opacity(0.14) : Color.clear)
+                .fill(isCurrent ? accentTheme.accent.opacity(0.14) : Color.clear)
         )
         .overlay(
             // The heading just added or edited stays selected until the reader moves on.
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                .strokeBorder(isSelected ? accentTheme.accent : Color.clear, lineWidth: 2)
         )
         .contextMenu { contextMenu }
     }
@@ -282,6 +283,7 @@ private struct AddHeadingFooter: View {
 
 /// A book with no outline: say so and point at "Add heading".
 private struct EmptyContentsView: View {
+    @Environment(\.accentTheme) private var accentTheme
     let session: ReaderSession
     let actions: SidebarActions
 
@@ -296,7 +298,7 @@ private struct EmptyContentsView: View {
                 actions.addHeading(page)
             }
             .buttonStyle(.borderedProminent)
-            .foregroundStyle(Color(.onAccent))
+            .foregroundStyle(accentTheme.onAccent)
             .accessibilityIdentifier(SidebarAccessibilityID.emptyAddHeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -54,6 +54,7 @@ struct NotebookRowActions {
 /// start page with that heading's note in the notes panel); the context menu also offers
 /// "Open in New Window", and on a note's row "Delete Note" (also a VoiceOver action).
 struct NotebookRowView: View {
+    @Environment(\.accentTheme) private var accentTheme
     let row: NotebookFeedRow
     let model: NotebookModel
     let actions: NotebookRowActions
@@ -155,8 +156,8 @@ struct NotebookRowView: View {
             .minimumScaleFactor(0.8)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(accentTheme.accent)
+            .background(accentTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     @ViewBuilder

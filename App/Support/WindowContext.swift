@@ -58,6 +58,8 @@ final class WindowContext {
     /// Increases when "Import PDF…" is chosen for this window. WP3's Library screen watches it
     /// (`.onChange(of: window.importRequestCount)`) and presents its importer.
     private(set) var importRequestCount = 0
+    /// Whether this window shows the Settings sheet (Library gear button, "Settings…" ⌘,).
+    var isSettingsPresented = false
 
     @ObservationIgnored weak var scene: UIWindowScene?
     @ObservationIgnored var openWindowAction: OpenWindowAction?
@@ -104,6 +106,11 @@ final class WindowContext {
     func requestImport() {
         path.removeAll()
         importRequestCount += 1
+    }
+
+    /// "Settings…" (⌘,) and the Library gear button: show Settings over whatever this window shows.
+    func showSettings() {
+        isSettingsPresented = true
     }
 
     /// Increases when `openReader(bookID:pageIndex:)` targets the reader already shown.

@@ -4,6 +4,7 @@ import SwiftUI
 /// The "Continue reading" card: cover, title, where you are, progress, and the two shortcuts.
 /// Wide windows lay it out in one row; compact windows stack it.
 struct ContinueReadingCard: View {
+    @Environment(\.accentTheme) private var accentTheme
     let book: Book
     let annotationCount: Int
     let onResume: () -> Void
@@ -80,7 +81,7 @@ struct ContinueReadingCard: View {
     private var resumeButton: some View {
         Button("Resume", action: onResume)
             .buttonStyle(.borderedProminent)
-            .foregroundStyle(Color(.onAccent))
+            .foregroundStyle(accentTheme.onAccent)
             .controlSize(.large)
             .accessibilityIdentifier("library.continue.resume")
     }

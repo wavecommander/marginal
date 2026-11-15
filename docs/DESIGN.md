@@ -265,17 +265,32 @@ Added by the owner (TSOFT-215, 14 November 2026).
   Screen styles from its layers. For the iPadOS 17 floor, Xcode flattens it into 1024 px Any,
   Dark and Tinted renditions in `Assets.car` plus `AppIcon60x60@2x.png` and
   `AppIcon76x76@2x~ipad.png` in the bundle.
-- **Accent.** `AccentColor` is raspberry: `#9C3656` in Light Mode, `#F4A3BE` in Dark Mode. Every
-  control, selection and link-style text takes it through the system tint; nothing in `App/`
-  hard-codes another blue. Highlight colours, ink, the bookmark red and destructive red are
-  separate and do not follow it.
-- **Text and icons on an accent fill use `OnAccent`** (white in Light Mode, black in Dark Mode).
-  The dark accent is light, so white on it is 1.9:1; `OnAccent` gives 6.8:1 (light) and 10.8:1
-  (dark). This applies to `.borderedProminent` buttons, whose label the system draws white on
-  any tint, and to the Pages grid's note/highlight flags. The toolbar's Markup toggle needs
-  nothing: the system draws its selected glyph white on the light accent and near-black on the
-  dark one. Accent text on the app's backgrounds and on the 14–15% accent selection fills
-  measures 4.96:1 or more in both appearances.
+- **Accent.** The accent is the reader's choice, from a fixed list of presets in Settings ▸
+  Appearance (`AccentChoice` in `App/DesignSystem/Accent.swift`, stored under `settings.accent`):
+  Raspberry (the default), Coral, Indigo, Viridian, Teal, Tobacco, Aubergine and Graphite. There
+  is no free colour picker, because each preset is a hand-checked set of accent, accent tint and
+  on-accent colours in both appearances. Raspberry is `#9C3656` in Light Mode and `#F4A3BE` in
+  Dark Mode. The `AccentColor` asset holds the same raspberry; it is only the default and the
+  tint of the launch frame before SwiftUI mounts. `AccentRoot` applies the choice at every
+  window's root: `\.accentTheme` in the environment, `.tint`, and `UIWindow.tintColor` for UIKit
+  surfaces (PDFKit selection, menus, alerts, the tool picker). It updates every open window live.
+  Feature code reads `\.accentTheme` or the `.tint` shape style, never `Color.accentColor` or a
+  static colour. Nothing in `App/` hard-codes another blue. Highlight colours, ink, the bookmark
+  red, margin red, destructive red and book cloth are separate and do not follow the accent. The
+  app icon stays berry whatever the choice.
+- **Settings.** iPadOS has no system Settings entry for Marginal and there is no
+  `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
+  Library's gear button and from "Settings…" (⌘,) in any window.
+- **Text and icons on an accent fill use `accentTheme.onAccent`** (white in Light Mode, a deep
+  shade of the accent's hue in Dark Mode, where every accent is light). This applies to
+  `.borderedProminent` buttons, whose label the system draws white on any tint, and to the Pages
+  grid's note/highlight flags. The toolbar's Markup toggle needs nothing: the system draws its
+  selected glyph white on the light-mode accent and near-black on the dark-mode one.
+  `DesignSystemTests` checks every preset in both appearances: accent text on the app's and the
+  system's backgrounds and on the 15% selection fills, on-accent on the accent, and accent on its
+  tint are all at least 4.5:1. The new presets are tuned to at least 5.0:1 (Light) and 5.6:1
+  (Dark) against backgrounds. Raspberry keeps its original values: 4.88:1 at its lowest, on a 15%
+  fill over the system grouped background.
 - **Launch screen.** `UILaunchScreen` shows the `LaunchBackground` colour, `#F6F2EA` (light) and
   `#181612` (dark), with nothing on it. The first screen's background is the system one (white
   or `#F2F2F7` in Light Mode, black in Dark Mode), and the system cross-fades to it in about a

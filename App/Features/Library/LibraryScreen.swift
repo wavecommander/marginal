@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// Environment it relies on: `AppEnvironment` (store, import service) and `WindowContext`
 /// (navigation, other windows, the "Import PDF…" menu command).
 struct LibraryScreen: View {
+    @Environment(\.accentTheme) private var accentTheme
     @Environment(AppEnvironment.self) private var environment
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -61,7 +62,7 @@ struct LibraryScreen: View {
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
+                    .strokeBorder(accentTheme.accent, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
                     .padding(6)
                     .allowsHitTesting(false)
             }
@@ -141,7 +142,7 @@ struct LibraryScreen: View {
         } actions: {
             Button("Import PDF") { showImporter = true }
                 .buttonStyle(.borderedProminent)
-                .foregroundStyle(Color(.onAccent))
+                .foregroundStyle(accentTheme.onAccent)
                 .accessibilityIdentifier("library.emptyImportButton")
         }
         .accessibilityIdentifier("library.emptyState")
@@ -208,6 +209,14 @@ struct LibraryScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                window.showSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
+            }
+            .accessibilityIdentifier(AccessibilityID.Settings.openButton)
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Picker("Sort By", selection: $sortRaw) {

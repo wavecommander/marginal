@@ -16,6 +16,7 @@ import SwiftUI
 /// setting for every window). The region it sits in scrolls, so one form works at every panel
 /// height and text size.
 struct NotesLevelPicker: View {
+    @Environment(\.accentTheme) private var accentTheme
     /// The `UserDefaults` key of the expanded/collapsed choice (`-resetState` clears it).
     static let expandedKey = "notesPanel.levelPickerExpanded"
 
@@ -86,7 +87,7 @@ struct NotesLevelPicker: View {
                     // The row is one element with its own label; never a bare title element.
                     .accessibilityHidden(true)
                 if noted {
-                    Image(systemName: "note.text").font(.caption).foregroundStyle(Color.accentColor)
+                    Image(systemName: "note.text").font(.caption).foregroundStyle(accentTheme.accent)
                 }
                 if isSelected {
                     Image(systemName: "checkmark").font(.subheadline.weight(.semibold))
@@ -98,10 +99,10 @@ struct NotesLevelPicker: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear))
+                .fill(isSelected ? accentTheme.accent.opacity(0.14) : Color.clear))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .foregroundStyle(isSelected ? accentTheme.accent : Color.primary)
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(node.title)
@@ -192,6 +193,7 @@ extension HighlightColor {
 /// session's add-heading request; the Contents sidebar presents the sheet) or the page note. The
 /// tab picks a new heading up as soon as the outline is rebuilt.
 struct NotesSectionEmptyState: View {
+    @Environment(\.accentTheme) private var accentTheme
     let session: ReaderSession
     let controller: NotesPanelController
 
@@ -232,7 +234,7 @@ struct NotesSectionEmptyState: View {
     private var buttons: some View {
         NotesAddHeadingButton(session: session)
             .buttonStyle(.borderedProminent)
-            .foregroundStyle(Color(.onAccent))
+            .foregroundStyle(accentTheme.onAccent)
         Button { controller.selectTab(.page) } label: {
             Label("Page Note", systemImage: "note.text")
         }

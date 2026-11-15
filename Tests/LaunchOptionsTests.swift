@@ -23,6 +23,13 @@ struct LaunchOptionsTests {
         #expect(options.notesPanel == .section)
     }
 
+    @Test func parsesAccent() {
+        #expect(LaunchOptions(arguments: ["app", "-accent", "indigo"]).accent == .indigo)
+        #expect(LaunchOptions(arguments: ["app", "-accent", "chartreuse"]).accent == nil)
+        #expect(LaunchOptions(arguments: ["app", "-accent"]).accent == nil)
+        #expect(LaunchOptions(arguments: ["app", "-accent", "teal", "-markup"]).markup)
+    }
+
     @Test func defaultsAreEmpty() {
         #expect(LaunchOptions(arguments: ["app"]) == LaunchOptions())
     }

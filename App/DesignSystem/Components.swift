@@ -8,16 +8,17 @@ struct MarginalButtonStyle: ButtonStyle {
     enum Kind { case primary, tonal }
     var kind: Kind = .primary
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accentTheme) private var accent
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Typeface.control)
-            .foregroundStyle(kind == .primary ? Palette.onAccent : Palette.accent)
+            .foregroundStyle(kind == .primary ? accent.onAccent : accent.accent)
             .padding(.horizontal, Space.l)
             .frame(minHeight: Size.touch)
             .background(
                 RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                    .fill(kind == .primary ? Palette.accent : Palette.accentTint)
+                    .fill(kind == .primary ? accent.accent : accent.tint)
             )
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
             .contentShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
@@ -35,12 +36,13 @@ extension ButtonStyle where Self == MarginalButtonStyle {
 struct ReadingProgress: View {
     var fraction: Double
     var height: CGFloat = Size.progressTrack
+    @Environment(\.accentTheme) private var accent
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Palette.sunken)
-                Capsule().fill(Palette.accent)
+                Capsule().fill(accent.accent)
                     .frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
         }
