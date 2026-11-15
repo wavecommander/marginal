@@ -13,7 +13,7 @@ import ReaderCore
 //   would collide, so SwiftData's silent upsert-on-conflict is never exercised.
 // - Models are internal. Value types from ReaderCore are the only thing that crosses the boundary.
 
-/// Version 1 of the on-disk schema.
+/// Version 1 of the on-disk schema. Frozen: it describes stores written before format import.
 enum MarginalSchemaV1: VersionedSchema {
     static let versionIdentifier = Schema.Version(1, 0, 0)
 
@@ -159,16 +159,62 @@ enum MarginalSchemaV1: VersionedSchema {
     }
 }
 
-typealias BookModel = MarginalSchemaV1.BookModel
+/// Version 2: `BookModel` gains three optional columns for books converted from another format.
+/// The other models are unchanged and shared with version 1.
+enum MarginalSchemaV2: VersionedSchema {
+    static let versionIdentifier = Schema.Version(2, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [BookModel.self, MarginalSchemaV1.NoteModel.self, MarginalSchemaV1.HighlightModel.self,
+         MarginalSchemaV1.BookmarkModel.self, MarginalSchemaV1.UserHeadingModel.self]
+    }
+
+    @Model
+    final class BookModel {
+        @Attribute(.unique) var id: UUID
+        var title: String
+        var fingerprint: String
+        var fileName: String
+        var pageCount: Int
+        var fileSize: Int64
+        var addedAt: Date
+        var lastOpenedAt: Date?
+        var lastReadPageIndex: Int
+        /// `ImportFormat.rawValue`, `nil` for a book imported as a PDF.
+        var sourceFormatRaw: String?
+        var originalFileName: String?
+        var converterVersion: Int?
+
+        init(_ book: Book) {
+            id = book.id
+            title = book.title
+            fingerprint = book.fingerprint
+            fileName = book.fileName
+            pageCount = book.pageCount
+            fileSize = book.fileSize
+            addedAt = book.addedAt
+            lastOpenedAt = book.lastOpenedAt
+            lastReadPageIndex = book.lastReadPageIndex
+            sourceFormatRaw = book.sourceFormat?.rawValue
+            originalFileName = book.originalFileName
+            converterVersion = book.converterVersion
+        }
+    }
+}
+
+typealias BookModel = MarginalSchemaV2.BookModel
 typealias NoteModel = MarginalSchemaV1.NoteModel
 typealias HighlightModel = MarginalSchemaV1.HighlightModel
 typealias BookmarkModel = MarginalSchemaV1.BookmarkModel
 typealias UserHeadingModel = MarginalSchemaV1.UserHeadingModel
 
-/// Migration plan: one version so far. Add a `VersionedSchema` and a stage here for the next change.
+/// Migration plan. Add a `VersionedSchema` and a stage here for the next change.
 enum MarginalMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [MarginalSchemaV1.self] }
-    static var stages: [MigrationStage] { [] }
+    static var schemas: [any VersionedSchema.Type] { [MarginalSchemaV1.self, MarginalSchemaV2.self] }
+    static var stages: [MigrationStage] {
+        // V1 → V2 only adds optional columns, which start out `nil`.
+        [.lightweight(fromVersion: MarginalSchemaV1.self, toVersion: MarginalSchemaV2.self)]
+    }
 }
 
 /// Errors specific to this store (the contract's errors are `RepositoryError`).
@@ -180,7 +226,7 @@ public enum ReaderStoreError: Error, Hashable, Sendable {
 }
 
 enum SchemaFactory {
-    static var schema: Schema { Schema(versionedSchema: MarginalSchemaV1.self) }
+    static var schema: Schema { Schema(versionedSchema: MarginalSchemaV2.self) }
 
     /// A container for the store file at `storeURL`, or in memory when `nil`.
     static func makeContainer(storeURL: URL?) throws -> ModelContainer {

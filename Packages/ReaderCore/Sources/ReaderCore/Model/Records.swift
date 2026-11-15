@@ -5,13 +5,14 @@ import CoreGraphics
 // zero-based page indices (see `PageNumbering`). The SwiftData models in WP2 mirror these
 // field-for-field and convert at the repository boundary.
 
-/// One imported PDF.
+/// One book in the Library: a PDF, either imported as it was or made from another format at import.
 public struct Book: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
     /// Display title (initially the file name without extension; the reader can rename it).
     public var title: String
     /// Opaque content identity computed by the importer (WP3), e.g. a SHA-256 hex digest of the
     /// file. Two imports with equal fingerprints are the same book (`BookRepository.book(fingerprint:)`).
+    /// For a converted book this is the fingerprint of the original file, not of the generated PDF.
     public var fingerprint: String
     /// File name of the PDF inside the book's directory (`BookStorageLayout.documentPath`).
     public var fileName: String
@@ -25,9 +26,18 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     public var lastOpenedAt: Date?
     /// The page to restore when the book is reopened (zero-based).
     public var lastReadPageIndex: Int
+    /// The format the book was converted from; `nil` for a book imported as a PDF.
+    public var sourceFormat: ImportFormat?
+    /// The original file's name as the reader chose it (e.g. `Middlemarch.epub`); `nil` for a PDF.
+    /// The kept copy on disk is `BookStorageLayout.originalFileName(extension:)`, not this name.
+    public var originalFileName: String?
+    /// Version of the converter that made the PDF; `nil` for a PDF. Lets a later release tell
+    /// which books an improved converter could redo.
+    public var converterVersion: Int?
 
     public init(id: UUID = UUID(), title: String, fingerprint: String, fileName: String, pageCount: Int,
-                fileSize: Int64, addedAt: Date = Date(), lastOpenedAt: Date? = nil, lastReadPageIndex: Int = 0) {
+                fileSize: Int64, addedAt: Date = Date(), lastOpenedAt: Date? = nil, lastReadPageIndex: Int = 0,
+                sourceFormat: ImportFormat? = nil, originalFileName: String? = nil, converterVersion: Int? = nil) {
         self.id = id
         self.title = title
         self.fingerprint = fingerprint
@@ -37,7 +47,13 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
         self.addedAt = addedAt
         self.lastOpenedAt = lastOpenedAt
         self.lastReadPageIndex = lastReadPageIndex
+        self.sourceFormat = sourceFormat
+        self.originalFileName = originalFileName
+        self.converterVersion = converterVersion
     }
+
+    /// Whether the PDF was made from another format at import.
+    public var isConverted: Bool { sourceFormat?.isConverted == true }
 
     /// Reading progress in `0...1`: `(lastReadPageIndex + 1) / pageCount`, clamped; `0` for a book
     /// with no pages. The last page reads as 1.0 (finished).
