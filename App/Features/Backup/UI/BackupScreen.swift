@@ -56,7 +56,7 @@ private struct BackupScreenContent: View {
             AutomaticBackupSection(model: model)
             restoreSection
             Section {} footer: {
-                Text(BackupUIText.footnote)
+                Text(BackupUIText.footnote(hasEncryptedDestination: environment.cloudBackup != nil))
                     .accessibilityIdentifier(AccessibilityID.Backup.footnote)
             }
         }
@@ -116,7 +116,12 @@ private struct BackupScreenContent: View {
         Section("Destinations") {
             ForEach(model.entries) { entry in
                 NavigationLink {
-                    BackupDestinationScreen(entryID: entry.id, screenModel: model)
+                    if entry.id == TactileCloudBackupDestination.destinationID, let cloud = environment.cloudBackup {
+                        // Its own screen: the offer, the subscription, the recovery key.
+                        CloudBackupScreen(cloud: cloud, screenModel: model)
+                    } else {
+                        BackupDestinationScreen(entryID: entry.id, screenModel: model)
+                    }
                 } label: {
                     DestinationRow(name: model.name(of: entry), kind: BackupDestinationKind(id: entry.id),
                                    status: BackupUIText.destinationStatus(availability: model.availability[entry.id],

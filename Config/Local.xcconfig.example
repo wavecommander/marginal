@@ -42,3 +42,8 @@ CODE_SIGNING_REQUIRED = YES
 // this value (the Worker's APP_ATTEST_BYPASS_SECRET in Backend/backup-worker/.dev.vars) instead.
 // Debug builds only; it is readable in the built app. Never with the production Worker.
 // BACKUP_SERVICE_ATTEST_BYPASS = <the dev Worker's APP_ATTEST_BYPASS_SECRET>
+// The Terms of Use and Privacy Policy the subscription offer links to (App Review requires both
+// for an auto-renewable subscription). Without "https://" ("//" starts a comment in this file);
+// the app adds it. A link left empty is not shown.
+// BACKUP_TERMS_URL = example.com/tactile-texts/terms
+// BACKUP_PRIVACY_URL = example.com/tactile-texts/privacy

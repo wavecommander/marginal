@@ -395,7 +395,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   by another switch still set the other way. On by default. (Restore PDFs in the restore
   preview is a separate, per-restore choice.)
 - **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
-  the app, and the screen says so.
+  the app, except those to Tactile Texts Cloud (encrypted on the iPad; see below), and the
+  Backup screen's footnote says which.
 - **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
   remembered across launches; the app's own iCloud container; Google Drive (the app can see only
   the files it creates); and an S3-compatible bucket the developer configures at build time (for
@@ -483,10 +484,31 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   between sessions, not within one.
 - **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
   them, then removes the key from the Keychain (on every device, since it is synchronised).
+- **Where it lives and what the reader sees.** The service is the last row under Destinations on
+  the Backup screen, and opens its own page (not the generic destination page). Not subscribed:
+  an offer saying what it is, the price and period from the App Store, that backups are
+  encrypted on the iPad and nobody else can read them, why the recovery key matters, what
+  happens when a subscription ends, Subscribe, Restore Purchases, and Terms of Use and Privacy
+  Policy links (`BACKUP_TERMS_URL`, `BACKUP_PRIVACY_URL`; a link left empty is not shown).
+  Subscribed: the plan, usage against the allowance, the renewal or end date, the last backup,
+  Back Up Now, the backups (each opens the restore preview), Manage Subscription and Delete My
+  Cloud Backups. Every state other than plain active has a banner saying what still works and
+  until when, with the service's own dates (read-only, over the allowance, lapsed, refunded,
+  deleted, needs the recovery key, not reachable with Try Again). The first backup, which makes
+  the key, is followed by the recovery key (14 groups, monospaced, selectable, Copy, Share or
+  Save…) and "I’ve Saved It"; a quiet reminder stays on the page until then. Enter Recovery Key
+  accepts any case, spaces and dashes and names each mistake; when the iPad has no key at all it
+  says first that the key may still be on its way through iCloud Keychain, with Try Again. "I’ve
+  lost my recovery key: start over" there deletes everything, with a stronger warning: it is the
+  only way to a new key. Delete My Cloud Backups says the subscription is not cancelled and
+  points to Manage Subscription.
 - **Testing without Apple or Cloudflare accounts.** The Worker's tests run in the Workers
   runtime with generated certificates; the app's tests use a StoreKit configuration file
   (`Config/Marginal.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
-  kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance.
+  kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance. The UI tests
+  launch debug builds with `-cloudBackupUITest <state>`, which builds the service from fakes in
+  the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
+  of it is in a release build.
 
 ## Technical decisions
 

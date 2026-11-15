@@ -59,6 +59,51 @@ nonisolated enum AccessibilityID {
         static let snapshotsLoading = "backup.snapshots.loading"
     }
 
+    /// Tactile Texts Cloud's screens: the offer, the status page, the recovery key.
+    enum CloudBackup {
+        static let checking = "cloud.checking"
+        // The offer
+        static let offer = "cloud.offer"
+        /// One Subscribe button per product: `cloud.subscribe.<product id>`.
+        static func subscribe(_ productID: String) -> String { "cloud.subscribe.\(productID)" }
+        static let offerUnavailable = "cloud.offer.unavailable"
+        static let restorePurchases = "cloud.restorePurchases"
+        static let terms = "cloud.terms"
+        static let privacy = "cloud.privacy"
+        static let notice = "cloud.notice"
+        // The status page
+        static let status = "cloud.status"
+        static let banner = "cloud.banner"
+        static let bannerTryAgain = "cloud.banner.tryAgain"
+        static let bannerEnterKey = "cloud.banner.enterKey"
+        static let bannerResubscribe = "cloud.banner.resubscribe"
+        static let plan = "cloud.plan"
+        static let renewal = "cloud.renewal"
+        static let usage = "cloud.usage"
+        static let lastBackup = "cloud.lastBackup"
+        static let manageSubscription = "cloud.manageSubscription"
+        static let keyReminder = "cloud.keyReminder"
+        static let showKey = "cloud.showKey"
+        static let deleteAll = "cloud.deleteAll"
+        static let deleting = "cloud.deleting"
+        // The recovery key
+        static let keyScreen = "cloud.recoveryKey"
+        static let keyText = "cloud.recoveryKey.text"
+        static let keyCopy = "cloud.recoveryKey.copy"
+        static let keyShare = "cloud.recoveryKey.share"
+        static let keySaved = "cloud.recoveryKey.saved"
+        static let keyClose = "cloud.recoveryKey.close"
+        // Entering the recovery key
+        static let enterScreen = "cloud.enterKey"
+        static let enterField = "cloud.enterKey.field"
+        static let enterProgress = "cloud.enterKey.progress"
+        static let enterSubmit = "cloud.enterKey.submit"
+        static let enterError = "cloud.enterKey.error"
+        static let enterTryAgain = "cloud.enterKey.tryAgain"
+        static let enterStartOver = "cloud.enterKey.startOver"
+        static let enterCancel = "cloud.enterKey.cancel"
+    }
+
     /// The restore sheet: preview, progress and summary.
     enum Restore {
         static let sheet = "restore.sheet"

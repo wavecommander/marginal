@@ -132,6 +132,10 @@ targets:
           Host: $(BACKUP_SERVICE_HOST)
           ProductIDs: $(BACKUP_PRODUCT_IDS)
           AttestBypass: $(BACKUP_SERVICE_ATTEST_BYPASS)
+          # The subscription's Terms of Use and Privacy Policy, shown on the offer; written
+          # without "https://" in an xcconfig. Empty by default: that link is not shown.
+          TermsURL: $(BACKUP_TERMS_URL)
+          PrivacyURL: $(BACKUP_PRIVACY_URL)
   MarginalTests:
     type: bundle.unit-test
     platform: iOS
