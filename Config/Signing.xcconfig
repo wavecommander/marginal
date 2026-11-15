@@ -7,4 +7,13 @@
 CODE_SIGNING_ALLOWED = NO
 CODE_SIGNING_REQUIRED = NO
 
+// Backup integrations that need an account are off unless Config/Local.xcconfig turns them on
+// (see Config/Local.xcconfig.example). Empty means off: the app shows the destination as not
+// available in this build.
+// - MARGINAL_ENTITLEMENTS: the app target's entitlements file. Empty: none, which is what an
+//   unsigned simulator build and a free Personal Team need.
+// - GOOGLE_DRIVE_CLIENT_ID: the iOS OAuth client ID for the direct Google Drive integration.
+MARGINAL_ENTITLEMENTS =
+GOOGLE_DRIVE_CLIENT_ID =
+
 #include? "Local.xcconfig"

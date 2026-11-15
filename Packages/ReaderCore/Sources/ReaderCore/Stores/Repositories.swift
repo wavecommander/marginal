@@ -226,6 +226,15 @@ public enum BookStorageLayout {
     public static func noteInkPath(bookID: UUID, noteID: UUID) -> String {
         "\(noteInkDirectory(bookID: bookID))/\(noteID.uuidString).drawing"
     }
+    /// File name of the full-content hash sidecar inside a book's directory.
+    public static let contentHashFileName = "document.sha256"
+    /// `Books/<bookID>/document.sha256`: JSON `{"sha256": <64 hex digits>, "size": <bytes>}` of the
+    /// book's PDF. Written when the hash is first computed (the imported PDF never changes), and
+    /// written from a backup's manifest when a book is restored without its PDF, in which case it
+    /// is the hash a PDF must match to be linked to the book.
+    public static func contentHashPath(bookID: UUID) -> String {
+        "\(bookDirectory(bookID: bookID))/\(contentHashFileName)"
+    }
     /// The page index encoded in a page-ink file name (`"311.drawing"` → `311`), or `nil`.
     public static func pageIndex(fromPageInkFileName name: String) -> Int? {
         guard name.hasSuffix(".drawing") else { return nil }

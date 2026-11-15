@@ -4,3 +4,14 @@ DEVELOPMENT_TEAM = XXXXXXXXXX
 CODE_SIGN_STYLE = Automatic
 CODE_SIGNING_ALLOWED = YES
 CODE_SIGNING_REQUIRED = YES
+
+// Backup to the app's own iCloud container. Needs a team in the Apple Developer Program (a free
+// Personal Team cannot sign a build with the iCloud capability) and the container
+// iCloud.software.tactile.marginal created for it. Leave commented out otherwise; backing up to
+// a folder in iCloud Drive through the Files picker needs none of this.
+// MARGINAL_ENTITLEMENTS = Config/Marginal-iCloud.entitlements
+
+// Direct Google Drive backup. Create an OAuth client of type iOS for the bundle
+// software.tactile.marginal in a Google Cloud project with the Drive API enabled, and put its
+// client ID here (it ends in .apps.googleusercontent.com). Leave commented out otherwise.
+// GOOGLE_DRIVE_CLIENT_ID = 000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
