@@ -1,0 +1,16 @@
+# Copy to .dev.vars (git-ignored) and fill in. Used by `wrangler dev` and by `npm run prove`.
+# Use a DEVELOPMENT bucket and a token limited to it; never the production ones.
+
+# The parent R2 API token: Object Read & Write, limited to the development bucket.
+# R2 dashboard > Manage API Tokens. The Worker derives every short-lived credential from it and
+# it never leaves the Worker.
+R2_PARENT_ACCESS_KEY_ID=
+R2_PARENT_SECRET_ACCESS_KEY=
+
+# Any long random string. Keys the hash that turns a subscription into a folder name, so a
+# folder name cannot be worked back to a subscription.
+USER_KEY_SECRET=
+
+# Only the proof script reads these two (the Worker takes them from wrangler.jsonc vars).
+R2_ACCOUNT_ID=
+R2_BUCKET_NAME=tactile-texts-backups-dev
