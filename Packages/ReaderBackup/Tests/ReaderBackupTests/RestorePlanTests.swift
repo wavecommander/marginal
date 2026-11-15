@@ -42,6 +42,24 @@ struct RestorePlanTests {
         #expect(result.items[1].localMatches.map(\.counts) == [.init(notes: 1)])
     }
 
+    @Test func newBooksDefaultToRestoreAndExistingOnesToMerge() {
+        let result = plan([Self.entry(1, fingerprint: "f1", sha: Self.hash("a")),
+                           Self.entry(2, fingerprint: "f2", sha: Self.hash("b")),
+                           Self.entry(3, fingerprint: "f3", sha: Self.hash("c"))],
+                          [Self.local(2, fingerprint: "f2", sha: nil),
+                           Self.local(9, fingerprint: "f3", sha: nil)])
+        #expect(result.items.map(\.defaultAction) == [.restore, .merge, .merge])
+        // Ticking existing books waits for the app-side merge: until then a ticked book is replaced.
+        #expect(result.items.map(\.isSelectedByDefault) == [true, false, false])
+    }
+
+    @Test func restoreActionCodesAsItsName() throws {
+        #expect(RestoreAction.allCases == [.restore, .merge, .replace])
+        let data = try JSONEncoder().encode(RestoreAction.allCases)
+        #expect(String(decoding: data, as: UTF8.self) == #"["restore","merge","replace"]"#)
+        #expect(try JSONDecoder().decode([RestoreAction].self, from: data) == RestoreAction.allCases)
+    }
+
     @Test func matchesByIDOrFingerprintAndCollectsEveryMatch() {
         let result = plan([Self.entry(1, fingerprint: "f1", sha: Self.hash("a"))],
                           [Self.local(7, fingerprint: "other", sha: nil),

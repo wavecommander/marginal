@@ -64,6 +64,10 @@ public struct RestorePlan: Hashable, Sendable {
         /// Whether the book is ticked when the preview opens: new books yes, books already in
         /// the Library no (the reader opts in to replacing them).
         public var isSelectedByDefault: Bool
+        /// What restoring this book does unless the reader picks otherwise: `.restore` for a new
+        /// book, `.merge` for a book already in the Library (owner decision, 15 November 2026:
+        /// a merge keeps everything on this iPad and adds what the backup has).
+        public var defaultAction: RestoreAction
         public var pdfSource: PDFSource
 
         /// The backed-up book's ID.
@@ -97,7 +101,8 @@ public struct RestorePlan: Hashable, Sendable {
             } else {
                 source = .missing
             }
-            return Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: status == .new, pdfSource: source)
+            return Item(entry: entry, status: status, localMatches: matches, isSelectedByDefault: status == .new,
+                        defaultAction: status == .new ? .restore : .merge, pdfSource: source)
         }
     }
 }
