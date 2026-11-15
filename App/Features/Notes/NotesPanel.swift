@@ -92,7 +92,6 @@ struct NotesPanel: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 300)
                 .accessibilityIdentifier(NotesPanelAccessibilityID.tabs)
-                .onboardingTip(.sectionNote, session: session)
                 Spacer(minLength: 0)
                 if let model = controller.model {
                     deleteButton(model)

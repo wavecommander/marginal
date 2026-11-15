@@ -142,7 +142,6 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
-        .readerOnboardingTips(session)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session)
                 .presentationDetents([.medium, .large])
@@ -401,6 +400,10 @@ struct ReaderScreen: View {
             Divider()
             Button { session.zoomToFitWidth() } label: { Label("Fit Width", systemImage: "arrow.left.and.right") }
             Button { session.zoomToActualSize() } label: { Label("Actual Size", systemImage: "1.magnifyingglass") }
+            Divider()
+            Button { window.showSettings() } label: { Label("Settings…", systemImage: "gearshape") }
+                .accessibilityIdentifier(AccessibilityID.Settings.readerMenuItem)
+            ConvertedFromMenuSection(book: session.book, identifier: AccessibilityID.Provenance.readerMenu)
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }

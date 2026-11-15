@@ -5,7 +5,7 @@ import ReaderStore
 import Testing
 @testable import Marginal
 
-/// First-run onboarding: stored state and launch arguments, the tip rules, the welcome-sheet
+/// First-run onboarding: stored state and launch arguments, the welcome-sheet
 /// decision, and the bundled Quick Guide with its seeded content. App-hosted on the simulator.
 @MainActor
 struct OnboardingTests {
@@ -40,14 +40,12 @@ struct OnboardingTests {
         let scratch = Scratch()
         let state = scratch.state
         state.markWelcomeSeen()
-        state.markTipDone(.markup)
         state.guideBookID = UUID()
 
         state.applyLaunch(resetState: true, option: nil)
         #expect(state.isSuppressed)
         #expect(!state.shouldShowWelcome(libraryIsEmpty: true))
         #expect(state.guideBookID == nil)
-        #expect(state.doneTips.isEmpty)
 
         // A relaunch with no arguments (as UI tests do) stays suppressed.
         state.applyLaunch(resetState: false, option: nil)
@@ -59,46 +57,6 @@ struct OnboardingTests {
 
         state.applyLaunch(resetState: false, option: .skip)
         #expect(state.isSuppressed)
-    }
-
-    @Test func resettingTipsForgetsThemAndChangesTheirIdentity() {
-        let scratch = Scratch()
-        let state = scratch.state
-        state.markTipDone(.markup)
-        state.markTipDone(.sectionNote)
-        state.countNotesPanelSession()
-        let generation = state.tipGeneration
-        state.resetTips()
-        #expect(state.doneTips.isEmpty)
-        #expect(state.notesPanelSessions == 0)
-        #expect(state.tipGeneration == generation + 1)
-    }
-
-    // MARK: Tip rules
-
-    private func context(guide: Bool = false, settled: Bool = true, notes: Bool = true, heading: Bool = true,
-                         sessions: Int = 1, suppressed: Bool = false) -> ReaderTipContext {
-        ReaderTipContext(isSuppressed: suppressed, isGuide: guide, isSettled: settled, isNotesVisible: notes,
-                         hasHeadingPath: heading, notesPanelSessions: sessions)
-    }
-
-    @Test func markupTipComesFirstInARealBook() {
-        #expect(ReaderTipRules.next(in: context(), done: [], chosen: nil) == .markup)
-        #expect(ReaderTipRules.next(in: context(settled: false), done: [], chosen: nil) == nil)
-        #expect(ReaderTipRules.next(in: context(guide: true), done: [], chosen: nil) == nil)
-        #expect(ReaderTipRules.next(in: context(suppressed: true), done: [], chosen: nil) == nil)
-    }
-
-    @Test func sectionNoteTipWaitsForTheSecondNotesPanelSession() {
-        #expect(ReaderTipRules.next(in: context(sessions: 1), done: [.markup], chosen: nil) == nil)
-        #expect(ReaderTipRules.next(in: context(sessions: 2), done: [.markup], chosen: nil) == .sectionNote)
-        #expect(ReaderTipRules.next(in: context(notes: false, sessions: 2), done: [.markup], chosen: nil) == nil)
-        #expect(ReaderTipRules.next(in: context(heading: false, sessions: 2), done: [.markup], chosen: nil) == nil)
-        #expect(ReaderTipRules.next(in: context(sessions: 2), done: [.markup, .sectionNote], chosen: nil) == nil)
-    }
-
-    @Test func aSessionShowsAtMostOneTip() {
-        #expect(ReaderTipRules.next(in: context(sessions: 2), done: [.markup], chosen: .markup) == nil)
     }
 
     // MARK: Welcome decision

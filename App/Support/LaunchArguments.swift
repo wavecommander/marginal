@@ -126,7 +126,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
 
-    /// `-onboarding <skip|reset>`: `skip` switches the welcome sheet and tips off (and keeps
+    /// `-onboarding <skip|reset>`: `skip` switches the welcome sheet off (and keeps
     /// them off); `reset` forgets all onboarding state, so this launch is a first launch.
     var onboarding: Onboarding?
 

@@ -2,7 +2,7 @@
 
 For the owner, on the iPad with an Apple Pencil and a hardware keyboard. None of this can be
 checked on the simulator (no Pencil, no hover, no squeeze, no palm, no Scribble). One sitting,
-about 30 minutes. Import `small.pdf`, `large.pdf` and `no-outline.pdf` first (Files › Open in, or
+about 30 minutes, plus about 15 for "Importing other formats". Import `small.pdf`, `large.pdf` and `no-outline.pdf` first (Files › Open in, or
 drag onto the Library). Tick each box; note anything that fails with the book, page and window
 arrangement.
 
@@ -96,6 +96,40 @@ Scribble **on**, double-tap and squeeze set to their defaults.
 - [ ] **Heading-note rows** open the reader with that heading's note in the notes pane.
 - [ ] **Export.** Markdown and PDF export from the Notebook save to Files and open there; the PDF
       shows notes with their ink and the handwriting previews.
+
+## Importing other formats
+
+Have a real EPUB (a DRM-free one, for instance from Project Gutenberg or Standard Ebooks) and a
+real comic archive (a `.cbz` of 100 pages or more) in Files, and one of each in a Mail message to
+yourself. `Fixtures/out/small.epub` and `small.cbz` (from `scripts/fixtures.sh`) do for a first pass.
+
+- [ ] **Files picker shows the formats.** Library › Import: EPUB, CBZ, images, Markdown and the
+      other formats in Settings › Supported Formats can be chosen (not greyed out); a `.mobi` or
+      `.cbr` is either greyed out or, when chosen, listed under "Can't Be Imported" with its reason.
+- [ ] **Convert a real EPUB.** Import it: the Convert to PDF sheet shows the common block and the
+      EPUB block; Convert. The Library stays responsive while it converts (scroll, open another
+      book). The book opens with the cover and title from the EPUB, Contents is the book's own table
+      of contents and each entry lands on its heading's page, text can be searched and highlighted,
+      and the Library's book menu and the reader's More menu say "Converted from EPUB".
+- [ ] **The first-conversion stall.** On the first conversion after launching the app, note any
+      pause or hitch when it starts (the web view starts up then) and how long it lasts: the
+      Library should still scroll. Note the book, its size and the seconds it took to convert.
+- [ ] **Convert a real comic.** Import the comic: pages are in reading order (page 2 before page
+      10), the page count matches the number of pictures, and the menus say "Converted from a comic
+      archive".
+- [ ] **Memory during a large comic.** While a comic of a few hundred MB converts, Xcode's memory
+      gauge (Debug navigator, with the app run from Xcode) stays roughly flat rather than growing
+      with the comic's size; note the peak.
+- [ ] **Ink on a converted page survives relaunch.** In the converted EPUB and the comic, draw on a
+      page with the Pencil, quit the app (swipe it away), reopen: the ink is in place on the same
+      page.
+- [ ] **"Open in" from Files and from Mail.** In Files, share an EPUB › Tactile Texts; in Mail,
+      touch and hold a `.cbz` attachment › Share › Tactile Texts: the app opens, shows the Convert
+      to PDF sheet in that window, and after Convert opens the book.
+- [ ] **A drop from Files.** In Split View with Files, drag an EPUB (and, in a second try, an EPUB
+      and a PDF together) onto the Library: one sheet for the EPUB; the PDF imports without waiting.
+- [ ] **Cancel leaves nothing.** Import an EPUB and choose Cancel: no book appears, and Settings ›
+      General › iPad Storage › Tactile Texts shows no growth in Documents & Data.
 
 ## Appearance and accessibility
 

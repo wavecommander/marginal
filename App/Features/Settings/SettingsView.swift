@@ -4,6 +4,8 @@ import SwiftUI
 /// `Settings.bundle`, so this is the one place for preferences). Opened from the Library's gear
 /// button and from "Settings…" (⌘,) in any window (`WindowContext.showSettings()`).
 ///
+/// Importing: the Supported Formats screen (`SupportedFormatsView`).
+///
 /// Appearance: the accent preset. Picking a swatch writes `AccentChoice.storageKey`; every
 /// window's `AccentRoot` reads the same key, so all windows, this sheet and its preview change
 /// at once.
@@ -13,10 +15,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(WindowContext.self) private var window: WindowContext?
-    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
     /// Opens the Quick Guide in the window that presented Settings (`nil` in previews).
     var openQuickGuide: (() -> Void)?
-    @State private var didResetTips = false
     @AppStorage(AccentChoice.storageKey) private var storedAccent = AccentChoice.default.rawValue
     @State private var path: [SettingsPage]
 
@@ -46,6 +46,23 @@ struct SettingsView: View {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
                 }
                 Section {
+                    NavigationLink {
+                        SupportedFormatsView()
+                    } label: {
+                        Label {
+                            Text("Supported Formats", comment: "Settings: row that opens the list of file formats the app can import.")
+                        } icon: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                    }
+                    .accessibilityIdentifier(AccessibilityID.SupportedFormats.settingsRow)
+                } header: {
+                    Text("Importing", comment: "Settings: header of the section about importing books and documents.")
+                } footer: {
+                    Text("What Tactile Texts can import, and what changes when a file is converted to PDF.",
+                         comment: "Settings: line under the Supported Formats row.")
+                }
+                Section {
                     NavigationLink(value: SettingsPage.backup) {
                         Label("Backup & Restore", systemImage: "externaldrive")
                     }
@@ -59,12 +76,6 @@ struct SettingsView: View {
                         openQuickGuide?()
                     }
                     .accessibilityIdentifier(AccessibilityID.Onboarding.settingsOpenGuide)
-                    Button(didResetTips ? "Tips Will Show Again" : "Show Tips Again") {
-                        environment?.onboarding.showTipsAgain()
-                        didResetTips = true
-                    }
-                    .disabled(didResetTips)
-                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsShowTips)
                 } header: {
                     Text("Help")
                 } footer: {

@@ -15,8 +15,10 @@ ones even where the mockup draws an approximation.
 
 ## Principles
 
-1. **The PDF is never modified.** Ink, highlights, notes and bookmarks live in the app's own store
-   beside the imported file. Exporting an annotated copy is an explicit action.
+1. **The PDF is never modified after import.** Ink, highlights, notes and bookmarks live in the
+   app's own store beside the imported file. Exporting an annotated copy is an explicit action. A
+   book converted from another format (see "Importing other formats") has its PDF generated once,
+   during the import, and never touched after that; the original file is kept beside it, untouched.
 2. **Notes have two anchors: a page or a heading.** Both are first-class and one tap apart.
 3. **A 1,500-page, 600 MB PDF must feel like a 20-page one.** Nothing walks every page on the main
    thread, and nothing loads the whole file into memory.
@@ -34,7 +36,7 @@ ones even where the mockup draws an approximation.
 
 | Artboard | What it shows |
 | --- | --- |
-| Library | Imported books in a grid with progress, search, sort, Import PDF, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
+| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
 | Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
@@ -44,12 +46,16 @@ ones even where the mockup draws an approximation.
 | Onboarding · welcome sheet | First launch: a form sheet over the Library with three things worth knowing, "Open the Quick Guide", and "Not now". |
 | Onboarding · empty Library after Not now | The Library with no books: Import PDF, Open the Quick Guide, and the drag hint. |
 | Onboarding · Quick Guide, page 1 | The bundled six-page guide open in the ordinary reader, with a seeded page note that already carries ink. |
-| Onboarding · tip in a real book | A one-time tip popover pointing at Markup, for readers who skipped the guide. |
 
 ## Concepts
 
 - **Book**: one imported PDF, copied into the app container. Has page count, file size, cover
-  thumbnail, last-read page, and a progress fraction.
+  thumbnail, last-read page, and a progress fraction. A *converted* book was imported from another
+  format (EPUB, a comic or images, and the other formats in "Importing other formats"): its PDF was
+  generated at import and is read like any other, and the original file is kept unchanged beside
+  it, so the book's file size counts both. A converted book records the format it came from and
+  the original file's name, and says "Converted from …" in the Library's book menu and the
+  reader's More menu. Converting the same file again makes a new book.
 - **Outline**: a tree of headings. It starts from the PDF's own outline and merges in headings the
   reader adds by hand ("Add heading at page N"). A PDF with no outline is fully usable: the reader
   builds the tree as they go.
@@ -258,10 +264,12 @@ Added by the owner after the first plan. These rules apply to every screen and e
   keyboard shortcut, and commands act on the focused window.
 - **Files and drag and drop.** A PDF opened from Files or another app is imported and shown in a
   window: Files lists Tactile Texts under a PDF's Open With, and the share sheet offers it too.
-  PDFs can be dropped onto the Library to import them. A backup file (`.ttbackup`) opened the
-  same ways starts the restore preview. The app declares that it opens documents in place
-  (owner request, 15 November 2026: without that, Files shows "No Apps Available" under Open
-  With); it still copies a PDF into the library, and the reader's own file is only ever read.
+  PDFs can be dropped onto the Library to import them. The same holds for the formats the app
+  converts, after the Convert to PDF sheet (see "Importing other formats"). A backup file
+  (`.ttbackup`) opened the same ways starts the restore preview. The app declares that it opens
+  documents in place (owner request, 15 November 2026: without that, Files shows "No Apps
+  Available" under Open With); it still copies what it imports into the library, and the
+  reader's own file is only ever read.
 
 ## Icon, accent and launch screen
 
@@ -498,8 +506,8 @@ It has three parts, each optional.
   Swiping the sheet down counts as Not now.
 - It is marked as seen the moment it appears, so a crash or force-quit never shows it twice.
 - It is not shown when the first launch comes from "Open in" or a dropped PDF. That reader has a
-  book in hand: the import proceeds, the sheet is marked as seen, and the tips below do the
-  teaching.
+  book in hand: the import proceeds, the sheet is marked as seen, and the Quick Guide stays
+  one tap away in Settings.
 - No permission prompts, no account, no settings. The app needs none of them to start.
 
 ### 2. Quick Guide
@@ -531,31 +539,18 @@ It has three parts, each optional.
   handwriting the mockup shows.
 - Leaving is the normal Back to Library. Nothing tracks whether the guide was finished.
 
-### 3. Empty Library and tips
+### 3. Empty Library
 
 - **Empty Library.** Whenever the Library has no books it shows "No Books Yet", **Import PDF**,
   **Open the Quick Guide**, and a line about dropping PDFs in. This is what a reader who tapped Not now sees, and what anyone sees after deleting
   their last book.
-- **Tips** are small system popovers anchored to the control they describe, for readers who
-  skipped the guide. There are two:
-
-  | Tip | Anchor | Appears | Retired by |
-  | --- | --- | --- | --- |
-  | Write with Apple Pencil: "Tap Markup to write on the page or in a note. Your finger still scrolls." | Markup toggle | A book other than the guide is open and the first page has settled | Entering markup mode once |
-  | One note for the whole section: "Section note keeps a note for the heading this page is in." | The notes panel's tabs | From the second reader session in which the Notes panel is open on a page that has a heading path | Opening Section note once |
-
-  There is no third tip for adding headings: the Contents sidebar of a book with no outline
-  already says so and offers the button.
-- Tip rules: each tip is offered in one reader session only; at most one tip per reader session,
-  Markup first; never in markup mode, never while the keyboard is up, never inside the Quick
-  Guide. Doing the action anywhere, the guide included, retires its tip, so a reader who worked
-  through the guide sees none. A tip does not block the reader: it stays until its close button
-  or the control it points at is used, or the reader is left.
-- Settings ▸ Help ▸ **Show Tips Again** resets both.
+- There are no tips. A reader who skipped the guide finds it again under Settings ▸ Help ▸
+  **Open the Quick Guide**, and the Contents sidebar of a book with no outline already says how
+  to add headings.
 
 ### Rules that hold throughout
 
-- **State.** "Welcome seen", the guide's book ID and which tips are done are per-device
+- **State.** "Welcome seen", the guide's book ID are per-device
   preferences (`OnboardingState`), not SwiftData records.
 - **Narrow width.** The welcome sheet becomes a page sheet and its content scrolls. The guide
   opens with Contents closed and the notes sheet at its medium detent.
@@ -563,7 +558,7 @@ It has three parts, each optional.
   still reachable; VoiceOver reads title, the three rows, then the actions; nothing in onboarding
   is animated beyond the system sheet and popover transitions.
 - **Tests.** `-resetState`, which every UI test starts with, also switches onboarding off and
-  keeps it off for that test's later relaunches, so the welcome sheet and tips never interfere
+  keeps it off for that test's later relaunches, so the welcome sheet never interferes
   with another feature's test. `-onboarding reset` forgets all onboarding state (with
   `-resetState`: a true first launch) for the onboarding tests themselves; `-onboarding skip`
   switches onboarding off without touching the library, for screenshots.
@@ -672,20 +667,38 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
 | Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
 | Cloud backup service | A Cloudflare Worker (TypeScript, D1, a daily cron) that verifies the App Store subscription and App Attest and issues 15-minute R2 credentials limited to one user's folder; the iPad talks to R2 directly with `S3Kit` and encrypts with `ReaderBackup` | The only server code is the part that must hold a secret. File data never passes through it, so it stays small and cheap, and the storage holds nothing readable. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
-| Onboarding tips | TipKit popovers (`popoverTip`); which tip a session offers, and that each is offered once, is decided by the app (`ReaderTipRules`, `OnboardingState`) | System look, placement and dismissal with no hand-built coach marks; rules that are unit-tested and can be reset without relaunching (TipKit's own datastore resets only before it is configured). |
 | Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
-| Onboarding state | `UserDefaults` keys for "welcome seen", the guide's book ID and finished tips | Device-local and trivially reset by the `-onboarding` launch argument; nothing to migrate. |
+| Onboarding state | `UserDefaults` keys for "welcome seen", the guide's book ID | Device-local and trivially reset by the `-onboarding` launch argument; nothing to migrate. |
 | Dependencies | None beyond Apple frameworks | |
 
 Agents must check every Apple API named here against the installed SDK's documentation before
 building on it. This table records intent, not verified signatures.
 
+## Importing other formats
+
+Added by the owner on 15 November 2026; the plan and its decisions are in
+`docs/FORMAT_IMPORT_PLAN.md`. Books and documents that are not PDFs are converted to a PDF **once,
+at import**, and from then on are ordinary books with every feature a PDF has.
+
+- **What converts:** reflowable EPUB 2 and 3 without DRM; comic archives (CBZ, or a ZIP of
+  pictures) and images; plain text, Markdown, HTML and web archives; Word, RTF and Pages
+  documents; PowerPoint and Keynote presentations (one slide per page). Which of these a build
+  accepts follows the converters it has; Settings ▸ Supported Formats lists them.
+- **Ask first.** Any import that includes a file needing conversion shows one Convert to PDF sheet
+  first, every time, saying what converting costs; Cancel leaves the Library and the disk as they
+  were. Settings ▸ Supported Formats shows the same limitations at any time.
+- **Not supported:** DRM-protected books (Kindle, Apple Books, Adobe DRM), Kindle MOBI and AZW3,
+  DjVu, CBR (RAR) comics, fixed-layout EPUB and spreadsheets. The app names the kind of file when
+  one is chosen.
+
 ## Not in version 1
 
 iCloud sync (backup and restore to iCloud exist, see "Backup and restore"; keeping two devices in
-step does not), collections or tags in the Library, EPUB, OCR for scanned books, handwriting search,
+step does not), collections or tags in the Library, OCR for scanned books, handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two
-windows cover this), sharing single notes, PaperKit shapes and text boxes on the page. The store layout should not rule these out.
+windows cover this), sharing single notes, PaperKit shapes and text boxes on the page, and the
+formats listed under "Importing other formats" ▸ Not supported (DRM-protected books, Kindle MOBI
+and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should not rule these out.
 
 ## Open questions for the owner
 

@@ -10,7 +10,6 @@ nonisolated enum AccessibilityID {
         static let emptyLibraryOpenGuide = "library.emptyOpenGuide"
         /// Settings ▸ Help.
         static let settingsOpenGuide = "settings.help.openGuide"
-        static let settingsShowTips = "settings.help.showTips"
     }
 
     enum Library {
@@ -201,6 +200,8 @@ nonisolated enum AccessibilityID {
     enum Settings {
         /// The Library toolbar's gear button.
         static let openButton = "settings.open"
+        /// The "Settings…" item in the Reader's More menu.
+        static let readerMenuItem = "reader.more.settings"
         static let sheet = "settings.sheet"
         static let done = "settings.done"
         /// One swatch per preset: `settings.accent.<rawValue>`; value "selected" on the chosen one.

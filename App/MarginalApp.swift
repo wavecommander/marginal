@@ -18,7 +18,6 @@ struct MarginalApp: App {
         // BGTaskScheduler requires every launch handler to be registered before the app
         // finishes launching; the App is initialised before that.
         environment.backupScheduler.registerBackgroundTask()
-        OnboardingCoordinator.configureTips()
     }
 
     var body: some Scene {

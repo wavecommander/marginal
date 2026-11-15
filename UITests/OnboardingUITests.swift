@@ -7,7 +7,6 @@ import XCTest
 final class OnboardingUITests: XCTestCase {
     private static let firstLaunch = ["-resetState", "-onboarding", "reset"]
     private static let guideTitle = "Tactile Texts Quick Guide"
-    private static let markupTipTitle = "Write with Apple Pencil"
 
     override func setUp() async throws {
         continueAfterFailure = false
@@ -55,7 +54,7 @@ final class OnboardingUITests: XCTestCase {
         XCTAssertFalse(again.staticTexts["Welcome to Tactile Texts"].waitForExistence(timeout: 3))
     }
 
-    func testQuickGuideOpensSeededHasNoTipsAndIsNeverDuplicated() {
+    func testQuickGuideOpensSeededAndIsNeverDuplicated() {
         let app = launch(Self.firstLaunch)
         let openGuide = app.buttons["onboarding.welcome.openGuide"]
         XCTAssertTrue(openGuide.waitForExistence(timeout: 20))
@@ -68,8 +67,6 @@ final class OnboardingUITests: XCTestCase {
         XCTAssertTrue(waitFor(timeout: 15) { ((note.value as? String) ?? "").hasPrefix("This is a page note") },
                       "note text: \(String(describing: note.value))")
         XCTAssertTrue(element(app, "notePage.ink").waitForExistence(timeout: 10), "the seeded note carries ink")
-        // The guide teaches by its pages: no tip points at anything in it.
-        XCTAssertFalse(app.staticTexts[Self.markupTipTitle].waitForExistence(timeout: 4))
 
         app.navigationBars.buttons["Library"].firstMatch.tap()
         XCTAssertTrue(guideCells(app).firstMatch.waitForExistence(timeout: 10))
@@ -91,24 +88,5 @@ final class OnboardingUITests: XCTestCase {
         app.navigationBars.buttons["Library"].firstMatch.tap()
         XCTAssertTrue(guideCells(app).firstMatch.waitForExistence(timeout: 10))
         XCTAssertEqual(guideCells(app).count, 1)
-    }
-
-    func testMarkupTipShowsOnceInARealBookAndGoesWhenMarkupIsUsed() {
-        let app = launch(Self.firstLaunch + XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
-        XCTAssertTrue(element(app, "reader.pdfView").waitForExistence(timeout: 30))
-        // A book is in hand, so there is no welcome sheet; the tip arrives once the page settles.
-        let tip = app.staticTexts[Self.markupTipTitle]
-        XCTAssertTrue(tip.waitForExistence(timeout: 15))
-        XCTAssertFalse(app.staticTexts["Welcome to Tactile Texts"].exists)
-
-        let markup = element(app, "reader.toolbar.markup")
-        markup.tap()
-        XCTAssertTrue(waitFor { !tip.exists }, "the tip goes once Markup is on")
-
-        // Shown once: the next launch of the same book has no tip.
-        app.terminate()
-        let again = launch(["-openBook", "small"])
-        XCTAssertTrue(element(again, "reader.pdfView").waitForExistence(timeout: 30))
-        XCTAssertFalse(again.staticTexts[Self.markupTipTitle].waitForExistence(timeout: 5))
     }
 }

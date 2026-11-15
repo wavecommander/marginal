@@ -343,6 +343,26 @@ slide's aspect ratio.
 - `DESIGN.md` (principle 1 wording, Concepts ▸ Book, "Not in version 1"), `DEVICE_CHECKLIST.md`
   (convert a real EPUB and a real comic on the device).
 
+F7 status (15 November 2026): built in its own worktree beside F6, not yet merged.
+- "Converted from …" is a disabled item in its own section at the end of the Library's book menu
+  and the reader's More menu; one sentence per format ("Converted from EPUB", "Converted from a
+  comic archive", …). SwiftUI does not pass accessibility identifiers on to menu items, so tests
+  find it by its words. A second line with the original file name is not drawn by the system
+  menus and was dropped.
+- Settings ▸ Importing ▸ Supported Formats lists PDF, the common block, one block per group that
+  `ConverterRegistry.standard` has a converter for (only the formats it has), and the "Not
+  supported" list with a reason each. The sheet's sentences, symbols and rows are shared
+  (`ConversionLimitationViews.swift`), so F6's formats appear when their converters are registered.
+- `scripts/fixtures.sh` also makes `small.epub`, `protected.epub`, `small.cbz`, `small.md`,
+  `small.docx` (textutil, repacked) and `small.pptx`, byte-identical on every run.
+- `ConversionJourneyUITests` runs the EPUB journey with the real converter: sheet, Convert,
+  Contents (nested, fragment target on its page), highlight, section note on a converted heading,
+  Notebook, both menu labels; and a comic with `-confirmConversions` (five pages, label, none on a
+  PDF). The section note attached to the converted heading with no change to the reader.
+- Not checked: `small.docx`, `small.pptx` and `small.md` through F6's converters (not merged here),
+  `protected.epub` in a UI test (F3's tests use their own), the Supported Formats screen in a
+  narrow Split View window (only the form sheet's own width).
+
 ## Waves
 
 | Wave | Packages (parallel within a wave) |
@@ -357,6 +377,25 @@ each add files under `App/Features/Import/Converters/` and one line to the regis
 line is the only shared edit and is merged by the orchestrator.
 
 Phase A ships after wave 2 without F5 if EPUB slips: the sheet, the flow and comics stand alone.
+
+### Wave 3 status (15 November 2026)
+
+F6 is merged into `build-v1`. F7 is merged on the branch `import-wave3` (on top of `build-v1`,
+which by then also held onboarding and horizontal scrolling); it is not on `build-v1` yet because
+the main checkout had other uncommitted work. On `import-wave3`, 39 unit tests in six suites and
+9 UI tests (the EPUB journey, the comic import, Supported Formats, the Convert sheet) pass on the
+iOS 27 simulator.
+
+- Text, Markdown, HTML, web archive, `.docx`, `.doc`, RTF and `.pptx` convert from generated
+  fixtures. No real-world Word file or deck has been tried.
+- **Keynote is unproven:** the only `.key` tried (an empty Apple theme) became one grey page.
+  `.ppt` and iWork '09 files are untested. Pages was tried with one Apple template only.
+- Japanese and Chinese text can come out of the print path as look-alike characters, so search
+  may miss it (seen with "日本語"). This affects EPUB too. Not addressed.
+- RTF is read by the system RTF reader, not WebKit; Pages and Keynote go through WebKit's PDF
+  viewer; web archives are parsed by the app.
+- `SettingsUITests/testCommandCommaOpensSettingsAndResetRestoresRaspberry` fails with and without
+  this work. Not investigated.
 
 ### Wave 2 status (15 November 2026)
 
