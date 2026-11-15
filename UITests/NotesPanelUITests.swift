@@ -357,6 +357,32 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual((textView(again).value as? String) ?? "", "")
     }
 
+    /// Swiping right on the notes pane (its header, the note page), as when a drag meant for the
+    /// divider's pill misses it, never goes back to the Library: on iPadOS 26+ the navigation
+    /// stack's full-width back swipe must not start there (TSOFT-225).
+    func testSwipingRightOnTheNotesPaneDoesNotGoBack() {
+        let app = launch(fresh: true, page: 3)
+        let pane = app.otherElements["reader.pane.notes"].firstMatch
+        XCTAssertTrue(pane.waitForExistence(timeout: 10), "notes pane")
+        XCTAssertTrue(textView(app).waitForExistence(timeout: 10), "note page")
+
+        // Drags like a finger that missed the divider's pill: from just inside the pane's
+        // leading edge, from its header, from the note page. No hold before moving.
+        let starts: [(String, XCUICoordinate)] = [
+            ("beside the divider", pane.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.7)).withOffset(CGVector(dx: 20, dy: 0))),
+            ("header", pane.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.06))),
+            ("note page", pane.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.4))),
+        ]
+        for (place, start) in starts {
+            start.press(forDuration: 0, thenDragTo: start.withOffset(CGVector(dx: 285, dy: 4)),
+                        withVelocity: 1000, thenHoldForDuration: 0)
+            sleep(2)
+            XCTAssertFalse(app.buttons["library.book.small"].firstMatch.exists, "still in the reader (\(place))")
+            XCTAssertTrue(pill(app).exists, "reader still open (\(place))")
+            XCTAssertTrue(pane.exists, "notes pane still open (\(place))")
+        }
+    }
+
     /// A book with no outline: the Section tab's empty state offers "Add Heading at This Page…"
     /// (the Contents sidebar presents the sheet). The Page tab holds only the note.
     func testAddHeadingIsOfferedWhereThePageIsInNoSection() {
