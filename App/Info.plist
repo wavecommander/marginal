@@ -6,6 +6,13 @@
 	<array>
 		<string>software.tactile.marginal.backup</string>
 	</array>
+	<key>BackupService</key>
+	<dict>
+		<key>Host</key>
+		<string>$(BACKUP_SERVICE_HOST)</string>
+		<key>ProductIDs</key>
+		<string>$(BACKUP_PRODUCT_IDS)</string>
+	</dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

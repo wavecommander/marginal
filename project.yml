@@ -124,11 +124,20 @@ targets:
           SecretAccessKey: $(S3_BACKUP_SECRET_ACCESS_KEY)
           Prefix: $(S3_BACKUP_PREFIX)
           DisplayName: $(S3_BACKUP_NAME)
+        # The Tactile Texts cloud backup service: its host (no scheme) and the App Store
+        # subscription product IDs, comma-separated. Not secrets. Both empty by default, which
+        # leaves the service out of the app; see Config/Signing.xcconfig.
+        BackupService:
+          Host: $(BACKUP_SERVICE_HOST)
+          ProductIDs: $(BACKUP_PRODUCT_IDS)
   MarginalTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - Tests
+      # The StoreKit configuration, for the tests' SKTestSession (not shipped in the app).
+      - path: Config/Marginal.storekit
+        buildPhase: resources
     dependencies:
       - target: Marginal
     settings:
@@ -149,6 +158,10 @@ schemes:
     build:
       targets:
         Marginal: all
+    # Purchases in a Run from Xcode use the local StoreKit configuration, so the backup
+    # subscription can be bought in the simulator with no App Store account.
+    run:
+      storeKitConfiguration: Config/Marginal.storekit
     test:
       targets:
         - MarginalTests
