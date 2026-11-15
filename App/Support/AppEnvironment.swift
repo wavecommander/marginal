@@ -24,6 +24,12 @@ final class AppEnvironment {
     @ObservationIgnored let backupService: BackupService
     /// The backup destinations the app offers.
     @ObservationIgnored let backupDestinations: BackupDestinationRegistry
+    /// The folder the reader picked in Files to back up to (the Backup screen sets and clears it).
+    @ObservationIgnored let backupFolderStore: BackupFolderStore
+    /// The Google Drive connection (sign in, sign out, state) behind the Google Drive destination.
+    @ObservationIgnored let googleDriveAccount: GoogleDriveAccount
+    /// Automatic-backup preferences and the outcome of the last automatic run.
+    @ObservationIgnored let backupAutomaticSettings: BackupAutomaticSettings
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -49,10 +55,19 @@ final class AppEnvironment {
         self.fixtureImporter = FixtureImporter(store: store)
         self.backupService = BackupService(store: store)
         self.backupDestinations = BackupDestinationRegistry()
+        self.backupAutomaticSettings = BackupAutomaticSettings()
+        let local = BackupDestinationFactory.folderAndICloud()
+        let cloud = CloudBackupDestinations.make()
+        self.backupFolderStore = local.folderStore
+        self.googleDriveAccount = cloud.googleDriveAccount
         if let folder = launchOptions.backupFolder {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             backupDestinations.register(FolderBackupDestination(root: folder))
         }
+        // Listed in this order: the picked folder, iCloud, Google Drive, then the developer's
+        // S3-compatible bucket when the build is configured for one. Each reports itself
+        // unavailable (no folder chosen, no iCloud in this build, not signed in) when it is.
+        for destination in local.all + cloud.all { backupDestinations.register(destination) }
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
         backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
     }
@@ -73,6 +88,9 @@ final class AppEnvironment {
             // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
             UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
+            // A fresh state has no backup folder chosen and automatic backups off.
+            UserDefaults.standard.removeObject(forKey: BackupFolderStore.defaultKey)
+            BackupAutomaticSettings.reset(in: .standard)
         }
         if let accent = launchOptions.accent {
             UserDefaults.standard.set(accent.rawValue, forKey: AccentChoice.storageKey)
