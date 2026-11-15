@@ -229,8 +229,8 @@ struct ReaderScreen: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier(AccessibilityID.Reader.loading)
             case .failed(let message):
-                ContentUnavailableView("Cannot Open Book", systemImage: "exclamationmark.triangle",
-                                       description: Text(message))
+                // Offers Locate PDF… and the Notebook when the book's PDF is missing.
+                ReaderUnavailableView(book: session.book, message: message)
             case .ready:
                 PagePill(session: session)
                     .padding(pillAtTop ? .top : .bottom, 14)

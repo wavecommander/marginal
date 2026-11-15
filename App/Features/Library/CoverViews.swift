@@ -37,9 +37,18 @@ final class CoverCache {
 
 /// The cover of a book: its stored thumbnail of page one, or a coloured placeholder showing the
 /// title (the mockup's cover) while it loads or when there is none. Fills the proposed size.
+///
+/// `isMissingPDF` dims the cover (the Library adds its "PDF missing" badge); when it changes
+/// (the PDF was linked, which may also have rendered the cover) the cover is loaded again.
 struct BookCoverView: View {
     let book: Book
+    var isMissingPDF = false
     @Environment(AppEnvironment.self) private var environment
+
+    private struct LoadKey: Hashable {
+        var bookID: UUID
+        var isMissingPDF: Bool
+    }
     @State private var image: UIImage?
 
     private static let palette: [Color] = [
@@ -61,7 +70,9 @@ struct BookCoverView: View {
                 placeholder
             }
         }
-        .task(id: book.id) {
+        .saturation(isMissingPDF ? 0.35 : 1)
+        .opacity(isMissingPDF ? 0.75 : 1)
+        .task(id: LoadKey(bookID: book.id, isMissingPDF: isMissingPDF)) {
             if let loaded = await CoverCache.shared.image(at: url) {
                 withAnimation(.easeOut(duration: 0.15)) { image = loaded }
             }

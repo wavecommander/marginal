@@ -29,6 +29,11 @@ nonisolated struct ReaderWindowValue: Codable, Hashable, Sendable {
     var notesHeading: HeadingAnchor?
 }
 
+/// A page of the Settings sheet that can be opened directly.
+nonisolated enum SettingsPage: Hashable, Sendable {
+    case backup
+}
+
 /// A screen shown in place in a window (pushed on its navigation stack).
 nonisolated enum WindowRoute: Codable, Hashable, Sendable {
     case reader(bookID: UUID)
@@ -60,6 +65,16 @@ final class WindowContext {
     private(set) var importRequestCount = 0
     /// Whether this window shows the Settings sheet (Library gear button, "Settings…" ⌘,).
     var isSettingsPresented = false
+    /// The page the Settings sheet opens on (`nil`: its first page). Read when the sheet is
+    /// presented; cleared when it is dismissed.
+    private(set) var settingsPage: SettingsPage?
+    /// Increases each time a Settings page is asked for, so an open sheet can go to it.
+    private(set) var settingsPageRequestCount = 0
+    /// The restore sheet this window shows ("Open in" of a `.ttbackup`, the empty Library's
+    /// "Restore from Backup…").
+    var restoreRequest: RestoreRequest?
+    /// Per book: increases when a reader on it should be rebuilt (its PDF was just linked).
+    private(set) var readerGenerations: [UUID: Int] = [:]
 
     @ObservationIgnored weak var scene: UIWindowScene?
     @ObservationIgnored var openWindowAction: OpenWindowAction?
@@ -110,7 +125,48 @@ final class WindowContext {
 
     /// "Settings…" (⌘,) and the Library gear button: show Settings over whatever this window shows.
     func showSettings() {
+        if !isSettingsPresented { settingsPage = nil }
         isSettingsPresented = true
+    }
+
+    /// "Back Up & Restore…": Settings, straight on the Backup screen (pushed onto an open sheet).
+    func showBackupSettings() {
+        settingsPage = .backup
+        settingsPageRequestCount += 1
+        isSettingsPresented = true
+    }
+
+    /// The Settings sheet was dismissed.
+    func settingsDidDismiss() {
+        settingsPage = nil
+    }
+
+    /// Shows the restore sheet in this window. An open Settings sheet closes first (one sheet
+    /// at a time).
+    func openRestore(_ request: RestoreRequest) {
+        guard isSettingsPresented else {
+            restoreRequest = request
+            return
+        }
+        isSettingsPresented = false
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            self?.restoreRequest = request
+        }
+    }
+
+    /// The window the system sign-in sheet presents over (Google Drive).
+    var presentationAnchor: UIWindow? {
+        scene?.keyWindow ?? scene?.windows.first
+    }
+
+    /// Rebuilds any reader on `bookID` in this window (after its PDF was linked).
+    func reloadReader(bookID: UUID) {
+        readerGenerations[bookID, default: 0] += 1
+    }
+
+    func readerGeneration(for bookID: UUID) -> Int {
+        readerGenerations[bookID] ?? 0
     }
 
     /// Increases when `openReader(bookID:pageIndex:)` targets the reader already shown.

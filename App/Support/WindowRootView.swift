@@ -102,6 +102,18 @@ struct WindowRootView: View {
     }
 }
 
+/// A reader shown in place. Its identity follows the window's reader generation for the book,
+/// so linking the book's PDF (`WindowContext.reloadReader`) rebuilds the reader and opens it.
+private struct ReaderRouteView: View {
+    let bookID: UUID
+    let context: WindowContext
+
+    var body: some View {
+        ReaderHost(bookID: bookID)
+            .id(context.readerGeneration(for: bookID))
+    }
+}
+
 private struct WindowContent: View {
     @Bindable var context: WindowContext
     @Binding var storedPath: Data?
@@ -113,7 +125,7 @@ private struct WindowContent: View {
                 .navigationDestination(for: WindowRoute.self) { route in
                     switch route {
                     case .reader(let bookID):
-                        ReaderHost(bookID: bookID)
+                        ReaderRouteView(bookID: bookID, context: context)
                     case .notebook(let bookID):
                         NotebookScreen(bookID: bookID)
                     }
@@ -121,7 +133,14 @@ private struct WindowContent: View {
         }
         .environment(context)
         .focusedSceneValue(context)
-        .sheet(isPresented: $context.isSettingsPresented) { SettingsView() }
+        .sheet(isPresented: $context.isSettingsPresented, onDismiss: context.settingsDidDismiss) {
+            SettingsView(initialPage: context.settingsPage)
+                .environment(context)
+        }
+        .sheet(item: $context.restoreRequest) { request in
+            RestoreFlowView(request: request)
+                .environment(context)
+        }
         .onOpenURL { url in environment.handleIncomingPDF(url, in: context) }
         .onChange(of: context.path, initial: true) { _, path in
             storedPath = try? JSONEncoder().encode(path)

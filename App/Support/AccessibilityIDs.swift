@@ -6,6 +6,77 @@ nonisolated enum AccessibilityID {
         static let importButton = "library.importButton"
         /// One row/cell per book: `library.book.<title>`.
         static func book(_ title: String) -> String { "library.book.\(title)" }
+        /// The empty state's "Restore from Backup…" (beside "Import PDF").
+        static let emptyRestoreButton = "library.emptyRestoreButton"
+        /// The compact row of the app's running backup or restore (its Cancel is
+        /// `Backup.progressCancel`).
+        static let backupProgress = "library.backupProgress"
+        /// The "PDF missing" badge on a book's cover: `library.book.<title>.pdfMissing`.
+        static func pdfMissing(_ title: String) -> String { "library.book.\(title).pdfMissing" }
+    }
+
+    /// Settings ▸ Backup & Restore and a destination's screen.
+    enum Backup {
+        /// The Settings row that opens the Backup screen.
+        static let settingsRow = "settings.backup"
+        static let screen = "backup.screen"
+        /// Done on the Backup screens (closes Settings).
+        static let done = "backup.done"
+        // Back up to a file
+        static let fileIncludePDFs = "backup.file.includePDFs"
+        static let fileEstimate = "backup.file.estimate"
+        static let saveFile = "backup.file.save"
+        static let fileStatus = "backup.file.status"
+        /// One row per destination: `backup.destination.<destination id>`.
+        static func destination(_ id: String) -> String { "backup.destination.\(id)" }
+        // Automatic backup
+        static let automaticToggle = "backup.automatic.toggle"
+        static let automaticDestination = "backup.automatic.destination"
+        static let automaticIncludePDFs = "backup.automatic.includePDFs"
+        static let automaticStatus = "backup.automatic.status"
+        // Restore
+        static let restoreFromFile = "backup.restoreFromFile"
+        static let footnote = "backup.footnote"
+        // The running job (Backup screens, restore sheet)
+        static let progress = "backup.progress"
+        static let progressStatus = "backup.progress.status"
+        static let progressCancel = "backup.progress.cancel"
+        // A destination's screen
+        static let destinationScreen = "backup.destinationScreen"
+        static let destinationStatus = "backup.destinationScreen.status"
+        static let destinationIncludePDFs = "backup.destinationScreen.includePDFs"
+        static let backUpNow = "backup.destinationScreen.backUpNow"
+        static let destinationResult = "backup.destinationScreen.result"
+        static let chooseFolder = "backup.destinationScreen.chooseFolder"
+        static let folderName = "backup.destinationScreen.folderName"
+        static let stopUsingFolder = "backup.destinationScreen.stopUsingFolder"
+        static let googleStatus = "backup.destinationScreen.google.status"
+        static let googleSignIn = "backup.destinationScreen.google.signIn"
+        static let googleSignOut = "backup.destinationScreen.google.signOut"
+        /// One row per backup at the destination: `backup.snapshot.<snapshot name>`.
+        static func snapshot(_ name: String) -> String { "backup.snapshot.\(name)" }
+        static let snapshotsEmpty = "backup.snapshots.empty"
+        static let snapshotsLoading = "backup.snapshots.loading"
+    }
+
+    /// The restore sheet: preview, progress and summary.
+    enum Restore {
+        static let sheet = "restore.sheet"
+        static let header = "restore.header"
+        /// A book's checkbox: `restore.book.<title>`; value "Selected" or "Not selected".
+        static func book(_ title: String) -> String { "restore.book.\(title)" }
+        static func status(_ title: String) -> String { "restore.book.\(title).status" }
+        static func replaceWarning(_ title: String) -> String { "restore.book.\(title).replaceWarning" }
+        static func pdfSource(_ title: String) -> String { "restore.book.\(title).pdf" }
+        static let restorePDFs = "restore.restorePDFs"
+        static let confirm = "restore.confirm"
+        static let cancel = "restore.cancel"
+        static let summary = "restore.summary"
+        /// "Locate PDF…" for a restored book without its PDF: `restore.summary.locate.<title>`.
+        static func locate(_ title: String) -> String { "restore.summary.locate.\(title)" }
+        static let done = "restore.done"
+        static let error = "restore.error"
+        static let opening = "restore.opening"
     }
 
     enum Reader {
@@ -21,6 +92,9 @@ nonisolated enum AccessibilityID {
         static let markupUndoProbe = "reader.markupUndo"
         static let markupRedoProbe = "reader.markupRedo"
         static let loading = "reader.loading"
+        /// The "Cannot Open Book" state's "Locate PDF…" and "Open Notebook" (book without its PDF).
+        static let locatePDF = "reader.locatePDF"
+        static let missingPDFNotebook = "reader.missingPDF.notebook"
 
         // Toolbar
         static let contentsToggle = "reader.toolbar.contents"

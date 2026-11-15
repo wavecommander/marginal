@@ -24,8 +24,27 @@ struct LibraryScreen: View {
     @State private var renameText = ""
     @State private var deletePrompt: DeletePrompt?
     @State private var errorMessage: String?
+    /// What the one file importer is for (a single `.fileImporter`: SwiftUI may honour only one
+    /// document picker per view).
+    @State private var importerMode = ImporterMode.importPDFs
+    /// A book without its PDF the reader tried to open: offers Locate PDF… and the Notebook.
+    @State private var missingPrompt: Book?
+    @State private var linker = PDFLinker()
 
     init() {}
+
+    private enum ImporterMode: Equatable {
+        case importPDFs
+        case locatePDF(Book)
+        case restoreBackup
+
+        var contentTypes: [UTType] {
+            switch self {
+            case .importPDFs, .locatePDF: [.pdf]
+            case .restoreBackup: [.tactileTextsBackup]
+            }
+        }
+    }
 
     private struct DeletePrompt: Identifiable {
         let book: Book
@@ -51,13 +70,11 @@ struct LibraryScreen: View {
         .toolbar { toolbar }
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task(id: query) { await updateNoteMatches() }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf], allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls): startImport(urls, consumeSources: false)
-            case .failure(let error): errorMessage = error.localizedDescription
-            }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: importerMode.contentTypes,
+                      allowsMultipleSelection: importerMode == .importPDFs) { result in
+            importerCompleted(result)
         }
-        .onChange(of: window.importRequestCount) { showImporter = true }
+        .onChange(of: window.importRequestCount) { presentImporter(.importPDFs) }
         .onDrop(of: [.pdf], isTargeted: $isDropTargeted, perform: handleDrop)
         .overlay {
             if isDropTargeted {
@@ -89,6 +106,25 @@ struct LibraryScreen: View {
         } message: { failure in
             Text(failure.error.errorDescription ?? "")
         }
+        .alert(missingPrompt.map { MissingPDFText.promptTitle($0.title) } ?? "",
+               isPresented: missingPromptBinding, presenting: missingPrompt) { book in
+            Button(MissingPDFText.locateTitle) {
+                // After the alert has gone: the picker can't present while it is dismissing.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    presentImporter(.locatePDF(book))
+                }
+            }
+            Button("Open Notebook") { window.openNotebook(bookID: book.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(MissingPDFText.promptMessage)
+        }
+        .alert(linker.failure?.title ?? "", isPresented: linkFailureBinding, presenting: linker.failure) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { failure in
+            Text(failure.message)
+        }
         .alert("Something Went Wrong", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -102,19 +138,22 @@ struct LibraryScreen: View {
     private func content(_ model: LibraryModel) -> some View {
         let all = model.books
         let visible = LibraryLogic.sorted(LibraryLogic.filtered(all, query: query, noteMatches: noteMatches), by: sort)
-        if all.isEmpty && service.jobs.isEmpty {
+        let backupJob = environment.backupService.job
+        if all.isEmpty && service.jobs.isEmpty && backupJob == nil {
             emptyState
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if !service.jobs.isEmpty {
+                    if !service.jobs.isEmpty || backupJob != nil {
                         VStack(spacing: 10) {
+                            if let backupJob { LibraryBackupProgressRow(job: backupJob) }
                             ForEach(service.jobs) { ImportProgressRow(job: $0) }
                         }
                     }
                     if !isSearching, let book = LibraryLogic.continueReading(all) {
                         ContinueReadingCard(book: book, annotationCount: model.continueAnnotationCount,
-                                            onResume: { window.openReader(bookID: book.id) },
+                                            isMissingPDF: model.isMissingPDF(book),
+                                            onResume: { open(book) },
                                             onNotebook: { window.openNotebook(bookID: book.id) })
                     }
                     if visible.isEmpty && isSearching {
@@ -137,15 +176,32 @@ struct LibraryScreen: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label("No Books Yet", systemImage: "books.vertical")
+                // On the title, not the whole view: a container's identifier replaces its
+                // buttons' own ones.
+                .accessibilityIdentifier("library.emptyState")
         } description: {
-            Text("Import a PDF to start reading and taking notes. You can also drop PDFs here from Files or another app.")
+            Text("Import a PDF to start reading and taking notes. You can also drop PDFs here from Files or another app, or restore your books from a backup.")
         } actions: {
-            Button("Import PDF") { showImporter = true }
-                .buttonStyle(.borderedProminent)
-                .foregroundStyle(accentTheme.onAccent)
-                .accessibilityIdentifier("library.emptyImportButton")
+            ViewThatFits {
+                HStack(spacing: Space.m) { emptyImportButton; emptyRestoreButton }
+                VStack(spacing: Space.m) { emptyImportButton; emptyRestoreButton }
+            }
         }
-        .accessibilityIdentifier("library.emptyState")
+    }
+
+    private var emptyImportButton: some View {
+        Button("Import PDF") { presentImporter(.importPDFs) }
+            .buttonStyle(.borderedProminent)
+            .foregroundStyle(accentTheme.onAccent)
+            .accessibilityIdentifier("library.emptyImportButton")
+    }
+
+    /// A fresh install is exactly when a reader wants this.
+    private var emptyRestoreButton: some View {
+        Button("Restore from Backup…") { presentImporter(.restoreBackup) }
+            .buttonStyle(.bordered)
+            .disabled(environment.backupService.isBusy)
+            .accessibilityIdentifier(AccessibilityID.Library.emptyRestoreButton)
     }
 
     private func grid(_ books: [Book]) -> some View {
@@ -158,14 +214,22 @@ struct LibraryScreen: View {
     }
 
     private func cell(for book: Book) -> some View {
-        Button {
-            window.openReader(bookID: book.id)
+        let isMissing = model?.isMissingPDF(book) ?? false
+        return Button {
+            open(book)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Color.clear
                     .aspectRatio(0.77, contentMode: .fit)
-                    .overlay { BookCoverView(book: book) }
+                    .overlay { BookCoverView(book: book, isMissingPDF: isMissing) }
                     .bookCoverStyle()
+                    .overlay(alignment: .bottomLeading) {
+                        if isMissing {
+                            PDFMissingBadge()
+                                .padding(Space.s)
+                                .accessibilityIdentifier(AccessibilityID.Library.pdfMissing(book.title))
+                        }
+                    }
                     .onDrag { LibraryActivity.itemProvider(bookID: book.id, title: book.title) }
                     .padding(.bottom, 4)
                 Text(book.title)
@@ -181,14 +245,18 @@ struct LibraryScreen: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.lift)
-        .accessibilityLabel(LibraryLogic.accessibilityLabel(book))
+        .accessibilityLabel(MissingPDFText.cellAccessibilityLabel(LibraryLogic.accessibilityLabel(book), isMissing: isMissing))
         .accessibilityIdentifier(AccessibilityID.Library.book(book.title))
         .contextMenu { menu(for: book) }
     }
 
     @ViewBuilder
     private func menu(for book: Book) -> some View {
-        Button("Open", systemImage: "book") { window.openReader(bookID: book.id) }
+        if model?.isMissingPDF(book) == true {
+            Button(MissingPDFText.locateTitle, systemImage: "doc.badge.plus") { presentImporter(.locatePDF(book)) }
+            Divider()
+        }
+        Button("Open", systemImage: "book") { open(book) }
         Button("Open in New Window", systemImage: "macwindow.badge.plus") {
             window.openReaderInNewWindow(bookID: book.id)
         }
@@ -232,7 +300,7 @@ struct LibraryScreen: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
-                showImporter = true
+                presentImporter(.importPDFs)
             } label: {
                 toolbarLabel("Import PDF", systemImage: "plus")
             }
@@ -262,6 +330,39 @@ struct LibraryScreen: View {
         guard !Task.isCancelled else { return }
         let matches = await model.bookIDsWithAnnotations(matching: query)
         if !Task.isCancelled { noteMatches = matches }
+    }
+
+    // MARK: Opening and the file importer
+
+    /// Opens the book in place, or, when its PDF is missing, offers Locate PDF… and the Notebook.
+    private func open(_ book: Book) {
+        if model?.isMissingPDF(book) == true {
+            missingPrompt = book
+        } else {
+            window.openReader(bookID: book.id)
+        }
+    }
+
+    private func presentImporter(_ mode: ImporterMode) {
+        importerMode = mode
+        showImporter = true
+    }
+
+    private func importerCompleted(_ result: Result<[URL], any Error>) {
+        let mode = importerMode
+        importerMode = .importPDFs
+        switch (mode, result) {
+        case (.importPDFs, .success(let urls)):
+            startImport(urls, consumeSources: false)
+        case (.locatePDF(let book), .success):
+            linker.importerCompleted(result, book: book, environment: environment) { linked in
+                window.openReader(bookID: linked.id)
+            }
+        case (.restoreBackup, .success(let urls)):
+            if let url = urls.first { window.openRestore(RestoreRequest(source: .file(url, consume: false))) }
+        case (_, .failure(let error)):
+            if !BackupFailure.isCancellation(error) { errorMessage = error.localizedDescription }
+        }
     }
 
     // MARK: Import
@@ -343,6 +444,14 @@ struct LibraryScreen: View {
     private var failureBinding: Binding<Bool> {
         Binding(get: { service.failure(for: windowKey) != nil },
                 set: { if !$0, let failure = service.failure(for: windowKey) { service.dismissFailure(failure.id) } })
+    }
+
+    private var missingPromptBinding: Binding<Bool> {
+        Binding(get: { missingPrompt != nil }, set: { if !$0 { missingPrompt = nil } })
+    }
+
+    private var linkFailureBinding: Binding<Bool> {
+        Binding(get: { linker.failure != nil }, set: { if !$0 { linker.failure = nil } })
     }
 
     private var errorBinding: Binding<Bool> {
