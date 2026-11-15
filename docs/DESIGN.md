@@ -409,15 +409,41 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   "PDF missing" and offers Locate PDF…, and importing the right file by any route links it. A
   PDF is linked only when the fingerprint **and** the full SHA-256 match; a mismatch is refused
   with an explanation and there is no override (owner decision).
-- **Restore is per book** (owner decision). The preview lists each book in the backup as New or
-  Already in Library (same ID or same PDF), with what each side holds; new books are ticked and
-  existing ones are not. Restoring an existing book replaces all of its notes, highlights and
-  ink with the backup's. There is no item-by-item merging.
+- **Restore is per book, and an existing book is merged** (owner decisions, 15 November 2026;
+  the first version could only replace). The preview lists each book in the backup as New or
+  Already in Library (same ID or same PDF), with what each side holds. Every book is ticked; a
+  book already in the Library is set to **Merge**, and a menu on its row switches it to Replace
+  with backup or Leave as is.
+  - *Merge adds, and never removes.* The merged book keeps this iPad's ID, title, PDF and
+    reading position. Everything the backup has that this iPad lacks is added; merging the same
+    backup twice changes nothing the second time.
+  - *Notes* are matched by the page or heading they are on. A note on both sides with different
+    text is **combined**: paragraphs both sides have appear once, paragraphs only one side has
+    are kept in order (this iPad's first), so an edited paragraph appears in both wordings.
+    Handwriting from both sides is kept and stays with the paragraph it was written on;
+    handwriting both sides put in the blank space after the text is placed one after the other.
+  - *Ink on a page* is the union of both sides' strokes, each stroke once.
+  - *Highlights* are matched by identity, and by same page, text and place; *bookmarks* by
+    page; *headings the reader added* by identity, and by same title, page and parent (notes and
+    sub-headings that point at a matched heading follow it). Where the two sides hold different
+    versions of the same highlight or heading, this iPad's is kept: they carry no edit date.
+  - *Deletions come back* (owner decision). A merge has no record of what was deleted here
+    after the backup was made, so a note, highlight, bookmark, heading, pen stroke or paragraph
+    that the backup still holds returns. The preview says so, and shows the counts a merge adds.
+  - *Replace* swaps all of the book's notes, highlights and ink for the backup's, after a
+    confirmation that names the book.
+- **A restore can be undone.** Before a restore changes a book that is already in the Library
+  (merge or replace), the app saves that book's notes and ink, without the PDF, inside its own
+  storage, and keeps the newest five such copies. **Undo Last Restore** on the Backup screen puts
+  those books back as they were and removes the books that restore added, after a confirmation
+  that says work done on them since the restore will be lost. If the safety copy cannot be
+  made, the restore stops with nothing changed.
 - **Restore cannot leave a book half-applied.** The chosen books are extracted and every file
   verified first; a damaged backup restores nothing. Each book is then swapped in behind a
   journal, and a crash at any point is finished at the next launch, before the orphan sweep.
-  Open reader and Notebook windows on a replaced book close, as they do for a delete, and
-  nothing they had pending is written over the restored book.
+  Open reader and Notebook windows on a merged or replaced book close, as they do for a
+  delete, and nothing they had pending is written over the restored book. A merge goes through
+  the same commit: the merged book is built to one side, then swapped in.
 - **One at a time.** One backup or restore runs for the whole app, with progress and Cancel in
   every window. Cancel is honoured until books are being swapped in.
 - **Automatic backups** (owner decision: manual plus automatic). Off by default. When on, a

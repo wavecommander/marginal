@@ -149,9 +149,20 @@ runs or very large files. Open Settings › Backup & Restore.
 - [ ] **Open With, PDF.** In Files, touch and hold a PDF › Open With › Tactile Texts: the book
       is imported and opens. The PDF is still where it was in Files. Doing it again opens the
       same book without importing a second copy.
-- [ ] **Restore replaces, per book.** Change a note, then restore the earlier backup: the book
-      shows as Already in Library and unticked; ticking it warns that its notes will be replaced;
-      after restoring, the note is the earlier one and ink on pages and notes is intact.
+- [ ] **Merge keeps both sides.** Back up; then add a note, a highlight and a pen stroke. Restore
+      the backup: the book shows as Already in Library, ticked and set to Merge, with what the
+      merge will add. After restoring, the new note, highlight and stroke are still there, and
+      so is everything from the backup. Restore the same backup again: nothing changes.
+- [ ] **A combined note.** Back up; add a paragraph to a note and write on it with the Pencil;
+      on a second device (or after restoring the backup elsewhere and editing there) add a
+      different paragraph to the same note with its own handwriting; merge. The note has both
+      paragraphs, and each piece of handwriting sits on the paragraph it was written on.
+      Handwriting in the blank space below the text from the two sides does not overlap.
+- [ ] **Replace still replaces.** Switch a book's menu to Replace with backup: it warns and asks
+      for confirmation, and afterwards the book holds only what the backup had.
+- [ ] **Undo Last Restore.** After a merge or a replace, Undo Last Restore on the Backup screen
+      names the books and warns that later work on them is lost; after it, the books are
+      exactly as they were before the restore, and a book the restore had added is gone.
 - [ ] **A book open during restore.** With a book open in a second window and a note half
       typed, restore that book from a backup: the window closes and the restored note is the
       backup's, not the half-typed one.
