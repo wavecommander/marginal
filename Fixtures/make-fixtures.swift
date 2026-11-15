@@ -1,10 +1,12 @@
 // Deterministic fixture PDF generator (macOS). Usage:
 //   swiftc -O -o /tmp/make-fixtures Fixtures/make-fixtures.swift && /tmp/make-fixtures <outdir>
-// (scripts/fixtures.sh wraps this.) Writes small.pdf, links.pdf, large.pdf, no-outline.pdf, then verifies
-// them with PDFKit and exits non-zero on any mismatch.
+// (scripts/fixtures.sh wraps this.) Writes small.pdf, links.pdf, link-forms.pdf, large.pdf,
+// no-outline.pdf, and the files the app converts at import (small.epub, protected.epub, small.cbz,
+// small.md, small.docx, small.pptx), then verifies them and exits non-zero on any mismatch.
 import CoreGraphics
 import CoreText
 import Foundation
+import ImageIO
 import PDFKit
 
 struct Entry {
@@ -521,6 +523,471 @@ func verifyLinkForms(dir: URL) {
     print("  link-forms.pdf: pages=\(doc.pageCount) size=\(size / 1024) KB")
 }
 
+// MARK: - Formats converted at import (F7)
+//
+// small.epub, protected.epub, small.cbz, small.md, small.docx and small.pptx: the files the
+// conversion UI tests import. ZIPs are written here with stored entries and a fixed date, so the
+// output is the same byte for byte on every run. small.docx is made by /usr/bin/textutil and
+// repacked the same way (textutil stamps the current time into its ZIP headers).
+
+/// A ZIP writer: stored (uncompressed) entries, in the order added, all dated 1980-01-01.
+struct StoredZIP {
+    private(set) var entries: [(name: String, data: Data)] = []
+
+    mutating func add(_ name: String, _ data: Data) { entries.append((name, data)) }
+    mutating func add(_ name: String, _ text: String) { add(name, Data(text.utf8)) }
+
+    static let crcTable: [UInt32] = (0..<256).map { index -> UInt32 in
+        var value = UInt32(index)
+        for _ in 0..<8 { value = value & 1 == 1 ? 0xEDB8_8320 ^ (value >> 1) : value >> 1 }
+        return value
+    }
+
+    static func crc32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in data { crc = crcTable[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8) }
+        return crc ^ 0xFFFF_FFFF
+    }
+
+    func data() -> Data {
+        var out = Data(), central = Data()
+        func le16(_ d: inout Data, _ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func le32(_ d: inout Data, _ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        for (name, data) in entries {
+            let offset = UInt32(out.count), crc = Self.crc32(data), nameBytes = Array(name.utf8)
+            // Local header: version 2.0, UTF-8 names, stored, time 00:00, date 1980-01-01.
+            le32(&out, 0x0403_4B50); le16(&out, 20); le16(&out, 0x0800); le16(&out, 0); le16(&out, 0); le16(&out, 0x21)
+            le32(&out, crc); le32(&out, UInt32(data.count)); le32(&out, UInt32(data.count))
+            le16(&out, UInt16(nameBytes.count)); le16(&out, 0)
+            out.append(contentsOf: nameBytes)
+            out.append(data)
+            le32(&central, 0x0201_4B50); le16(&central, 0x031E); le16(&central, 20); le16(&central, 0x0800); le16(&central, 0)
+            le16(&central, 0); le16(&central, 0x21); le32(&central, crc); le32(&central, UInt32(data.count))
+            le32(&central, UInt32(data.count)); le16(&central, UInt16(nameBytes.count))
+            le16(&central, 0); le16(&central, 0); le16(&central, 0); le16(&central, 0)
+            le32(&central, 0o100644 << 16); le32(&central, offset)
+            central.append(contentsOf: nameBytes)
+        }
+        let directoryOffset = UInt32(out.count)
+        out.append(central)
+        le32(&out, 0x0605_4B50); le16(&out, 0); le16(&out, 0)
+        le16(&out, UInt16(entries.count)); le16(&out, UInt16(entries.count))
+        le32(&out, UInt32(central.count)); le32(&out, directoryOffset); le16(&out, 0)
+        return out
+    }
+}
+
+/// A PNG of `size` pixels: a fill, a darker frame, and `label` in large type in the middle.
+func pngImage(width: Int, height: Int, fill: (CGFloat, CGFloat, CGFloat), label: String) -> Data {
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.setFillColor(CGColor(red: fill.0, green: fill.1, blue: fill.2, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    ctx.setStrokeColor(CGColor(red: fill.0 * 0.5, green: fill.1 * 0.5, blue: fill.2 * 0.5, alpha: 1))
+    ctx.setLineWidth(CGFloat(width) / 30)
+    ctx.stroke(CGRect(x: 0, y: 0, width: width, height: height).insetBy(dx: CGFloat(width) / 20, dy: CGFloat(width) / 20))
+    ctx.setFillColor(CGColor(gray: 0.1, alpha: 1))
+    let f = font("Helvetica-Bold", CGFloat(width) / 8)
+    let attrs: [NSAttributedString.Key: Any] = [
+        NSAttributedString.Key(kCTFontAttributeName as String): f,
+        NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+    ]
+    let line = CTLineCreateWithAttributedString(NSAttributedString(string: label, attributes: attrs))
+    let bounds = CTLineGetImageBounds(line, ctx)
+    ctx.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2 - bounds.minX, y: (CGFloat(height) - bounds.height) / 2)
+    CTLineDraw(line, ctx)
+    let image = ctx.makeImage()!
+    let data = NSMutableData()
+    let destination = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, image, nil)
+    CGImageDestinationFinalize(destination)
+    return data as Data
+}
+
+func xmlEscape(_ text: String) -> String {
+    text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "'", with: "&#39;")
+}
+
+// MARK: small.epub
+
+/// What the conversion tests rely on in `small.epub`. Mirrored in `UITests/ConversionJourneyUITests.swift`.
+enum SmallEPUB {
+    static let title = "The Small Fixture Book"
+    /// One paragraph of its own (one line on the converted page, set apart by margins so PDFKit
+    /// reads it as a text block of its own), in chapter 2 right under
+    /// "The Lighthouse", which the table of contents targets by fragment (`ch2.xhtml#lighthouse`).
+    static let phrase = "The amber fox annotates margins."
+    /// Nested navigation, in pre-order: (title, href, level).
+    static let toc: [(String, String, Int)] = [
+        ("Chapter 1: Departure", "text/ch1.xhtml", 1),
+        ("The Harbour", "text/ch1.xhtml#harbour", 2),
+        ("Chapter 2: The Crossing", "text/ch2.xhtml", 1),
+        ("The Lighthouse", "text/ch2.xhtml#lighthouse", 2),
+        ("Keeper's Log", "text/ch2.xhtml#log", 3),
+        ("Chapter 3: Landfall", "text/ch3.xhtml", 1),
+    ]
+}
+
+/// Deterministic prose: `count` paragraphs of `words` words from the fixture vocabulary, each
+/// starting with a tag such as "Paragraph 2.3" so every paragraph is distinct.
+func epubParagraphs(_ tag: String, count: Int, words: Int = 70) -> String {
+    var rng = LCG(state: UInt64(tag.unicodeScalars.reduce(7) { $0 &* 31 &+ UInt64($1.value) }))
+    return (1...count).map { index in
+        var parts: [String] = []
+        for _ in 0..<words { parts.append(sentenceWords[rng.next() % sentenceWords.count]) }
+        return "<p>Paragraph \(tag).\(index) \(parts.joined(separator: " ")).</p>"
+    }.joined(separator: "\n")
+}
+
+/// Words with no overlap with the phrase, so the phrase stays unique in the book.
+let sentenceWords = ["harbour", "lantern", "evening", "orchard", "compass", "thimble", "meadow", "quarry", "sparrow",
+                     "anchor", "pebble", "willow", "cobbler", "ferry", "granite", "mantle", "parcel", "ribbon",
+                     "the", "of", "and", "a", "to", "in", "was", "beside", "under", "slowly", "bright", "quiet"]
+
+func xhtmlDocument(title: String, body: String) -> String {
+    """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE html>
+    <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
+    <head><meta charset="utf-8"/><title>\(xmlEscape(title))</title><link rel="stylesheet" href="../style.css"/></head>
+    <body>
+    \(body)
+    </body>
+    </html>
+    """
+}
+
+func smallEPUB(encryption: String? = nil) -> Data {
+    var zip = StoredZIP()
+    zip.add("mimetype", "application/epub+zip")  // first and stored, as EPUB requires
+    zip.add("META-INF/container.xml", """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+        </container>
+        """)
+    if let encryption { zip.add("META-INF/encryption.xml", encryption) }
+    zip.add("OEBPS/content.opf", """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:identifier id="uid">urn:uuid:6b1f0a52-3c8e-4d7b-9e21-5f4a8c0d2e19</dc:identifier>
+            <dc:title>\(SmallEPUB.title)</dc:title>
+            <dc:creator>Fixture Author</dc:creator>
+            <dc:language>en</dc:language>
+            <meta property="dcterms:modified">2026-11-15T00:00:00Z</meta>
+          </metadata>
+          <manifest>
+            <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+            <item id="css" href="style.css" media-type="text/css"/>
+            <item id="cover" href="images/cover.png" media-type="image/png" properties="cover-image"/>
+            <item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch2" href="text/ch2.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch3" href="text/ch3.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine>
+            <itemref idref="ch1"/>
+            <itemref idref="ch2"/>
+            <itemref idref="ch3"/>
+          </spine>
+        </package>
+        """)
+    // The nav document: nested lists built from `SmallEPUB.toc`.
+    var nav = "", depth = 0
+    for (index, entry) in SmallEPUB.toc.enumerated() {
+        let (title, href, level) = entry
+        if level > depth { nav += "<ol>"; depth = level } else {
+            nav += "</li>"
+            while depth > level { nav += "</ol></li>"; depth -= 1 }
+        }
+        nav += "<li><a href=\"\(href)\">\(xmlEscape(title))</a>"
+        if index == SmallEPUB.toc.count - 1 {
+            nav += "</li>"
+            while depth > 1 { nav += "</ol></li>"; depth -= 1 }
+            nav += "</ol>"
+        }
+    }
+    zip.add("OEBPS/nav.xhtml", """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE html>
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">
+        <head><meta charset="utf-8"/><title>Contents</title></head>
+        <body><nav epub:type="toc" id="toc"><h1>Contents</h1>\(nav)</nav></body>
+        </html>
+        """)
+    zip.add("OEBPS/style.css", """
+        body { font-family: Georgia, serif; }
+        h1 { font-size: 1.8em; }
+        h2 { font-size: 1.3em; }
+        h3 { font-size: 1.1em; }
+        p { text-indent: 1.2em; margin: 0 0 0.4em 0; }
+        p.phrase { text-indent: 0; margin: 1em 0 1.5em 0; font-family: "Times New Roman", Times, serif; }
+        """)
+    zip.add("OEBPS/images/cover.png", pngImage(width: 600, height: 900, fill: (0.93, 0.62, 0.29), label: "Small"))
+    zip.add("OEBPS/text/ch1.xhtml", xhtmlDocument(title: "Chapter 1", body: """
+        <h1 id="c1">Chapter 1: Departure</h1>
+        \(epubParagraphs("1.0", count: 8))
+        <h2 id="harbour">The Harbour</h2>
+        \(epubParagraphs("1.1", count: 10))
+        """))
+    zip.add("OEBPS/text/ch2.xhtml", xhtmlDocument(title: "Chapter 2", body: """
+        <h1 id="c2">Chapter 2: The Crossing</h1>
+        \(epubParagraphs("2.0", count: 10))
+        <h2 id="lighthouse">The Lighthouse</h2>
+        <p class="phrase">\(SmallEPUB.phrase)</p>
+        \(epubParagraphs("2.1", count: 6))
+        <h3 id="log">Keeper's Log</h3>
+        \(epubParagraphs("2.2", count: 8))
+        """))
+    zip.add("OEBPS/text/ch3.xhtml", xhtmlDocument(title: "Chapter 3", body: """
+        <h1 id="c3">Chapter 3: Landfall</h1>
+        \(epubParagraphs("3.0", count: 10))
+        <p>The end.</p>
+        """))
+    return zip.data()
+}
+
+/// `small.epub` with an `encryption.xml` that encrypts a chapter with AES (not font
+/// obfuscation): DRM, so the import lists it as copy-protected.
+func protectedEPUB() -> Data {
+    smallEPUB(encryption: """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+          <enc:EncryptedData>
+            <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+            <enc:CipherData><enc:CipherReference URI="OEBPS/text/ch1.xhtml"/></enc:CipherData>
+          </enc:EncryptedData>
+        </encryption>
+        """)
+}
+
+// MARK: small.cbz
+
+/// The comic's page images, in the order they are stored in the archive (not reading order):
+/// natural sort must put page2 before page10. (file name, page number shown on it).
+let smallCBZPages: [(String, Int)] = [("page10.png", 5), ("page2.png", 2), ("page1.png", 1), ("page9.png", 4), ("page3.png", 3)]
+
+func smallCBZ() -> Data {
+    let fills: [(CGFloat, CGFloat, CGFloat)] = [(0.95, 0.85, 0.55), (0.6, 0.8, 0.95), (0.75, 0.92, 0.7), (0.95, 0.7, 0.75), (0.8, 0.75, 0.95)]
+    var zip = StoredZIP()
+    for (name, number) in smallCBZPages {
+        zip.add(name, pngImage(width: 800, height: 1200, fill: fills[number - 1], label: "Page \(number)"))
+    }
+    return zip.data()
+}
+
+// MARK: small.md
+
+let smallMarkdown = """
+    # Small Markdown Fixture
+
+    A short document for the text converter. It has *emphasis*, **strong text** and `code`.
+
+    ## A List
+
+    - The first item names the harbour.
+    - The second item names the lantern.
+    - The third item names the orchard.
+
+    ## A Code Block
+
+    ```
+    let answer = 42
+    ```
+
+    ## A Link
+
+    Read [the example page](https://example.com/) for more. Images that are not inside the file
+    are never downloaded.
+
+    The phrase markdown lighthouse keeper appears once.
+
+    """
+
+// MARK: small.docx (textutil)
+
+/// HTML for textutil: three headings with paragraphs.
+func smallDocxHTML() -> String {
+    var html = "<html><head><meta charset='utf-8'><title>Small Word Fixture</title></head><body>"
+    for chapter in 1...3 {
+        html += "<h1>Section \(chapter): Word Heading \(chapter)</h1>"
+        for paragraph in 1...6 {
+            html += "<p>DOCPARA-\(chapter)-\(paragraph). The quick brown fox jumps over the lazy dog. "
+                + "Sphinx of black quartz, judge my vow. Pack my box with five dozen liquor jugs.</p>"
+        }
+    }
+    return html + "</body></html>"
+}
+
+func run(_ tool: String, _ arguments: [String]) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: tool)
+    process.arguments = arguments
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        throw NSError(domain: "fixtures", code: Int(process.terminationStatus),
+                      userInfo: [NSLocalizedDescriptionKey: "\(tool) \(arguments.joined(separator: " ")) failed"])
+    }
+}
+
+/// Converts the HTML with textutil, unzips it and repacks the parts (sorted, `[Content_Types].xml`
+/// first) with fixed dates.
+func smallDocx() throws -> Data {
+    let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("make-fixtures-\(getpid())", isDirectory: true)
+    try? FileManager.default.removeItem(at: scratch)
+    try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let html = scratch.appendingPathComponent("small.html"), docx = scratch.appendingPathComponent("small.docx")
+    let parts = scratch.appendingPathComponent("parts", isDirectory: true)
+    try Data(smallDocxHTML().utf8).write(to: html)
+    try run("/usr/bin/textutil", ["-convert", "docx", "-output", docx.path, html.path])
+    try run("/usr/bin/unzip", ["-q", "-o", docx.path, "-d", parts.path])
+    var names: [String] = []
+    let enumerator = FileManager.default.enumerator(at: parts, includingPropertiesForKeys: [.isRegularFileKey])!
+    for case let url as URL in enumerator where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+        names.append(String(url.standardizedFileURL.path.dropFirst(parts.standardizedFileURL.path.count + 1)))
+    }
+    names.sort { ($0 == "[Content_Types].xml" ? "" : $0) < ($1 == "[Content_Types].xml" ? "" : $1) }
+    var zip = StoredZIP()
+    for name in names { zip.add(name, try Data(contentsOf: parts.appendingPathComponent(name))) }
+    return zip.data()
+}
+
+// MARK: small.pptx (hand-built, three 16:9 slides; after the F0 spike's generator)
+
+func smallPPTX(slides count: Int = 3) -> Data {
+    let ns = "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+        + "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
+        + "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\""
+    let x = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+    let rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    func rels(_ items: [(String, String, String)]) -> String {
+        x + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+            + items.map { "<Relationship Id=\"\($0.0)\" Type=\"\(rel)/\($0.1)\" Target=\"\($0.2)\"/>" }.joined()
+            + "</Relationships>"
+    }
+    func shape(_ id: Int, _ name: String, _ type: String, _ y: Int, _ cy: Int, _ text: String, _ size: Int) -> String {
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"\(id)\" name=\"\(name)\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>"
+            + "<p:nvPr><p:ph type=\"\(type)\"\(type == "title" ? "" : " idx=\"1\"")/></p:nvPr></p:nvSpPr>"
+            + "<p:spPr><a:xfrm><a:off x=\"838200\" y=\"\(y)\"/><a:ext cx=\"10515600\" cy=\"\(cy)\"/></a:xfrm>"
+            + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>"
+            + "<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\" sz=\"\(size)\"/><a:t>\(text)</a:t></a:r></a:p></p:txBody></p:sp>"
+    }
+    let treeHead = "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>"
+        + "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+    func titleAndBody(_ title: String, _ body: String) -> String {
+        shape(2, "Title", "title", 365125, 1325563, title, 4400) + shape(3, "Body", "body", 1825625, 4351338, body, 2800)
+    }
+    func slide(_ n: Int) -> String {
+        x + "<p:sld \(ns)><p:cSld><p:spTree>\(treeHead)"
+            + titleAndBody("Slide \(n) Title SLIDETITLE-\(n)", "Body text of slide \(n) SLIDEBODY-\(n)")
+            + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"
+    }
+    let layout = x + "<p:sldLayout \(ns) type=\"obj\" preserve=\"1\"><p:cSld name=\"Title and Content\"><p:spTree>\(treeHead)"
+        + titleAndBody("Title", "Body") + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>"
+    let master = x + "<p:sldMaster \(ns)><p:cSld><p:bg><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg><p:spTree>\(treeHead)"
+        + titleAndBody("Title", "Body") + "</p:spTree></p:cSld>"
+        + "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" "
+        + "accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>"
+        + "<p:sldLayoutIdLst><p:sldLayoutId id=\"2147483649\" r:id=\"rId1\"/></p:sldLayoutIdLst>"
+        + "<p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz=\"4400\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill>"
+        + "<a:latin typeface=\"+mj-lt\"/></a:defRPr></a:lvl1pPr></p:titleStyle>"
+        + "<p:bodyStyle><a:lvl1pPr><a:defRPr sz=\"2800\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill>"
+        + "<a:latin typeface=\"+mn-lt\"/></a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle/></p:txStyles></p:sldMaster>"
+    func colour(_ name: String, _ value: String) -> String { "<a:\(name)><a:srgbClr val=\"\(value)\"/></a:\(name)>" }
+    let fill3 = String(repeating: "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>", count: 3)
+    let line3 = String(repeating: "<a:ln w=\"9525\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln>", count: 3)
+    let effect3 = String(repeating: "<a:effectStyle><a:effectLst/></a:effectStyle>", count: 3)
+    let theme = x + "<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Fixture\"><a:themeElements>"
+        + "<a:clrScheme name=\"Fixture\">"
+        + "<a:dk1><a:sysClr val=\"windowText\" lastClr=\"000000\"/></a:dk1><a:lt1><a:sysClr val=\"window\" lastClr=\"FFFFFF\"/></a:lt1>"
+        + colour("dk2", "44546A") + colour("lt2", "E7E6E6") + colour("accent1", "4472C4") + colour("accent2", "ED7D31")
+        + colour("accent3", "A5A5A5") + colour("accent4", "FFC000") + colour("accent5", "5B9BD5") + colour("accent6", "70AD47")
+        + colour("hlink", "0563C1") + colour("folHlink", "954F72") + "</a:clrScheme>"
+        + "<a:fontScheme name=\"Fixture\"><a:majorFont><a:latin typeface=\"Helvetica\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:majorFont>"
+        + "<a:minorFont><a:latin typeface=\"Helvetica\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:minorFont></a:fontScheme>"
+        + "<a:fmtScheme name=\"Fixture\"><a:fillStyleLst>\(fill3)</a:fillStyleLst><a:lnStyleLst>\(line3)</a:lnStyleLst>"
+        + "<a:effectStyleLst>\(effect3)</a:effectStyleLst><a:bgFillStyleLst>\(fill3)</a:bgFillStyleLst></a:fmtScheme>"
+        + "</a:themeElements></a:theme>"
+    let slideIDs = (1...count).map { "<p:sldId id=\"\(255 + $0)\" r:id=\"rId\($0 + 1)\"/>" }.joined()
+    let presentation = x + "<p:presentation \(ns)><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst>"
+        + "<p:sldIdLst>\(slideIDs)</p:sldIdLst><p:sldSz cx=\"12192000\" cy=\"6858000\"/><p:notesSz cx=\"6858000\" cy=\"9144000\"/></p:presentation>"
+    let ct = "application/vnd.openxmlformats-officedocument"
+    let overrides = "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"\(ct).presentationml.presentation.main+xml\"/>"
+        + "<Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"\(ct).presentationml.slideMaster+xml\"/>"
+        + "<Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"\(ct).presentationml.slideLayout+xml\"/>"
+        + "<Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"\(ct).theme+xml\"/>"
+        + (1...count).map { "<Override PartName=\"/ppt/slides/slide\($0).xml\" ContentType=\"\(ct).presentationml.slide+xml\"/>" }.joined()
+    let contentTypes = x + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+        + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+        + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" + overrides + "</Types>"
+
+    var zip = StoredZIP()
+    zip.add("[Content_Types].xml", contentTypes)
+    zip.add("_rels/.rels", rels([("rId1", "officeDocument", "ppt/presentation.xml")]))
+    zip.add("ppt/presentation.xml", presentation)
+    zip.add("ppt/_rels/presentation.xml.rels", rels([("rId1", "slideMaster", "slideMasters/slideMaster1.xml")]
+        + (1...count).map { ("rId\($0 + 1)", "slide", "slides/slide\($0).xml") }
+        + [("rId\(count + 2)", "theme", "theme/theme1.xml")]))
+    zip.add("ppt/slideMasters/slideMaster1.xml", master)
+    zip.add("ppt/slideMasters/_rels/slideMaster1.xml.rels",
+            rels([("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"), ("rId2", "theme", "../theme/theme1.xml")]))
+    zip.add("ppt/slideLayouts/slideLayout1.xml", layout)
+    zip.add("ppt/slideLayouts/_rels/slideLayout1.xml.rels", rels([("rId1", "slideMaster", "../slideMasters/slideMaster1.xml")]))
+    zip.add("ppt/theme/theme1.xml", theme)
+    for n in 1...count {
+        zip.add("ppt/slides/slide\(n).xml", slide(n))
+        zip.add("ppt/slides/_rels/slide\(n).xml.rels", rels([("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")]))
+    }
+    return zip.data()
+}
+
+/// Writes the converted-format fixtures.
+func writeConvertedFormats(to dir: URL) throws {
+    try smallEPUB().write(to: dir.appendingPathComponent("small.epub"))
+    try protectedEPUB().write(to: dir.appendingPathComponent("protected.epub"))
+    try smallCBZ().write(to: dir.appendingPathComponent("small.cbz"))
+    try Data(smallMarkdown.utf8).write(to: dir.appendingPathComponent("small.md"))
+    try smallDocx().write(to: dir.appendingPathComponent("small.docx"))
+    try smallPPTX().write(to: dir.appendingPathComponent("small.pptx"))
+}
+
+/// The ZIP-based fixtures start as ZIPs, the EPUBs with a stored `mimetype` entry first, and
+/// list the entries they should (read back with /usr/bin/unzip).
+func verifyConvertedFormats(dir: URL) {
+    func listing(_ name: String) -> [String] {
+        let pipe = Pipe(), process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+        process.arguments = ["-1", dir.appendingPathComponent(name).path]
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return [] }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: output, as: UTF8.self).split(separator: "\n").map(String.init)
+    }
+    for name in ["small.epub", "protected.epub"] {
+        let data = (try? Data(contentsOf: dir.appendingPathComponent(name))) ?? Data()
+        check(data.count > 58 && String(decoding: data[30..<58], as: UTF8.self) == "mimetypeapplication/epub+zip",
+              "\(name): mimetype is not the first, stored entry")
+        let entries = listing(name)
+        check(entries.contains("OEBPS/nav.xhtml") && entries.contains("OEBPS/images/cover.png"), "\(name): entries \(entries)")
+        check(entries.contains("META-INF/encryption.xml") == (name == "protected.epub"), "\(name): encryption.xml")
+    }
+    check(Set(listing("small.cbz")) == Set(smallCBZPages.map(\.0)), "small.cbz: entries \(listing("small.cbz"))")
+    check(listing("small.docx").first == "[Content_Types].xml" && listing("small.docx").contains("word/document.xml"),
+          "small.docx: entries \(listing("small.docx"))")
+    check(listing("small.pptx").filter { $0.hasPrefix("ppt/slides/slide") && $0.hasSuffix(".xml") }.count == 3,
+          "small.pptx: entries \(listing("small.pptx"))")
+    for name in ["small.epub", "protected.epub", "small.cbz", "small.md", "small.docx", "small.pptx"] {
+        let size = (try? FileManager.default.attributesOfItem(atPath: dir.appendingPathComponent(name).path)[.size] as? Int) ?? 0
+        check(size > 0, "\(name): empty")
+        print("  \(name): size=\(size / 1024) KB")
+    }
+}
+
 // MARK: main
 
 guard CommandLine.arguments.count == 2 else {
@@ -532,12 +999,14 @@ try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories:
 let started = Date()
 for spec in [smallSpec, linksSpec, noOutlineSpec, largeSpec] { try write(spec, to: outDir) }
 try writeLinkForms(to: outDir)
+try writeConvertedFormats(to: outDir)
 print(String(format: "generated in %.1fs", Date().timeIntervalSince(started)))
 verify(smallSpec, dir: outDir, expectedDepth: 2)
 verify(linksSpec, dir: outDir, expectedDepth: 2)
 verify(largeSpec, dir: outDir, expectedDepth: 3)
 verify(noOutlineSpec, dir: outDir, expectedDepth: 0)
 verifyLinkForms(dir: outDir)
+verifyConvertedFormats(dir: outDir)
 if failures.isEmpty {
     print("fixtures verified OK")
 } else {

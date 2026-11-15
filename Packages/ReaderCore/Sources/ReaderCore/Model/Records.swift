@@ -18,7 +18,7 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     public var fileName: String
     /// Number of pages; page indices are `0..<pageCount`.
     public var pageCount: Int
-    /// Size of the PDF in bytes.
+    /// Size of the book's files in bytes: the PDF, plus for a converted book the kept original.
     public var fileSize: Int64
     /// When the book was imported.
     public var addedAt: Date

@@ -343,6 +343,26 @@ slide's aspect ratio.
 - `DESIGN.md` (principle 1 wording, Concepts ▸ Book, "Not in version 1"), `DEVICE_CHECKLIST.md`
   (convert a real EPUB and a real comic on the device).
 
+F7 status (15 November 2026): built in its own worktree beside F6, not yet merged.
+- "Converted from …" is a disabled item in its own section at the end of the Library's book menu
+  and the reader's More menu; one sentence per format ("Converted from EPUB", "Converted from a
+  comic archive", …). SwiftUI does not pass accessibility identifiers on to menu items, so tests
+  find it by its words. A second line with the original file name is not drawn by the system
+  menus and was dropped.
+- Settings ▸ Importing ▸ Supported Formats lists PDF, the common block, one block per group that
+  `ConverterRegistry.standard` has a converter for (only the formats it has), and the "Not
+  supported" list with a reason each. The sheet's sentences, symbols and rows are shared
+  (`ConversionLimitationViews.swift`), so F6's formats appear when their converters are registered.
+- `scripts/fixtures.sh` also makes `small.epub`, `protected.epub`, `small.cbz`, `small.md`,
+  `small.docx` (textutil, repacked) and `small.pptx`, byte-identical on every run.
+- `ConversionJourneyUITests` runs the EPUB journey with the real converter: sheet, Convert,
+  Contents (nested, fragment target on its page), highlight, section note on a converted heading,
+  Notebook, both menu labels; and a comic with `-confirmConversions` (five pages, label, none on a
+  PDF). The section note attached to the converted heading with no change to the reader.
+- Not checked: `small.docx`, `small.pptx` and `small.md` through F6's converters (not merged here),
+  `protected.epub` in a UI test (F3's tests use their own), the Supported Formats screen in a
+  narrow Split View window (only the form sheet's own width).
+
 ## Waves
 
 | Wave | Packages (parallel within a wave) |
