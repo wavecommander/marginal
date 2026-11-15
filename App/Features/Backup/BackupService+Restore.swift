@@ -169,14 +169,35 @@ extension BackupService {
     ///   damaged (nothing is restored then), `.busy`, `.sessionClosed`, `.notEnoughSpace`,
     ///   `CancellationError` before anything was committed.
     func restore(_ bookIDs: Set<UUID>, from session: RestoreSession, restorePDFs: Bool) async throws -> RestoreSummary {
+        try await restore(Dictionary(uniqueKeysWithValues: bookIDs.map { ($0, RestoreAction.replace) }),
+                          from: session, restorePDFs: restorePDFs)
+    }
+
+    /// Restores the books of `actions` (the backed-up book's ID → what to do with it; books not
+    /// listed are untouched), as `restore(_:from:restorePDFs:)` describes, except:
+    /// - `.merge` on a book already in the Library merges the backup's copy into the local book
+    ///   (`BookMergeEngine`): the local book keeps its ID, PDF, cover, hash sidecar and reading
+    ///   position and every record and stroke it has, and gains what the backup has. It is in the
+    ///   restore's safety copy like a replaced book, and committed through the same journalled
+    ///   commit. The local PDF stays; when the local book has none, the backup's is taken (from
+    ///   the archive or the destination, with `restorePDFs`) unless the local book records
+    ///   another PDF hash. `RestoreSummary.merged` says what each merge added and combined, and
+    ///   which ink could not be read and was kept as it was. A book whose notes change while
+    ///   its merge is prepared fails with `libraryChanged` and is left as it was.
+    /// - `.merge` on a book that is not in the Library restores it as a new book.
+    /// - `.restore` and `.replace` do what `restore(_:from:restorePDFs:)` does: a new book is
+    ///   added, a book in the Library is replaced.
+    func restore(_ actions: [UUID: RestoreAction], from session: RestoreSession, restorePDFs: Bool) async throws -> RestoreSummary {
         try await run(.restore) { job in
-            try await self.performRestore(bookIDs, from: session, restorePDFs: restorePDFs, job: job)
+            try await self.performRestore(actions, from: session, restorePDFs: restorePDFs, job: job)
         }
     }
 
     private struct StagedBook {
         var item: RestorePlan.Item
         var output: RestoreStaging.Output
+        /// The local book the backup's copy is merged into; `nil` for a restore or replace.
+        var mergeTarget: UUID?
     }
 
     /// Whether a restore first keeps a safety copy of the local books it changes
@@ -186,30 +207,45 @@ extension BackupService {
         case none
     }
 
-    func performRestore(_ bookIDs: Set<UUID>, from session: RestoreSession, restorePDFs: Bool,
-                        job: BackupJob, safety: RestoreSafetyMode = .protect) async throws -> RestoreSummary {
+    /// - Parameter recordOverrides: records to restore instead of the backup's, by book ID (an
+    ///   undo passes the records a merge amended its safety copy with).
+    func performRestore(_ actions: [UUID: RestoreAction], from session: RestoreSession, restorePDFs: Bool,
+                        job: BackupJob, safety: RestoreSafetyMode = .protect,
+                        recordOverrides: [UUID: BookArchive] = [:]) async throws -> RestoreSummary {
         guard !session.isClosed else { throw BackupServiceError.sessionClosed }
-        if let unknown = bookIDs.first(where: { session.manifest.entry(for: $0) == nil }) {
+        if let unknown = actions.keys.sorted(by: { $0.uuidString < $1.uuidString })
+            .first(where: { session.manifest.entry(for: $0) == nil }) {
             throw BackupError.bookNotInBackup(unknown)
         }
-        let items = session.plan.items.filter { bookIDs.contains($0.id) }
+        let items = session.plan.items.filter { actions[$0.id] != nil }
         var summary = RestoreSummary()
         guard !items.isEmpty else { return summary }
 
-        // Where each PDF comes from (hashing local candidates when their hash is not cached).
+        // Where each PDF comes from (hashing local candidates when their hash is not cached),
+        // and which local book each merge goes into.
         job.set(phase: .hashingPDFs)
-        var inputs: [(item: RestorePlan.Item, source: RestoreStaging.PDFSource)] = []
+        var inputs: [(item: RestorePlan.Item, source: RestoreStaging.PDFSource, mergeTarget: UUID?)] = []
+        var mergeBytes: Int64 = 0
         for item in items {
-            inputs.append((item, try await pdfSource(for: item, session: session, restorePDFs: restorePDFs)))
+            if actions[item.id] == .merge, let target = Self.mergeTargetID(for: item) {
+                inputs.append((item, try mergePDFSource(for: item, target: target, session: session, restorePDFs: restorePDFs),
+                               target))
+                if let local = try store.books.book(id: target) {
+                    mergeBytes += await MergeFiles.bookFilesSize(store.bookDirectoryURL(bookID: target), pdfFileName: local.fileName)
+                }
+            } else {
+                inputs.append((item, try await pdfSource(for: item, session: session, restorePDFs: restorePDFs), nil))
+            }
         }
 
         let sessionDirectory = RestoreLayout.root(storeRoot: store.rootDirectory)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let stagingInputs = inputs.map {
-            RestoreStaging.Input(sessionDirectory: sessionDirectory, entry: $0.item.entry, pdfSource: $0.source)
+            RestoreStaging.Input(sessionDirectory: sessionDirectory, entry: $0.item.entry, pdfSource: $0.source,
+                                 records: recordOverrides[$0.item.id])
         }
         job.set(phase: .checkingSpace)
-        try checkSpace(stagingInputs.reduce(0) { $0 + RestoreStaging.weight(of: $1) }, at: store.rootDirectory)
+        try checkSpace(stagingInputs.reduce(mergeBytes) { $0 + RestoreStaging.weight(of: $1) }, at: store.rootDirectory)
 
         var keepSessionFiles = false
         var safetyCopy: RestoreSafetyCopy?
@@ -225,10 +261,22 @@ extension BackupService {
                 position += weights[index]
                 let end = 0.95 * position / totalWeight
                 let item = inputs[index].item
+                let mergeTarget = inputs[index].mergeTarget
                 do {
                     let output = try await RestoreStaging.stage(input, reader: session.reader, destination: session.destination,
                                                                 progress: job.reporter(from: start, to: end))
-                    staged.append(StagedBook(item: item, output: output))
+                    if mergeTarget != nil {
+                        // The merged directory is built at `staged/<localID>` later; the backup's
+                        // copy waits beside it.
+                        do {
+                            _ = try await MergeFiles.setIncomingAside(session: sessionDirectory, bookID: item.id)
+                        } catch {
+                            summary.failures.append(.init(id: item.id, title: item.entry.book.title,
+                                                          message: "“\(item.entry.book.title)” couldn’t be merged (\(error.localizedDescription)). It is unchanged."))
+                            continue
+                        }
+                    }
+                    staged.append(StagedBook(item: item, output: output, mergeTarget: mergeTarget))
                 } catch RestoreStagingError.damaged(let error) {
                     throw BackupServiceError.backupDamaged(bookTitle: item.entry.book.title, reason: error.localizedDescription)
                 } catch RestoreStagingError.pdf(let error) {
@@ -264,8 +312,43 @@ extension BackupService {
                 job.set(phase: .committing)
             }
 
+            // Merged books are built now, from the local books as the safety copy holds them
+            // (their notes and ink are paused; what else changes meanwhile is taken in at commit).
+            var prepared: [UUID: PreparedMerge] = [:]
+            if staged.contains(where: { $0.mergeTarget != nil }) {
+                job.set(phase: .extracting)
+                for book in staged {
+                    guard let target = book.mergeTarget else { continue }
+                    do {
+                        prepared[book.item.id] = try await prepareMerge(of: book.item, staged: book.output, into: target,
+                                                                        sessionDirectory: sessionDirectory)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let error as BackupServiceError {
+                        summary.failures.append(.init(id: book.item.id, title: book.item.entry.book.title,
+                                                      message: error.localizedDescription))
+                    } catch {
+                        summary.failures.append(.init(id: book.item.id, title: book.item.entry.book.title,
+                                                      message: "“\(book.item.entry.book.title)” couldn’t be merged (\(error.localizedDescription)). It is unchanged."))
+                    }
+                }
+                try Task.checkCancellation()
+                beforeMergeCommit?()
+                job.set(phase: .committing)
+            }
+
             // From here to the end of the loop: no suspension point.
             commits: for book in staged {
+                if book.mergeTarget != nil {
+                    guard let merge = prepared[book.item.id] else { continue }
+                    switch commitMerge(merge, sessionDirectory: sessionDirectory, safetyCopy: safetyCopy, summary: &summary) {
+                    case .committed, .failed:
+                        continue
+                    case .stopped:
+                        keepSessionFiles = true
+                        break commits
+                    }
+                }
                 let entryBook = book.item.entry.book
                 let current = currentMatches(for: entryBook)
                 guard Set(current).isSubset(of: Set(book.item.replacedBookIDs)) else {

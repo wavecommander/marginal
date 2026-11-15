@@ -50,6 +50,9 @@ nonisolated enum RestoreStaging {
         var sessionDirectory: URL
         var entry: BackupManifest.BookEntry
         var pdfSource: PDFSource
+        /// Records to stage instead of the backup's `records.json` (an undo of a merge whose
+        /// safety copy was amended at commit time); `nil`: the backup's.
+        var records: BookArchive? = nil
     }
 
     struct Output: Sendable {
@@ -91,7 +94,7 @@ nonisolated enum RestoreStaging {
             do {
                 try manager.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try reader.extractFiles(ofBook: bookID, into: staged, progress: filesProgress)
-                archive = try reader.bookArchive(for: bookID)
+                archive = try input.records ?? reader.bookArchive(for: bookID)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
