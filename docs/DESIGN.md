@@ -389,6 +389,11 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
   when present. The newest 10 snapshots are kept; PDFs are never removed automatically.
+- **Include PDFs is one choice** (owner decision, 15 November 2026). The backup-file switch,
+  each destination's switch and the automatic backup's switch all show and change the same
+  stored value, in every window at once, so a reader who has decided once is never caught out
+  by another switch still set the other way. On by default. (Restore PDFs in the restore
+  preview is a separate, per-restore choice.)
 - **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
   the app, and the screen says so.
 - **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),

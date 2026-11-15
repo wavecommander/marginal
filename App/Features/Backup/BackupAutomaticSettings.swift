@@ -1,9 +1,11 @@
 import Foundation
 import Observation
 
-/// Automatic-backup preferences and the outcome of the last automatic run, kept in
-/// `UserDefaults`. The Backup screen edits the preferences; the scheduler reads them, decides
-/// when a run is due, and records how each run went. One instance per app (`AppEnvironment`).
+/// Backup preferences and the outcome of the last automatic run, kept in `UserDefaults`: the
+/// automatic-backup settings, and the Include PDFs choice that every backup shares. The Backup
+/// screens edit the preferences; the scheduler reads them, decides when a run is due, and
+/// records how each run went. One instance per app (`AppEnvironment`), observed by every window,
+/// so a change made in one screen shows in the others at once.
 ///
 /// Automatic backups are off until the reader turns them on and picks a destination.
 @Observable
@@ -12,7 +14,8 @@ final class BackupAutomaticSettings {
     nonisolated enum Key {
         static let isEnabled = "backup.automatic.enabled"
         static let destinationID = "backup.automatic.destinationID"
-        static let includesPDFs = "backup.automatic.includesPDFs"
+        /// One key for every backup's Include PDFs choice (not only automatic ones).
+        static let includesPDFs = "backup.includesPDFs"
         static let lastChangeAt = "backup.automatic.lastChangeAt"
         static let lastAttemptAt = "backup.automatic.lastAttemptAt"
         static let lastFailureMessage = "backup.automatic.lastFailureMessage"
@@ -23,7 +26,10 @@ final class BackupAutomaticSettings {
     var isEnabled: Bool { didSet { defaults.set(isEnabled, forKey: Key.isEnabled) } }
     /// `BackupDestination.id` of the destination automatic backups go to; `nil` until chosen.
     var destinationID: String? { didSet { defaults.set(destinationID, forKey: Key.destinationID) } }
-    /// Whether automatic backups also send PDFs the destination does not have yet.
+    /// Whether backups include the PDFs. **One choice for every backup** (owner decision,
+    /// 15 November 2026): the backup-file switch, each destination's switch and the automatic
+    /// backup's switch all show and change this one value, so a reader who has decided once is
+    /// never caught out by another switch still set the other way. On by default.
     var includesPDFs: Bool { didSet { defaults.set(includesPDFs, forKey: Key.includesPDFs) } }
 
     /// When the library last changed (any record or ink write). A run is due only when this is

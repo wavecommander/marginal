@@ -17,6 +17,7 @@ final class BackupUITests: XCTestCase {
         static let fileEstimate = "backup.file.estimate"
         static let backUpNow = "backup.destinationScreen.backUpNow"
         static let destinationIncludePDFs = "backup.destinationScreen.includePDFs"
+        static let fileIncludePDFs = "backup.file.includePDFs"
         static let destinationResult = "backup.destinationScreen.result"
         static let snapshotsEmpty = "backup.snapshots.empty"
         static let progress = "backup.progress"
@@ -232,7 +233,13 @@ final class BackupUITests: XCTestCase {
         deleteBook(app, "small")
 
         openBackupScreen(app)
+        // The choice made on the destination's switch is the backup-file switch's too: there is
+        // one Include PDFs choice for every backup.
+        let fileIncludePDFs = app.switches[ID.fileIncludePDFs].firstMatch
+        XCTAssertTrue(fileIncludePDFs.waitForExistence(timeout: 5))
+        XCTAssertEqual(fileIncludePDFs.value as? String, "0", "the backup-file switch follows the destination's")
         openDestination(app)
+        XCTAssertEqual(app.switches[ID.destinationIncludePDFs].firstMatch.value as? String, "0", "and it is remembered")
         openNewestBackup(app)
         XCTAssertFalse(app.switches["restore.restorePDFs"].exists, "nothing to restore PDFs from")
         XCTAssertTrue(any(app, "restore.book.small.pdf").label.contains("Locate PDF"), app.debugDescription)

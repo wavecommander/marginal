@@ -192,14 +192,12 @@ private struct BackupDestinationContent: View {
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(WindowContext.self) private var window: WindowContext?
-    @AppStorage private var includesPDFs: Bool
     @State private var isFolderPickerPresented = false
     @State private var isStopConfirmationPresented = false
     @State private var restoreRequest: RestoreRequest?
 
     init(model: BackupDestinationModel) {
         self.model = model
-        _includesPDFs = AppStorage(wrappedValue: true, "backup.destination.\(model.entryID).includePDFs")
     }
 
     private var service: BackupService { environment.backupService }
@@ -302,10 +300,12 @@ private struct BackupDestinationContent: View {
     }
 
     private var backUpSection: some View {
-        Section {
-            Toggle("Include PDFs", isOn: $includesPDFs)
+        // The same Include PDFs choice as the backup-file switch and the automatic one.
+        @Bindable var settings = environment.backupAutomaticSettings
+        return Section {
+            Toggle("Include PDFs", isOn: $settings.includesPDFs)
                 .accessibilityIdentifier(AccessibilityID.Backup.destinationIncludePDFs)
-            Button("Back Up Now") { model.backUpNow(includePDFs: includesPDFs) }
+            Button("Back Up Now") { model.backUpNow(includePDFs: settings.includesPDFs) }
                 .disabled(!isAvailable || service.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.backUpNow)
             if let result = model.resultLine {

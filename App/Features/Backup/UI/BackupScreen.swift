@@ -41,7 +41,6 @@ private struct BackupScreenContent: View {
     @Bindable var model: BackupScreenModel
 
     @Environment(AppEnvironment.self) private var environment
-    @AppStorage("backup.file.includePDFs") private var fileIncludesPDFs = true
     @State private var isRestoreImporterPresented = false
     @State private var restoreRequest: RestoreRequest?
 
@@ -88,14 +87,16 @@ private struct BackupScreenContent: View {
     }
 
     private var fileSection: some View {
-        Section {
-            Toggle("Include PDFs", isOn: $fileIncludesPDFs)
+        // The same Include PDFs choice as every destination's switch and the automatic one.
+        @Bindable var settings = environment.backupAutomaticSettings
+        return Section {
+            Toggle("Include PDFs", isOn: $settings.includesPDFs)
                 .accessibilityIdentifier(AccessibilityID.Backup.fileIncludePDFs)
             Text(model.estimate.map(BackupUIText.estimateLine) ?? "Working out the size…")
                 .font(Typeface.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier(AccessibilityID.Backup.fileEstimate)
-            Button("Save Backup File…") { model.saveBackupFile(includePDFs: fileIncludesPDFs) }
+            Button("Save Backup File…") { model.saveBackupFile(includePDFs: settings.includesPDFs) }
                 .disabled(service.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.saveFile)
             if let status = model.fileStatus {
