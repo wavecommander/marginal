@@ -86,7 +86,10 @@ nonisolated struct BackupStoreTransaction: Hashable, Sendable, CustomStringConve
 }
 
 /// A subscription's status in its group (`Product.SubscriptionInfo.Status`).
-nonisolated struct BackupStoreSubscriptionStatus: Hashable, Sendable {
+///
+/// The renewal info's signed form never appears in a description, debug description or mirror.
+nonisolated struct BackupStoreSubscriptionStatus: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible,
+    CustomReflectable {
     enum State: Hashable, Sendable {
         case subscribed, inGracePeriod, inBillingRetryPeriod, expired, revoked
         case other(Int)
@@ -106,6 +109,26 @@ nonisolated struct BackupStoreSubscriptionStatus: Hashable, Sendable {
     let transaction: BackupStoreTransaction
     /// From the renewal info, `nil` when that was not verified.
     let willAutoRenew: Bool?
+    /// The renewal info as the App Store signed it (a compact JWS), only when StoreKit verified
+    /// it. The backup service uses it to count Apple's grace and billing-retry periods.
+    let renewalInfoJWS: String?
+
+    init(state: State, transaction: BackupStoreTransaction, willAutoRenew: Bool?, renewalInfoJWS: String? = nil) {
+        self.state = state
+        self.transaction = transaction
+        self.willAutoRenew = willAutoRenew
+        self.renewalInfoJWS = renewalInfoJWS
+    }
+
+    var description: String {
+        "BackupStoreSubscriptionStatus(state: \(state), transaction: \(transaction), "
+            + "willAutoRenew: \(willAutoRenew.map(String.init) ?? "unknown"), renewalInfo: \(renewalInfoJWS == nil ? "none" : "<redacted>"))"
+    }
+    var debugDescription: String { description }
+    var customMirror: Mirror {
+        Mirror(self, children: ["state": state, "transaction": transaction, "willAutoRenew": willAutoRenew as Any,
+                                "renewalInfoJWS": renewalInfoJWS == nil ? "none" : "<redacted>"], displayStyle: .struct)
+    }
 }
 
 /// What `BackupStoreKit.purchase` returns.
@@ -271,9 +294,13 @@ final class AppStoreBackupStore: BackupStoreKit {
         }
         return statuses.map { status in
             var willAutoRenew: Bool?
-            if case .verified(let renewal) = status.renewalInfo { willAutoRenew = renewal.willAutoRenew }
+            var renewalJWS: String?
+            if case .verified(let renewal) = status.renewalInfo {
+                willAutoRenew = renewal.willAutoRenew
+                renewalJWS = status.renewalInfo.jwsRepresentation
+            }
             return BackupStoreSubscriptionStatus(state: Self.state(status.state), transaction: record(status.transaction),
-                                                 willAutoRenew: willAutoRenew)
+                                                 willAutoRenew: willAutoRenew, renewalInfoJWS: renewalJWS)
         }
     }
 

@@ -8,6 +8,8 @@
 	</array>
 	<key>BackupService</key>
 	<dict>
+		<key>AttestBypass</key>
+		<string>$(BACKUP_SERVICE_ATTEST_BYPASS)</string>
 		<key>Host</key>
 		<string>$(BACKUP_SERVICE_HOST)</string>
 		<key>ProductIDs</key>
