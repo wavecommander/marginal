@@ -12,6 +12,7 @@ struct MarginalApp: App {
 
     init() {
         PerfMarks.mark("appInit")
+        OnboardingCoordinator.configureTips()
     }
 
     var body: some Scene {

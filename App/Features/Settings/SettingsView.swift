@@ -9,6 +9,10 @@ import SwiftUI
 /// at once.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
+    /// Opens the Quick Guide in the window that presented Settings (`nil` in previews).
+    var openQuickGuide: (() -> Void)? = nil
+    @State private var didResetTips = false
     @AppStorage(AccentChoice.storageKey) private var storedAccent = AccentChoice.default.rawValue
 
     private var selection: AccentChoice { AccentChoice(storedValue: storedAccent) }
@@ -30,6 +34,23 @@ struct SettingsView: View {
                     Text("Appearance")
                 } footer: {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
+                }
+                Section {
+                    Button("Open the Quick Guide") {
+                        dismiss()
+                        openQuickGuide?()
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsOpenGuide)
+                    Button(didResetTips ? "Tips Will Show Again" : "Show Tips Again") {
+                        environment?.onboarding.showTipsAgain()
+                        didResetTips = true
+                    }
+                    .disabled(didResetTips)
+                    .accessibilityIdentifier(AccessibilityID.Onboarding.settingsShowTips)
+                } header: {
+                    Text("Help")
+                } footer: {
+                    Text("The Quick Guide is a six-page book that shows how notes, highlights and Markup work. If you deleted it, this brings it back.")
                 }
             }
             .navigationTitle("Settings")

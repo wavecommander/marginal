@@ -2,6 +2,17 @@
 /// their own nested enum (or cases to the existing ones) here rather than inlining strings.
 /// UI tests mirror the strings they use (the test target cannot import the app).
 nonisolated enum AccessibilityID {
+    enum Onboarding {
+        static let welcomeTitle = "onboarding.welcome.title"
+        static let welcomeOpenGuide = "onboarding.welcome.openGuide"
+        static let welcomeNotNow = "onboarding.welcome.notNow"
+        /// "Open the Quick Guide" in the empty Library.
+        static let emptyLibraryOpenGuide = "library.emptyOpenGuide"
+        /// Settings ▸ Help.
+        static let settingsOpenGuide = "settings.help.openGuide"
+        static let settingsShowTips = "settings.help.showTips"
+    }
+
     enum Library {
         static let importButton = "library.importButton"
         /// One row/cell per book: `library.book.<title>`.

@@ -121,7 +121,11 @@ private struct WindowContent: View {
         }
         .environment(context)
         .focusedSceneValue(context)
-        .sheet(isPresented: $context.isSettingsPresented) { SettingsView() }
+        .sheet(isPresented: $context.isSettingsPresented) {
+            SettingsView(openQuickGuide: {
+                Task { await environment.onboarding.openQuickGuide(environment: environment, window: context) }
+            })
+        }
         .onOpenURL { url in environment.handleIncomingPDF(url, in: context) }
         .onChange(of: context.path, initial: true) { _, path in
             storedPath = try? JSONEncoder().encode(path)

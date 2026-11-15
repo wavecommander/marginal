@@ -19,6 +19,8 @@ final class AppEnvironment {
     let storeErrorMessage: String?
     /// The fixture importer (`-importFixture`); WP3 owns the real import pipeline.
     @ObservationIgnored let fixtureImporter: FixtureImporter
+    /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.
+    let onboarding: OnboardingCoordinator
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -42,6 +44,7 @@ final class AppEnvironment {
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
         self.fixtureImporter = FixtureImporter(store: store)
+        self.onboarding = OnboardingCoordinator()
     }
 
     /// The live environment: `LibraryStore.live(reset: -resetState)`, falling back to an
@@ -55,6 +58,7 @@ final class AppEnvironment {
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
             ReaderScrollDirectionStore().removeAll()
         }
+        OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
             UserDefaults.standard.set(accent.rawValue, forKey: AccentChoice.storageKey)
         }
@@ -143,6 +147,7 @@ final class AppEnvironment {
     /// Every window root forwards `.onOpenURL` here. WP3 implements the behaviour in
     /// `IncomingPDFHandler` (in its own folder); this method does not change.
     func handleIncomingPDF(_ url: URL, in window: WindowContext) {
+        onboarding.documentArrived()
         IncomingPDFHandler.handle(url, environment: self, window: window)
     }
 }

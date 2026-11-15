@@ -13,7 +13,7 @@ import SwiftUI
 /// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
-/// (`-resetState` clears it first).
+/// (`-resetState` clears it first); `-onboarding` is applied by `OnboardingState.applyLaunch`.
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -25,7 +25,14 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
         case page, section
     }
 
+    /// What `-onboarding` can ask for (see `OnboardingState`).
+    enum Onboarding: String, Sendable {
+        case skip, reset
+    }
+
     /// `-resetState`: wipe the app's store and files at launch (WP2/WP3 implement the wipe).
+    /// Also switches first-run onboarding off, and keeps it off for later launches, unless
+    /// `-onboarding reset` is passed too.
     var resetState = false
 
     /// `-importFixture <absolute path>`, repeatable: import the PDF at that host path at launch
@@ -105,6 +112,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// value names the environment accent and the window's `UIWindow.tintColor` (`AccentProbe`).
     var exposeAccent = false
 
+    /// `-onboarding <skip|reset>`: `skip` switches the welcome sheet and tips off (and keeps
+    /// them off); `reset` forgets all onboarding state, so this launch is a first launch.
+    var onboarding: Onboarding?
+
     init() {}
 
     init(arguments: [String]) {
@@ -169,6 +180,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeAccent = true
             case "-scrollDirection":
                 if let text = value(after: index) { scrollDirection = ReaderScrollDirection(rawValue: text); index += 1 }
+            case "-onboarding":
+                if let text = value(after: index) { onboarding = Onboarding(rawValue: text); index += 1 }
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
             default:
