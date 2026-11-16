@@ -6,7 +6,7 @@ import ReaderCore
 import Testing
 import UIKit
 import WebKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// One canary per framework workaround (`App/Support/FrameworkWorkarounds`): each checks, on the
 /// system the tests run on, the piece of PDFKit, PencilKit, WebKit or QuickLook's inside that the
@@ -201,7 +201,7 @@ struct FrameworkWorkaroundCanaryTests {
             + #"{"trigger":{"url-filter":"^x-apple-ql-id:"},"action":{"type":"ignore-previous-rules"}}]"#)
         #expect(WebPDFRenderer.ruleListJSON == json)
         let store = try #require(WKContentRuleListStore.default())
-        let identifier = "software.tactile.marginal.canary.block-network"
+        let identifier = "software.tactile.texts.canary.block-network"
         let compiled: Bool = try await withCheckedThrowingContinuation { continuation in
             store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json) { list, error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: list != nil) }

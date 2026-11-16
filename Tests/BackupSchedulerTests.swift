@@ -3,7 +3,7 @@ import ReaderBackup
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupScheduler` (B5b), app-hosted, with a real `BackupService` and a temporary folder
 /// destination; the system scheduler, background tasks and background-time assertions are fakes.

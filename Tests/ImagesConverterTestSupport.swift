@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 import ReaderCore
 import UniformTypeIdentifiers
-@testable import Marginal
+@testable import TactileTexts
 
 /// Writes a ZIP archive of stored (uncompressed) entries straight to a file, for building comic
 /// archive fixtures. `method` and `flags` are written as given, so entries can claim an unsupported

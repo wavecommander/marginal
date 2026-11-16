@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 @MainActor
 struct DesignSystemTests {

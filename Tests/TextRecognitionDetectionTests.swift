@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Scan detection at import (S3): the generated fixtures, the image-coverage measurement, the
 /// time it adds to importing `large.pdf`, and what an import leaves behind (state and notice).

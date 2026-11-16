@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The restore preview's per-book choices, the merge sentences, the summary of a merge and Undo
 /// Last Restore (`RestoreChoices`, `RestorePreviewLogic.row`, `MergeText`, `UndoRestoreLogic`).

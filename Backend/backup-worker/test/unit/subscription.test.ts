@@ -12,7 +12,7 @@ function transaction(overrides: Partial<Transaction> = {}): Transaction {
   return {
     originalTransactionId: "1",
     transactionId: "1",
-    productId: "software.tactile.marginal.backup.standard",
+    productId: "software.tactile.texts.backup.standard",
     environment: "Production",
     signedDate: EXPIRES - 30 * DAY_MS,
     expiresDate: EXPIRES,
@@ -50,7 +50,7 @@ describe("the lapse policy, exactly at its limits", () => {
     expect(info).toEqual({
       state: "ended",
       environment: "Production",
-      productId: "software.tactile.marginal.backup.standard",
+      productId: "software.tactile.texts.backup.standard",
       expiresAt: "2026-12-01T00:00:00.000Z",
       endedAt: "2026-12-01T00:00:00.000Z",
       readOnlyUntil: "2026-12-31T00:00:00.000Z",

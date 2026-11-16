@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Builds a signed build and installs it on a physical iPad, then launches it, reporting each step.
-# Usage: MARGINAL_TEAM=<team id> scripts/device.sh ["Device name or UDID"]
-# Env:   MARGINAL_TEAM        Apple development team ID used for automatic signing. Optional when
-#                             Config/Local.xcconfig exists (it then supplies the team).
-#        MARGINAL_DEVICE      Device name or UDID (default: the first connected physical iPad).
-#        MARGINAL_CONFIG      Build configuration (default: Release).
-#        MARGINAL_NO_INSTALL  Set to 1 to stop after the build (nothing is sent to the device).
+# Usage: TACTILE_TEAM=<team id> scripts/device.sh ["Device name or UDID"]
+# Env:   TACTILE_TEAM        Apple development team ID used for automatic signing. Optional when
+#                            Config/Local.xcconfig exists (it then supplies the team).
+#        TACTILE_DEVICE      Device name or UDID (default: the first connected physical iPad).
+#        TACTILE_CONFIG      Build configuration (default: Release).
+#        TACTILE_NO_INSTALL  Set to 1 to stop after the build (nothing is sent to the device).
+#        TACTILE_NO_LAUNCH   Set to 1 to stop after the install (scripts/device-debug.sh launches it).
 # The device must be paired, unlocked, and have Developer Mode on. With a free Personal Team the
 # developer profile must be trusted once on the device (Settings > General > VPN & Device
 # Management) and the app stops launching after 7 days until it is installed again.
@@ -13,17 +14,17 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-DEVICE="${1:-${MARGINAL_DEVICE:-}}"
-CONFIG="${MARGINAL_CONFIG:-Release}"
-BUNDLE_ID="software.tactile.marginal"
+DEVICE="${1:-${TACTILE_DEVICE:-}}"
+CONFIG="${TACTILE_CONFIG:-Release}"
+BUNDLE_ID="software.tactile.texts"
 STARTED=$SECONDS
 
 step() { printf '\n==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 elapsed() { printf '%dm%02ds' $(( ($SECONDS - ${1:-$STARTED}) / 60 )) $(( ($SECONDS - ${1:-$STARTED}) % 60 )); }
 
-if [[ -z "${MARGINAL_TEAM:-}" && ! -f "$REPO/Config/Local.xcconfig" ]]; then
-  echo "device.sh: set MARGINAL_TEAM to your Apple development team ID, or create Config/Local.xcconfig" >&2
+if [[ -z "${TACTILE_TEAM:-}" && ! -f "$REPO/Config/Local.xcconfig" ]]; then
+  echo "device.sh: set TACTILE_TEAM to your Apple development team ID, or create Config/Local.xcconfig" >&2
   exit 1
 fi
 
@@ -38,7 +39,7 @@ info "${DEVICE_LINE:-$DEVICE}"
 
 step "Generating the Xcode project"
 xcodegen generate --quiet
-info "Marginal.xcodeproj is up to date ($(git rev-parse --short HEAD 2>/dev/null || echo 'no git'), branch $(git branch --show-current 2>/dev/null || echo '?'))"
+info "TactileTexts.xcodeproj is up to date ($(git rev-parse --short HEAD 2>/dev/null || echo 'no git'), branch $(git branch --show-current 2>/dev/null || echo '?'))"
 if [[ -n "$(git status --porcelain -- App Tests UITests Packages 2>/dev/null)" ]]; then
   info "Note: this folder has uncommitted changes under App/, Tests/, UITests/ or Packages/; they are part of this build."
 fi
@@ -47,10 +48,10 @@ step "Building ($CONFIG, signed) — this takes a few minutes on a clean build"
 LOG="$REPO/build/device-build.log"
 mkdir -p "$REPO/build"
 SIGNING=(CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_STYLE=Automatic)
-[[ -n "${MARGINAL_TEAM:-}" ]] && SIGNING+=("DEVELOPMENT_TEAM=$MARGINAL_TEAM")
+[[ -n "${TACTILE_TEAM:-}" ]] && SIGNING+=("DEVELOPMENT_TEAM=$TACTILE_TEAM")
 BUILD_STARTED=$SECONDS
 xcodebuild build \
-    -project Marginal.xcodeproj -scheme Marginal -configuration "$CONFIG" \
+    -project TactileTexts.xcodeproj -scheme TactileTexts -configuration "$CONFIG" \
     -destination "id=$DEVICE" \
     -derivedDataPath "$REPO/build/DerivedData-device" \
     -allowProvisioningUpdates \
@@ -92,10 +93,10 @@ info "Build succeeded in $(elapsed $BUILD_STARTED)"
 PROFILE="$(grep -m1 -E 'Provisioning Profile: ' "$LOG" | sed -E 's/^ +//' || true)"
 [[ -n "$PROFILE" ]] && info "$PROFILE"
 
-APP="$REPO/build/DerivedData-device/Build/Products/$CONFIG-iphoneos/Marginal.app"
+APP="$REPO/build/DerivedData-device/Build/Products/$CONFIG-iphoneos/TactileTexts.app"
 [[ -d "$APP" ]] || { echo "device.sh: $APP not found" >&2; exit 1; }
-if [[ "${MARGINAL_NO_INSTALL:-}" == "1" ]]; then
-  step "Skipping install (MARGINAL_NO_INSTALL=1)"
+if [[ "${TACTILE_NO_INSTALL:-}" == "1" ]]; then
+  step "Skipping install (TACTILE_NO_INSTALL=1)"
   info "Built app: $APP"
   exit 0
 fi
@@ -115,6 +116,10 @@ if [[ $INSTALLED -ne 1 ]]; then
   exit 1
 fi
 info "Installed $BUNDLE_ID"
+if [[ "${TACTILE_NO_LAUNCH:-}" == "1" ]]; then
+  printf '\nDone in %s (not launched: TACTILE_NO_LAUNCH=1).\n' "$(elapsed)"
+  exit 0
+fi
 
 step "Launching"
 if ! xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" >"$REPO/build/device-launch.log" 2>&1; then

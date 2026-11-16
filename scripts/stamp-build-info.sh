@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Writes the git branch, commit, uncommitted-changes flag and build time into the built app's
-# Info.plist under `MarginalBuild`, which Settings ▸ About shows (`BuildInfo` in the app).
+# Info.plist under `TactileTextsBuild`, which Settings ▸ About shows (`BuildInfo` in the app).
 #
-# Run by the Marginal target's "Stamp Build Info" phase (project.yml) on every build, after the
+# Run by the TactileTexts target's "Stamp Build Info" phase (project.yml) on every build, after the
 # Info.plist is processed and before signing. Only the built copy is changed; the committed
 # App/Info.plist never carries these values. Never fails the build: without git, or outside a
 # repository, the git values are written empty and the app shows "Unknown".
@@ -39,7 +39,7 @@ json_string() {
 }
 
 JSON="{\"Branch\":$(json_string "$BRANCH"),\"Commit\":$(json_string "$COMMIT"),\"Dirty\":$DIRTY,\"Time\":$(json_string "$TIME")}"
-if ! plutil -replace MarginalBuild -json "$JSON" "$PLIST"; then
-  echo "warning: stamp-build-info: could not write MarginalBuild to $PLIST"
+if ! plutil -replace TactileTextsBuild -json "$JSON" "$PLIST"; then
+  echo "warning: stamp-build-info: could not write TactileTextsBuild to $PLIST"
 fi
 exit 0

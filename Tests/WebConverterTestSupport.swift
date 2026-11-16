@@ -2,7 +2,7 @@ import Foundation
 import PDFKit
 import ReaderCore
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 // Fixtures and helpers for the F6 converter tests (text, Office documents, slides). The Office
 // fixtures are committed under Tests/Fixtures/f6-* and rebuilt by

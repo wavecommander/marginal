@@ -3,7 +3,7 @@ import PDFKit
 import PencilKit
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Ink space (`PageInkGeometry`): pure mapping, and registration with PDFKit's own page
 /// coordinates in a real PDF view at several zooms, page sizes, rotations and crop boxes, and

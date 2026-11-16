@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 struct ReaderScrollDirectionTests {
     private func makeStore() -> (ReaderScrollDirectionStore, UserDefaults, String) {

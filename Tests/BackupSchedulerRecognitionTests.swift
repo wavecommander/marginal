@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// S2: recognised text and recognition state are derived from the PDF and never backed up, so
 /// their hub events (`StoreChange.affectsBackup == false`) never make an automatic backup due;

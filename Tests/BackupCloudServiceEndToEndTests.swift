@@ -6,7 +6,7 @@ import S3Kit
 import StoreKit
 import StoreKitTest
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 private final class EndToEndBundleMarker {}
 
@@ -14,24 +14,24 @@ private final class EndToEndBundleMarker {}
 /// `Backend/backup-worker`, which mints real temporary credentials for the real development
 /// bucket. Skipped unless both are set (`TEST_RUNNER_` passes them through `xcodebuild`):
 ///
-///     TEST_RUNNER_MARGINAL_BACKUP_SERVICE=localhost:<port>
-///     TEST_RUNNER_MARGINAL_BACKUP_SERVICE_BYPASS=<the Worker's APP_ATTEST_BYPASS_SECRET>
+///     TEST_RUNNER_TACTILE_BACKUP_SERVICE=localhost:<port>
+///     TEST_RUNNER_TACTILE_BACKUP_SERVICE_BYPASS=<the Worker's APP_ATTEST_BYPASS_SECRET>
 ///
 /// The Worker needs `XCODE_STOREKIT_CERT` (the certificate this simulator's StoreKit test
-/// session signs with): `TEST_RUNNER_MARGINAL_STOREKIT_CERT_OUT=<file>` runs
+/// session signs with): `TEST_RUNNER_TACTILE_STOREKIT_CERT_OUT=<file>` runs
 /// `writeStoreKitTestCertificate`, which writes it there (see the Worker's README).
 ///
 /// Nothing secret is printed: not the JWS, the credentials or the bypass secret.
 @MainActor
 @Suite(.serialized)
 struct BackupCloudServiceEndToEndTests {
-    static let productID = "software.tactile.marginal.backup.standard"
-    nonisolated static let serviceHost = ProcessInfo.processInfo.environment["MARGINAL_BACKUP_SERVICE"]
-    nonisolated static let bypassSecret = ProcessInfo.processInfo.environment["MARGINAL_BACKUP_SERVICE_BYPASS"]
-    nonisolated static let certificateOut = ProcessInfo.processInfo.environment["MARGINAL_STOREKIT_CERT_OUT"]
+    static let productID = "software.tactile.texts.backup.standard"
+    nonisolated static let serviceHost = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE"]
+    nonisolated static let bypassSecret = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE_BYPASS"]
+    nonisolated static let certificateOut = ProcessInfo.processInfo.environment["TACTILE_STOREKIT_CERT_OUT"]
 
     func storeKitSession() throws -> SKTestSession {
-        let url = try #require(Bundle(for: EndToEndBundleMarker.self).url(forResource: "Marginal", withExtension: "storekit"))
+        let url = try #require(Bundle(for: EndToEndBundleMarker.self).url(forResource: "TactileTexts", withExtension: "storekit"))
         let session = try SKTestSession(contentsOf: url)
         session.resetToDefaultState()
         session.disableDialogs = true
@@ -62,7 +62,7 @@ struct BackupCloudServiceEndToEndTests {
 
     /// Writes the base64 DER of the certificate in the `x5c` header of a test-session
     /// transaction (the single, self-signed certificate StoreKit Testing signs with) to
-    /// `MARGINAL_STOREKIT_CERT_OUT`, for the Worker's `XCODE_STOREKIT_CERT`. A public
+    /// `TACTILE_STOREKIT_CERT_OUT`, for the Worker's `XCODE_STOREKIT_CERT`. A public
     /// certificate, not a secret; the transaction itself is not written anywhere.
     @Test(.enabled(if: certificateOut != nil))
     func writeStoreKitTestCertificate() async throws {

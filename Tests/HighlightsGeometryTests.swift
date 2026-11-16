@@ -3,7 +3,7 @@ import Foundation
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Highlights' pure rules: text normalisation, overlap, hit-testing, the palette and the menus.
 @MainActor

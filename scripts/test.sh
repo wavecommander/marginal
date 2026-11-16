@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Runs package tests, then the app's unit and UI tests on the simulator.
 # Usage: scripts/test.sh [--packages-only] [--skip-packages] [--screenshots] [--serial]
-#                        [xcodebuild args, e.g. -only-testing:MarginalUITests/LibraryUITests]
+#                        [xcodebuild args, e.g. -only-testing:TactileTextsUITests/LibraryUITests]
 # The full gate (no -only-testing) runs in two passes after one build:
-#   1. the UI tests except the measuring ones, on MARGINAL_WORKERS simulator clones in parallel;
+#   1. the UI tests except the measuring ones, on TACTILE_WORKERS simulator clones in parallel;
 #   2. the unit tests and the measuring UI tests (frame gaps, timings) on one simulator, so load
 #      from the other clones cannot skew them (the unit tests fail under that load).
 # Screenshot tests only write PNGs to build/shots, so the gate skips them; --screenshots runs
 # just those. --serial runs the first pass on one simulator. With -only-testing the arguments
 # go to a single serial xcodebuild run, as before.
-# Env: MARGINAL_SIM (device name or UDID, default iPad Pro 11-inch), MARGINAL_WORKERS (default 3).
+# Env: TACTILE_SIM (device name or UDID, default iPad Pro 11-inch), TACTILE_WORKERS (default 3).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sim.sh"
 cd "$REPO"
@@ -18,27 +18,27 @@ packages=1; app=1; screenshots=0; serial=0; extra=()
 
 # Tests that assert on frame gaps or timings: run alone in the gate's second pass.
 MEASURING=(
-  MarginalUITests/PerformanceUITests
-  MarginalUITests/PDFAccessibilityUITests
-  MarginalUITests/SidebarUITests/testFastThumbnailScrollingStaysBounded
-  MarginalUITests/SidebarUITests/testAutoScrollThroughTheWholeBook
-  MarginalUITests/SearchUITests/testCommonTermSearchStaysResponsiveAndCancelStopsIt
+  TactileTextsUITests/PerformanceUITests
+  TactileTextsUITests/PDFAccessibilityUITests
+  TactileTextsUITests/SidebarUITests/testFastThumbnailScrollingStaysBounded
+  TactileTextsUITests/SidebarUITests/testAutoScrollThroughTheWholeBook
+  TactileTextsUITests/SearchUITests/testCommonTermSearchStaysResponsiveAndCancelStopsIt
 )
 # Tests that only save screenshots (no checks of their own).
 SCREENSHOTS=(
-  MarginalUITests/MockupScreenshotUITests
-  MarginalUITests/SidebarScreenshotUITests
-  MarginalUITests/ReaderScreenshotUITests
-  MarginalUITests/HighlightsUITests/testScreenshotFourColours
-  MarginalUITests/NotebookHandwritingUITests/testScreenshots
-  MarginalUITests/NotebookHandwritingUITests/testScreenshotNarrow
-  MarginalUITests/NotePageUITests/testScreenshotMarkupPageAndNoteTogether
-  MarginalUITests/NotebookUITests/testScreenshotLandscape
-  MarginalUITests/NotebookUITests/testScreenshotNarrow
-  MarginalUITests/NotesPanelUITests/testScreenshots
-  MarginalUITests/PageInkUITests/testScreenshots
-  MarginalUITests/SearchUITests/testScreenshots
-  MarginalUITests/SearchUITests/testScreenshotLargeText
+  TactileTextsUITests/MockupScreenshotUITests
+  TactileTextsUITests/SidebarScreenshotUITests
+  TactileTextsUITests/ReaderScreenshotUITests
+  TactileTextsUITests/HighlightsUITests/testScreenshotFourColours
+  TactileTextsUITests/NotebookHandwritingUITests/testScreenshots
+  TactileTextsUITests/NotebookHandwritingUITests/testScreenshotNarrow
+  TactileTextsUITests/NotePageUITests/testScreenshotMarkupPageAndNoteTogether
+  TactileTextsUITests/NotebookUITests/testScreenshotLandscape
+  TactileTextsUITests/NotebookUITests/testScreenshotNarrow
+  TactileTextsUITests/NotesPanelUITests/testScreenshots
+  TactileTextsUITests/PageInkUITests/testScreenshots
+  TactileTextsUITests/SearchUITests/testScreenshots
+  TactileTextsUITests/SearchUITests/testScreenshotLargeText
 )
 for a in "$@"; do
   case "$a" in
@@ -69,7 +69,7 @@ fi
 run_xcodebuild() {
   local name="$1" action="$2"; shift 2
   local log="$REPO/build/$name.log" status
-  [[ "$name" == Marginal ]] && log="$REPO/build/xcodebuild-test.log"
+  [[ "$name" == TactileTexts ]] && log="$REPO/build/xcodebuild-test.log"
   local result=()
   if [[ "$action" != build-for-testing ]]; then
     rm -rf "$REPO/build/$name.xcresult"
@@ -77,7 +77,7 @@ run_xcodebuild() {
   fi
   set +e
   xcodebuild "$action" \
-    -project Marginal.xcodeproj -scheme Marginal \
+    -project TactileTexts.xcodeproj -scheme TactileTexts \
     -destination "id=$SIM_UDID" \
     -derivedDataPath "$REPO/build/DerivedData" \
     ${result[@]+"${result[@]}"} "$@" >"$log" 2>&1
@@ -99,21 +99,21 @@ if [[ $app -eq 1 ]]; then
   for a in ${extra[@]+"${extra[@]}"}; do [[ "$a" == -only-testing:* ]] && targeted=1; done
   if [[ $screenshots -eq 1 ]]; then
     echo "== xcodebuild test (screenshots)"
-    run_xcodebuild Marginal test "${SCREENSHOTS[@]/#/-only-testing:}" ${extra[@]+"${extra[@]}"} || true
+    run_xcodebuild TactileTexts test "${SCREENSHOTS[@]/#/-only-testing:}" ${extra[@]+"${extra[@]}"} || true
   elif [[ $targeted -eq 1 ]]; then
     echo "== xcodebuild test"
-    run_xcodebuild Marginal test ${extra[@]+"${extra[@]}"} || true
+    run_xcodebuild TactileTexts test ${extra[@]+"${extra[@]}"} || true
   else
     echo "== xcodebuild build-for-testing"
     if run_xcodebuild build build-for-testing ${extra[@]+"${extra[@]}"}; then
-      parallel=(-parallel-testing-enabled YES -parallel-testing-worker-count "${MARGINAL_WORKERS:-3}")
+      parallel=(-parallel-testing-enabled YES -parallel-testing-worker-count "${TACTILE_WORKERS:-3}")
       [[ $serial -eq 1 ]] && parallel=(-parallel-testing-enabled NO)
       echo "== xcodebuild test, pass 1 (${parallel[*]})"
-      run_xcodebuild Marginal test-without-building "${parallel[@]}" -only-testing:MarginalUITests \
+      run_xcodebuild TactileTexts test-without-building "${parallel[@]}" -only-testing:TactileTextsUITests \
         "${MEASURING[@]/#/-skip-testing:}" "${SCREENSHOTS[@]/#/-skip-testing:}" ${extra[@]+"${extra[@]}"} || true
       echo "== xcodebuild test, pass 2 (unit tests and measuring tests, one simulator)"
-      run_xcodebuild Marginal-measuring test-without-building -parallel-testing-enabled NO \
-        -only-testing:MarginalTests "${MEASURING[@]/#/-only-testing:}" ${extra[@]+"${extra[@]}"} || true
+      run_xcodebuild TactileTexts-measuring test-without-building -parallel-testing-enabled NO \
+        -only-testing:TactileTextsTests "${MEASURING[@]/#/-only-testing:}" ${extra[@]+"${extra[@]}"} || true
     fi
   fi
 fi

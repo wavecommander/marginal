@@ -7,12 +7,12 @@ CODE_SIGNING_REQUIRED = YES
 
 // Backup to the app's own iCloud container. Needs a team in the Apple Developer Program (a free
 // Personal Team cannot sign a build with the iCloud capability) and the container
-// iCloud.software.tactile.marginal created for it. Leave commented out otherwise; backing up to
+// iCloud.software.tactile.texts created for it. Leave commented out otherwise; backing up to
 // a folder in iCloud Drive through the Files picker needs none of this.
-// MARGINAL_ENTITLEMENTS = Config/Marginal-iCloud.entitlements
+// TACTILE_ENTITLEMENTS = Config/TactileTexts-iCloud.entitlements
 
 // Direct Google Drive backup. Create an OAuth client of type iOS for the bundle
-// software.tactile.marginal in a Google Cloud project with the Drive API enabled, and put its
+// software.tactile.texts in a Google Cloud project with the Drive API enabled, and put its
 // client ID here (it ends in .apps.googleusercontent.com). Leave commented out otherwise.
 // GOOGLE_DRIVE_CLIENT_ID = 000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
 
@@ -34,10 +34,10 @@ CODE_SIGNING_REQUIRED = YES
 // a loopback host (localhost, 127.0.0.1, [::1]) is reached over plain HTTP, for a local
 // `wrangler dev` of Backend/backup-worker; any other host over HTTPS. The product IDs are the
 // auto-renewable subscriptions in App Store Connect, comma-separated; in the simulator the
-// scheme's StoreKit configuration (Config/Marginal.storekit) sells them with no App Store account.
+// scheme's StoreKit configuration (Config/TactileTexts.storekit) sells them with no App Store account.
 // App Attest needs no entitlement for development builds (they use Apple's sandbox servers).
 // BACKUP_SERVICE_HOST = localhost:8787
-// BACKUP_PRODUCT_IDS = software.tactile.marginal.backup.standard
+// BACKUP_PRODUCT_IDS = software.tactile.texts.backup.standard
 // Development only: the simulator has no App Attest, so against a local or `dev` Worker it sends
 // this value (the Worker's APP_ATTEST_BYPASS_SECRET in Backend/backup-worker/.dev.vars) instead.
 // Debug builds only; it is readable in the built app. Never with the production Worker.

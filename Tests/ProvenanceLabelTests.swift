@@ -1,6 +1,6 @@
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// "Converted from …" (F7): one sentence per converted format, nothing for a PDF.
 @MainActor

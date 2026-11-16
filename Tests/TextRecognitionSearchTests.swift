@@ -2,7 +2,7 @@ import Foundation
 import PDFKit
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Search over recognised text (S2): one search path reads each page from whichever source has
 /// text; hits on recognised pages carry rects from the word boxes; a page recognised after the

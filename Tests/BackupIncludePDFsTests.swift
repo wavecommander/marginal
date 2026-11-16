@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The Include PDFs choice is one stored value shared by every backup (the backup-file switch,
 /// each destination's switch and the automatic backup's switch all bind to it).

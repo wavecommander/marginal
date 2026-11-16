@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Real EPUBs the owner supplied. They live only on the development Mac (never in the
 /// repository), so each test is skipped when its file is absent. The files are only read.

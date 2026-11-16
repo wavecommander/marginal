@@ -2,7 +2,7 @@ import FileProvider
 import Foundation
 import ReaderBackup
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The picked-folder destination: the bookmark store, and the destination over a temporary
 /// directory standing in for the folder picked in Files.

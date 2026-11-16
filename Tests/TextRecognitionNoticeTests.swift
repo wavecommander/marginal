@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The scanned-book notice (S3): the estimate's wording, the notice's content for one book and
 /// for several, the queue (addressing, the check before showing, waiting for the answer) and the

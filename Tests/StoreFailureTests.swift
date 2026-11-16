@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// What the app does when the library's store could not be opened: it runs on an empty stand-in
 /// store, so nothing may treat that store as the reader's library.

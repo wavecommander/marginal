@@ -9,7 +9,7 @@ import Vision
 // `nonisolated` and synchronous: it runs on the recognition worker's own serial queue
 // (`TextRecognitionWorker`), on pages of a **private** `PDFDocument`, never the on-screen one.
 
-let textRecognitionLog = Logger(subsystem: "software.tactile.marginal", category: "TextRecognition")
+let textRecognitionLog = Logger(subsystem: "software.tactile.texts", category: "TextRecognition")
 
 /// "Does this page have text of its own?", asked the same way by the recognition queue (which
 /// skips such pages) and by the search worker (which then reads the file's text, not the

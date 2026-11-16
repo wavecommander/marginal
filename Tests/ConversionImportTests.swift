@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The import flow for files that are converted to PDF (F3): preflight, the conversion request
 /// behind the Convert to PDF sheet, Convert and Cancel, and what ends up on disk. Uses

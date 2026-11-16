@@ -14,7 +14,7 @@ import ReaderCore
 // - Models are internal. Value types from ReaderCore are the only thing that crosses the boundary.
 
 /// Version 1 of the on-disk schema. Frozen: it describes stores written before format import.
-enum MarginalSchemaV1: VersionedSchema {
+enum TactileTextsSchemaV1: VersionedSchema {
     static let versionIdentifier = Schema.Version(1, 0, 0)
 
     static var models: [any PersistentModel.Type] {
@@ -161,12 +161,12 @@ enum MarginalSchemaV1: VersionedSchema {
 
 /// Version 2: `BookModel` gains three optional columns for books converted from another format.
 /// The other models are unchanged and shared with version 1.
-enum MarginalSchemaV2: VersionedSchema {
+enum TactileTextsSchemaV2: VersionedSchema {
     static let versionIdentifier = Schema.Version(2, 0, 0)
 
     static var models: [any PersistentModel.Type] {
-        [BookModel.self, MarginalSchemaV1.NoteModel.self, MarginalSchemaV1.HighlightModel.self,
-         MarginalSchemaV1.BookmarkModel.self, MarginalSchemaV1.UserHeadingModel.self]
+        [BookModel.self, TactileTextsSchemaV1.NoteModel.self, TactileTextsSchemaV1.HighlightModel.self,
+         TactileTextsSchemaV1.BookmarkModel.self, TactileTextsSchemaV1.UserHeadingModel.self]
     }
 
     @Model
@@ -205,12 +205,12 @@ enum MarginalSchemaV2: VersionedSchema {
 /// Version 3: `HighlightModel` gains one optional column, where its text came from (scanned
 /// books). The other models are unchanged and shared with versions 1 and 2. Frozen once shipped,
 /// like the versions before it.
-enum MarginalSchemaV3: VersionedSchema {
+enum TactileTextsSchemaV3: VersionedSchema {
     static let versionIdentifier = Schema.Version(3, 0, 0)
 
     static var models: [any PersistentModel.Type] {
-        [MarginalSchemaV2.BookModel.self, MarginalSchemaV1.NoteModel.self, HighlightModel.self,
-         MarginalSchemaV1.BookmarkModel.self, MarginalSchemaV1.UserHeadingModel.self]
+        [TactileTextsSchemaV2.BookModel.self, TactileTextsSchemaV1.NoteModel.self, HighlightModel.self,
+         TactileTextsSchemaV1.BookmarkModel.self, TactileTextsSchemaV1.UserHeadingModel.self]
     }
 
     @Model
@@ -252,24 +252,24 @@ enum MarginalSchemaV3: VersionedSchema {
     }
 }
 
-typealias BookModel = MarginalSchemaV2.BookModel
-typealias NoteModel = MarginalSchemaV1.NoteModel
-typealias HighlightModel = MarginalSchemaV3.HighlightModel
-typealias BookmarkModel = MarginalSchemaV1.BookmarkModel
-typealias UserHeadingModel = MarginalSchemaV1.UserHeadingModel
+typealias BookModel = TactileTextsSchemaV2.BookModel
+typealias NoteModel = TactileTextsSchemaV1.NoteModel
+typealias HighlightModel = TactileTextsSchemaV3.HighlightModel
+typealias BookmarkModel = TactileTextsSchemaV1.BookmarkModel
+typealias UserHeadingModel = TactileTextsSchemaV1.UserHeadingModel
 
 /// Migration plan. Add a `VersionedSchema` and a stage here for the next change, and make it
 /// `SchemaFactory.currentVersion`. Each version only adds optional columns or new entities, so an
 /// older build can open a newer store by inferred migration (`LibraryDatabase.openInThisVersion`);
 /// `LibraryDatabaseTests` checks every version converts down to the one before it.
-enum MarginalMigrationPlan: SchemaMigrationPlan {
+enum TactileTextsMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [MarginalSchemaV1.self, MarginalSchemaV2.self, MarginalSchemaV3.self]
+        [TactileTextsSchemaV1.self, TactileTextsSchemaV2.self, TactileTextsSchemaV3.self]
     }
     static var stages: [MigrationStage] {
         // Each step only adds optional columns, which start out `nil`.
-        [.lightweight(fromVersion: MarginalSchemaV1.self, toVersion: MarginalSchemaV2.self),
-         .lightweight(fromVersion: MarginalSchemaV2.self, toVersion: MarginalSchemaV3.self)]
+        [.lightweight(fromVersion: TactileTextsSchemaV1.self, toVersion: TactileTextsSchemaV2.self),
+         .lightweight(fromVersion: TactileTextsSchemaV2.self, toVersion: TactileTextsSchemaV3.self)]
     }
 }
 
@@ -291,8 +291,8 @@ public enum ReaderStoreError: Error, Hashable, Sendable {
 }
 
 enum SchemaFactory {
-    /// This build's schema version: the last of `MarginalMigrationPlan.schemas`.
-    static var currentVersion: any VersionedSchema.Type { MarginalSchemaV3.self }
+    /// This build's schema version: the last of `TactileTextsMigrationPlan.schemas`.
+    static var currentVersion: any VersionedSchema.Type { TactileTextsSchemaV3.self }
     static var schema: Schema { Schema(versionedSchema: currentVersion) }
 
     /// A container for the store file at `storeURL`, or in memory when `nil`.
@@ -303,6 +303,6 @@ enum SchemaFactory {
         } else {
             configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         }
-        return try ModelContainer(for: schema, migrationPlan: MarginalMigrationPlan.self, configurations: [configuration])
+        return try ModelContainer(for: schema, migrationPlan: TactileTextsMigrationPlan.self, configurations: [configuration])
     }
 }

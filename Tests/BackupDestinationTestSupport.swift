@@ -1,6 +1,6 @@
 import Foundation
 import ReaderBackup
-@testable import Marginal
+@testable import TactileTexts
 
 /// A scratch directory removed by `cleanup()`.
 nonisolated struct BackupDestinationScratch {

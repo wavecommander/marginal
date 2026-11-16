@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The text-family converter (plain text, Markdown, HTML, web archives), called directly.
 /// Serialized: each test drives an off-screen web view, and the stall measurement must not

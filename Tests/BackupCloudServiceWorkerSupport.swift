@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import ReaderBackup
 import S3Kit
-@testable import Marginal
+@testable import TactileTexts
 
 // A fake of the backup service Worker (the HTTP contract in Backend/backup-worker/README.md),
 // behind a `BackupCloudStub`, and a rig that builds Tactile Texts Cloud on fakes: this Worker,

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Contents sidebar: the thumbnail cache (bounded by count and cost), cancellation and purge.
 @MainActor

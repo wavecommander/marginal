@@ -52,7 +52,7 @@ paper.
 - Stored in `UserDefaults` under `settings.accent` (`@AppStorage` in views). Unknown or missing
   values fall back to Raspberry.
 - An `AccentTheme` value (accent, tint, onAccent as `Color`s) derived from the choice and injected
-  through the SwiftUI environment from `MarginalApp`.
+  through the SwiftUI environment from `TactileTextsApp`.
 
 Done when: unit tests cover the enum round trip and the fallback.
 
@@ -61,7 +61,7 @@ Done when: unit tests cover the enum round trip and the fallback.
 - `Palette.accent`, `accentTint` and `onAccent` stop being static: they become reads of the theme
   (or `Palette` gains theme-taking variants and the components use those). The static `let`s cannot
   react to a change.
-- Apply `.tint(theme.accent)` at all three `WindowGroup` roots in `MarginalApp.swift`.
+- Apply `.tint(theme.accent)` at all three `WindowGroup` roots in `TactileTextsApp.swift`.
 - Migrate `Color.accentColor` (about 11 sites) and `Color(.onAccent)` (2 sites) to the theme.
   First check whether `Color.accentColor` follows `.tint`; if it does, only the `onAccent` sites
   and `Palette` need to move.

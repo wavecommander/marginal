@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Helpers for the backup engine tests (B3): fixtures, a seeded library, store and directory
 /// comparisons, and a service with its own temporary directory and defaults.

@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Session logic that needs no on-screen PDF view: outline loading, heading-path tracking, the
 /// debounced last-read save, change filtering, deletion, and markup undo routing.

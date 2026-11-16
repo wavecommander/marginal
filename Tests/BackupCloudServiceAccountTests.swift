@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import S3Kit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `CloudBackupAccount`, the Worker-backed credentials and the `tactile-cloud` destination, on
 /// fakes (`BackupCloudServiceRig`): each account state, the key rules, the mode refusals,

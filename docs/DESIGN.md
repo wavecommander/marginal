@@ -1,9 +1,12 @@
 # Tactile Texts: design
 
 The app's name is **Tactile Texts** (owner decision, 14 November 2026): that is the name on the
-Home Screen, in the menu bar, in exported files' metadata and on the App Store. "Marginal" was
-the working title and remains the internal name only: the repository, the Xcode target, scheme
-and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marginal`).
+Home Screen, in the menu bar, in exported files' metadata and on the App Store. Internally the
+Xcode project, target, scheme and Swift module are `TactileTexts`, and the bundle identifier is
+`software.tactile.texts` (renamed from the working title "Marginal" on 16 November 2026, before
+anything shipped). The only traces of the old name left on purpose are the book-fingerprint
+salts (`marginal-fingerprint-v1`, `marginal-package-v1`): changing them would give every book a
+new identity.
 
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
@@ -345,7 +348,7 @@ Added by the owner (TSOFT-215, 14 November 2026).
   static colour. Nothing in `App/` hard-codes another blue. Highlight colours, ink, the bookmark
   red, margin red, destructive red and book cloth are separate and do not follow the accent. The
   app icon stays berry whatever the choice.
-- **Settings.** iPadOS has no system Settings entry for Marginal and there is no
+- **Settings.** iPadOS has no system Settings entry for Tactile Texts and there is no
   `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
   Library's gear button and from "Settings…" (⌘,) in any window.
 - **Settings ▸ About** says which build this is: the version and build number, the git branch
@@ -353,7 +356,7 @@ Added by the owner (TSOFT-215, 14 November 2026).
   checkout had any, untracked files included) and the build time in the iPad's time zone. Copy
   Build Details puts all of it on one line for a bug report. `scripts/stamp-build-info.sh`, a
   build phase that runs on every build, writes the values into the built Info.plist
-  (`MarginalBuild`); the committed `App/Info.plist` never has them. A build made without git
+  (`TactileTextsBuild`); the committed `App/Info.plist` never has them. A build made without git
   shows "Unknown". (2026-11-16: shown in every build, Release included, while the app is
   pre-release; decide before the App Store whether customers see the branch and commit.)
 - **Text and icons on an accent fill use `accentTheme.onAccent`** (white in Light Mode, a deep
@@ -694,7 +697,7 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   points to Manage Subscription.
 - **Testing without Apple or Cloudflare accounts.** The Worker's tests run in the Workers
   runtime with generated certificates; the app's tests use a StoreKit configuration file
-  (`Config/Marginal.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
+  (`Config/TactileTexts.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
   kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance. The UI tests
   launch debug builds with `-cloudBackupUITest <state>`, which builds the service from fakes in
   the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
@@ -919,7 +922,7 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
 ## Open questions for the owner
 
 1. ~~App name and bundle identifier.~~ Settled: the app is "Tactile Texts", bundle identifier
-   `software.tactile.marginal`.
+   `software.tactile.texts`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
 3. Exporting an annotated PDF copy of the book (ink and highlights drawn into a copy, the

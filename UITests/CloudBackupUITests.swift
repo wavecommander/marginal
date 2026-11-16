@@ -19,7 +19,7 @@ final class CloudBackupUITests: XCTestCase {
         static let backUpNow = "backup.destinationScreen.backUpNow"
         static let destinationResult = "backup.destinationScreen.result"
         static let offer = "cloud.offer"
-        static let subscribe = "cloud.subscribe.software.tactile.marginal.backup.standard"
+        static let subscribe = "cloud.subscribe.software.tactile.texts.backup.standard"
         static let restorePurchases = "cloud.restorePurchases"
         static let status = "cloud.status"
         static let banner = "cloud.banner"

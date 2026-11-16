@@ -4,7 +4,7 @@ import PencilKit
 import ReaderCore
 import ReaderStore
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Helpers for the note-page tests.
 @MainActor

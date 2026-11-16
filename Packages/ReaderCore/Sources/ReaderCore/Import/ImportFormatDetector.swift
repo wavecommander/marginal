@@ -28,9 +28,9 @@ public enum UnsupportedImportFormat: String, Codable, Sendable, CaseIterable, Ha
     /// can name it when it turns the file down.
     public var typeIdentifiers: [String] {
         switch self {
-        case .kindle: ["software.tactile.marginal.kindle-book"]
-        case .djvu: ["software.tactile.marginal.djvu"]
-        case .comicRar: ["software.tactile.marginal.cbr"]
+        case .kindle: ["software.tactile.texts.kindle-book"]
+        case .djvu: ["software.tactile.texts.djvu"]
+        case .comicRar: ["software.tactile.texts.cbr"]
         case .spreadsheet: ["public.spreadsheet"]
         case .fixedLayoutEPUB, .protectedEPUB: []
         }

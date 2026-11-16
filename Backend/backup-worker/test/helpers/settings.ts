@@ -2,9 +2,9 @@
 
 import type { Env } from "../../src/env";
 
-export const BUNDLE_ID = "software.tactile.marginal";
-export const PRODUCT = "software.tactile.marginal.backup.standard";
-export const OTHER_PRODUCT = "software.tactile.marginal.backup.large";
+export const BUNDLE_ID = "software.tactile.texts";
+export const PRODUCT = "software.tactile.texts.backup.standard";
+export const OTHER_PRODUCT = "software.tactile.texts.backup.large";
 export const TEAM_ID = "TEAMID1234";
 export const APP_ID = `${TEAM_ID}.${BUNDLE_ID}`;
 export const APP_APPLE_ID = 1234567890;

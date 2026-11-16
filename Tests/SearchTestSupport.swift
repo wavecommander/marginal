@@ -4,7 +4,7 @@ import PDFKit
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Every search test lives under this suite. It is serialised because the engine's resource
 /// counters (`SearchDiagnostics`) are process-wide: a test that asserts "no worker and no document

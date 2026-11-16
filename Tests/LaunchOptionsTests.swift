@@ -1,5 +1,5 @@
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 struct LaunchOptionsTests {
     @Test func parsesContract() {

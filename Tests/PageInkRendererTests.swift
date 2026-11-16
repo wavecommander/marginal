@@ -2,7 +2,7 @@ import Foundation
 import PencilKit
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// `PageInkRenderer`: vector paths for pen-like inks, per-stroke images otherwise, at any target.
 @MainActor

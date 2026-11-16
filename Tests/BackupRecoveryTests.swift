@@ -3,7 +3,7 @@ import ReaderBackup
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Crash safety of the restore commit (B3): for every crash point of `RestoreCommit`, the commit
 /// is stopped there (leaving exactly what a crash would), launch recovery runs, and the book must

@@ -196,7 +196,7 @@ describe("refused subscriptions", () => {
   it("wrong bundle, unknown product, Xcode in production", async () => {
     const cases: [Record<string, unknown>, number, string][] = [
       [{ bundleId: "com.example.other" }, 401, "transaction-invalid"],
-      [{ productId: "software.tactile.marginal.tip" }, 403, "product-unknown"],
+      [{ productId: "software.tactile.texts.tip" }, 403, "product-unknown"],
       [{ environment: "Xcode" }, 401, "transaction-invalid"],
     ];
     for (const [overrides, status, code] of cases) {

@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import Security
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupKeyStore`: every operation with the in-memory store, the same operations and the item's
 /// attributes with the Keychain store.
@@ -115,7 +115,7 @@ struct BackupCloudServiceKeyStoreTests {
 
     @Test func keychainStoreDoesEveryOperation() async throws {
         try await withKeychain {
-            let store = KeychainBackupKeyStore(service: "software.tactile.marginal.tests.\(UUID().uuidString)")
+            let store = KeychainBackupKeyStore(service: "software.tactile.texts.tests.\(UUID().uuidString)")
             defer { Task { try? await store.removeKey() } }
             try await Self.exercise(store)
         }
@@ -123,7 +123,7 @@ struct BackupCloudServiceKeyStoreTests {
 
     @Test func keychainItemSynchronisesAndIsReadableAfterFirstUnlock() async throws {
         try await withKeychain {
-            let service = "software.tactile.marginal.tests.\(UUID().uuidString)"
+            let service = "software.tactile.texts.tests.\(UUID().uuidString)"
             let store = KeychainBackupKeyStore(service: service)
             defer { Task { try? await store.removeKey() } }
             let key = try await store.createKey()
@@ -150,7 +150,7 @@ struct BackupCloudServiceKeyStoreTests {
 
     @Test func keychainStoreRefusesAnItemThatIsNotAKey() async throws {
         try await withKeychain {
-            let service = "software.tactile.marginal.tests.\(UUID().uuidString)"
+            let service = "software.tactile.texts.tests.\(UUID().uuidString)"
             let store = KeychainBackupKeyStore(service: service)
             defer { Task { try? await store.removeKey() } }
             let add: [String: Any] = [

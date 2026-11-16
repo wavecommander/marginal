@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// First-run onboarding: stored state and launch arguments, the welcome-sheet
 /// decision, and the bundled Quick Guide with its seeded content. App-hosted on the simulator.

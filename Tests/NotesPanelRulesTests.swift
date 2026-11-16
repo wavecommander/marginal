@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import SwiftUI
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The notes panel's pure rules: the Section tab's heading choice and level picker, the
 /// switch decision while typing, zoom/width arithmetic, and the heading-anchor repair.

@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Helpers for the merge engine tests (M3): two libraries holding the same book that diverged,
 /// real PencilKit page ink and note ink, and comparing ink by strokes.

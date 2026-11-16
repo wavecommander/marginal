@@ -2,7 +2,7 @@ import Foundation
 import PDFKit
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The text engine on its own: matching, snippets, streaming, cancellation, the cap, and the
 /// resources a run holds (`SearchDiagnostics`).

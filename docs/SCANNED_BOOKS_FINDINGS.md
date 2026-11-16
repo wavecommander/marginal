@@ -317,10 +317,10 @@ then tune on a device. In the simulator that is about 1.2 s per page, so a 300-p
    scanned page this works (it is how the stored text above was produced), and it can only run
    when a new selection exists, i.e. after analysis. The merged text is then PDFKit's
    recognition at that moment, so a merged Live Text highlight's text can change on merge.
-4. **Schema.** `HighlightModel` is `MarginalSchemaV1.HighlightModel`, shared unchanged by
-   `MarginalSchemaV2` (`Packages/ReaderStore/Sources/ReaderStore/Schema.swift`), and V1 is frozen.
-   A stored text source needs a `MarginalSchemaV3` with a new `HighlightModel` (an optional column)
-   and a lightweight stage in `MarginalMigrationPlan`; it cannot be added to the V1 class.
+4. **Schema.** `HighlightModel` is `TactileTextsSchemaV1.HighlightModel`, shared unchanged by
+   `TactileTextsSchemaV2` (`Packages/ReaderStore/Sources/ReaderStore/Schema.swift`), and V1 is frozen.
+   A stored text source needs a `TactileTextsSchemaV3` with a new `HighlightModel` (an optional column)
+   and a lightweight stage in `TactileTextsMigrationPlan`; it cannot be added to the V1 class.
 5. **Backup.** Highlights travel as `Codable` `Highlight` values in `books/<id>/records.json`
    (`BookRecordsFile`, `Packages/ReaderBackup/Sources/ReaderBackup/BackupManifest.swift`), with
    synthesised `Codable` (`Packages/ReaderCore/Sources/ReaderCore/Model/Records.swift`). The new

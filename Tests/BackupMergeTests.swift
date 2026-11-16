@@ -4,7 +4,7 @@ import ReaderBackup
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The merge engine (M3): restoring a book already in the Library by merging the backup's copy
 /// into it, with real PencilKit page ink and note ink, through the journalled commit.

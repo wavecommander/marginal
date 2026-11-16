@@ -4,7 +4,7 @@ import ReaderCore
 import SwiftUI
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// `NotePageRenderer`: sizes, PNG, vector PDF, read-only view, and the editor view itself.
 @MainActor

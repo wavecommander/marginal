@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 // `StubDocumentConverter` lives in the app target (App/Features/Import/StubDocumentConverter.swift,
 // DEBUG only) so UI tests can register it with `-stubConverters`.

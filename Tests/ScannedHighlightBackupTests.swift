@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// S4 · Backups and scanned books, end to end in the app:
 /// - a scanned-page highlight's source survives backup, restore into a new library, merge and

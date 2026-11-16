@@ -4,7 +4,7 @@ import PencilKit
 import ReaderCore
 import ReaderStore
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Helpers for the page-ink tests: an ephemeral store with a book, a reader session hosted
 /// in a real window of the test host (so PDFKit creates overlays), strokes, and waiting.

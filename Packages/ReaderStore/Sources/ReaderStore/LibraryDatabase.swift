@@ -7,7 +7,7 @@ import SwiftData
 /// this build cannot open as it is (docs/DESIGN.md "A library from a newer version").
 ///
 /// - **Version check.** `state` compares the store's metadata with every version in
-///   `MarginalMigrationPlan`. SwiftData stores carry no version number, only per-entity hashes, so
+///   `TactileTextsMigrationPlan`. SwiftData stores carry no version number, only per-entity hashes, so
 ///   a store that matches none of them is reported as `.newer`: a newer build wrote it (the
 ///   ordinary case: a newer build was installed, then an older one).
 /// - **Copies.** Before a store changes version (an update's migration, opening a newer library
@@ -76,7 +76,7 @@ public enum LibraryDatabase {
     }
 
     /// What the store at `url` is, judged against `schemas` with `current` as this build's version.
-    static func state(ofStoreAt url: URL, schemas: [any VersionedSchema.Type] = MarginalMigrationPlan.schemas,
+    static func state(ofStoreAt url: URL, schemas: [any VersionedSchema.Type] = TactileTextsMigrationPlan.schemas,
                       current: any VersionedSchema.Type = SchemaFactory.currentVersion) -> State {
         guard FileManager.default.fileExists(atPath: url.path) else { return .empty }
         let metadata: [String: Any]
@@ -150,7 +150,7 @@ public enum LibraryDatabase {
     /// unchanged, if the store is not `.newer` or cannot be converted.
     public static func openInThisVersion(rootDirectory: URL) throws {
         try convertNewerStore(rootDirectory: rootDirectory, to: SchemaFactory.currentVersion,
-                              schemas: MarginalMigrationPlan.schemas)
+                              schemas: TactileTextsMigrationPlan.schemas)
     }
 
     static func convertNewerStore(rootDirectory: URL, to target: any VersionedSchema.Type,

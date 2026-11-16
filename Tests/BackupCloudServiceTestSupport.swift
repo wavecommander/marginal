@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import S3Kit
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 // Fakes for the cloud backup service's building blocks: a bucket that behaves like R2 with
 // temporary credentials (multipart included), a credentials source, and a StoreKit fake.
@@ -269,8 +269,8 @@ final class BackupCloudServiceFakeStore: BackupStoreKit {
 }
 
 nonisolated enum BackupCloudServiceStoreFixtures {
-    static let productID = "software.tactile.marginal.backup.standard"
-    static let otherProductID = "software.tactile.marginal.backup.large"
+    static let productID = "software.tactile.texts.backup.standard"
+    static let otherProductID = "software.tactile.texts.backup.large"
     static let groupID = "21800001"
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
 

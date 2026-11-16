@@ -37,7 +37,7 @@ describe("verifyTransaction", () => {
     const transaction = await verifyTransaction(await signWithChain(transactionPayload(), chain), context());
     expect(transaction).toMatchObject({
       originalTransactionId: "2000000000000001",
-      productId: "software.tactile.marginal.backup.standard",
+      productId: "software.tactile.texts.backup.standard",
       environment: "Production",
       revocationDate: undefined,
     });
@@ -48,7 +48,7 @@ describe("verifyTransaction", () => {
   });
 
   it("refuses a product that is not a backup product, or not a subscription", async () => {
-    expect(await refusal(verifyTransaction(await signWithChain(transactionPayload({ productId: "software.tactile.marginal.tip" }), chain), context()))).toMatch(/^product-unknown/);
+    expect(await refusal(verifyTransaction(await signWithChain(transactionPayload({ productId: "software.tactile.texts.tip" }), chain), context()))).toMatch(/^product-unknown/);
     expect(await refusal(verifyTransaction(await signWithChain(transactionPayload({ type: "Non-Renewing Subscription" }), chain), context()))).toMatch(/^product-unknown/);
   });
 

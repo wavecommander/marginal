@@ -7,7 +7,7 @@ import ReaderBackup
 /// folder (`CoordinatedBackupFolder`), including items that are in iCloud but not downloaded.
 ///
 /// The container needs the iCloud entitlement, which builds only have once a paid developer
-/// team exists (`MARGINAL_ENTITLEMENTS`); until then this destination reports itself
+/// team exists (`TACTILE_ENTITLEMENTS`); until then this destination reports itself
 /// unavailable. The container lookup (`FileManager.url(forUbiquityContainerIdentifier:)`, which
 /// Apple says must not run on the main thread) is injected, so tests use a temporary directory.
 ///
@@ -17,7 +17,7 @@ import ReaderBackup
 /// signed with; the probe only picks the wording, never availability itself.
 nonisolated struct ICloudBackupDestination: BackupDestination {
     static let destinationID = "icloud"
-    static let containerIdentifier = "iCloud.software.tactile.marginal"
+    static let containerIdentifier = "iCloud.software.tactile.texts"
     /// Folder inside the container that Files shows.
     static let documentsDirectory = "Documents"
 

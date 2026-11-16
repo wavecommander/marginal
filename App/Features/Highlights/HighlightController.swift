@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import UIKit
 
-let highlightLog = Logger(subsystem: "software.tactile.marginal", category: "highlights")
+let highlightLog = Logger(subsystem: "software.tactile.texts", category: "highlights")
 
 /// Text highlights for one reader window. Created once per window
 /// (`ReaderSession.highlights`); holds the session weakly. The PDF bridge calls

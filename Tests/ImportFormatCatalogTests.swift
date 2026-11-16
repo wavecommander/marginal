@@ -2,13 +2,13 @@ import Foundation
 import ReaderCore
 import Testing
 import UniformTypeIdentifiers
-@testable import Marginal
+@testable import TactileTexts
 
 /// The app's `Info.plist` and its picker against the one list of importable formats
 /// (`ImportFormat` in ReaderCore). `Info.plist` is written by XcodeGen from `project.yml` and
 /// cannot be derived from Swift, so these fail when the two disagree.
 struct ImportFormatCatalogTests {
-    private static let backupType = "software.tactile.marginal.backup"
+    private static let backupType = "software.tactile.texts.backup"
 
     private var openInTypes: [String] {
         let documentTypes = Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes") as? [[String: Any]] ?? []
@@ -48,7 +48,7 @@ struct ImportFormatCatalogTests {
         }
         // Every type of the app's own that the list uses has a declaration.
         let own = (ImportFormatCatalog.importableTypeIdentifiers + ImportFormatCatalog.namedUnsupportedTypeIdentifiers)
-            .filter { $0.hasPrefix("software.tactile.marginal.") }
+            .filter { $0.hasPrefix("software.tactile.texts.") }
         #expect(Set(own).isSubset(of: Set(declarations.keys)))
     }
 

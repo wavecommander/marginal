@@ -1,7 +1,7 @@
 import Foundation
 import ReaderBackup
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Tactile Texts Cloud's screens: their plain decisions (`CloudBackupUILogic.swift`).
 struct CloudBackupUILogicTests {

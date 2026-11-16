@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The F6 converters through the import flow, end to end, with a registry built here (the
 /// app's `ConverterRegistry.standard` gains them at merge).

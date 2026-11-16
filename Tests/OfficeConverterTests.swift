@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The Word / RTF / Pages converter, called directly on the committed fixtures
 /// (Tests/Fixtures/f6-sample.*, made by Tests/Fixtures/f6-make-fixtures.py).

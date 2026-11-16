@@ -10,8 +10,8 @@ enum FutureSchema: VersionedSchema {
     static let versionIdentifier = Schema.Version(99, 0, 0)
 
     static var models: [any PersistentModel.Type] {
-        [MarginalSchemaV2.BookModel.self, MarginalSchemaV1.NoteModel.self, HighlightModel.self,
-         MarginalSchemaV1.BookmarkModel.self, MarginalSchemaV1.UserHeadingModel.self, ShelfModel.self]
+        [TactileTextsSchemaV2.BookModel.self, TactileTextsSchemaV1.NoteModel.self, HighlightModel.self,
+         TactileTextsSchemaV1.BookmarkModel.self, TactileTextsSchemaV1.UserHeadingModel.self, ShelfModel.self]
     }
 
     @Model
@@ -57,10 +57,10 @@ enum FutureSchema: VersionedSchema {
 }
 
 enum FuturePlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [MarginalSchemaV1.self, MarginalSchemaV2.self, FutureSchema.self] }
+    static var schemas: [any VersionedSchema.Type] { [TactileTextsSchemaV1.self, TactileTextsSchemaV2.self, FutureSchema.self] }
     static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: MarginalSchemaV1.self, toVersion: MarginalSchemaV2.self),
-         .lightweight(fromVersion: MarginalSchemaV2.self, toVersion: FutureSchema.self)]
+        [.lightweight(fromVersion: TactileTextsSchemaV1.self, toVersion: TactileTextsSchemaV2.self),
+         .lightweight(fromVersion: TactileTextsSchemaV2.self, toVersion: FutureSchema.self)]
     }
 }
 
@@ -96,12 +96,12 @@ struct WrittenLibrary {
                                            configurations: [ModelConfiguration(schema: swiftDataSchema, url: url)])
         let context = ModelContext(container)
         let bookID = written.book.id
-        if ObjectIdentifier(schema) == ObjectIdentifier(MarginalSchemaV1.self) {
-            context.insert(MarginalSchemaV1.BookModel(written.book))
+        if ObjectIdentifier(schema) == ObjectIdentifier(TactileTextsSchemaV1.self) {
+            context.insert(TactileTextsSchemaV1.BookModel(written.book))
         } else {
-            context.insert(MarginalSchemaV2.BookModel(written.book))
+            context.insert(TactileTextsSchemaV2.BookModel(written.book))
         }
-        context.insert(MarginalSchemaV1.NoteModel(id: written.noteID, bookID: bookID, targetKey: NoteTarget.page(3).storageKey,
+        context.insert(TactileTextsSchemaV1.NoteModel(id: written.noteID, bookID: bookID, targetKey: NoteTarget.page(3).storageKey,
                                                   pageIndex: 3, text: "a note", hasInk: true, bandLayoutData: nil,
                                                   createdAt: date, modifiedAt: date))
         if ObjectIdentifier(schema) == ObjectIdentifier(FutureSchema.self) {
@@ -109,14 +109,14 @@ struct WrittenLibrary {
                                                        text: "scanned words", createdAt: date, textSourceRaw: "liveText"))
             context.insert(FutureSchema.ShelfModel(id: UUID(), name: "Not in this version"))
         } else {
-            context.insert(MarginalSchemaV1.HighlightModel(
+            context.insert(TactileTextsSchemaV1.HighlightModel(
                 id: written.highlightID, bookID: bookID, pageIndex: 2,
                 rectsData: try JSONEncoder().encode([CGRect(x: 10, y: 20, width: 30, height: 12)]),
                 colorRaw: HighlightColor.yellow.rawValue, text: "scanned words", createdAt: date,
                 sortRank: 0, sortMaxY: 32, sortMinX: 10))
         }
-        context.insert(MarginalSchemaV1.BookmarkModel(id: UUID(), bookID: bookID, pageIndex: 5, createdAt: date))
-        context.insert(MarginalSchemaV1.UserHeadingModel(id: written.headingID, bookID: bookID, title: "Part One",
+        context.insert(TactileTextsSchemaV1.BookmarkModel(id: UUID(), bookID: bookID, pageIndex: 5, createdAt: date))
+        context.insert(TactileTextsSchemaV1.UserHeadingModel(id: written.headingID, bookID: bookID, title: "Part One",
                                                          pageIndex: 1, parentRaw: nil, createdAt: date))
         try context.save()
         return written
@@ -144,7 +144,7 @@ struct WrittenLibrary {
         let url = storeURL(root)
         #expect(LibraryDatabase.state(rootDirectory: root.url) == .empty)
 
-        try writeStore(MarginalSchemaV1.self, plan: MarginalMigrationPlan.self, at: url)
+        try writeStore(TactileTextsSchemaV1.self, plan: TactileTextsMigrationPlan.self, at: url)
         #expect(LibraryDatabase.state(rootDirectory: root.url) == .earlier)
 
         _ = try SchemaFactory.makeContainer(storeURL: url)
@@ -176,7 +176,7 @@ struct WrittenLibrary {
 
     @Test func anUpdateCopiesTheLibraryBeforeMigrating() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        let written = try writeStore(MarginalSchemaV1.self, plan: MarginalMigrationPlan.self, at: storeURL(root))
+        let written = try writeStore(TactileTextsSchemaV1.self, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
         try expectLibraryHolds(written, root: root)
         #expect(LibraryDatabase.state(rootDirectory: root.url) == .current)
 
@@ -188,7 +188,7 @@ struct WrittenLibrary {
         // index, which SQLite ignores without a log.)
         let folder = try #require(copies.first?.folder)
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasSuffix("-shm") }.sorted()
-        #expect(names == ["Marginal.store", "copy.json"], "\(names)")
+        #expect(names == ["TactileTexts.store", "copy.json"], "\(names)")
 
         // Opening again (already current) makes no further copy.
         try expectLibraryHolds(written, root: root)
@@ -243,10 +243,10 @@ struct WrittenLibrary {
     /// The schema rule: every version converts down to the version before it, so a build can
     /// always open what the next build wrote. Add a pair here with each new version.
     @Test func everyVersionConvertsDownToTheOneBefore() throws {
-        let schemas = MarginalMigrationPlan.schemas
+        let schemas = TactileTextsMigrationPlan.schemas
         for (older, newer) in zip(schemas, schemas.dropFirst()) {
             let root = TempRoot(); defer { root.cleanup() }
-            try writeStore(newer, plan: MarginalMigrationPlan.self, at: storeURL(root))
+            try writeStore(newer, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
             let olderOnly = Array(schemas.prefix { ObjectIdentifier($0) != ObjectIdentifier(newer) })
             #expect(LibraryDatabase.state(ofStoreAt: storeURL(root), schemas: olderOnly, current: older) == .newer)
 
@@ -255,9 +255,9 @@ struct WrittenLibrary {
             #expect(LibraryDatabase.state(ofStoreAt: storeURL(root), schemas: olderOnly, current: older) == .current)
             let schema = Schema(versionedSchema: older)
             let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL(root))])
-            #expect(try ModelContext(container).fetchCount(FetchDescriptor<MarginalSchemaV1.NoteModel>()) == 1)
-            #expect(try ModelContext(container).fetchCount(FetchDescriptor<MarginalSchemaV1.HighlightModel>()) == 1)
-            #expect(try ModelContext(container).fetchCount(FetchDescriptor<MarginalSchemaV1.UserHeadingModel>()) == 1)
+            #expect(try ModelContext(container).fetchCount(FetchDescriptor<TactileTextsSchemaV1.NoteModel>()) == 1)
+            #expect(try ModelContext(container).fetchCount(FetchDescriptor<TactileTextsSchemaV1.HighlightModel>()) == 1)
+            #expect(try ModelContext(container).fetchCount(FetchDescriptor<TactileTextsSchemaV1.UserHeadingModel>()) == 1)
         }
     }
 
@@ -265,7 +265,7 @@ struct WrittenLibrary {
 
     @Test func puttingBackACopySetsTheLibraryAside() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        let written = try writeStore(MarginalSchemaV1.self, plan: MarginalMigrationPlan.self, at: storeURL(root))
+        let written = try writeStore(TactileTextsSchemaV1.self, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
         do {
             // Opening migrates (copy: before an update); then a book is added after the copy.
             let store = try LibraryStore.live(rootDirectory: root.url)
@@ -301,7 +301,7 @@ struct WrittenLibrary {
 
     @Test func onlyTheNewestCopiesAreKept() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        try writeStore(MarginalSchemaV2.self, plan: MarginalMigrationPlan.self, at: storeURL(root))
+        try writeStore(TactileTextsSchemaV2.self, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         for minute in 0..<5 {
             try LibraryDatabase.makeCopy(rootDirectory: root.url, reason: .setAside, now: start.addingTimeInterval(Double(minute) * 60))
@@ -313,7 +313,7 @@ struct WrittenLibrary {
 
     @Test func resetRemovesTheCopies() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        try writeStore(MarginalSchemaV1.self, plan: MarginalMigrationPlan.self, at: storeURL(root))
+        try writeStore(TactileTextsSchemaV1.self, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
         _ = try LibraryStore.live(rootDirectory: root.url)
         #expect(!LibraryDatabase.copies(rootDirectory: root.url).isEmpty)
         _ = try LibraryStore.live(rootDirectory: root.url, reset: true)

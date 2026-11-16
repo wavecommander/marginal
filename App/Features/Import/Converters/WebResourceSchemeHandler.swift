@@ -121,7 +121,7 @@ final class WebResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     let scheme: String
     let host: String
     private let provider: any WebResourceProvider
-    private let queue = DispatchQueue(label: "software.tactile.marginal.web-resources", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "software.tactile.texts.web-resources", qos: .userInitiated)
     private let liveIDs = WebLockedIDs()
     private var idByTask: [ObjectIdentifier: Int] = [:]
     private var nextID = 0

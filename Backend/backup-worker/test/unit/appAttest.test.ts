@@ -6,7 +6,7 @@ import { APPLE_SAMPLE } from "../fixtures/appleAppAttestSample";
 import { AAGUID_DEVELOPMENT, attestPki, defaultExtensions, makeAssertion, makeAttestation, newDevice, sha256, type AttestPki, type Device } from "../helpers/attest";
 import { encodeCbor, type Encodable } from "../helpers/cborEncode";
 
-const APP_ID = "TEAMID1234.software.tactile.marginal";
+const APP_ID = "TEAMID1234.software.tactile.texts";
 const NOW = new Date("2026-11-15T12:00:00Z");
 const production = attestPolicy("production", APP_ID);
 const development = attestPolicy("dev", APP_ID);

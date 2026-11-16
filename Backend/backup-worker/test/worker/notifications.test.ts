@@ -114,7 +114,7 @@ describe("App Store Server Notifications", () => {
       ["DID_RENEW", stranger],
       ["CONSUMPTION_REQUEST", stranger],
       ["TEST", undefined],
-      ["DID_RENEW", { ...stranger, productId: "software.tactile.marginal.other" }],
+      ["DID_RENEW", { ...stranger, productId: "software.tactile.texts.other" }],
     ] as const) {
       const response = await notify(await signedNotification(world.chain, type, undefined, transaction, undefined));
       expect(response.status).toBe(200);
@@ -135,7 +135,7 @@ describe("App Store Server Notifications", () => {
     // A genuine envelope around a forged transaction.
     const inner = await signWithChain(refunded, forger);
     const envelope = await signWithChain(
-      { notificationType: "REFUND", notificationUUID: crypto.randomUUID(), signedDate: NOW - DAY, version: "2.0", data: { appAppleId: 1234567890, bundleId: "software.tactile.marginal", environment: "Production", signedTransactionInfo: inner } },
+      { notificationType: "REFUND", notificationUUID: crypto.randomUUID(), signedDate: NOW - DAY, version: "2.0", data: { appAppleId: 1234567890, bundleId: "software.tactile.texts", environment: "Production", signedTransactionInfo: inner } },
       world.chain,
     );
     expect((await notify(envelope)).status).toBe(401);

@@ -3,9 +3,9 @@ import SwiftUI
 
 // MARK: Buttons
 
-/// Marginal's two button weights. System controls (toolbars, menus, segmented pickers) stay
+/// Tactile Texts' two button weights. System controls (toolbars, menus, segmented pickers) stay
 /// system; these are for in-content actions like Resume and Import PDF.
-struct MarginalButtonStyle: ButtonStyle {
+struct TactileTextsButtonStyle: ButtonStyle {
     enum Kind { case primary, tonal }
     var kind: Kind = .primary
     @Environment(\.isEnabled) private var isEnabled
@@ -26,9 +26,9 @@ struct MarginalButtonStyle: ButtonStyle {
     }
 }
 
-extension ButtonStyle where Self == MarginalButtonStyle {
-    static var marginalPrimary: MarginalButtonStyle { .init(kind: .primary) }
-    static var marginalTonal: MarginalButtonStyle { .init(kind: .tonal) }
+extension ButtonStyle where Self == TactileTextsButtonStyle {
+    static var tactilePrimary: TactileTextsButtonStyle { .init(kind: .primary) }
+    static var tactileTonal: TactileTextsButtonStyle { .init(kind: .tonal) }
 }
 
 // MARK: Progress

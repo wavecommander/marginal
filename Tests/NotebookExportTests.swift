@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Notebook export: the Markdown ZIP against a golden file with the inked note's PNG, the
 /// text-only Markdown file, a selection of the Notebook, the PDF's pages, searchable text and

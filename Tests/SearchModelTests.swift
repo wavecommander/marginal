@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The per-window model: query lifecycle, cancellation (proved on the engine's counters, not
 /// just on what the model shows), grouping, notes and highlights with live updates, and two

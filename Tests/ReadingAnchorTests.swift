@@ -2,7 +2,7 @@ import CoreGraphics
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The arithmetic behind "the reading position is stable", against a model of a continuous
 /// vertical document whose scale follows the view width (PDFKit's fit-width behaviour).

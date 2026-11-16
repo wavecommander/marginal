@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupDueRule` on its own, with a fixed clock: every condition and boundary.
 struct BackupSchedulerDueRuleTests {

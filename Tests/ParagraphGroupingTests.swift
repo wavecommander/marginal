@@ -1,7 +1,7 @@
 import Foundation
 import PDFKit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// "Select All selects the paragraph": the pure paragraph grouping on synthetic layouts, and the
 /// selection growth on the fixtures.

@@ -410,6 +410,6 @@ struct LibraryStoreTests {
         #expect(store.pageInkDirectoryURL(bookID: bookID).path == "/tmp/root/Books/\(id)/ink")
         #expect(store.noteInkDirectoryURL(bookID: bookID).path == "/tmp/root/Books/\(id)/notes")
         #expect(store.url(forRelativePath: BookStorageLayout.pageInkPath(bookID: bookID, pageIndex: 3)).path == "/tmp/root/Books/\(id)/ink/3.drawing")
-        #expect(LibraryStore.inMemory().rootDirectory.lastPathComponent == "MarginalInMemory")
+        #expect(LibraryStore.inMemory().rootDirectory.lastPathComponent == "TactileTextsInMemory")
     }
 }
