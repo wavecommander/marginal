@@ -297,6 +297,10 @@ ones even where the mockup draws an approximation.
   - *Large books:* written page by page to the file, one page's ink in memory at a time, pages
     copied off the main thread, with progress and Cancel (which leaves nothing behind). A book
     whose PDF is missing or password-protected says so instead.
+  - *Nothing left out silently* (owner decision, 16 November 2026): if a page's ink, a note's
+    handwriting (Book with Notes), or the book's headings, highlights or notes cannot be read,
+    the export fails and says which (the page number for page ink) instead of finishing without
+    it, and leaves no file. Ink erased in another window while the export runs is not a failure.
 - **Choosing what to export.** Export takes the whole Notebook. "Select" puts a checkbox on every
   row (a heading's checkbox ticks everything shown under it; "Select All" ticks what the filters
   show); Export then takes only the ticked notes, highlights and handwriting, in any format. The

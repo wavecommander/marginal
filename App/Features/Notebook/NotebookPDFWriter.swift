@@ -66,6 +66,9 @@ final class NotebookPDFWriter {
     private let destinationName: ((Int) -> String)?
     /// The page (1-based, in the file) each part of the notebook starts on, as drawn so far.
     private(set) var partStarts: [NotebookExportPart: Int] = [:]
+    /// Notes drawn without their ink because the stored ink could not be decoded (their text is
+    /// still drawn). The marked-up book export refuses to finish with any.
+    private(set) var notesWithUnreadableInk = 0
 
     private var contentTop: CGFloat { margin }
     private var contentBottom: CGFloat { pageSize.height - margin - footerHeight }
@@ -318,6 +321,7 @@ final class NotebookPDFWriter {
         try Task.checkCancellation()
         autoreleasepool {
             let snapshot = NotePageRenderer.snapshot(note: note, inkData: ink)
+            if snapshot.inkUnreadable { notesWithUnreadableInk += 1 }
             drawSnapshot(snapshot, label: label, linkPage: linkPage)
         }
     }

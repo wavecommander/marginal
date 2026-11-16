@@ -246,6 +246,39 @@ struct MarkedUpExportTests {
         #expect(((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).isEmpty)
     }
 
+    /// Markup that cannot be read stops the export; it is never left out silently.
+    @Test func pageInkThatCannotBeReadFailsTheExportAndNamesThePage() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore(pdf: PageInkTestSupport.fixture("small.pdf"), pageCount: 12)
+        defer { NotebookTestSupport.cleanUp(store) }
+        try await store.savePageInk(Support.penInk(), bookID: book.id, pageIndex: 1, origin: nil)
+        try await store.savePageInk(Data("not a drawing".utf8), bookID: book.id, pageIndex: 4, origin: nil)
+        let root = Support.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        await #expect(throws: MarkedUpExportError.unreadablePageInk(pageNumber: 5)) {
+            _ = try await MarkedUpExporter.export(book: book, store: store, includeNotes: false, root: root)
+        }
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).isEmpty, "nothing is left behind")
+        #expect(MarkedUpExportError.unreadablePageInk(pageNumber: 5).errorDescription?.contains("page 5") == true)
+    }
+
+    @Test func noteInkThatCannotBeReadFailsOnlyTheExportWithNotes() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore(pdf: PageInkTestSupport.fixture("small.pdf"), pageCount: 12)
+        defer { NotebookTestSupport.cleanUp(store) }
+        let note = Note(bookID: book.id, target: .page(1), text: "Typed text", hasInk: true)
+        _ = try store.notes.save(note)
+        try await store.saveNoteInk(Data("not ink".utf8), bookID: book.id, noteID: note.id, origin: nil)
+        let root = Support.makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        await #expect(throws: MarkedUpExportError.unreadableNoteInk) {
+            _ = try await MarkedUpExporter.export(book: book, store: store, includeNotes: true, root: root)
+        }
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).isEmpty, "nothing is left behind")
+
+        // Book Only does not draw the notes, so their ink is not its concern.
+        let result = try await MarkedUpExporter.export(book: book, store: store, includeNotes: false, root: root)
+        #expect(PDFDocument(url: result.fileURL)?.pageCount == 12)
+    }
+
     @Test func aBookWithoutItsPDFSaysSo() async throws {
         let (store, book) = try PageInkTestSupport.makeStore()
         defer { NotebookTestSupport.cleanUp(store) }

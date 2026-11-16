@@ -9,6 +9,12 @@ nonisolated enum MarkedUpExportError: LocalizedError, Equatable {
     case unreadablePDF
     case lockedPDF
     case writeFailed
+    /// The book's headings, highlights, notes or list of inked pages could not be read.
+    case unreadableMarkup
+    /// The stored ink of this page (one-based) could not be read or decoded.
+    case unreadablePageInk(pageNumber: Int)
+    /// The stored ink of a note could not be read or decoded.
+    case unreadableNoteInk
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +22,9 @@ nonisolated enum MarkedUpExportError: LocalizedError, Equatable {
         case .unreadablePDF: "This book’s PDF could not be read."
         case .lockedPDF: "This book’s PDF is protected with a password, so it cannot be exported."
         case .writeFailed: "The PDF could not be written. There may not be enough free space on this iPad."
+        case .unreadableMarkup: "This book’s notes and highlights could not be read, so the PDF was not exported."
+        case .unreadablePageInk(let pageNumber): "The ink on page \(pageNumber) could not be read, so the PDF was not exported."
+        case .unreadableNoteInk: "The handwriting in one of this book’s notes could not be read, so the PDF was not exported."
         }
     }
 }
@@ -29,6 +38,11 @@ nonisolated enum MarkedUpExportError: LocalizedError, Equatable {
 /// the PDF's outline and the reader's headings (the merged outline, as Contents shows it), the
 /// highlights, the list of pages with ink, and with the appendix the notes. Each page's ink is
 /// read when its page is written and let go after it, so memory does not grow with the book.
+///
+/// **Nothing is left out silently.** If any of that cannot be read, or a page's or a note's
+/// stored ink cannot be decoded, the export fails and says which (`MarkedUpExportError`) instead
+/// of finishing without it. Ink that is simply gone by the time its page is written (erased in
+/// another window after the export started) is not a failure.
 ///
 /// **Outline.** The book's outline (PDF and reader headings, `MarkedUpExport.bookOutline`), then,
 /// with the appendix, a "Notes" entry holding the headings that have notes, each opening the
@@ -77,18 +91,26 @@ enum MarkedUpExporter {
 
             // What the export shows, read once.
             let entries = await (outlineEntries ?? { url in await ReaderDocumentLoader.outlineEntries(at: url) })(source)
-            let userHeadings = (try? store.headings.userHeadings(bookID: book.id)) ?? []
+            let userHeadings: [UserHeading]
+            let highlights: [Int: [Highlight]]
+            let inkedPages: Set<Int>
+            let notes: [Note]
+            do {
+                userHeadings = try store.headings.userHeadings(bookID: book.id)
+                highlights = Dictionary(grouping: try store.highlights.highlights(bookID: book.id), by: \.pageIndex)
+                inkedPages = Set(try await store.inkedPageIndices(bookID: book.id))
+                notes = includeNotes ? try store.notes.notes(bookID: book.id) : []
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw MarkedUpExportError.unreadableMarkup
+            }
             let outline = await ReaderDocumentLoader.buildOutline(entries: entries, userHeadings: userHeadings,
                                                                   pageCount: pageCount)
-            let highlights = Dictionary(grouping: try store.highlights.highlights(bookID: book.id), by: \.pageIndex)
-            let inkedPages = Set(try await store.inkedPageIndices(bookID: book.id))
             var appendix: Notebook?
-            if includeNotes {
-                let notes = try store.notes.notes(bookID: book.id)
-                if !notes.isEmpty {
-                    appendix = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: notes, highlights: [],
-                                                                        bookmarks: [])
-                }
+            if !notes.isEmpty {
+                appendix = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: notes, highlights: [],
+                                                                    bookmarks: [])
             }
             try Task.checkCancellation()
 
@@ -97,11 +119,26 @@ enum MarkedUpExporter {
             for pageIndex in 0..<pageCount {
                 if memoryWarnings.take() { created.reopenBeforeNextPage() }
                 let geometry = await created.beginBookPage(pageIndex, highlights: highlights[pageIndex] ?? [])
-                if let geometry, inkedPages.contains(pageIndex),
-                   let data = try? await store.pageInk(bookID: book.id, pageIndex: pageIndex) {
-                    autoreleasepool {
-                        guard let drawing = try? PKDrawing(data: data) else { return }
-                        PageInkRenderer.draw(drawing, geometry: geometry, in: created.context, target: geometry.bounds)
+                if inkedPages.contains(pageIndex) {
+                    let unreadable = MarkedUpExportError.unreadablePageInk(pageNumber: pageIndex + 1)
+                    let data: Data?
+                    do {
+                        data = try await store.pageInk(bookID: book.id, pageIndex: pageIndex)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        throw unreadable
+                    }
+                    // `nil`: the ink was erased since the pages were listed, so there is none to draw.
+                    if let data {
+                        // A page that could not be read has no geometry to place its ink in.
+                        guard let geometry else { throw MarkedUpExportError.unreadablePDF }
+                        let drawn = autoreleasepool { () -> Bool in
+                            guard let drawing = try? PKDrawing(data: data) else { return false }
+                            PageInkRenderer.draw(drawing, geometry: geometry, in: created.context, target: geometry.bounds)
+                            return true
+                        }
+                        guard drawn else { throw unreadable }
                     }
                 }
                 created.endPage()
@@ -140,13 +177,25 @@ enum MarkedUpExporter {
         let notes = notebook.totalCounts.notes
         let heading = NotebookPDFWriter.Heading(title: MarkedUpExport.appendixTitle,
                                                 subtitle: "\(title) · \(notes) \(notes == 1 ? "note" : "notes")")
+        // The writer's ink loader cannot throw: a failed read is kept here and thrown after.
+        final class Failure { var noteInk = false }
+        let failure = Failure()
         do {
             try await writer.write(notebook, heading: heading, loadInk: { note in
-                try? await store.noteInk(bookID: book.id, noteID: note.id)
+                do {
+                    return try await store.noteInk(bookID: book.id, noteID: note.id)
+                } catch {
+                    failure.noteInk = true
+                    return nil
+                }
             }, progress: progress)
         } catch {
             writer.close()
             throw error
+        }
+        guard !failure.noteInk, writer.notesWithUnreadableInk == 0 else {
+            writer.close()
+            throw MarkedUpExportError.unreadableNoteInk
         }
         return MarkedUpExport.appendixOutline(notebook, starts: writer.partStarts)
     }
