@@ -49,6 +49,63 @@ struct NewerAppBackupTests {
         }
     }
 
+    /// Values a newer version might store that this one has no case for: an import format, a
+    /// highlight colour, a heading parent kind and a note target kind. The book still restores:
+    /// the format reads as none, the colour as the fallback, the parent as top level, and the
+    /// note this version cannot represent is left out. Everything else is as it was.
+    @Test func unknownValuesFromANewerAppReadAsDefaults() throws {
+        let url = try #require(Bundle.module.url(forResource: "v1-sample", withExtension: "ttbackup", subdirectory: "Fixtures"))
+        let reader = try BackupArchiveReader(url: url)
+        let original = try reader.bookArchive(for: reader.manifest.books[0].book.id)
+        try #require(original.highlights.count == 1 && original.userHeadings.count == 2 && original.notes.count == 3)
+
+        var archive = try jsonObject(BackupCoding.makeEncoder().encode(original))
+        var book = try #require(archive["book"] as? [String: Any])
+        book["sourceFormat"] = "hologram"
+        archive["book"] = book
+        var highlights = try #require(archive["highlights"] as? [[String: Any]])
+        highlights[0]["color"] = "ultraviolet"
+        archive["highlights"] = highlights
+        var headings = try #require(archive["userHeadings"] as? [[String: Any]])
+        headings[1]["parent"] = "figure1/3/Figure 2"
+        archive["userHeadings"] = headings
+        var notes = try #require(archive["notes"] as? [[String: Any]])
+        var figureNote = notes[0]
+        figureNote["id"] = UUID().uuidString
+        figureNote["target"] = "figure:3"
+        notes.insert(figureNote, at: 1)
+        archive["notes"] = notes
+
+        let decoded = try BackupCoding.makeDecoder().decode(BookArchive.self, from: JSONSerialization.data(withJSONObject: archive))
+
+        #expect(decoded.book == original.book)
+        #expect(decoded.book.sourceFormat == nil)
+        #expect(decoded.notes == original.notes)
+        var expectedHighlight = original.highlights[0]
+        expectedHighlight.color = HighlightColor.fallback
+        #expect(decoded.highlights == [expectedHighlight])
+        var expectedHeading = original.userHeadings[1]
+        expectedHeading.parent = nil
+        #expect(decoded.userHeadings == [original.userHeadings[0], expectedHeading])
+        #expect(decoded.bookmarks == original.bookmarks)
+        try decoded.validateForReplacement()
+    }
+
+    /// Leniency is only for values a newer version could write: a record missing a field is
+    /// still damage.
+    @Test func aDamagedRecordIsStillDamage() throws {
+        let url = try #require(Bundle.module.url(forResource: "v1-sample", withExtension: "ttbackup", subdirectory: "Fixtures"))
+        let reader = try BackupArchiveReader(url: url)
+        let original = try reader.bookArchive(for: reader.manifest.books[0].book.id)
+        var archive = try jsonObject(BackupCoding.makeEncoder().encode(original))
+        var notes = try #require(archive["notes"] as? [[String: Any]])
+        notes[0]["id"] = nil
+        archive["notes"] = notes
+        #expect(throws: DecodingError.self) {
+            try BackupCoding.makeDecoder().decode(BookArchive.self, from: JSONSerialization.data(withJSONObject: archive))
+        }
+    }
+
     private func jsonObject(_ data: Data) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }

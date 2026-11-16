@@ -320,3 +320,39 @@ struct WrittenLibrary {
         #expect(LibraryDatabase.copies(rootDirectory: root.url).isEmpty)
     }
 }
+
+/// Rows a newer version wrote with values this version has no case for, as found after Open in
+/// This Version: they read as defaults or are left out, never fail the book.
+@MainActor
+@Suite struct NewerVersionRowTests {
+    @Test func unknownValuesReadAsDefaultsAndUnknownNotesAreLeftOut() throws {
+        let container = try SchemaFactory.makeContainer(storeURL: nil)
+        let store = SwiftDataRecordStore(container: container)
+        let book = Book(title: "B", fingerprint: "f", fileName: "b.pdf", pageCount: 10, fileSize: 1)
+        try store.save(book)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let pageNoteID = UUID(), figureNoteID = UUID(), highlightID = UUID(), headingID = UUID()
+        let context = ModelContext(container)
+        context.insert(NoteModel(id: pageNoteID, bookID: book.id, targetKey: NoteTarget.page(1).storageKey, pageIndex: 1,
+                                 text: "readable", hasInk: false, bandLayoutData: nil, createdAt: date, modifiedAt: date))
+        context.insert(NoteModel(id: figureNoteID, bookID: book.id, targetKey: "figure:3", pageIndex: 3,
+                                 text: "a newer kind of note", hasInk: false, bandLayoutData: nil, createdAt: date, modifiedAt: date))
+        context.insert(HighlightModel(id: highlightID, bookID: book.id, pageIndex: 2, rectsData: try JSONEncoder().encode([CGRect]()),
+                                      colorRaw: "ultraviolet", text: "t", createdAt: date, sortRank: 1, sortMaxY: 0, sortMinX: 0))
+        context.insert(UserHeadingModel(id: headingID, bookID: book.id, title: "H", pageIndex: 4, parentRaw: "figure1/3/Figure 2",
+                                        createdAt: date))
+        try context.save()
+
+        #expect(try store.notes(bookID: book.id).map(\.id) == [pageNoteID])
+        #expect(try store.pageNotes(bookID: book.id, in: 0...9).map(\.id) == [pageNoteID])
+        #expect(try store.note(id: figureNoteID) == nil)
+        #expect(try store.highlight(id: highlightID)?.color == HighlightColor.fallback)
+        #expect(try store.highlights(bookID: book.id).count == 1)
+        #expect(try store.userHeading(id: headingID)?.parent == nil)
+
+        // The unknown note stays in the database for the newer version, and is never overwritten.
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<NoteModel>()) == 2)
+        #expect(throws: ReaderStoreError.self) { try store.removeNote(id: figureNoteID) }
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<NoteModel>()) == 2)
+    }
+}

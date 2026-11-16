@@ -223,12 +223,20 @@ final class SwiftDataRecordStore: RecordStore {
         try noteModel(bookID: bookID, target: target).map(value)
     }
 
+    /// A note row for reading, or `nil` when its target is a kind this version does not know (a
+    /// newer version wrote it; docs/DESIGN.md "Keeping data openable across versions"). Such rows
+    /// stay in the database for that version until the book's rows are replaced (a restore or a
+    /// delete); a write that would replace or move one still refuses (`value` throws `corruptRecord`).
+    private func readableValue(_ m: NoteModel) throws -> Note? {
+        NoteTarget(storageKey: m.targetKey) == nil ? nil : try value(m)
+    }
+
     func note(id: UUID) throws -> Note? {
-        try noteModel(id: id).map(value)
+        try noteModel(id: id).flatMap(readableValue)
     }
 
     func notes(bookID: UUID) throws -> [Note] {
-        try context.fetch(FetchDescriptor<NoteModel>(predicate: #Predicate { $0.bookID == bookID })).map(value)
+        try context.fetch(FetchDescriptor<NoteModel>(predicate: #Predicate { $0.bookID == bookID })).compactMap(readableValue)
     }
 
     func pageNotes(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Note] {
@@ -237,7 +245,7 @@ final class SwiftDataRecordStore: RecordStore {
             predicate: #Predicate { $0.bookID == bookID && $0.pageIndex != nil
                 && ($0.pageIndex ?? 0) >= lower && ($0.pageIndex ?? 0) <= upper },
             sortBy: [SortDescriptor(\.pageIndex)])
-        return try context.fetch(d).map(value)
+        return try context.fetch(d).compactMap(readableValue)
     }
 
     /// A new, uninserted row for `note`: the one place a note's columns are computed for an insert.
@@ -310,9 +318,8 @@ final class SwiftDataRecordStore: RecordStore {
     // MARK: Highlights
 
     private func value(_ m: HighlightModel) throws -> Highlight {
-        guard let color = HighlightColor(rawValue: m.colorRaw) else {
-            throw ReaderStoreError.corruptRecord("highlight \(m.id) has colour \"\(m.colorRaw)\"")
-        }
+        // A colour this version does not know (a newer version wrote it) reads as the fallback.
+        let color = HighlightColor(storedValue: m.colorRaw)
         let rects = try Self.decode([CGRect].self, from: m.rectsData, what: "highlight \(m.id) rects")
         return Highlight(id: m.id, bookID: m.bookID, pageIndex: m.pageIndex, rects: rects, color: color,
                          text: m.text, createdAt: m.createdAt)
@@ -473,10 +480,9 @@ final class SwiftDataRecordStore: RecordStore {
     private func value(_ m: UserHeadingModel) throws -> UserHeading {
         var parent: HeadingAnchor?
         if let raw = m.parentRaw {
-            guard let anchor = HeadingAnchor(rawValue: raw) else {
-                throw ReaderStoreError.corruptRecord("user heading \(m.id) has parent \"\(raw)\"")
-            }
-            parent = anchor
+            // A parent of a kind this version does not know (a newer version wrote it) reads as
+            // top level, as a parent that no longer resolves does.
+            parent = HeadingAnchor(rawValue: raw)
         }
         return UserHeading(id: m.id, bookID: m.bookID, title: m.title, pageIndex: m.pageIndex, parent: parent,
                            createdAt: m.createdAt)

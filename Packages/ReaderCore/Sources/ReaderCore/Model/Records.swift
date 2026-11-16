@@ -55,6 +55,25 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     /// Whether the PDF was made from another format at import.
     public var isConverted: Bool { sourceFormat?.isConverted == true }
 
+    /// Decodes like the synthesised form, except that a `sourceFormat` this version does not know
+    /// (a newer version's backup) reads as `nil`, as the database does: the book is kept, as one
+    /// imported as a PDF (docs/DESIGN.md "Keeping data openable across versions").
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+                  title: try c.decode(String.self, forKey: .title),
+                  fingerprint: try c.decode(String.self, forKey: .fingerprint),
+                  fileName: try c.decode(String.self, forKey: .fileName),
+                  pageCount: try c.decode(Int.self, forKey: .pageCount),
+                  fileSize: try c.decode(Int64.self, forKey: .fileSize),
+                  addedAt: try c.decode(Date.self, forKey: .addedAt),
+                  lastOpenedAt: try c.decodeIfPresent(Date.self, forKey: .lastOpenedAt),
+                  lastReadPageIndex: try c.decode(Int.self, forKey: .lastReadPageIndex),
+                  sourceFormat: try c.decodeIfPresent(String.self, forKey: .sourceFormat).flatMap(ImportFormat.init(rawValue:)),
+                  originalFileName: try c.decodeIfPresent(String.self, forKey: .originalFileName),
+                  converterVersion: try c.decodeIfPresent(Int.self, forKey: .converterVersion))
+    }
+
     /// Reading progress in `0...1`: `(lastReadPageIndex + 1) / pageCount`, clamped; `0` for a book
     /// with no pages. The last page reads as 1.0 (finished).
     public var progress: Double {
@@ -65,8 +84,24 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
 }
 
 /// The colours a highlight can have. A fixed set of four; `rawValue` is the stored form.
+///
+/// Decoding is lenient (docs/DESIGN.md "Keeping data openable across versions"): a colour this
+/// version does not know, from a newer version's backup or database, reads as `fallback`, so the
+/// highlight is kept instead of the book failing to restore.
 public enum HighlightColor: String, CaseIterable, Hashable, Codable, Sendable {
     case yellow, green, blue, pink
+
+    /// What a colour this version does not know reads as.
+    public static let fallback: HighlightColor = .yellow
+
+    /// The colour stored as `rawValue`, or `fallback` for one this version does not know.
+    public init(storedValue rawValue: String) {
+        self = HighlightColor(rawValue: rawValue) ?? .fallback
+    }
+
+    public init(from decoder: any Decoder) throws {
+        self.init(storedValue: try decoder.singleValueContainer().decode(String.self))
+    }
 }
 
 /// A coloured text range on one PDF page.
@@ -162,4 +197,17 @@ public struct UserHeading: Identifiable, Hashable, Codable, Sendable {
 
     /// The anchor notes on this heading use: `HeadingAnchor(userHeadingID: id)`.
     public var anchor: HeadingAnchor { HeadingAnchor(userHeadingID: id) }
+
+    /// Decodes like the synthesised form, except that a `parent` of a kind this version does not
+    /// know (a newer version's backup) reads as `nil`: the heading is kept, at top level, as for a
+    /// parent that no longer resolves (docs/DESIGN.md "Keeping data openable across versions").
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+                  bookID: try c.decode(UUID.self, forKey: .bookID),
+                  title: try c.decode(String.self, forKey: .title),
+                  pageIndex: try c.decode(Int.self, forKey: .pageIndex),
+                  parent: try c.decodeIfPresent(String.self, forKey: .parent).flatMap(HeadingAnchor.init(rawValue:)),
+                  createdAt: try c.decode(Date.self, forKey: .createdAt))
+    }
 }

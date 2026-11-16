@@ -765,11 +765,16 @@ switching between development branches).
   in a stored enumeration must be read by older versions as absent or a default, never as damage.
   Raise the format version only when an older version would misread the backup, and add a
   fixture for the new version; never regenerate an old one.
-- **Known gap (16 November 2026).** The database already reads an unknown `sourceFormat` as
-  absent, but backup records decode enumerations strictly: a backup from a newer version that
-  uses a new import format, highlight colour or note target kind fails that book's restore here
-  as damaged. Until older versions tolerate unknown cases, a new case in any of these raises the
-  backup format version.
+- **Values a newer version may add** (16 November 2026). In backups and in the database alike,
+  an import format this version does not know reads as none (the book reads as imported as a
+  PDF), a highlight colour as yellow, and a user heading's parent of an unknown kind as top
+  level. A note on a kind of target this version cannot represent is left out of a restore, and
+  in the database is skipped when reading but left in place for the newer version (until that
+  book is restored over or deleted on this iPad, which replaces all its rows). Editing a
+  highlight saves its colour as yellow.
+  Anything else that does not decode is still damage. A new stored enumeration is decoded this way
+  from the start (`HighlightColor(storedValue:)` is the pattern), and its tests sit beside
+  `NewerAppBackupTests.unknownValuesFromANewerAppReadAsDefaults` and `NewerVersionRowTests`.
 - **Files beside a book** (ink, recognised text, sidecars): an older version ignores files it
   does not know, and a newer version reads the files an older one wrote.
 - **A real upgrade before release.** Before a build that changes any of these ships, install the
