@@ -329,10 +329,19 @@ final class NotePageModel {
             guard !self.saveToken.isRevoked else { return }
             do {
                 let ran: Bool? = try await BookWriteGate.shared.performSave(bookID: self.bookID, token: self.saveToken) {
-                    if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
-                        try await self.store.deleteNote(id: record.id, origin: self.origin)
+                    // In the note's queue, so it never lands in the middle of another window's save.
+                    let deleted: Result<Bool, any Error> = await NoteSaveQueue.shared.run(
+                        bookID: self.bookID, target: self.target) {
+                        do {
+                            if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
+                                try await self.store.deleteNote(id: record.id, origin: self.origin)
+                            }
+                            return .success(true)
+                        } catch {
+                            return .failure(error)
+                        }
                     }
-                    return true
+                    return try deleted.get()
                 }
                 if ran == nil { return }
             } catch {
@@ -407,12 +416,17 @@ final class NotePageModel {
         return (record, data)
     }
 
-    /// One save, through `BookWriteGate` (a restore's commit never overlaps it); nothing once
-    /// the save token is revoked.
+    /// One save, through `BookWriteGate` (a restore's commit never overlaps it) and, inside it,
+    /// `NoteSaveQueue` (another window's save of this note never overlaps it, so the read, merge
+    /// and write below see what that save stored); nothing once the save token is revoked.
     private func performSave() async {
         guard isLoaded, !saveToken.isRevoked else { return }
+        let bookID = bookID
+        let target = target
         _ = await BookWriteGate.shared.performSave(bookID: bookID, token: saveToken) {
-            await self.performSaveNow()
+            await NoteSaveQueue.shared.run(bookID: bookID, target: target) {
+                await self.performSaveNow()
+            }
         }
     }
 

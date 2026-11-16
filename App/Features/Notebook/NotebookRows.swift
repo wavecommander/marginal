@@ -357,7 +357,8 @@ struct NotebookInkedNoteView: View {
 
     var body: some View {
         let zoom = NotePageStyle.defaultZoom(for: UIContentSizeCategory(dynamicTypeSize))
-        let width = NotePageStyle.pageWidth * zoom
+        // The snapshot is wider than the default page when the note's ink reaches past it.
+        let width = (snapshot?.size.width ?? NotePageStyle.pageWidth) * zoom
         Group {
             if let snapshot {
                 NotePageReadOnlyView(snapshot: snapshot)

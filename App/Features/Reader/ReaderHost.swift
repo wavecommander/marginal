@@ -26,6 +26,7 @@ struct ReaderHost: View {
                 ReaderScreen(session: session)
                     .onChange(of: session.restorableState) { _, state in
                         storedState = try? JSONEncoder().encode(state)
+                        session.saveNotesPanelState()
                     }
             } else if isMissing {
                 ContentUnavailableView("Book Not Found", systemImage: "book.closed",
@@ -81,6 +82,7 @@ struct ReaderHost: View {
         configuration.exposesViewportAnchor = environment.launchOptions.exposeViewportAnchor
         configuration.exposesSelection = environment.launchOptions.exposeSelection
         configuration.exposesMarkupState = environment.launchOptions.exposeMarkupState
+        configuration.hardwareKeyboard = environment.launchOptions.hardwareKeyboard
         configuration.scrollDirection = environment.launchOptions.scrollDirection
         if let storedState {
             configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)

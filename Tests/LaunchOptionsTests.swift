@@ -23,6 +23,15 @@ struct LaunchOptionsTests {
         #expect(options.notesPanel == .section)
     }
 
+    @Test func parsesHardwareKeyboard() {
+        #expect(LaunchOptions(arguments: ["app"]).hardwareKeyboard == nil)
+        #expect(LaunchOptions(arguments: ["app", "-hardwareKeyboard", "yes"]).hardwareKeyboard == true)
+        #expect(LaunchOptions(arguments: ["app", "-hardwareKeyboard", "no"]).hardwareKeyboard == false)
+        #expect(LaunchOptions(arguments: ["app", "-hardwareKeyboard", "maybe"]).hardwareKeyboard == nil)
+        let next = LaunchOptions(arguments: ["app", "-hardwareKeyboard", "no", "-markup"])
+        #expect(next.hardwareKeyboard == false && next.markup)
+    }
+
     @Test func parsesAccent() {
         #expect(LaunchOptions(arguments: ["app", "-accent", "indigo"]).accent == .indigo)
         #expect(LaunchOptions(arguments: ["app", "-accent", "chartreuse"]).accent == nil)

@@ -102,6 +102,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// values to XCUITest), and buttons that undo / redo through the markup responder.
     var exposeMarkupState = false
 
+    /// `-hardwareKeyboard <yes|no>`: test-only. Readers act as if a hardware keyboard is (or is
+    /// not) attached, whatever `GCKeyboard` reports: whether the tool picker stays up while a
+    /// note is typed into in markup mode (`ReaderMarkupController.keepsPickerWhileTyping`).
+    var hardwareKeyboard: Bool?
+
     /// `-accent <preset>`: start with that accent preset (`AccentChoice` raw value, e.g.
     /// `indigo`), written to the stored setting at launch. Unknown names are ignored.
     var accent: AccentChoice?
@@ -207,6 +212,15 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 exposeSelection = true
             case "-exposeMarkupState":
                 exposeMarkupState = true
+            case "-hardwareKeyboard":
+                if let text = value(after: index) {
+                    index += 1
+                    switch text {
+                    case "yes": hardwareKeyboard = true
+                    case "no": hardwareKeyboard = false
+                    default: break
+                    }
+                }
             case "-exposeAccent":
                 exposeAccent = true
             case "-backupFolder":

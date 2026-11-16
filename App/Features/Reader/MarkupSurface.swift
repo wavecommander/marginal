@@ -1,4 +1,5 @@
 import Foundation
+import GameController
 import Observation
 import PencilKit
 import UIKit
@@ -66,8 +67,12 @@ protocol MarkupSurface: AnyObject {
 /// becomes active and when its own text fields end editing.
 /// A responder that is *not* registered (the go-to-page field, search field) hides the picker
 /// while it is first responder; when it resigns, call `reassertToolPicker()` (the shell does
-/// this for its own fields). A note's text view (WP13) should be registered with
-/// `registerAuxiliaryResponder(_:)` so typing in markup mode keeps the picker.
+/// this for its own fields). A note's text view (WP13) is registered with
+/// `registerAuxiliaryResponder(_:)`: with a hardware keyboard attached, typing in markup mode
+/// keeps the picker. Without one the picker steps aside while the text view is first responder,
+/// so the on-screen keyboard has the bottom of the screen (the docked picker and the keyboard
+/// share it: shown for the text view, the picker sat behind the keyboard), and comes back as it
+/// was (same tool, colour and place: it is the same `PKToolPicker`) when typing ends.
 @Observable
 @MainActor
 final class ReaderMarkupController: NSObject, PKToolPickerObserver {
@@ -107,6 +112,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     @ObservationIgnored private weak var toolPickerWindow: UIWindow?
     /// A reassert is waiting for the navigation transition to finish.
     @ObservationIgnored private var isAwaitingTransition = false
+    /// A hardware keyboard is attached (`GCKeyboard`), or the `-hardwareKeyboard` test override.
+    @ObservationIgnored private var hasHardwareKeyboard: Bool
+    /// `GCKeyboardDidConnect` / `DidDisconnect` observers (none under the test override).
+    @ObservationIgnored private var keyboardObservers: [NSObjectProtocol] = []
     /// The routed manager the proxy last announced (to announce a change of routed surface).
     @ObservationIgnored private weak var announcedRoutedManager: UndoManager?
     @ObservationIgnored private var hasAnnouncedRouting = false
@@ -114,8 +123,11 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     @ObservationIgnored private var announcedState: (undo: Bool, redo: Bool) = (false, false)
     @ObservationIgnored private var isStateCheckScheduled = false
 
-    init(drawingPolicy: PKCanvasViewDrawingPolicy) {
+    /// `hardwareKeyboard`: `nil` follows the attached keyboards (`GCKeyboard`); `true` / `false`
+    /// pins the answer (UI tests, `-hardwareKeyboard`).
+    init(drawingPolicy: PKCanvasViewDrawingPolicy, hardwareKeyboard: Bool? = nil) {
         self.drawingPolicy = drawingPolicy
+        self.hasHardwareKeyboard = hardwareKeyboard ?? (GCKeyboard.coalesced != nil)
         super.init()
         responderView.controller = self
         routingUndoManager.controller = self
@@ -126,7 +138,19 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
                      .NSUndoManagerDidRedoChange, .NSUndoManagerWillCloseUndoGroup] {
             center.addObserver(self, selector: #selector(undoManagerChanged(_:)), name: name, object: nil)
         }
+        if hardwareKeyboard == nil {
+            for name in [Notification.Name.GCKeyboardDidConnect, .GCKeyboardDidDisconnect] {
+                keyboardObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.keyboardConnectionChanged() }
+                })
+            }
+        }
     }
+
+    /// Whether the tool picker stays on screen while a note's text view is first responder:
+    /// only with a hardware keyboard. Without one the on-screen keyboard takes the bottom of
+    /// the screen, so the picker steps aside until typing ends (see the type documentation).
+    var keepsPickerWhileTyping: Bool { hasHardwareKeyboard }
 
     // MARK: Registration
 
@@ -160,11 +184,13 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     }
 
     /// Registers a non-canvas responder that may become first responder during markup mode
-    /// (WP13's note text view), so the tool picker stays visible while it is first responder.
+    /// (WP13's note text view). With a hardware keyboard the tool picker stays visible while it
+    /// is first responder; without one the picker steps aside for the on-screen keyboard
+    /// (`keepsPickerWhileTyping`), and `reassertToolPicker()` brings it back when typing ends.
     func registerAuxiliaryResponder(_ responder: UIResponder) {
         auxiliaryResponders.removeAll { $0.value == nil || $0.value === responder }
         auxiliaryResponders.append(WeakResponder(responder))
-        toolPicker.setVisible(isMarkup, forFirstResponder: responder)
+        toolPicker.setVisible(showsPickerForAuxiliaryResponders, forFirstResponder: responder)
     }
 
     func unregisterAuxiliaryResponder(_ responder: UIResponder) {
@@ -239,7 +265,7 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
                 surface.markupModeDidChange(isMarkup)
             }
             for responder in auxiliaryResponders.compactMap(\.value) {
-                toolPicker.setVisible(isMarkup, forFirstResponder: responder)
+                toolPicker.setVisible(showsPickerForAuxiliaryResponders, forFirstResponder: responder)
             }
             if isMarkup {
                 reassertToolPicker()
@@ -325,10 +351,25 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         }
     }
 
-    /// Every responder the tool picker is made visible for in markup mode.
+    /// Every responder the tool picker is made visible for in markup mode (the auxiliary
+    /// responders only while `keepsPickerWhileTyping`).
     private var pickerResponders: [UIResponder] {
         [responderView] + surfaces.values.compactMap { $0.value?.canvasView }
-            + auxiliaryResponders.compactMap(\.value)
+            + (hasHardwareKeyboard ? auxiliaryResponders.compactMap(\.value) : [])
+    }
+
+    /// The visibility the picker is given for the auxiliary responders.
+    private var showsPickerForAuxiliaryResponders: Bool { isMarkup && hasHardwareKeyboard }
+
+    /// A hardware keyboard was attached or detached. If a note's text view is first responder,
+    /// the picker comes back (keyboard attached) or steps aside for the on-screen keyboard.
+    private func keyboardConnectionChanged() {
+        let attached = GCKeyboard.coalesced != nil
+        guard attached != hasHardwareKeyboard else { return }
+        hasHardwareKeyboard = attached
+        for responder in auxiliaryResponders.compactMap(\.value) {
+            toolPicker.setVisible(showsPickerForAuxiliaryResponders, forFirstResponder: responder)
+        }
     }
 
     /// Which of this window's responders is first responder (test hook, `ReaderStateProbe`):

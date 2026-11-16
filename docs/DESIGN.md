@@ -156,6 +156,12 @@ ones even where the mockup draws an approximation.
   any text field (Scribble, selection) and note ink is read-only. A finger always scrolls, and a
   finger tap in a note places the text cursor in either mode, so typing and inking can alternate
   without leaving markup mode.
+- **Typing in markup mode** (owner decision, 15 November 2026). With the on-screen keyboard, the
+  tool picker steps aside while the cursor is in the note, so the keyboard stays up and nothing
+  overlaps it; when typing ends (the keyboard's own dismiss key, or a stroke on the note) the
+  picker comes back exactly as it was: same tool, colour, width and place. With a hardware
+  keyboard attached the picker stays on screen while typing, and inking does not end typing.
+  The system picker cannot be shrunk or moved by the app, so stepping aside means hidden.
 - **Writing room.** The notes panel can be dragged wider, up to half the screen, and the note
   is zoomed by pinching it (100% to 200%). There is no zoom button (owner decision,
   14 November 2026: pinching is enough). Widening the pane makes the note page wider, in

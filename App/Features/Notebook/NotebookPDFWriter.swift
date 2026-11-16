@@ -262,7 +262,9 @@ final class NotebookPDFWriter {
     }
 
     private func drawSnapshot(_ snapshot: NotePageSnapshot, label: String) {
-        let width = min(bodyWidth, NotePageStyle.pageWidth)
+        // At its own size where the body has room (a note whose ink reaches past the default page
+        // is wider than `NotePageStyle.pageWidth`), scaled down to the body otherwise.
+        let width = min(bodyWidth, snapshot.size.width)
         let scale = width / snapshot.size.width
         let height = snapshot.size.height * scale
         let minimumSlice = min(height, (NotePageStyle.lineHeight * 3 + NotePageStyle.textInsets.top) * scale)

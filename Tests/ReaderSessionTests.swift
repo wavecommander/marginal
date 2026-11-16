@@ -124,6 +124,28 @@ struct ReaderSessionTests {
         _ = token
     }
 
+    @Test func notesPanelComesBackAsItWasLeft() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let suite = "ReaderSessionTests.notes.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var configuration = ReaderSession.Configuration()
+        configuration.notesPanelStore = ReaderNotesPanelStore(defaults: defaults)
+
+        let first = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        #expect(!first.isNotesVisible, "a first open starts with the panel closed")
+        first.showNotes(.section)
+        first.saveNotesPanelState()
+        let reopened = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        #expect(reopened.isNotesVisible && reopened.notesTab == .section)
+
+        reopened.toggleNotes()
+        reopened.saveNotesPanelState()
+        let again = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        #expect(!again.isNotesVisible && again.notesTab == .section, "closed stays closed")
+    }
+
     @Test func startPagePriority() throws {
         let fixture = try makeFixture()
         defer { cleanUp(fixture) }
@@ -133,6 +155,7 @@ struct ReaderSessionTests {
                                                      notesTab: .section, notesPanelWidth: 500)
         let fromBook = ReaderSession(book: stored, store: fixture.store)
         #expect(fromBook.currentPageIndex == 9)
+        #expect(!fromBook.isNotesVisible)  // a first open starts with the notes panel closed
         var configuration = ReaderSession.Configuration()
         configuration.restoredState = restored
         let fromScene = ReaderSession(book: stored, store: fixture.store, configuration: configuration)

@@ -194,6 +194,71 @@ struct PageInkPersistenceTests {
         #expect(try await stored(store, book)?.strokes.count == 1)
     }
 
+    /// The page leaves the screen between the Pencil lifting and PencilKit committing the stroke
+    /// (a jump or a fling straight after writing): the stroke is saved when it is committed.
+    @Test func aStrokeCommittedAfterThePageLeftIsSaved() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let a = makeSurface(store, book, origin: ChangeOrigin())
+        #expect(await loaded(a))
+        a.canvasViewDidBeginUsingTool(a.canvas)
+        a.canvasViewDidEndUsingTool(a.canvas)   // the Pencil lifted; the stroke is not committed yet
+        a.finish()                              // the page leaves the screen
+        #expect(!a.isFinished, "the surface waits for the stroke")
+        userDraws(a, line(100))                 // PencilKit commits the stroke
+        await PageInkQueue.shared.drain(bookID: book.id)
+        #expect(a.isFinished)
+        #expect(try await stored(store, book)?.strokes.count == 1)
+    }
+
+    /// The same, when PencilKit puts the stroke in the drawing without ever reporting the change:
+    /// the wait times out and whatever the canvas holds by then is saved.
+    @Test func aStrokeNeverReportedAfterThePageLeftIsSavedWhenTheWaitEnds() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let a = makeSurface(store, book, origin: ChangeOrigin())
+        #expect(await loaded(a))
+        a.canvasViewDidBeginUsingTool(a.canvas)
+        a.canvasViewDidEndUsingTool(a.canvas)
+        a.finish()
+        a.canvas.drawing = PKDrawing(strokes: [line(100)])  // no delegate call
+        await PageInkQueue.shared.drain(bookID: book.id)
+        #expect(a.isFinished)
+        #expect(try await stored(store, book)?.strokes.count == 1)
+    }
+
+    /// The page comes back before the stroke is committed: its new surface loads after the old
+    /// one's save, so it shows the stroke.
+    @Test func aPageThatReturnsBeforeTheStrokeIsCommittedShowsIt() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let origin = ChangeOrigin()
+        let a = makeSurface(store, book, origin: origin)
+        #expect(await loaded(a))
+        a.canvasViewDidBeginUsingTool(a.canvas)
+        a.canvasViewDidEndUsingTool(a.canvas)
+        a.finish()
+        let b = makeSurface(store, book, origin: origin)  // the page is displayed again
+        userDraws(a, line(100))
+        #expect(await loaded(b))
+        #expect(b.strokeCount == 1)
+        #expect(a.isFinished)
+        b.finish()
+    }
+
+    /// A page that leaves with nothing pending is finished at once, as before.
+    @Test func aPageWithNoStrokePendingFinishesAtOnce() async throws {
+        let (store, book) = try PageInkTestSupport.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let a = makeSurface(store, book, origin: ChangeOrigin())
+        #expect(await loaded(a))
+        userDraws(a, line(100))
+        a.finish()
+        #expect(a.isFinished)
+        await PageInkQueue.shared.drain(bookID: book.id)
+        #expect(try await stored(store, book)?.strokes.count == 1)
+    }
+
     @Test func manyPagesLeftMidSaveAreAllWritten() async throws {
         let (store, book) = try PageInkTestSupport.makeStore()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }

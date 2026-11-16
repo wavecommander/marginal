@@ -62,7 +62,7 @@ final class ReaderSession: Identifiable {
     struct RestorableState: Codable, Equatable, Sendable {
         var pageIndex: Int?
         var isContentsVisible = true
-        var isNotesVisible = true
+        var isNotesVisible = false
         var notesTab: NotesTab = .page
         var notesPanelWidth: Double = ReaderSession.defaultNotesPanelWidth
         /// The window's section history.
@@ -92,11 +92,16 @@ final class ReaderSession: Identifiable {
         var exposesSelection = false
         /// `-exposeMarkupState` (UI tests only): add `ReaderStateProbe`'s elements.
         var exposesMarkupState = false
+        /// `-hardwareKeyboard` (UI tests only): pin whether a hardware keyboard is attached
+        /// (`nil` follows `GCKeyboard`).
+        var hardwareKeyboard: Bool?
         /// `-scrollDirection`: start in this direction instead of the book's stored one (not saved
         /// unless the reader then chooses a direction).
         var scrollDirection: ReaderScrollDirection?
         /// Where each book's scroll direction is kept.
         var scrollDirectionStore = ReaderScrollDirectionStore()
+        /// Where the notes panel's state is kept between openings of a book.
+        var notesPanelStore = ReaderNotesPanelStore()
         /// Delay of the debounced `lastReadPageIndex` save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.
@@ -218,7 +223,7 @@ final class ReaderSession: Identifiable {
     /// panel a sheet. Read-only for features.
     var isNarrowLayout = false
     /// The notes panel (wide) or sheet (narrow) is shown.
-    var isNotesVisible = true
+    var isNotesVisible = false
     /// The notes panel's tab.
     var notesTab: NotesTab = .page
     /// Requested notes panel width in points. The shell clamps it to
@@ -310,13 +315,19 @@ final class ReaderSession: Identifiable {
             notesTab = restored.notesTab
             notesPanelWidth = max(Self.defaultNotesPanelWidth, restored.notesPanelWidth)
             if let restoredHistory = restored.history { history = restoredHistory }
+        } else if let kept = configuration.notesPanelStore.value(for: book.id) {
+            // A book reopened (no scene state): the notes panel as it was last left.
+            isNotesVisible = kept.isVisible
+            notesTab = kept.tab
+            notesPanelWidth = max(Self.defaultNotesPanelWidth, kept.width)
         }
         if let tab = configuration.openNotesTab {
             isNotesVisible = true
             notesTab = tab
         }
 
-        self.markup = ReaderMarkupController(drawingPolicy: configuration.inkAnyInput ? .anyInput : .default)
+        self.markup = ReaderMarkupController(drawingPolicy: configuration.inkAnyInput ? .anyInput : .default,
+                                             hardwareKeyboard: configuration.hardwareKeyboard)
         self.pdf = ReaderPDFController(session: self)
         markup.session = self
 
@@ -386,6 +397,12 @@ final class ReaderSession: Identifiable {
         RestorableState(pageIndex: currentPageIndex, isContentsVisible: isContentsVisible,
                         isNotesVisible: isNotesVisible, notesTab: notesTab, notesPanelWidth: notesPanelWidth,
                         history: history)
+    }
+
+    /// Remembers the notes panel's state for this book, so reopening it finds the panel as left.
+    func saveNotesPanelState() {
+        configuration.notesPanelStore.setValue(
+            .init(isVisible: isNotesVisible, tab: notesTab, width: notesPanelWidth), for: book.id)
     }
 
     // MARK: Jumps (record section history)

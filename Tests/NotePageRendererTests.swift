@@ -36,6 +36,68 @@ struct NotePageRendererTests {
         #expect(size.height == ceil(low.renderBounds.maxY + NotePageStyle.renderBottomMargin))
     }
 
+    /// Ink written in a widened notes pane lies to the right of the default page: the read-only
+    /// page grows to hold it, so the Notebook and the exports show all of it.
+    @Test func thePageGrowsToHoldInkWrittenBeyondTheDefaultWidth() throws {
+        let text = "One\nTwo"
+        let layout = NotePageLayoutEngine.shared.bandLayout(for: text)
+        let far = Support.stroke(from: CGPoint(x: 420, y: 30), to: CGPoint(x: 600, y: 40))
+        let (inked, data) = try note(text: text, strokes: [far], layout: layout)
+        let snapshot = NotePageRenderer.snapshot(note: inked, inkData: data)
+        #expect(snapshot.size.width == ceil(far.renderBounds.maxX))
+        #expect(snapshot.size.width > NotePageStyle.pageWidth)
+        #expect(snapshot.layout == layout, "the text is still wrapped at the default width")
+
+        // The PNG covers the whole page, and the stroke's far end is in it (not white paper).
+        let png = try #require(NotePageRenderer.pngData(snapshot, scale: 1))
+        let image = try #require(UIImage(data: png)?.cgImage)
+        #expect(CGFloat(image.width) == snapshot.size.width)
+        let pixel = try #require(Self.pixel(of: image, x: 590, y: 39))
+        #expect(pixel.blue > pixel.red + 40, "the stroke's blue ink, found at x 590: \(pixel)")
+    }
+
+    /// The colour of one pixel of `image` (origin top-left).
+    private static func pixel(of image: CGImage, x: Int, y: Int) -> (red: Int, green: Int, blue: Int)? {
+        var bytes = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &bytes, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
+        return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+    }
+
+    /// A note whose ink was last laid out at the default width, opened in a widened editor: its
+    /// ink is brought to the wide layout at once, so it sits on its paragraph and a new stroke is
+    /// filed under the paragraph it is drawn on.
+    @Test func aNoteOpenedInAWidenedEditorIsLaidOutAtThatWidth() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let model = NotePageModel(store: store, bookID: book.id, target: .page(0), origin: ChangeOrigin(),
+                                  autosaveDelay: .milliseconds(40))
+        await model.load()
+        let long = "A paragraph long enough to wrap onto several lines of the note page at its default width"
+        model.userDidEditText(long + "\nSecond")
+        let narrow = model.ink.layout
+        #expect(narrow.pageWidth == NotePageStyle.pageWidth)
+        Support.draw(Support.stroke(over: narrow.paragraphs[1]), on: model)
+
+        let editor = NotePageEditorView(session: nil)
+        editor.frame = CGRect(x: 0, y: 0, width: 700, height: 700)
+        editor.isMarkupStandalone = true
+        editor.pageWidth = 640
+        editor.model = model
+        editor.layoutIfNeeded()
+
+        let wide = try #require(editor.liveBandLayout(for: model.text))
+        #expect(wide.pageWidth == 640)
+        #expect(wide.paragraphs[1].top < narrow.paragraphs[1].top, "fewer lines above on the wider page")
+        #expect(model.ink.layout == wide)
+        let shown = try #require(editor.canvasView.drawing.strokes.first).renderBounds
+        #expect(shown.midY > wide.paragraphs[1].top && shown.midY < wide.paragraphs[1].bottom,
+                "the stroke is shown on its paragraph")
+        await editor.flushPendingMarkup()
+    }
+
     @Test func pngIsTheNoteAtThreeTimesScale() throws {
         let layout = NotePageLayoutEngine.shared.bandLayout(for: "Hello")
         let (note, data) = try note(text: "Hello", strokes: [Support.stroke(over: layout.paragraphs[0])], layout: layout)

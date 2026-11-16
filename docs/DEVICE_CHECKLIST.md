@@ -36,6 +36,15 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       then on the note, then on the page again: the same tool and colour throughout.
 - [ ] **Ink follows text.** Draw a circle round a word on line 2 of a note, then type a new
       paragraph above it: the circle moves down with its word.
+- [ ] **Typing with markup on, on-screen keyboard** (Magic Keyboard detached). Move the picker
+      somewhere and choose a tool and colour, then tap the "Write a note…" line of an empty note:
+      the keyboard comes up and stays up, and the picker goes out of its way. Type a line, then
+      dismiss the keyboard: the picker comes back in the same place with the same tool and
+      colour. Tap into the note again, then draw on it with the Pencil: the keyboard goes when
+      the stroke ends and the picker comes back. Check in both the wide pane and the narrow
+      sheet (portrait, or a narrow Split View).
+- [ ] **Typing with markup on, Magic Keyboard attached.** Tap into the note and type: the picker
+      stays on screen, and drawing on the note does not move the cursor out of it.
 
 ## Undo and redo
 

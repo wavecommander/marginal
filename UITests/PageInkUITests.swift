@@ -301,7 +301,9 @@ final class PageInkUITests: XCTestCase {
     func testToolPickerFollowsALiveAppearanceSwitch() throws {
         addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
         XCUIDevice.shared.appearance = .light
-        let app = launch(["-markup", "-inkAnyInput", "-notesPanel", "page", "-exposeMarkupState"])
+        // A hardware keyboard keeps the picker up while the note's text view has focus.
+        let app = launch(["-markup", "-inkAnyInput", "-notesPanel", "page", "-exposeMarkupState",
+                          "-hardwareKeyboard", "yes"])
         let noteText = app.textViews[ID.noteText].firstMatch
         XCTAssertTrue(noteText.waitForExistence(timeout: 15))
         XCTAssertTrue(state(app, has: "picker=shown"))

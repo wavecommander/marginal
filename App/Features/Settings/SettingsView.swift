@@ -32,12 +32,13 @@ struct SettingsView: View {
             Form {
                 Section {
                     AccentSwatchGrid(selection: selection) { storedAccent = $0.rawValue }
-                        .padding(.vertical, Space.s)
+                        .padding(.vertical, Space.l)
                     AccentPreview()
-                        .padding(.vertical, Space.s)
+                        .padding(.vertical, Space.l)
                     Button("Reset to \(AccentChoice.default.displayName)") {
                         storedAccent = AccentChoice.default.rawValue
                     }
+                    .padding(.vertical, Space.s)
                     .disabled(selection == .default)
                     .accessibilityIdentifier(AccessibilityID.Settings.reset)
                 } header: {
@@ -55,6 +56,7 @@ struct SettingsView: View {
                             Image(systemName: "doc.on.doc")
                         }
                     }
+                    .padding(.vertical, Space.s)
                     .accessibilityIdentifier(AccessibilityID.SupportedFormats.settingsRow)
                 } header: {
                     Text("Importing", comment: "Settings: header of the section about importing books and documents.")
@@ -66,6 +68,7 @@ struct SettingsView: View {
                     NavigationLink(value: SettingsPage.backup) {
                         Label("Backup & Restore", systemImage: "externaldrive")
                     }
+                    .padding(.vertical, Space.s)
                     .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
                 } footer: {
                     Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
@@ -75,6 +78,7 @@ struct SettingsView: View {
                         dismiss()
                         openQuickGuide?()
                     }
+                    .padding(.vertical, Space.s)
                     .accessibilityIdentifier(AccessibilityID.Onboarding.settingsOpenGuide)
                 } header: {
                     Text("Help")
@@ -110,7 +114,7 @@ private struct AccentSwatchGrid: View {
     let select: (AccentChoice) -> Void
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: Space.m)], spacing: Space.m) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: Space.l)], spacing: Space.l) {
             ForEach(AccentChoice.allCases) { choice in
                 AccentSwatch(choice: choice, isSelected: choice == selection) { select(choice) }
             }
@@ -165,7 +169,7 @@ struct AccentPreview: View {
     @Environment(\.accentTheme) private var accent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.m) {
+        VStack(alignment: .leading, spacing: Space.l) {
             HStack(spacing: Space.s) {
                 Button("Resume") {}.buttonStyle(.marginalPrimary)
                 Button("Open Notebook") {}.buttonStyle(.marginalTonal)

@@ -62,6 +62,9 @@ final class PageInkSurface: NSObject, MarkupSurface {
     private(set) var isDirty = false
     /// The page left the screen; nothing more is applied to it.
     private(set) var isFinished = false
+    /// The page left the screen while PencilKit had yet to commit the last stroke: `finish()`
+    /// completes once it has (see `finish()`).
+    private(set) var isFinishDeferred = false
     /// Number of strokes on the canvas.
     var strokeCount: Int { canvas.drawing.strokes.count }
 
@@ -136,18 +139,53 @@ final class PageInkSurface: NSObject, MarkupSurface {
     }
 
     /// The page left the screen: save now if anything is unsaved, unregister, detach the canvas.
+    ///
+    /// If the Pencil has only just lifted, PencilKit may not have put the stroke in the drawing
+    /// yet (`isAwaitingCommit`). Saving and detaching at once would then lose that stroke: the
+    /// drawing saved would not hold it, and its commit would arrive at a canvas nobody listens
+    /// to. So the surface stays whole until the stroke is committed (or the wait times out) and
+    /// saves what the canvas holds then. The wait and the save are one operation in the page's
+    /// queue, which keeps the surface alive, makes `PageInkQueue.drain` (a flush) wait for it,
+    /// and puts it ahead of the load of a new surface for the page if the page comes straight
+    /// back, so that surface shows the stroke.
     func finish() {
-        guard !isFinished else { return }
+        guard !isFinished, !isFinishDeferred else { return }
         saveTask?.cancel()
         saveTask = nil
-        commitTimeout?.cancel()
-        if isDirty, loadState == .ready { submitSave() }
-        isFinished = true
-        resumeCommitWaiters()
         if isRegistered {
             isRegistered = false
             markup?.unregister(self)
         }
+        guard isAwaitingCommit, loadState == .ready else {
+            commitTimeout?.cancel()
+            if isDirty, loadState == .ready { submitSave() }
+            tearDown()
+            return
+        }
+        isFinishDeferred = true
+        PageInkOverlayProvider.debugLog("finish page \(pageIndex) deferred until the stroke is committed")
+        let context = context
+        let pageIndex = pageIndex
+        PageInkQueue.shared.enqueue(bookID: context.bookID, pageIndex: pageIndex) { [self] in
+            await self.waitForCommit()
+            self.saveTask?.cancel()
+            self.saveTask = nil
+            let snapshot = self.canvas.drawing
+            let base = self.base
+            self.isDirty = false
+            self.tearDown()
+            guard !PageInkMerge.sameStrokes(snapshot, base.drawing) else { return }
+            let outcome = await PageInkPersistence.write(context, pageIndex: pageIndex, local: snapshot, base: base)
+            self.didSave(outcome, snapshot: snapshot)
+        }
+    }
+
+    /// The end of `finish()`: nothing more is applied to the canvas, and it is detached.
+    private func tearDown() {
+        isFinished = true
+        isFinishDeferred = false
+        commitTimeout?.cancel()
+        resumeCommitWaiters()
         if canvas.isFirstResponder { canvas.resignFirstResponder() }
         canvas.delegate = nil
         canvas.removeFromSuperview()

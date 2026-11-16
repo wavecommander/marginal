@@ -50,7 +50,9 @@ nonisolated enum NotePageAccessibilityID {
 ///
 /// ## Markup surface
 /// With a session, the view registers itself as a `MarkupSurface` while it is in a window, and
-/// its text view as the auxiliary responder that keeps the tool picker up while typing. Ink undo
+/// its text view as the auxiliary responder: with a hardware keyboard the tool picker stays up
+/// while typing; without one it steps aside for the on-screen keyboard and comes back when typing
+/// ends, which a stroke on the note also does (`ReaderMarkupController.keepsPickerWhileTyping`). Ink undo
 /// and redo use the model's `undoManager` (the surface's `markupUndoManager`, so the tool picker's
 /// Undo/Redo, the toolbar's at compact width, and ⌘Z through the markup responder act on note ink
 /// after a stroke on the note); the
@@ -107,6 +109,8 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     private var isMarkup = false
     private var isApplyingDrawing = false
     private var strokeActive = false
+    /// The stroke in progress changed the drawing: end typing when it ends (`endTypingForInk`).
+    private var endsTypingAfterStroke = false
     private var needsInkRedisplay = false
     private var isZoomingProgrammatically = false
     private var isRegistered = false
@@ -394,6 +398,10 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         currentModel = newModel
         newModel?.editor = self
         showModelText()
+        // The model's ink may last have been laid out at another width (in a pane since widened,
+        // or with no editor): bring it to this page's layout before it is shown or drawn on, or a
+        // new stroke would be filed under whichever paragraph the old layout had at that height.
+        newModel?.relayoutInk()
         redisplayInk()
         applyMode(isMarkup)
         if let newModel {
@@ -574,6 +582,7 @@ extension NotePageEditorView: UITextViewDelegate {
 extension NotePageEditorView: PKCanvasViewDelegate {
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         strokeActive = true
+        endsTypingAfterStroke = false
         updatePlaceholder()
         currentModel?.strokeDidBegin()
         session?.markup.surfaceDidBeginStroke(self)
@@ -591,6 +600,10 @@ extension NotePageEditorView: PKCanvasViewDelegate {
         if let pending = pendingModel { switchModel(to: pending) }
         updatePlaceholder()
         layoutPage()
+        if endsTypingAfterStroke {
+            endsTypingAfterStroke = false
+            endTypingForInk()
+        }
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
@@ -599,6 +612,24 @@ extension NotePageEditorView: PKCanvasViewDelegate {
         updatePlaceholder()
         layoutPage()
         updateInkAccessibility()
+        // A stroke really inked (or erased) the note. A finger tap that places the cursor also
+        // begins and ends a "stroke" when fingers can draw, but it is cancelled and changes
+        // nothing, so it must not end the typing it just started.
+        if strokeActive {
+            endsTypingAfterStroke = true
+        } else {
+            endTypingForInk()
+        }
+    }
+
+    /// Inking while typing with the on-screen keyboard (the tool picker stepped aside for it):
+    /// the stroke ends typing, so the keyboard goes and the picker comes back as it was
+    /// (`textViewDidEndEditing` re-asserts it). Called once the stroke has ended, not when it
+    /// begins, so the page does not move under the Pencil as the keyboard leaves. With a
+    /// hardware keyboard the picker never left, and typing carries on.
+    private func endTypingForInk() {
+        guard textView.isFirstResponder, let markup = session?.markup, !markup.keepsPickerWhileTyping else { return }
+        textView.resignFirstResponder()
     }
 }
 

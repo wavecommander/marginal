@@ -246,6 +246,37 @@ struct NotePagePersistenceTests {
         #expect(windowA.strokeCount == 2 && windowB.strokeCount == 2)
     }
 
+    /// Both windows hold an unsaved stroke and save in the same moment (the app going to the
+    /// background flushes every model at once): neither save may write over the other's stroke.
+    @Test func concurrentSavesFromTwoWindowsKeepBothStrokes() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let windowA = makeModel(store, book, origin: ChangeOrigin(label: "A"))
+        let windowB = makeModel(store, book, origin: ChangeOrigin(label: "B"))
+        await windowA.load()
+        await windowB.load()
+        // A stored note with ink that both windows show.
+        windowA.userDidEditText("Shared note\nSecond line")
+        Support.draw(Support.stroke(over: windowA.ink.layout.paragraphs[0]), on: windowA)
+        await windowA.flush()
+        #expect(await Support.waitUntil { windowB.strokeCount == 1 && windowB.saveState == .saved })
+
+        for round in 0..<5 {
+            let y = CGFloat(300 + round * 40)
+            Support.draw(Support.stroke(from: CGPoint(x: 30, y: y), to: CGPoint(x: 140, y: y + 6)), on: windowA)
+            Support.draw(Support.stroke(from: CGPoint(x: 170, y: y), to: CGPoint(x: 280, y: y + 6)), on: windowB)
+            async let flushA: Void = windowA.flush()
+            async let flushB: Void = windowB.flush()
+            _ = await (flushA, flushB)
+            let expected = 3 + round * 2
+            #expect(await Support.waitUntil { windowA.strokeCount == expected && windowB.strokeCount == expected },
+                    "round \(round): A shows \(windowA.strokeCount), B shows \(windowB.strokeCount), expected \(expected)")
+            let note = try #require(try store.notes.note(bookID: book.id, target: .page(3)))
+            let data = try #require(try await store.noteInk(bookID: book.id, noteID: note.id))
+            #expect(try NoteInkArchive.decode(data, fallbackLayout: windowA.ink.layout).strokes.count == expected)
+        }
+    }
+
     @Test func secondWindowCreatingTheSameNoteAdoptsTheStoredID() async throws {
         let (store, book) = try Support.makeStore()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }

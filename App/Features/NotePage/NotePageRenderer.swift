@@ -12,8 +12,10 @@ struct NotePageSnapshot {
     let layout: NoteBandLayout
     /// The ink in note-page coordinates (relocated from its stored layout to `layout`).
     let drawing: PKDrawing
-    /// The note page's size at 100%: `NotePageStyle.pageWidth` wide, tall enough for the text and
-    /// the ink plus a margin (no blank writing room).
+    /// The note page's size at 100%: `NotePageStyle.pageWidth` wide, or as wide as its ink reaches
+    /// when that is further (ink written in a widened notes pane), and tall enough for the text
+    /// and the ink plus a margin (no blank writing room). The text is always wrapped at
+    /// `NotePageStyle.pageWidth`.
     let size: CGSize
     /// `true` when the stored ink could not be read (written by a newer app version); the
     /// snapshot then shows the text only.
@@ -78,8 +80,12 @@ enum NotePageRenderer {
     private static func pageSize(layout: NoteBandLayout, drawing: PKDrawing) -> CGSize {
         let textBottom = layout.trailingTop + NotePageStyle.textInsets.bottom
         let bounds = drawing.bounds
-        let inkBottom = bounds.isNull || drawing.strokes.isEmpty ? 0 : bounds.maxY + NotePageStyle.renderBottomMargin
-        return CGSize(width: NotePageStyle.pageWidth, height: ceil(max(textBottom, inkBottom)))
+        let hasInk = !bounds.isNull && !drawing.strokes.isEmpty
+        let inkBottom = hasInk ? bounds.maxY + NotePageStyle.renderBottomMargin : 0
+        // Ink written in a widened notes pane can lie to the right of the default page; the page
+        // grows to hold it, so no view or export of the note cuts it off.
+        let inkRight = hasInk ? bounds.maxX : 0
+        return CGSize(width: ceil(max(NotePageStyle.pageWidth, inkRight)), height: ceil(max(textBottom, inkBottom)))
     }
 
     // MARK: Bitmap (Markdown export, and the on-screen read-only view)

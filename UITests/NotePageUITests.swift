@@ -20,9 +20,9 @@ final class NotePageUITests: XCTestCase {
 
     // MARK: Helpers
 
-    private func launch(fresh: Bool, markup: Bool) -> XCUIApplication {
+    private func launch(fresh: Bool, markup: Bool, extra: [String] = []) -> XCUIApplication {
         var arguments = ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-inkAnyInput",
-                         "-exposeMarkupState"]
+                         "-exposeMarkupState"] + extra
         if markup { arguments.append("-markup") }
         let app: XCUIApplication
         if fresh {
@@ -128,9 +128,10 @@ final class NotePageUITests: XCTestCase {
 
     /// Turning markup on for the first time while the note's text view is first responder (the
     /// case where PencilKit animated the picker's first layout from the top of the screen,
-    /// TSOFT-219) shows the picker once, for the text view.
+    /// TSOFT-219) shows the picker once, for the text view. Only with a hardware keyboard does
+    /// the picker stay up while typing.
     func testFirstMarkupEntryWhileTypingShowsThePickerOnce() {
-        let app = launch(fresh: true, markup: false)
+        let app = launch(fresh: true, markup: false, extra: ["-hardwareKeyboard", "yes"])
         textView(app).tap()
         textView(app).typeText("Typing first")
         XCTAssertTrue(wait(textView(app), "value == %@", "Typing first"))
@@ -140,6 +141,44 @@ final class NotePageUITests: XCTestCase {
         undoInk(app)
         XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "shows=1 "), "shown once")
         XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=auxiliary"), "still typing in the note")
+    }
+
+    /// Without a hardware keyboard, tapping into the note in markup mode hides the tool picker so
+    /// the on-screen keyboard can stay; the text view keeps focus and takes typing. A stroke on
+    /// the note ends typing and the picker comes back, for the markup responder.
+    func testPickerStepsAsideForTheOnScreenKeyboard() {
+        let app = launch(fresh: true, markup: true, extra: ["-hardwareKeyboard", "no"])
+        XCTAssertTrue(pickerShown(app))
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "shows=1 "), "shown at launch")
+
+        // The placeholder line, where the owner saw the keyboard close again.
+        pagePoint(app, x: 40, y: 14 + 11).tap()
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=hidden"), "picker out of the keyboard's way")
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=auxiliary"), "the note has focus")
+        textView(app).typeText("Typed beside the keyboard")
+        XCTAssertTrue(wait(textView(app), "value == %@", "Typed beside the keyboard"))
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=hidden"), "still out of the way while typing")
+
+        drawLine(app, y: 160)
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5), "the stroke inked the note")
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=markup"), "the stroke ended typing")
+        XCTAssertTrue(pickerShown(app), "the picker came back")
+        XCTAssertEqual(textView(app).value as? String, "Typed beside the keyboard")
+    }
+
+    /// With a hardware keyboard the picker stays up while typing in markup mode, and inking does
+    /// not end typing.
+    func testPickerStaysWhileTypingWithAHardwareKeyboard() {
+        let app = launch(fresh: true, markup: true, extra: ["-hardwareKeyboard", "yes"])
+        XCTAssertTrue(pickerShown(app))
+        pagePoint(app, x: 40, y: 14 + 11).tap()
+        textView(app).typeText("Hardware keys")
+        XCTAssertTrue(wait(textView(app), "value == %@", "Hardware keys"))
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=auxiliary"))
+        drawLine(app, y: 160)
+        XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=auxiliary"), "still typing")
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=shown"))
     }
 
     func testTypingWithMarkupOnByTapping() {
@@ -252,10 +291,11 @@ final class NotePageUITests: XCTestCase {
     private func undoInk(_ app: XCUIApplication) { app.buttons["reader.markupUndo"].firstMatch.tap() }
     private func redoInk(_ app: XCUIApplication) { app.buttons["reader.markupRedo"].firstMatch.tap() }
 
-    /// Markup mode always shows the system tool picker: with the note idle, right after a stroke
-    /// on the note, and with the cursor in the note and the keyboard up.
+    /// Markup mode shows the system tool picker with the note idle, right after a stroke on the
+    /// note, and, with a hardware keyboard, with the cursor in the note. (With the on-screen
+    /// keyboard the picker steps aside while typing: `testPickerStepsAsideForTheOnScreenKeyboard`.)
     func testToolPickerStaysUpWithTheNote() throws {
-        let app = launch(fresh: true, markup: true)
+        let app = launch(fresh: true, markup: true, extra: ["-hardwareKeyboard", "yes"])
         XCTAssertTrue(markupState(app).waitForExistence(timeout: 10))
         let shown = pickerShown(app)
         try saveScreenshot("picker-a-idle")
