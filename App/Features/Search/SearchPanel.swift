@@ -1,7 +1,7 @@
 import ReaderCore
 import SwiftUI
 
-/// The search UI (WP10): a search field, progress, and results grouped by heading. The shell
+/// The search UI: a search field, progress, and results grouped by heading. The shell
 /// presents it in a popover from the toolbar's search button (⇧⌘F opens it too) while
 /// `session.isSearchVisible`; at compact width the popover adapts to a sheet. State lives in the
 /// window's `SearchModel` (`session.searchModel`), which outlives the panel.

@@ -1,7 +1,7 @@
 import Foundation
 import ReaderCore
 
-/// Revealing a highlight (WP7's jump API for the notes panel's list, the Notebook and search).
+/// Revealing a highlight (the jump API for the notes panel's list, the Notebook and search).
 extension ReaderSession {
     /// Jumps to a highlight: scrolls its page so the highlight's lines are in view. It is a
     /// *jump* (section history records it, as for any row tapped in a list). The highlight is
