@@ -109,6 +109,18 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       expands in Files to a folder whose Markdown shows the images from `images/` and
       `handwriting/` (open it in a Markdown app such as Obsidian).
 - [ ] **Export a selection.** Select, tick a few rows and a heading, export: only those appear.
+- [ ] **Export Marked-Up PDF.** In a book with Pencil ink (pen, marker and a pencil or crayon
+      stroke), highlights and a few notes (one with handwriting), choose More ▸ Export Marked-Up
+      PDF ▸ Book with Notes, save to Files and open it in Files and in Preview on a Mac: every
+      page is there with its text selectable, the ink and highlights sit exactly where they are
+      in the reader (zoom in: pen strokes stay sharp), the notes follow the last page under
+      "Notes", the sidebar outline lists the book's chapters, your own headings and "Notes" with
+      its headings, and tapping "p. N" beside a note goes to that page. Book Only has no notes.
+      Then a real textbook of 700+ pages and hundreds of MB, with Xcode's memory gauge on:
+      progress moves steadily, Cancel answers at once, other windows stay smooth while it runs,
+      memory stays flat, and the exported file is not much larger than the
+      book. Repeat with a scanned book and a book converted from EPUB. The menu bar's Book ›
+      Export Marked-Up PDF (⌥⌘E, ⌥⇧⌘E) does the same in the focused window.
 - [ ] **Sleeping readers.** With Xcode's memory gauge (Debug Navigator) on a large image-heavy PDF
       (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
       Memory falls back about five seconds after each new reader opens; going back through every

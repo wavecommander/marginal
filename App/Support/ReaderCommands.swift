@@ -143,6 +143,16 @@ struct ReaderCommands: Commands {
                 .disabled(session?.isMarkupMode != true || session?.markup.canUndo != true)
             Button("Redo Markup") { session?.markup.redo() }
                 .disabled(session?.isMarkupMode != true || session?.markup.canRedo != true)
+            Divider()
+            Menu(ReaderSession.markedUpExportTitle) {
+                Button(MarkedUpExportChoice.bookOnly.title) { session?.exportMarkedUpPDF(.bookOnly) }
+                    .keyboardShortcut("e", modifiers: [.command, .option])
+                    .disabled(session?.isMarkedUpExportAvailable(.bookOnly) != true)
+                Button(MarkedUpExportChoice.withNotes.title) { session?.exportMarkedUpPDF(.withNotes) }
+                    .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+                    .disabled(session?.isMarkedUpExportAvailable(.withNotes) != true)
+            }
+            .disabled(session?.canExportMarkedUpPDF != true)
         }
     }
 

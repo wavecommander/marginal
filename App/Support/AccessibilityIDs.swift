@@ -225,6 +225,16 @@ nonisolated enum AccessibilityID {
         static let aboutCopy = "settings.about.copy"
     }
 
+    /// The reader's "Export Marked-Up PDF" (More menu) and its progress card.
+    enum MarkedUpExport {
+        /// The submenu in the reader's More menu.
+        static let menu = "reader.more.exportMarkedUp"
+        static let bookOnly = "reader.more.exportMarkedUp.bookOnly"
+        static let withNotes = "reader.more.exportMarkedUp.withNotes"
+        static let progress = "reader.exportMarkedUp.progress"
+        static let cancel = "reader.exportMarkedUp.cancel"
+    }
+
     /// Placeholders the next packages replace (keep the identifiers if convenient).
     enum Placeholder {
         static let contents = "placeholder.contents"

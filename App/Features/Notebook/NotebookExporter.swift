@@ -116,12 +116,7 @@ enum NotebookExporter {
     /// `"<Title> Notebook"`, with characters that are unsafe in file names replaced; `"Notebook"`
     /// for a blank title.
     nonisolated static func baseName(forBookTitle title: String) -> String {
-        let unsafe = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters).union(.newlines)
-        var cleaned = String(String.UnicodeScalarView(title.unicodeScalars.map { unsafe.contains($0) ? " " : $0 }))
-        cleaned = cleaned.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        while cleaned.hasPrefix(".") { cleaned.removeFirst() }
-        cleaned = String(cleaned.prefix(80)).trimmingCharacters(in: .whitespaces)
-        return cleaned.isEmpty ? "Notebook" : "\(cleaned) Notebook"
+        ExportFileName.cleanedTitle(title).map { "\($0) Notebook" } ?? "Notebook"
     }
 
     /// Image file name for the `ordinal`-th (1-based) inked note.

@@ -148,6 +148,7 @@ struct ReaderScreen: View {
                 .paneContainer(AccessibilityID.Reader.notesSheet)
                 .environment(session)
         }
+        .markedUpExportPresentation(session)
         .environment(session)
     }
 
@@ -376,6 +377,7 @@ struct ReaderScreen: View {
             Button { window.openNotebookInNewWindow(bookID: session.book.id) } label: {
                 Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
             }
+            MarkedUpExportMenu(session: session)
             Divider()
             scrollDirectionPicker
             Divider()
