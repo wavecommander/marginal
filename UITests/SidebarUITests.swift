@@ -103,8 +103,20 @@ final class SidebarUITests: XCTestCase {
             XCTAssertTrue(choice.exists, "placement \(placement)")
             choice.tap()
         }
-        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
-        XCTAssertTrue(heading(app, title).waitForExistence(timeout: 10), "added \(title)")
+        let add = app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch
+        // The sheet moves up while the on-screen keyboard comes in; a tap aimed at Add while it
+        // moves misses the button.
+        add.waitForStableFrame()
+        add.tap()
+        if !heading(app, title).waitForExistence(timeout: 10) {
+            // Diagnostics: is the sheet still up (the tap or the save failed) or did it close
+            // without the row appearing?
+            let shown = field.exists ? "up, title “\(field.value ?? "nil")”, Add enabled \(add.exists && add.isEnabled)" : "closed"
+            print("SHEET-STATE after Add: sheet \(shown)")
+            dumpHeadings(app, "after Add")
+            print("SHEET-DUMP after Add\n\(app.debugDescription)")
+            XCTFail("added \(title)")
+        }
     }
 
     private func dumpHeadingsAfterFailure(_ app: XCUIApplication) {
