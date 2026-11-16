@@ -69,7 +69,6 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(wait(pill, "label == %@", ["Page 1 of 12"]), pill.label)
 
         // Read: go to page 3.
-        sleep(1)  // hardware-key events need the window to have become key
         SidebarUITests.goToPage(app, 3)
         XCTAssertTrue(wait(pill, "label == %@", ["Page 3 of 12"]), pill.label)
 

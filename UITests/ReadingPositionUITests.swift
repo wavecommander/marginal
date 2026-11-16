@@ -43,13 +43,11 @@ final class ReadingPositionUITests: XCTestCase {
 
     /// The anchor once it has stopped changing (animations finished).
     private func settledAnchor(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) -> Anchor {
-        var last = readAnchor(app)
-        let deadline = Date().addingTimeInterval(6)
-        while Date() < deadline {
-            usleep(500_000)
+        var last: Anchor?
+        _ = UIWait.until(timeout: 6, poll: 0.5) {
             let next = readAnchor(app)
-            if next == last, next != nil { break }
-            last = next
+            defer { last = next }
+            return next != nil && next == last
         }
         guard let last else {
             XCTFail("no viewport anchor", file: file, line: line)
@@ -76,19 +74,21 @@ final class ReadingPositionUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    private func goToPage(_ app: XCUIApplication, _ number: Int) {
-        if #available(iOS 26.0, *) {
-            app.typeKey("g", modifierFlags: [.command, .option])
-        } else {
-            app.buttons["reader.pagePill"].firstMatch.tap()
-        }
-        sleep(1)
-        app.typeText("\(number)\n")
-        sleep(2)
-    }
-
     private func toggle(_ app: XCUIApplication, _ identifier: String) {
         app.buttons[identifier].firstMatch.tap()
+    }
+
+    /// Presses ⌘`key` until the viewport's scale has changed from `scale` (the first hardware-key
+    /// event after a launch can arrive before the window is key), then returns the settled anchor.
+    private func zoom(_ app: XCUIApplication, key: String, from scale: Double,
+                      file: StaticString = #filePath, line: UInt = #line) -> Anchor {
+        var changed = false
+        for _ in 0..<3 where !changed {
+            app.typeKey(key, modifierFlags: .command)
+            changed = UIWait.until(timeout: 3) { (readAnchor(app)?.scale ?? scale) != scale }
+        }
+        XCTAssertTrue(changed, "⌘\(key) did not change the zoom", file: file, line: line)
+        return settledAnchor(app, file: file, line: line)
     }
 
     /// Toggles each panel open/closed `rounds` times, alternating at the end; the position must
@@ -160,10 +160,10 @@ final class ReadingPositionUITests: XCTestCase {
 
     func testPanelTogglesKeepPositionWhenZoomed() {
         let app = launch(Fixtures.small, "small")
-        sleep(1)
-        app.typeKey("+", modifierFlags: .command)
-        app.typeKey("+", modifierFlags: .command)
-        sleep(1)
+        let fit = settledAnchor(app)
+        let once = zoom(app, key: "+", from: fit.scale)
+        let twice = zoom(app, key: "+", from: once.scale)
+        XCTAssertGreaterThan(twice.scale, fit.scale, "zoomed in")
         scrollPage(app, by: 0.3)
         exerciseWidePanels(app, rounds: 3, label: "small zoomed")
     }
@@ -177,8 +177,11 @@ final class ReadingPositionUITests: XCTestCase {
         let page = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5))
         let notes = "reader.toolbar.notes"
         for round in 1...2 {
+            let scale = settledAnchor(app).scale
             page.doubleTap()
-            sleep(2)  // PDFKit's zoom animation
+            // PDFKit's zoom animation: it has started once the scale moves, and `settledAnchor`
+            // waits for its end.
+            _ = UIWait.until(timeout: 2) { (readAnchor(app)?.scale ?? scale) != scale }
             let zoomed = settledAnchor(app)
             print("READING-ANCHOR double tap \(round): \(zoomed)")
             toggle(app, notes)
@@ -192,9 +195,13 @@ final class ReadingPositionUITests: XCTestCase {
     /// panels leave; the place holds through all of it.
     func testPanelTogglesKeepPositionInFitWidth() {
         let app = launch(Fixtures.small, "small", ["-openPage", "5"])
-        sleep(1)
-        app.typeKey("9", modifierFlags: .command)
-        sleep(1)
+        // Fit Width from the More menu: ⌘9 may change nothing visible at this size, so a key
+        // press lost while the window is becoming key could not be told from one that worked.
+        app.buttons["reader.toolbar.more"].firstMatch.tap()
+        let fitWidth = app.buttons["Fit Width"].firstMatch
+        XCTAssertTrue(fitWidth.waitForExistence(timeout: 5), "More ▸ Fit Width")
+        fitWidth.tap()
+        XCTAssertTrue(fitWidth.waitForGone(), "the More menu closed")
         scrollPage(app, by: 0.3)
         exerciseWidePanels(app, rounds: 2, label: "small fit width")
     }
@@ -274,7 +281,7 @@ final class ReadingPositionUITests: XCTestCase {
         // A slow slide that stops just past the narrowest width resizes, it does not close.
         handle().press(forDuration: 0.3, thenDragTo: handle(dx: CGFloat(widened - narrowest) + 16), withVelocity: 60,
                        thenHoldForDuration: 0.5)
-        sleep(1)
+        divider.waitForStableFrame()  // the release's snap (shut, if it were going to close)
         XCTAssertTrue(divider.exists, "a slow slide near the narrowest width closed the pane")
         XCTAssertEqual(width(), narrowest)
         assertSamePosition(start, settledAnchor(app), "slow slide to the narrowest width")
@@ -287,9 +294,7 @@ final class ReadingPositionUITests: XCTestCase {
         let from = handle()
         from.press(forDuration: 0.3, thenDragTo: edge, withVelocity: 600, thenHoldForDuration: 0.1)
         let notesToggle = app.buttons["reader.toolbar.notes"].firstMatch
-        let deadline = Date().addingTimeInterval(5)
-        while divider.exists && Date() < deadline { usleep(250_000) }
-        XCTAssertFalse(divider.exists, "the pane did not close")
+        XCTAssertTrue(divider.waitForGone(timeout: 5), "the pane did not close")
         assertSamePosition(start, settledAnchor(app), "slid shut")
 
         // The toolbar button brings it back at the width from before the closing slide.
@@ -321,18 +326,16 @@ final class ReadingPositionUITests: XCTestCase {
         }
         handle(dx: -16).press(forDuration: 0.3, thenDragTo: handle(dx: -136), withVelocity: 300, thenHoldForDuration: 0.3)
         handle(dx: 16).press(forDuration: 0.3, thenDragTo: handle(dx: 76), withVelocity: 300, thenHoldForDuration: 0.3)
-        sleep(1)
+        divider.waitForStableFrame()
         assertNoInk("resized")
         handle().press(forDuration: 0.3,
                        thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: 0.5)),
                        withVelocity: 600, thenHoldForDuration: 0.1)
-        let deadline = Date().addingTimeInterval(5)
-        while divider.exists && Date() < deadline { usleep(250_000) }
-        XCTAssertFalse(divider.exists, "the pane did not close in markup mode")
+        XCTAssertTrue(divider.waitForGone(timeout: 5), "the pane did not close in markup mode")
         assertSamePosition(start, settledAnchor(app), "markup: slid shut")
         app.buttons["reader.toolbar.notes"].firstMatch.tap()
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
-        sleep(1)
+        divider.waitForStableFrame()
         assertNoInk("closed and reopened")
         XCTAssertEqual(markup.label, "Done with Markup", "markup mode ended")
     }
@@ -340,7 +343,7 @@ final class ReadingPositionUITests: XCTestCase {
     func testNarrowPanelsKeepPosition() {
         XCUIDevice.shared.orientation = .portrait
         let app = launch(Fixtures.small, "small")
-        sleep(1)
+        _ = settledAnchor(app)  // the rotation to portrait has finished
         let pill = app.buttons["reader.pagePill"].firstMatch
         let pageBefore = pill.label
         scrollPage(app, by: 0.15)
