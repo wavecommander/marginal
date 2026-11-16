@@ -4,8 +4,8 @@ import PDFKit
 import QuartzCore
 import UIKit
 
-/// DEBUG-only performance probe (WP12), read from the process arguments here so the shell's
-/// `LaunchOptions` is untouched.
+/// DEBUG-only performance probe, switched on by `LaunchOptions` (`perfProbe`,
+/// `perfAutoScroll`).
 ///
 /// `-perfProbe` adds an accessibility element `reader.perfStats` to the reader whose value is
 /// `launchToFirstPageMS L openToFirstPageMS O page P footprintMB F phase …` and, after an
@@ -23,8 +23,8 @@ import UIKit
 /// time (`dropped`); pages crossed; and the footprint before, at its highest, and after.
 @MainActor
 final class ReaderPerfProbe: UIView {
-    static let isEnabled = ProcessInfo.processInfo.arguments.contains("-perfProbe")
-    static let autoScroll = ProcessInfo.processInfo.arguments.contains("-perfAutoScroll")
+    static let isEnabled = LaunchOptions.current.perfProbe
+    static let autoScroll = LaunchOptions.current.perfAutoScroll
 
     private weak var controller: ReaderPDFController?
     private let createdAt = CACurrentMediaTime()

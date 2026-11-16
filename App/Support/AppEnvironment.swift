@@ -19,9 +19,13 @@ final class AppEnvironment {
     /// Set when the persistent store failed to open and an in-memory store is used instead.
     /// Every window then shows `LibraryUnavailableView` instead of the Library, so nothing is
     /// imported or written into a store that vanishes when the app quits, and automatic backups
-    /// stay off.
-    let storeErrorMessage: String?
-    /// The fixture importer (`-importFixture`); WP3 owns the real import pipeline.
+    /// stay off. It holds the ways back in (open a newer library in this version, put back a copy).
+    let libraryRecovery: LibraryRecovery?
+    /// The store's error when it failed to open (`libraryRecovery`), else `nil`.
+    var storeErrorMessage: String? { libraryRecovery?.details }
+    /// The app's one import pipeline, shared by every window.
+    @ObservationIgnored let importService: ImportService
+    /// The fixture importer (`-importFixture`), handed `importService`.
     @ObservationIgnored let fixtureImporter: FixtureImporter
     /// Backup and restore, one job at a time for the app (beside the import service).
     @ObservationIgnored let backupService: BackupService
@@ -66,12 +70,14 @@ final class AppEnvironment {
     }
 
     /// - Parameter infoDictionary: the build's settings (the app's `Info.plist`; tests pass their own).
-    init(store: LibraryStore, launchOptions: LaunchOptions, storeErrorMessage: String? = nil,
+    init(store: LibraryStore, launchOptions: LaunchOptions, libraryRecovery: LibraryRecovery? = nil,
          infoDictionary: [String: Any]? = Bundle.main.infoDictionary) {
         self.store = store
         self.launchOptions = launchOptions
-        self.storeErrorMessage = storeErrorMessage
-        self.fixtureImporter = FixtureImporter(store: store, converters: FixtureImporter.converters(for: launchOptions))
+        self.libraryRecovery = libraryRecovery
+        let importService = ImportService(store: store, converters: FixtureImporter.converters(for: launchOptions))
+        self.importService = importService
+        self.fixtureImporter = FixtureImporter(service: importService)
         self.onboarding = OnboardingCoordinator()
         self.textRecognition = TextRecognitionEngine(store: store)
         let backupService = BackupService(store: store)
@@ -84,7 +90,7 @@ final class AppEnvironment {
         // automatic backup of it would look like a backup of a library with no books.
         self.backupScheduler = BackupScheduler(settings: backupAutomaticSettings, service: backupService,
                                                destinations: backupDestinations,
-                                               armed: !launchOptions.resetState && storeErrorMessage == nil)
+                                               armed: !launchOptions.resetState && libraryRecovery == nil)
         let local = BackupDestinationFactory.folderAndICloud()
         let cloud = CloudBackupDestinations.make()
         self.backupFolderStore = local.folderStore
@@ -122,7 +128,7 @@ final class AppEnvironment {
     }
 
     /// The live environment: `LibraryStore.live(reset: -resetState)`, falling back to an
-    /// in-memory store (with `storeErrorMessage` set) if the persistent store cannot open.
+    /// in-memory store (with `libraryRecovery` set) if the persistent store cannot open.
     static func makeLive(launchOptions: LaunchOptions = .current) -> AppEnvironment {
         PerfMarks.mark("storeOpening")
         defer { PerfMarks.mark("storeOpen") }
@@ -135,13 +141,34 @@ final class AppEnvironment {
             BackupAutomaticSettings.reset(in: .standard)
             ReaderScrollDirectionStore().removeAll()
             ReaderNotesPanelStore().removeAll()
+            ReaderPositionStore().removeAll()
         }
         OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
             UserDefaults.standard.set(accent.rawValue, forKey: AccentChoice.storageKey)
         }
+        var resetState = launchOptions.resetState
+        #if DEBUG
+        if let planted = launchOptions.plantLibraryStore {
+            // `-plantLibraryStore`: this file is the library's store (after any reset).
+            do {
+                let root = try LibraryStore.defaultRootDirectory()
+                if resetState { try LibraryStore.removeAllData(rootDirectory: root) }
+                resetState = false
+                let database = root.appendingPathComponent(ReaderStore.databaseDirectoryName, isDirectory: true)
+                let storeURL = database.appendingPathComponent(ReaderStore.databaseFileName)
+                try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+                for suffix in ["", "-wal", "-shm"] {
+                    try? FileManager.default.removeItem(atPath: storeURL.path + suffix)
+                }
+                try FileManager.default.copyItem(at: planted, to: storeURL)
+            } catch {
+                print("plantLibraryStore: \(error)")
+            }
+        }
+        #endif
         do {
-            let store = try LibraryStore.live(reset: launchOptions.resetState)
+            let store = try LibraryStore.live(reset: resetState)
             if launchOptions.resetState {
                 // A reset wipes `Database` and `Books`; an interrupted restore left by an earlier
                 // run must not be rolled forward into the empty library.
@@ -150,8 +177,10 @@ final class AppEnvironment {
             }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {
+            let root = (try? LibraryStore.defaultRootDirectory())
+                ?? URL.applicationSupportDirectory
             return AppEnvironment(store: .inMemory(), launchOptions: launchOptions,
-                                  storeErrorMessage: String(describing: error))
+                                  libraryRecovery: LibraryRecovery(error: error, rootDirectory: root))
         }
     }
 
@@ -239,7 +268,7 @@ final class AppEnvironment {
         return plan
     }
 
-    // MARK: Incoming documents (WP3 hook)
+    // MARK: Incoming documents (Library import hook)
 
     /// "A document URL arrived from outside" (Files "Open in", a document opened from another
     /// app): a PDF or any format the app converts. Every window root forwards `.onOpenURL` here.

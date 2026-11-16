@@ -2,7 +2,7 @@ import ReaderCore
 import SwiftUI
 
 // The parts of the notes panel around the editor: the level picker, the highlights under the
-// note, and the Section tab's empty state (WP8).
+// note, and the Section tab's empty state.
 
 // MARK: - Level picker
 
@@ -138,7 +138,7 @@ struct NotesHighlightsSection: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(highlight.color.swatch)
+                    .fill(HighlightPalette.swatchColor(highlight.color))
                     .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.25)))
                     .frame(width: 14, height: 14)
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
@@ -154,8 +154,8 @@ struct NotesHighlightsSection: View {
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(highlight.isOnScannedPage ? "\(highlight.color.name) highlight on a scanned page"
-                                                      : "\(highlight.color.name) highlight")
+        .accessibilityLabel(highlight.isOnScannedPage ? "\(HighlightPalette.name(highlight.color)) highlight on a scanned page"
+                                                      : "\(HighlightPalette.name(highlight.color)) highlight")
         .accessibilityValue(highlight.isOnScannedPage ? HighlightCropLabels.spokenText(highlight) : highlight.text)
         .accessibilityHint("Goes to the highlight")
         .accessibilityAddTraits(.isButton)
@@ -174,7 +174,7 @@ struct NotesHighlightsSection: View {
                 .multilineTextAlignment(.leading)
         case .crop(let caption):
             VStack(alignment: .leading, spacing: 4) {
-                HighlightCropView(highlight: highlight, crops: HighlightController.of(session)?.crops, maxWidth: 260)
+                HighlightCropView(highlight: highlight, crops: session.highlights?.crops, maxWidth: 260)
                 if let caption {
                     Text("\u{201C}\(caption)\u{201D}")
                         .font(.footnote)
@@ -183,28 +183,6 @@ struct NotesHighlightsSection: View {
                         .multilineTextAlignment(.leading)
                 }
             }
-        }
-    }
-}
-
-extension HighlightColor {
-    /// The swatch colour in lists.
-    var swatch: Color {
-        switch self {
-        case .yellow: Color(red: 1, green: 0.84, blue: 0.04)
-        case .green: Color(red: 0.2, green: 0.78, blue: 0.35)
-        case .blue: Color(red: 0.35, green: 0.68, blue: 0.98)
-        case .pink: Color(red: 1, green: 0.45, blue: 0.68)
-        }
-    }
-
-    /// Spoken name.
-    var name: String {
-        switch self {
-        case .yellow: "Yellow"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .pink: "Pink"
         }
     }
 }

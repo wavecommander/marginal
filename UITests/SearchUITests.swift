@@ -1,6 +1,6 @@
 import XCTest
 
-/// Search (WP10) through the real UI.
+/// Search through the real UI.
 ///
 /// Queries: the panel focuses its field itself, so the tests type with `app.typeText` and find
 /// everything by typed, identifier-scoped queries (buttons, static texts). This style dates from
@@ -44,10 +44,11 @@ final class SearchUITests: XCTestCase {
     }
 
     /// Opens the panel from the toolbar and types into its field, which the panel focuses.
-    private func openSearch(_ app: XCUIApplication, in scope: XCUIElement? = nil, typing query: String) {
+    private func openSearch(_ app: XCUIApplication, in scope: XCUIElement? = nil, typing query: String,
+                            within timeout: TimeInterval = 30) {
         let root = scope ?? app
         root.buttons[ID.searchButton].firstMatch.tap()
-        XCTAssertTrue(root.buttons[ID.done].firstMatch.waitForExistence(timeout: 30), "the search panel did not open")
+        XCTAssertTrue(root.buttons[ID.done].firstMatch.waitForExistence(timeout: timeout), "the search panel did not open")
         sleep(1)  // the panel focuses its field 150 ms after presenting
         app.typeText(query)
     }
@@ -101,37 +102,6 @@ final class SearchUITests: XCTestCase {
 
     // MARK: Tests
 
-    /// One tap on the search button opens the panel again after each way of closing it: Done,
-    /// a tap outside the popover, and choosing a result.
-    func testSearchButtonReopensAfterEachWayOfClosing() {
-        let app = launch(Fixtures.large, "large")
-        let button = app.buttons[ID.searchButton].firstMatch
-        let done = app.buttons[ID.done].firstMatch
-        func reopen(_ step: String) {
-            button.tap()
-            XCTAssertTrue(done.waitForExistence(timeout: 10), "search did not reopen after \(step)")
-        }
-
-        reopen("launch")
-        done.tap()
-        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "Done did not close search")
-        reopen("Done")
-
-        // Outside the popover (at the trailing edge) and above the keyboard (the bottom half in
-        // landscape): the page, left of the popover.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.3)).tap()
-        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "a tap outside did not close search")
-        reopen("a tap outside")
-
-        sleep(1)  // the panel focuses its field 150 ms after presenting
-        app.typeText("zygomorphic lighthouse theorem")
-        let hit = row(app, "text-1399-0")
-        XCTAssertTrue(hit.waitForExistence(timeout: 90), "no result; status: \(status(app).label)")
-        hit.tap()
-        XCTAssertTrue(done.waitForNonExistence(timeout: 10), "choosing a result did not close search")
-        reopen("choosing a result")
-    }
-
     /// The phrase on page 1,400 of `large.pdf`: "No results" first for a nonsense query, then the
     /// phrase streams in under its heading; choosing it closes the panel, lands on page 1,400
     /// (page pill) through the jump API (Back becomes enabled), and Back returns to page 1.
@@ -139,7 +109,7 @@ final class SearchUITests: XCTestCase {
         let app = launch(Fixtures.large, "large")
         XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 1500"))
         let back = app.buttons[ID.historyBack].firstMatch
-        // iPadOS 17 reports the shell's disabled Back button as enabled to XCUITest (WP4's note);
+        // iPadOS 17 reports the shell's disabled Back button as enabled to XCUITest (see `ReaderUITests`);
         // the Back press at the end proves the jump was recorded on every system.
         if #available(iOS 18, *) { XCTAssertFalse(back.isEnabled, "Back enabled before any jump") }
 
@@ -208,9 +178,13 @@ final class SearchUITests: XCTestCase {
     /// TSOFT-216: the search popover hangs under the toolbar, pointing at the search button, and
     /// leaves the toolbar's other buttons in place; once search closes, by any route, the search
     /// button looks exactly as it did before it was tapped (same pixels, not selected). Covers
-    /// Done, a tap outside, ⇧⌘F and choosing a result, then markup mode (the search
+    /// Done, ⇧⌘F, a tap outside and choosing a result, then markup mode (the search
     /// button must not end up like the filled Markup toggle) and the narrow layout, where the
     /// notes sheet steps aside and comes back.
+    ///
+    /// Also: one tap on the search button opens the panel again, within 10 s, after each way of
+    /// closing it. The steps are ordered so that a toolbar tap follows Done, a tap outside and
+    /// choosing a result.
     func testSearchButtonLooksUnchangedAfterSearchCloses() throws {
         let app = launch(Fixtures.small, "small")
         let button = app.buttons[ID.searchButton].firstMatch
@@ -218,6 +192,12 @@ final class SearchUITests: XCTestCase {
         var baseline = settledImage(of: button)
 
         openAndClose(app, baseline, "Done") { app.buttons[ID.done].firstMatch.tap() }
+        if #available(iOS 18.0, *) {  // hardware-key events (see ReaderUITests' menu test)
+            openAndClose(app, baseline, "⇧⌘F, then Done", open: { self.pressFindUntilOpen(app) }) {
+                app.buttons[ID.done].firstMatch.tap()
+            }
+        }
+        // Opened by one tap after Done.
         openAndClose(app, baseline, "tap outside") {
             // On the page above the keyboard, once the keyboard is up (a tap while the popover
             // still moves is dropped); again if the first tap was lost.
@@ -228,12 +208,9 @@ final class SearchUITests: XCTestCase {
                 _ = self.waitFor(done, timeout: 3) { !$0.exists }
             }
         }
-        if #available(iOS 18.0, *) {  // hardware-key events (see ReaderUITests' menu test)
-            openAndClose(app, baseline, "⇧⌘F, then Done", open: { self.pressFindUntilOpen(app) }) {
-                app.buttons[ID.done].firstMatch.tap()
-            }
-        }
-        openAndClose(app, baseline, "choosing a result", open: { self.openSearch(app, typing: "amber\n") }) {
+        // Opened by one tap after a tap outside (`openSearch` taps the toolbar button); the next
+        // step opens it by one tap after a result was chosen.
+        openAndClose(app, baseline, "choosing a result", open: { self.openSearch(app, typing: "amber\n", within: 10) }) {
             let result = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", ID.resultPrefix)).firstMatch
             XCTAssertTrue(result.waitForExistence(timeout: 30), "no result for amber")
             result.tap()
@@ -261,8 +238,13 @@ final class SearchUITests: XCTestCase {
                               open: (() -> Void)? = nil, close: () -> Void) {
         let button = app.buttons[ID.searchButton].firstMatch
         let done = app.buttons[ID.done].firstMatch
-        if let open { open() } else { button.tap() }
-        XCTAssertTrue(done.waitForExistence(timeout: 30), "\(route): search did not open")
+        if let open {
+            open()
+            XCTAssertTrue(done.waitForExistence(timeout: 30), "\(route): search did not open")
+        } else {
+            button.tap()
+            XCTAssertTrue(done.waitForExistence(timeout: 10), "\(route): one tap did not open search")
+        }
         // Under the toolbar, not over it, with the toolbar's other buttons still there.
         XCTAssertGreaterThanOrEqual(done.frame.minY, button.frame.maxY, "\(route): the panel covers the toolbar")
         XCTAssertTrue(app.buttons[ID.markupToggle].firstMatch.exists, "\(route): the Markup toggle is gone")

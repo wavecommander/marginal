@@ -43,7 +43,7 @@ struct PageInkMemoryTests {
         }
         #expect(await PageInkTestSupport.waitUntil(timeout: 20) { host.session.loadState == .ready })
         await PageInkTestSupport.pause(1)
-        let scrollView = try #require(host.pdfView.documentView?.superview as? UIScrollView)
+        let scrollView = try #require(PDFKitWorkarounds.scrollView(of: host.pdfView))
         let canvasesAtStart = PageInkCanvasView.liveCount(bookID: book.id)
         let startFootprint = footprint()
         var maxCanvases = 0

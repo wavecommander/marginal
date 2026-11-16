@@ -2,8 +2,8 @@
 import Foundation
 import ReaderCore
 
-/// DEBUG-only seeding for sidebar screenshots and UI tests (read from the process arguments here,
-/// so the shell's `LaunchOptions` is untouched).
+/// DEBUG-only seeding for sidebar screenshots and UI tests (`LaunchOptions.seedSidebar` and
+/// `seedSidebarHeadings`).
 ///
 /// `-seedSidebar`: when a window's sidebar model starts and its book has no notes, adds through
 /// the session (`session.perform`), on zero-based pages clamped to the book:
@@ -11,18 +11,15 @@ import ReaderCore
 /// On `large.pdf` that badges chapters 2–5 and, at page 312, the current section "4.1.3 Summary".
 @MainActor
 enum SidebarDebugSeed {
-    static let argument = "-seedSidebar"
-    static var isRequested: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
+    static var isRequested: Bool { LaunchOptions.current.seedSidebar }
 
     /// `-seedSidebarHeadings`: when the book has no user headings, builds a reader's outline
     /// through `UserHeadingEditor` (as the add sheet does), for the hand-built outline
     /// screenshot on `no-outline.pdf`: "1 Getting Started" (p. 1) › "1.1 Setting Up" (p. 3),
     /// "1.2 First Steps" (p. 6); "2 Working with Data" (p. 10) › "2.1 Tables" (p. 12) ›
     /// "2.1.1 Sorting" (p. 13); "3 Reference" (p. 25).
-    static let headingsArgument = "-seedSidebarHeadings"
-
     static func seedHeadingsIfRequested(session: ReaderSession) {
-        guard ProcessInfo.processInfo.arguments.contains(headingsArgument),
+        guard LaunchOptions.current.seedSidebarHeadings,
               ((try? session.store.headings.userHeadings(bookID: session.book.id)) ?? []).isEmpty else { return }
         let bookID = session.book.id
         func heading(_ title: String, _ page: Int, under parent: UserHeading?, _ order: TimeInterval) -> UserHeading {

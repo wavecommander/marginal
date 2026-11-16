@@ -8,6 +8,13 @@ and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marg
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
 
+**Status, 16 November 2026:** the app is built and largely feature complete for the MVP
+(version 1). This document describes the app as built and is the spec for changes to it; the
+initial build plan is finished and retired. Still in progress: scanned books
+(`docs/SCANNED_BOOKS_PLAN.md`), the last import formats (`docs/FORMAT_IMPORT_PLAN.md`) and
+localization (`docs/LOCALIZATION_PLAN.md`). Annotated PDF export of a book is not built (open
+question 3).
+
 Mockups: https://claude.ai/artifact/DGC3WWVFeVmNY7pSaKknpP (seven screens plus four first-run
 onboarding screens; names below match the artboard titles). The mockups are drawn in HTML, so treat them as layout and behaviour intent.
 System controls (segmented controls, sheets, the PencilKit tool picker) should be the real system
@@ -260,7 +267,7 @@ ones even where the mockup draws an approximation.
 
 ## Windows and scenes
 
-Added by the owner after the first plan. These rules apply to every screen and every package.
+Added by the owner after the first plan. These rules apply to every screen and every feature.
 
 - **Multiple windows.** The app declares multiple-scene support. A window shows the Library, a
   reader on one book, or one book's Notebook. A Library window opens a book in place (the mockups'
@@ -274,10 +281,29 @@ Added by the owner after the first plan. These rules apply to every screen and e
   book without a relaunch. A surface that is mid-stroke or mid-edit is never overwritten by a
   change arriving from another window; it reconciles when the stroke or edit ends. The book's
   stored last-read page follows the most recently active window.
+- **The book's latest position** (owner decision, 15 November 2026). A newly opened reader (from
+  the Library, in another window, or restored after a relaunch) opens at the book's latest
+  position, the exact place and zoom any reader on it last left, unless it was opened at a
+  particular page (a Notebook row, a link, "Open in New Window" at a page). The position is saved
+  a moment after the reader stops moving, and at once when the reader is covered, popped or
+  backgrounded; a reader that was never on screen saves none.
+- **Sleeping readers** (owner decisions, 15 and 16 November 2026). A window keeps awake only the
+  top screen of its stack and the one directly under it (so the back swipe shows a live reader).
+  A reader further down falls asleep after a short delay (five seconds): it saves everything, then
+  lets go of its document, views, ink canvases, notes, search and outline, keeping only what it
+  needs to come back. It wakes as soon as it is the top screen or the one under it again, and
+  resumes exactly as it was left: its own place, zoom, panels and section history, whatever other
+  readers on the same book did meanwhile (each reader in a stack keeps its own position while the
+  app runs; after a relaunch a restored reader opens at the book's latest position). Search
+  results, a text selection and markup mode are not kept. A popped reader lets go the same way.
+  A memory warning puts every reader that is not on screen to sleep at once, the one under the top
+  screen included (owner decision, 16 November 2026); it wakes when it is shown, so the back swipe
+  then shows it loading.
 - **Closing and deleting.** A window that goes to the background or is closed saves pending text
   and ink first. Deleting a book closes every reader and Notebook window showing it.
-- **State restoration.** Each window restores what it was showing (screen, book, page, panels)
-  after the system reclaims it or the app relaunches. Markup mode is not restored.
+- **State restoration.** Each window restores what it was showing (screen, book, panels, section
+  history; the page is the book's latest position) after the system reclaims it or the app
+  relaunches. Markup mode is not restored.
 - **Any size.** Layout is driven by the window's own size and size class, never by the screen or
   the device orientation, so full screen, Split View, Slide Over, Stage Manager, freely resized
   windows and external displays all work. The "narrow width" rule above is about window width.
@@ -321,6 +347,14 @@ Added by the owner (TSOFT-215, 14 November 2026).
 - **Settings.** iPadOS has no system Settings entry for Marginal and there is no
   `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
   Library's gear button and from "Settings…" (⌘,) in any window.
+- **Settings ▸ About** says which build this is: the version and build number, the git branch
+  ("Detached" on a detached HEAD), the short commit (with "with uncommitted changes" when the
+  checkout had any, untracked files included) and the build time in the iPad's time zone. Copy
+  Build Details puts all of it on one line for a bug report. `scripts/stamp-build-info.sh`, a
+  build phase that runs on every build, writes the values into the built Info.plist
+  (`MarginalBuild`); the committed `App/Info.plist` never has them. A build made without git
+  shows "Unknown". (2026-11-16: shown in every build, Release included, while the app is
+  pre-release; decide before the App Store whether customers see the branch and commit.)
 - **Text and icons on an accent fill use `accentTheme.onAccent`** (white in Light Mode, a deep
   shade of the accent's hue in Dark Mode, where every accent is light). This applies to
   `.borderedProminent` buttons, whose label the system draws white on any tint, and to the Pages
@@ -401,10 +435,10 @@ take full advantage of their SDKs.
   in the shortcut overlay instead of a menu bar).
 - **Testing.** Routine testing is on the iOS 27.0 simulator and the owner's iPad (iPadOS 27).
   An iOS 17.5 simulator runtime is installed (imported by the owner with `xcrun simctl runtime
-  add`) and was used for every package until 13 November 2026; since then, by owner decision,
-  iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on every build
-  and were last exercised on the packages merged up to that date (reader engine, library, note
-  page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
+  add`) and was used for every feature built until 13 November 2026; since then, by owner
+  decision, iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on
+  every build and were last exercised on the features merged up to that date (reader engine,
+  library, note page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
 
 ## Backup and restore
 
@@ -665,6 +699,87 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
   of it is in a release build.
 
+## Keeping data openable across versions
+
+**A standing feature, kept in step with every data change** (owner decision, 16 November 2026).
+A reader's books and notes must never become unopenable because of an update, a bad update, or
+opening the library or a backup in an older version of the app. This is not finished work: every
+change to the database schema, the backup format, or the files beside a book must keep each of
+the guarantees below true, with tests, in the same change. A change that cannot keep one of them
+stops and goes to the owner.
+
+The guarantees:
+
+1. **Updating never strands a library.** An update migrates the library forward and keeps a copy
+   of it first; if the copy cannot be made, the library is not migrated.
+2. **An older version can open a newer library.** It says so first, and converts it on
+   confirmation, keeping every record (below).
+3. **A damaged or unwanted library can be swapped for a kept copy** from the same screen.
+4. **A backup from an older version restores in a newer one**, pinned by the checked-in
+   `.ttbackup` fixtures.
+5. **A backup from a newer version restores in an older one** when its format version is the
+   same: what the older version has no place for is ignored. When the format version is higher,
+   the older version says the backup was made by a newer version and changes nothing; the
+   backup itself is untouched.
+
+### A library from a newer version
+
+The library's database has a schema version. An update migrates an older library forward, but
+an older build cannot open a library a newer build has already migrated: this happens when a
+newer build is installed and then an older one (a TestFlight tester going back a build, or
+switching between development branches).
+
+- **Said plainly, nothing changed** (owner decision, 16 November 2026). At launch the app checks
+  the database's version before opening it. A library from a newer version is left exactly as it
+  is, and every window shows **Library From a Newer Version** instead of the Library: the newer
+  version opens it as it is.
+- **Open in This Version…** converts it to this version after a confirmation (owner decision,
+  16 November 2026: it is never automatic, because it leaves something out). Books, notes, ink,
+  highlights, bookmarks and headings are kept. What only the newer version has a place for is
+  left out (for the scanned-books version, which highlights came from recognised text: they
+  become ordinary highlights). The conversion runs on a copy and replaces the library only when
+  it succeeded; if this version cannot convert it, the screen says so and nothing changes.
+- **Copies are kept.** Before the database changes version (an update's migration, Open in This
+  Version) the app copies it beside the library, and keeps the newest three. If the copy cannot
+  be made, the library is not changed (for an update: it does not open, and says so). Copies hold
+  the database only: ink, notes' ink and PDFs are files the database change does not touch.
+- **Use an Earlier Copy.** Whenever the library cannot be opened (from a newer version, or
+  damaged), the screen also lists the copies this version can open. Choosing one, after a
+  confirmation that changes since then will not be in it, makes it the library; the library as
+  it was is kept as another copy.
+- **It takes effect at the next launch.** The app is running on its empty stand-in library, so
+  after either change the screen says **Library Ready** and asks the reader to close the app and
+  open it again.
+
+### What every data change must do
+
+- **Database schema.** A new `VersionedSchema` only adds optional attributes or new models (no
+  renames, no removals, no type changes), so Core Data can infer the conversion down to the
+  version before it from the model it keeps inside every store. Add a lightweight stage, set
+  `SchemaFactory.currentVersion`, and keep
+  `LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore` passing (it walks every pair). A
+  change that needs more than that (a custom stage, a rename, removing data) is an owner decision
+  first, with its own way back for older versions.
+- **Backup records and manifest.** A new field is an optional key that older versions ignore,
+  at the same format version (`NewerAppBackupTests` checks unknown keys are ignored). A new case
+  in a stored enumeration must be read by older versions as absent or a default, never as damage.
+  Raise the format version only when an older version would misread the backup, and add a
+  fixture for the new version; never regenerate an old one.
+- **Values a newer version may add** (16 November 2026). In backups and in the database alike,
+  an import format this version does not know reads as none (the book reads as imported as a
+  PDF), a highlight colour as yellow, and a user heading's parent of an unknown kind as top
+  level. A note on a kind of target this version cannot represent is left out of a restore, and
+  in the database is skipped when reading but left in place for the newer version (until that
+  book is restored over or deleted on this iPad, which replaces all its rows). Editing a
+  highlight saves its colour as yellow.
+  Anything else that does not decode is still damage. A new stored enumeration is decoded this way
+  from the start (`HighlightColor(storedValue:)` is the pattern), and its tests sit beside
+  `NewerAppBackupTests.unknownValuesFromANewerAppReadAsDefaults` and `NewerVersionRowTests`.
+- **Files beside a book** (ink, recognised text, sidecars): an older version ignores files it
+  does not know, and a newer version reads the files an older one wrote.
+- **A real upgrade before release.** Before a build that changes any of these ships, install the
+  last released build, use it, then install the new build over it, and the reverse.
+
 ## Technical decisions
 
 | Area | Decision | Why |
@@ -683,8 +798,9 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
 | Minimum OS | iPadOS 17.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 SDK (confirmed: the build targets `arm64-apple-ios17.0-simulator`). Tests run on the iOS 27.0 and iOS 17.5 simulator runtimes; behaviour on 18 and 26 is compiler-checked but not exercised. | The owner wants the lowest system the design allows. 17.0 is the floor because SwiftData and the Observation framework (`@Observable`) start there. |
 | Newer-OS features | Availability-gated (`if #available`, `@available`) with a working fallback at the floor; see "OS versions" | Later systems get everything the SDK offers without raising the floor. |
-| Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per reader window; `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
-| Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub announces ink and note-ink writes (book, page or note ID) so other windows reload that surface | SwiftData observation keeps structured data in step; ink lives in files and needs its own signal. |
+| Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per awake reader screen (`ReaderSlot`); `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
+| Reading position | `Book.lastReadPageIndex` plus the exact place and zoom in `UserDefaults` (`ReaderPositionStore`), used only while its page matches the stored one | One latest position for every reader on a book without a schema change; a restore or merge that moves the page wins. |
+| Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub (`StoreChangeHub`, one per `LibraryStore`) announces every committed change, to records and to ink files alike (what changed and the book, page or note it concerns, never the new value), and other windows re-read what they show through `LibraryStore`. Nothing relies on SwiftData observation or `@Query` | One signal for structured data and for ink, which lives in files; each change carries its origin (the window or job that made it), so a window can tell its own changes from another window's. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
 | Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
@@ -805,7 +921,8 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
    `software.tactile.marginal`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
-3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?
+3. Exporting an annotated PDF copy of the book (ink and highlights drawn into a copy, the
+   original untouched) is not built. Should it be in version 1?
 4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build
    seeds shapes generated in code; real handwriting has to be written once on an iPad by the
    owner and bundled. Does the owner want to supply it?

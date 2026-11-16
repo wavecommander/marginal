@@ -11,6 +11,35 @@ public enum UnsupportedImportFormat: String, Codable, Sendable, CaseIterable, Ha
     case spreadsheet
     case fixedLayoutEPUB
     case protectedEPUB
+
+    /// Lower-case file name extensions that name this kind of file (see `ImportFormat`, "The one
+    /// list"). Empty for the kinds that are told by their contents (they are `.epub` files).
+    public var fileExtensions: [String] {
+        switch self {
+        case .kindle: ["mobi", "azw", "azw3", "azw4", "kfx", "prc"]
+        case .djvu: ["djvu", "djv"]
+        case .comicRar: ["cbr", "rar"]
+        case .spreadsheet: ["xlsx", "xlsm", "xls", "xlt", "numbers", "csv", "tsv", "ods"]
+        case .fixedLayoutEPUB, .protectedEPUB: []
+        }
+    }
+
+    /// The uniform type identifiers the Files picker and drops accept for this kind, so the app
+    /// can name it when it turns the file down.
+    public var typeIdentifiers: [String] {
+        switch self {
+        case .kindle: ["software.tactile.marginal.kindle-book"]
+        case .djvu: ["software.tactile.marginal.djvu"]
+        case .comicRar: ["software.tactile.marginal.cbr"]
+        case .spreadsheet: ["public.spreadsheet"]
+        case .fixedLayoutEPUB, .protectedEPUB: []
+        }
+    }
+
+    /// The kind that `fileExtension` (lower case, no dot) names, or `nil`.
+    public static func kind(forFileExtension fileExtension: String) -> UnsupportedImportFormat? {
+        allCases.first { $0.fileExtensions.contains(fileExtension) }
+    }
 }
 
 /// What a file is, as far as importing goes.
@@ -55,12 +84,11 @@ public enum ImportFormatDetector {
         case .djvu: return .unsupported(.djvu)
         case .mobi: return .unsupported(.kindle)
         case .ole:
-            switch ext {
-            case "doc", "dot": return .supported(.word)
-            case "ppt", "pps", "pot": return .supported(.powerPoint)
-            case "xls", "xlt": return .unsupported(.spreadsheet)
-            default: return .unknown
+            if let format = ImportFormat.allCases.first(where: { $0.binaryOfficeFileExtensions.contains(ext) }) {
+                return .supported(format)
             }
+            if UnsupportedImportFormat.kind(forFileExtension: ext) == .spreadsheet { return .unsupported(.spreadsheet) }
+            return .unknown
         case .zip:
             if let result = detectZIP(at: url, extension: ext, limits: limits) { return result }
             return byExtension(ext, header: header, allowText: false)
@@ -121,30 +149,26 @@ public enum ImportFormatDetector {
     // MARK: Extension
 
     private static func byExtension(_ ext: String, header: [UInt8], allowText: Bool) -> ImportDetection {
-        switch ext {
-        case "mobi", "azw", "azw3", "azw4", "kfx", "prc": return .unsupported(.kindle)
-        case "djvu", "djv": return .unsupported(.djvu)
-        case "cbr", "rar": return .unsupported(.comicRar)
-        case "xlsx", "xlsm", "xls", "numbers", "csv", "tsv", "ods": return .unsupported(.spreadsheet)
-        default: break
-        }
+        if let kind = UnsupportedImportFormat.kind(forFileExtension: ext) { return .unsupported(kind) }
         guard allowText, looksLikeText(header) else { return .unknown }
-        switch ext {
-        case "txt", "text": return .supported(.plainText)
-        case "md", "markdown", "mdown", "mkd": return .supported(.markdown)
-        case "html", "htm", "xhtml": return .supported(.html)
-        case "": return sniffsAsHTML(header) ? .supported(.html) : .unknown
-        default: return .unknown
+        if ext.isEmpty { return sniffsAsHTML(header) ? .supported(.html) : .unknown }
+        // The formats that are plain text inside: only their extension tells them apart.
+        if let format = ImportFormat.format(forFileExtension: ext, among: [.plainText, .markdown, .html]) {
+            return .supported(format)
         }
+        return .unknown
+    }
+
+    /// The single-file and package (directory) forms of the iWork documents share an extension,
+    /// and the extension is decisive for both.
+    private static func detectIWork(extension ext: String) -> ImportDetection? {
+        if let format = ImportFormat.format(forFileExtension: ext, among: [.pages, .keynote]) { return .supported(format) }
+        if ext == "numbers" { return .unsupported(.spreadsheet) }
+        return nil
     }
 
     private static func detectPackage(extension ext: String) -> ImportDetection {
-        switch ext {
-        case "pages": .supported(.pages)
-        case "key": .supported(.keynote)
-        case "numbers": .unsupported(.spreadsheet)
-        default: .unknown
-        }
+        detectIWork(extension: ext) ?? .unknown
     }
 
     // MARK: Text
@@ -176,9 +200,7 @@ public enum ImportFormatDetector {
 
     // MARK: ZIP
 
-    private static let comicImageExtensions: Set<String> = [
-        "jpg", "jpeg", "jpe", "png", "gif", "webp", "tif", "tiff", "heic", "heif", "bmp", "avif",
-    ]
+    private static let comicImageExtensions = Set(ImportFormat.image.allFileExtensions)
     private static let comicMetadataExtensions: Set<String> = ["xml", "txt", "nfo", "sfv"]
     private static let comicMetadataNames: Set<String> = ["thumbs.db", "desktop.ini"]
 
@@ -206,12 +228,7 @@ public enum ImportFormatDetector {
         }
 
         // iWork single-file documents are ZIPs; their extension is decisive.
-        switch ext {
-        case "pages": return .supported(.pages)
-        case "key": return .supported(.keynote)
-        case "numbers": return .unsupported(.spreadsheet)
-        default: break
-        }
+        if let verdict = detectIWork(extension: ext) { return verdict }
 
         // Comics: every content entry is an image (metadata and Finder litter ignored).
         let content = archive.entries.filter { !$0.isDirectory && !isIgnoredComicEntry($0.path) }

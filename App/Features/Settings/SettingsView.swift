@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The in-app Settings sheet (iPadOS has no system Settings entry for Marginal, and there is no
 /// `Settings.bundle`, so this is the one place for preferences). Opened from the Library's gear
@@ -9,6 +10,8 @@ import SwiftUI
 /// Appearance: the accent preset. Picking a swatch writes `AccentChoice.storageKey`; every
 /// window's `AccentRoot` reads the same key, so all windows, this sheet and its preview change
 /// at once.
+///
+/// About: the build's version, branch, commit and build time (`BuildInfo`, `AboutSection`).
 ///
 /// Backup & Restore is a page of its own (`BackupScreen`); "Back Up & Restore…" in the menu bar
 /// opens the sheet straight on it (`WindowContext.showBackupSettings()`).
@@ -85,7 +88,9 @@ struct SettingsView: View {
                 } footer: {
                     Text("The Quick Guide is a six-page book that shows how notes, highlights and Markup work. If you deleted it, this brings it back.")
                 }
+                AboutSection(build: .current)
             }
+            .settingsPageMargins()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -105,6 +110,74 @@ struct SettingsView: View {
             if let page = window?.settingsPage, path != [page] { path = [page] }
         }
         .accessibilityIdentifier(AccessibilityID.Settings.sheet)
+    }
+}
+
+extension View {
+    /// The side and bottom margins every page reachable from the Settings sheet shares. Apply it
+    /// to the page's root (it reaches the scroll view inside), so pushed pages don't drift apart.
+    func settingsPageMargins() -> some View {
+        self
+            .contentMargins(.horizontal, Space.l, for: .scrollContent)
+            .contentMargins(.bottom, Space.xxl, for: .scrollContent)
+    }
+}
+
+/// Settings ▸ About: which build this is, from `BuildInfo` (the version, and the branch, commit
+/// and time `scripts/stamp-build-info.sh` stamped). Copy puts them on one line for a bug report.
+private struct AboutSection: View {
+    let build: BuildInfo
+
+    private var unknown: String {
+        String(localized: "Unknown", comment: "Settings ▸ About: a build detail this build does not have.")
+    }
+
+    private var commitText: String {
+        guard let commit = build.commit else { return unknown }
+        guard build.hasUncommittedChanges else { return commit }
+        return String(localized: "\(commit), with uncommitted changes",
+                      comment: "Settings ▸ About: the commit of a build made from a checkout with changes not yet committed.")
+    }
+
+    var body: some View {
+        Section {
+            row(Text("Version", comment: "Settings ▸ About: the app's version and build number."),
+                value: build.versionText ?? unknown, id: AccessibilityID.Settings.aboutVersion)
+            row(Text("Branch", comment: "Settings ▸ About: the git branch the app was built from."),
+                value: build.branch
+                    ?? (build.commit == nil ? unknown
+                        : String(localized: "Detached", comment: "Settings ▸ About: built from a commit on no branch.")),
+                id: AccessibilityID.Settings.aboutBranch)
+            row(Text("Commit", comment: "Settings ▸ About: the git commit the app was built from."),
+                value: commitText, id: AccessibilityID.Settings.aboutCommit)
+            row(Text("Built", comment: "Settings ▸ About: the date and time the app was built."),
+                value: build.builtAt?.formatted(date: .abbreviated, time: .shortened) ?? unknown,
+                id: AccessibilityID.Settings.aboutBuilt)
+            Button {
+                UIPasteboard.general.string = build.summary
+            } label: {
+                Label {
+                    Text("Copy Build Details", comment: "Settings ▸ About: copies the version, branch, commit and build time as one line.")
+                } icon: {
+                    Image(systemName: "doc.on.clipboard")
+                }
+            }
+            .padding(.vertical, Space.s)
+            .accessibilityIdentifier(AccessibilityID.Settings.aboutCopy)
+        } header: {
+            Text("About", comment: "Settings: header of the section that says which build of the app this is.")
+        }
+    }
+
+    private func row(_ title: Text, value: String, id: String) -> some View {
+        LabeledContent {
+            Text(verbatim: value)
+        } label: {
+            title
+        }
+        .padding(.vertical, Space.s)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(id)
     }
 }
 

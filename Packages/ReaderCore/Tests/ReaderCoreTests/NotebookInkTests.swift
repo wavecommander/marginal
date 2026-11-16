@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ReaderCore
 
-/// WP14: pages with page ink in the Notebook tree, its counts and the Markdown export.
+/// Ink navigation: pages with page ink in the Notebook tree, its counts and the Markdown export.
 @Suite("Notebook page ink")
 struct NotebookInkTests {
     let book = SeededBook()

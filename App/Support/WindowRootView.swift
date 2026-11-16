@@ -1,4 +1,5 @@
 import ReaderCore
+import ReaderStore
 import SwiftUI
 import UIKit
 
@@ -6,9 +7,10 @@ import UIKit
 /// whose root is the Library and whose path shows a reader or a Notebook in place, so the
 /// system back button ("‹ Library") always returns to the Library in that window.
 ///
-/// Restoration: the path is kept in `@SceneStorage("window.path")` per window; each reader keeps
-/// its own state (page, panels) in scene storage too (`ReaderHost`). Routes to books that no
-/// longer exist are dropped on restore.
+/// Restoration: the path is kept in `@SceneStorage("window.path")` per window; the window's
+/// reader state for each book (panels, section history) is in scene storage too (`ReaderHost`),
+/// and a restored reader opens at its book's latest position (`ReaderPositionStore`). Routes to books
+/// that no longer exist are dropped on restore. Readers deep in the path sleep (`ReaderSlot`).
 struct WindowRootView: View {
     let kind: WindowContext.Kind
     /// What the window shows first when it has no restored state (a reader or Notebook window's
@@ -31,8 +33,8 @@ struct WindowRootView: View {
 
     var body: some View {
         ZStack {
-            if let details = environment.storeErrorMessage {
-                LibraryUnavailableView(details: details)
+            if let recovery = environment.libraryRecovery {
+                LibraryUnavailableView(recovery: recovery)
             } else if let context {
                 WindowContent(context: context, storedPath: $storedPath)
             }
@@ -43,6 +45,9 @@ struct WindowRootView: View {
         })
         .accentRoot(scene: scene)
         .onAppear(perform: makeContextIfNeeded)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            context?.sleepOffScreenReaders()
+        }
         .task { await applyLaunchPlanIfFirstWindow() }
     }
 
@@ -64,6 +69,11 @@ struct WindowRootView: View {
         // screens are dropped (a reader/Notebook window left empty shows the Library).
         path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
+        #if DEBUG
+        if let delay = environment.launchOptions.readerSleepDelay {
+            context.readerSleepDelay = .milliseconds(Int(delay * 1000))
+        }
+        #endif
         if let opensAt {
             context.setReaderOverrides(opensAt.overrides, for: opensAt.bookID)
         }
@@ -107,23 +117,88 @@ struct WindowRootView: View {
 }
 
 /// Shown in place of every screen when the library's store could not be opened
-/// (`AppEnvironment.storeErrorMessage`). The app is then running on an empty stand-in store that
+/// (`AppEnvironment.libraryRecovery`). The app is then running on an empty stand-in store that
 /// is gone when it quits, so nothing may be imported, written or backed up: this screen offers
-/// no way into the rest of the app.
+/// no way into the rest of the app. It offers the ways back in (docs/DESIGN.md "A library from a
+/// newer version"): a library from a newer version can be opened in this version, and a kept copy
+/// this version can open can be put back. Either takes effect at the next launch.
 struct LibraryUnavailableView: View {
-    /// The store's error, for a support request.
-    let details: String
+    let recovery: LibraryRecovery
+    @State private var confirmingOpenInThisVersion = false
+    @State private var copyToPutBack: LibraryDatabase.Copy?
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Library Couldn't Be Opened", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text("Your books and notes have not been deleted, but Tactile Texts couldn't open them. Close the app and open it again. If this keeps happening, restart your iPad.")
-            Text(details)
-                .font(.footnote)
-                .textSelection(.enabled)
+        if recovery.phase == .ready {
+            ContentUnavailableView {
+                Label("Library Ready", systemImage: "checkmark.circle")
+                    .accessibilityIdentifier(AccessibilityID.Library.recoveryReady)
+            } description: {
+                Text("Close Tactile Texts and open it again to see your books and notes.")
+            }
+        } else {
+            problem
         }
-        .accessibilityIdentifier(AccessibilityID.Library.unavailable)
+    }
+
+    private var problem: some View {
+        ContentUnavailableView {
+            Group {
+                if recovery.isFromNewerVersion {
+                    Label("Library From a Newer Version", systemImage: "exclamationmark.triangle")
+                } else {
+                    Label("Library Couldn't Be Opened", systemImage: "exclamationmark.triangle")
+                }
+            }
+            // On the title: on the whole view it would replace the buttons' identifiers.
+            .accessibilityIdentifier(AccessibilityID.Library.unavailable)
+        } description: {
+            if recovery.isFromNewerVersion {
+                Text("Your books and notes were last opened by a newer version of Tactile Texts, which saved them in a way this version can't read. Install the newer version to open them as they are, or open them in this version.")
+            } else {
+                Text("Your books and notes have not been deleted, but Tactile Texts couldn't open them. Close the app and open it again. If this keeps happening, restart your iPad.")
+            }
+            if case .failed(let message) = recovery.phase {
+                Text(message)
+                    .foregroundStyle(.red)
+            }
+            if !recovery.isFromNewerVersion {
+                Text(recovery.details)
+                    .font(.footnote)
+                    .textSelection(.enabled)
+            }
+        } actions: {
+            if recovery.phase == .working {
+                ProgressView()
+            } else {
+                if recovery.isFromNewerVersion {
+                    Button("Open in This Version…") { confirmingOpenInThisVersion = true }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier(AccessibilityID.Library.openInThisVersion)
+                }
+                if !recovery.copies.isEmpty {
+                    Menu("Use an Earlier Copy") {
+                        ForEach(recovery.copies) { copy in
+                            Button(LibraryRecovery.label(for: copy)) { copyToPutBack = copy }
+                        }
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Library.useEarlierCopy)
+                }
+            }
+        }
+        .alert("Open in This Version?", isPresented: $confirmingOpenInThisVersion) {
+            Button("Open in This Version") { Task { await recovery.openInThisVersion() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your books, notes, ink, highlights, bookmarks and headings are kept. Anything only the newer version understands is left out. A copy of your library as it is now stays on this iPad.")
+        }
+        .alert("Use This Copy?", isPresented: Binding(get: { copyToPutBack != nil },
+                                                       set: { if !$0 { copyToPutBack = nil } }),
+               presenting: copyToPutBack) { copy in
+            Button("Use This Copy") { Task { await recovery.putBack(copy) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { copy in
+            Text("Your library will be the copy from \(copy.date.formatted(date: .abbreviated, time: .shortened)). Changes made since then won't be in it. Your library as it is now is kept as another copy.")
+        }
     }
 }
 

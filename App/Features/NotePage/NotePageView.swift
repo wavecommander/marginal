@@ -2,7 +2,7 @@ import ReaderCore
 import SwiftUI
 import UIKit
 
-/// The editable note page for SwiftUI (WP8's editor). Wraps `NotePageEditorView`.
+/// The editable note page for SwiftUI (the notes panel's editor). Wraps `NotePageEditorView`.
 ///
 /// - `model`: the note shown. Pass a different model to switch targets; a stroke in progress
 ///   finishes on the old note first, which is then flushed.

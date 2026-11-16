@@ -6,7 +6,7 @@ import ReaderStore
 import UIKit
 @testable import Marginal
 
-/// Helpers for the WP13 note-page tests.
+/// Helpers for the note-page tests.
 @MainActor
 enum NotePageTestSupport {
     private static var dateCounter: TimeInterval = 0

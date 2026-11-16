@@ -7,6 +7,12 @@ import Foundation
 /// change to any of these value types' coding is a backup format change.
 ///
 /// Invariant a well-formed archive keeps: every record's `bookID` is `book.id`.
+///
+/// Decoding keeps a newer version's backup restorable here (docs/DESIGN.md "Keeping data
+/// openable across versions"): keys this version does not know are ignored, unknown colours,
+/// import formats and heading parents read as defaults (see those types), and a note on a kind of
+/// target this version cannot represent is left out, rather than the whole book failing as
+/// damaged. Anything else that does not decode is still damage.
 public struct BookArchive: Hashable, Codable, Sendable {
     public var book: Book
     public var notes: [Note]
@@ -23,6 +29,28 @@ public struct BookArchive: Hashable, Codable, Sendable {
         self.userHeadings = userHeadings
     }
 
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        book = try c.decode(Book.self, forKey: .book)
+        notes = try c.decode([NoteThisVersionCanRead].self, forKey: .notes).compactMap(\.note)
+        highlights = try c.decode([Highlight].self, forKey: .highlights)
+        bookmarks = try c.decode([Bookmark].self, forKey: .bookmarks)
+        userHeadings = try c.decode([UserHeading].self, forKey: .userHeadings)
+    }
+
+    /// A note, or `nil` when its target is a kind this version does not know (its other fields
+    /// are then not decoded).
+    private struct NoteThisVersionCanRead: Decodable {
+        let note: Note?
+
+        private enum Keys: String, CodingKey { case target }
+
+        init(from decoder: any Decoder) throws {
+            let target = try decoder.container(keyedBy: Keys.self).decode(String.self, forKey: .target)
+            note = NoteTarget(storageKey: target) == nil ? nil : try Note(from: decoder)
+        }
+    }
+
     /// `true` when every record belongs to `book`.
     public var isConsistent: Bool {
         let id = book.id
@@ -30,7 +58,7 @@ public struct BookArchive: Hashable, Codable, Sendable {
             && bookmarks.allSatisfy { $0.bookID == id } && userHeadings.allSatisfy { $0.bookID == id }
     }
 
-    /// Checks the rules `BookRepository.replaceBook(_:removing:)` applies to the archive on its
+    /// Checks the rules `RecordStore.replaceBook(_:removing:)` applies to the archive on its
     /// own, before it looks at the store, so every implementation refuses the same archives with
     /// the same error. In order: every record belongs to `book` (`.archiveInconsistent`); no ID
     /// repeats within one kind of record (`.archiveDuplicateRecordID`); at most one note per

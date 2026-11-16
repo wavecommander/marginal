@@ -6,7 +6,7 @@ import ReaderStore
 import UIKit
 @testable import Marginal
 
-/// Helpers for the WP7 highlight tests (hosting reuses `PageInkTestSupport.Host`).
+/// Helpers for the highlight tests (hosting reuses `PageInkTestSupport.Host`).
 @MainActor
 enum HighlightsTestSupport {
     static let phrase = "the quick amber fox annotates margins"
@@ -38,7 +38,7 @@ enum HighlightsTestSupport {
     }
 
     static func controller(_ host: PageInkTestSupport.Host) -> HighlightController {
-        HighlightController.of(host.session)!
+        host.session.highlights!
     }
 
     /// Selects `text` (its `occurrence`-th match) on a page of the on-screen document through

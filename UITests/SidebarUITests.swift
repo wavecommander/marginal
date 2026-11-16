@@ -17,7 +17,7 @@ enum SidebarID {
     static let viewportAnchor = "reader.viewportAnchor"
 }
 
-/// WP5 Contents sidebar: jump from a heading, current-section tracking, user headings on a book
+/// Contents sidebar: jump from a heading, current-section tracking, user headings on a book
 /// with no outline, bookmarks round trip, Pages tab, note badges, reading-position stability and
 /// thumbnail memory. Typed, scoped queries only (`descendants(matching: .any)` is very slow over
 /// PDFKit's element tree on `large.pdf`).
@@ -69,12 +69,19 @@ final class SidebarUITests: XCTestCase {
     /// Go to Page… (⌥⌘G on iOS 26+; on 17.5 XCUITest's ⌥ shortcuts are unreliable, so the
     /// pill is tapped) and types the number.
     static func goToPage(_ app: XCUIApplication, _ number: Int) {
-        if #available(iOS 26.0, *) {
-            app.typeKey("g", modifierFlags: [.command, .option])
-        } else {
-            pill(app).tap()
+        // A hardware-key event sent before the window has become key is dropped: press again
+        // if the field did not appear. The field takes focus as it appears; typing before
+        // that is lost.
+        let field = app.textFields[ReaderID.goToPageField].firstMatch
+        for _ in 0..<3 {
+            if #available(iOS 26.0, *) {
+                app.typeKey("g", modifierFlags: [.command, .option])
+            } else {
+                pill(app).tap()
+            }
+            if field.waitForExistence(timeout: 3) { break }
         }
-        sleep(1)
+        field.waitForKeyboardFocus()
         app.typeText("\(number)\n")
     }
 
@@ -82,8 +89,8 @@ final class SidebarUITests: XCTestCase {
     static func fillHeadingSheet(_ app: XCUIApplication, title: String, placement: String? = nil) {
         let field = app.textFields[SidebarID.addHeadingTitle].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        sleep(1)
-        if !(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { field.tap() }
+        // The sheet focuses its title field once it is up; tap only if it did not.
+        if !field.waitForKeyboardFocus(timeout: 3) { field.tap() }
         replaceText(field, with: title)
         if let placement {
             // The placement picker's rows (in the sheet's form), not the sidebar's heading rows.
@@ -96,8 +103,20 @@ final class SidebarUITests: XCTestCase {
             XCTAssertTrue(choice.exists, "placement \(placement)")
             choice.tap()
         }
-        app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
-        XCTAssertTrue(heading(app, title).waitForExistence(timeout: 10), "added \(title)")
+        let add = app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch
+        // The sheet moves up while the on-screen keyboard comes in; a tap aimed at Add while it
+        // moves misses the button.
+        add.waitForStableFrame()
+        add.tap()
+        if !heading(app, title).waitForExistence(timeout: 10) {
+            // Diagnostics: is the sheet still up (the tap or the save failed) or did it close
+            // without the row appearing?
+            let shown = field.exists ? "up, title “\(field.value ?? "nil")”, Add enabled \(add.exists && add.isEnabled)" : "closed"
+            print("SHEET-STATE after Add: sheet \(shown)")
+            dumpHeadings(app, "after Add")
+            print("SHEET-DUMP after Add\n\(app.debugDescription)")
+            XCTFail("added \(title)")
+        }
     }
 
     private func dumpHeadingsAfterFailure(_ app: XCUIApplication) {
@@ -207,8 +226,7 @@ final class SidebarUITests: XCTestCase {
 
         let titleField = app.textFields[SidebarID.addHeadingTitle].firstMatch
         XCTAssertTrue(titleField.waitForExistence(timeout: 10))
-        sleep(1)
-        if !(titleField.value(forKey: "hasKeyboardFocus") as? Bool ?? false) { titleField.tap() }
+        if !titleField.waitForKeyboardFocus(timeout: 3) { titleField.tap() }
         titleField.typeText("Chapter Alpha")
         app.navigationBars.buttons[SidebarID.addHeadingSave].firstMatch.tap()
 
@@ -342,8 +360,8 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(Self.waitFor(sectionB, "value CONTAINS %@", "level 1"))
         XCTAssertFalse(partOne.exists)
 
-        // Relaunch: the reader's outline is stored with the book.
-        sleep(1)
+        // Relaunch: the reader's outline is stored with the book. (The store saves before each
+        // change returns, and the rows waited for above show what it holds.)
         app.terminate()
         let again = XCUIApplication()
         again.launchArguments = ["-pagePillStaysVisible", "-openBook", "no-outline"]
@@ -404,9 +422,15 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 12 of 40", timeout: 40))
         Self.selectTab(app, "Contents")
         XCTAssertTrue(app.buttons[SidebarID.emptyAddHeading].firstMatch.waitForExistence(timeout: 20))
-        sleep(2)  // hardware-key events need the window to have become key
-        app.typeKey("h", modifierFlags: [.command, .option])
-        guard app.textFields[SidebarID.addHeadingTitle].firstMatch.waitForExistence(timeout: 10) else {
+        // A hardware-key event sent before the window has become key is dropped, and nothing
+        // on screen says when it has: press again if the sheet did not open.
+        let sheetTitle = app.textFields[SidebarID.addHeadingTitle].firstMatch
+        var opened = false
+        for _ in 0..<3 where !opened {
+            app.typeKey("h", modifierFlags: [.command, .option])
+            opened = sheetTitle.waitForExistence(timeout: 4)
+        }
+        guard opened else {
             throw XCTSkip("⌥⌘H was not delivered to the Book menu command on this simulator")
         }
         Self.fillHeadingSheet(app, title: "From Shortcut")
@@ -485,8 +509,7 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 5 of 12"))
         XCTAssertTrue(Self.waitFor(app.buttons[ReaderID.historyBack].firstMatch, "enabled == true"))
 
-        // Relaunch (no reset): the bookmark persisted.
-        sleep(1)
+        // Relaunch (no reset): the bookmark persisted. (Saved before the toggle's label changed.)
         app.terminate()
         let again = XCUIApplication()
         again.launchArguments = ["-pagePillStaysVisible", "-openBook", "small"]
@@ -531,7 +554,7 @@ final class SidebarUITests: XCTestCase {
     /// A heading gains a badge when a page note is typed in the notes panel (seeded through the
     /// UI; the store-level mapping is `SidebarModelTests.badgesComeFromNotesAndHighlightsButNotBookmarks`).
     func testHeadingGainsBadgeWhenAPageNoteIsWritten() {
-        let app = Self.open(Fixtures.small, "small", ["-openPage", "7"])
+        let app = Self.open(Fixtures.small, "small", ["-openPage", "7", "-notesPanel", "page"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 7 of 12", timeout: 40))
         Self.selectTab(app, "Contents")
         let section = Self.heading(app, "2.1 Foundations")
@@ -550,27 +573,24 @@ final class SidebarUITests: XCTestCase {
 
     // MARK: Stability
 
-    /// Switching sidebar tabs, and hiding and showing the sidebar, never moves the page.
+    /// Switching sidebar tabs never moves the page. (Hiding and showing the sidebar is
+    /// `ReadingPositionUITests.testPanelTogglesKeepPositionDeepInLarge`, on the same book.)
     func testSwitchingTabsKeepsTheReadingPosition() {
         let app = Self.open(Fixtures.large, "large", ["-openPage", "312", "-exposeViewportAnchor"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 312 of 1500", timeout: 40))
         let anchor = app.buttons[SidebarID.viewportAnchor].firstMatch
         XCTAssertTrue(anchor.waitForExistence(timeout: 10))
         Self.selectTab(app, "Contents")
-        sleep(2)
-        let before = anchor.value as? String
+        // The anchor once it has stopped changing (the tab's content has laid out).
+        func settledAnchor() -> String? { UIWait.settled(interval: 0.5) { anchor.value as? String } }
+        let before = settledAnchor()
         XCTAssertNotNil(before)
         for name in ["Pages", "Bookmarks", "Contents", "Pages", "Contents"] {
-            Self.tab(app, name).tap()
-            sleep(1)
-            XCTAssertEqual(anchor.value as? String, before, "after switching to \(name)")
+            let tab = Self.tab(app, name)
+            tab.tap()
+            XCTAssertTrue(tab.wait(until: "selected == true"), "tab \(name)")
+            XCTAssertEqual(settledAnchor(), before, "after switching to \(name)")
         }
-        let toggle = app.buttons[ReaderID.contentsToggle].firstMatch
-        toggle.tap()
-        sleep(1)
-        toggle.tap()
-        sleep(2)
-        XCTAssertEqual(anchor.value as? String, before, "after hiding and showing the sidebar")
         XCTAssertEqual(Self.pill(app).label, "Page 312 of 1500")
     }
 

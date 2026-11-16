@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// Band layouts from real TextKit layout, and ink following the text (WP13).
+/// Band layouts from real TextKit layout, and ink following the text.
 @MainActor
 struct NotePageAnchoringTests {
     typealias Support = NotePageTestSupport

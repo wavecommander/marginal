@@ -13,6 +13,44 @@ struct ImportFormatTests {
         #expect(String(decoding: encoded, as: UTF8.self) == "[\"comicArchive\"]")
     }
 
+    @Test func theOneListOfExtensionsAndTypesIsConsistent() {
+        // No extension names two formats, or a format and a kind the app turns down.
+        var owner: [String: String] = [:]
+        for format in ImportFormat.allCases {
+            #expect(!format.fileExtensions.isEmpty && !format.typeIdentifiers.isEmpty, "\(format)")
+            #expect(format.allFileExtensions == format.fileExtensions + format.unlistedFileExtensions)
+            #expect(Set(format.binaryOfficeFileExtensions).isSubset(of: Set(format.allFileExtensions)), "\(format)")
+            for ext in format.allFileExtensions {
+                #expect(ext == ext.lowercased() && !ext.hasPrefix("."))
+                #expect(owner[ext] == nil, ".\(ext): \(format) and \(owner[ext] ?? "")")
+                owner[ext] = format.rawValue
+                #expect(ImportFormat.format(forFileExtension: ext) == format)
+            }
+        }
+        for kind in UnsupportedImportFormat.allCases {
+            for ext in kind.fileExtensions {
+                #expect(owner[ext] == nil, ".\(ext): \(kind) and \(owner[ext] ?? "")")
+                owner[ext] = kind.rawValue
+                #expect(UnsupportedImportFormat.kind(forFileExtension: ext) == kind)
+            }
+        }
+        #expect(ImportFormat.format(forFileExtension: "xyz") == nil)
+        #expect(ImportFormat.format(forFileExtension: "md", among: [.plainText, .html]) == nil)
+        #expect(UnsupportedImportFormat.kind(forFileExtension: "pdf") == nil)
+        #expect(UnsupportedImportFormat.kind(forFileExtension: "numbers") == .spreadsheet)
+
+        // No type identifier is listed twice.
+        let identifiers = ImportFormatCatalog.importableTypeIdentifiers + ImportFormatCatalog.namedUnsupportedTypeIdentifiers
+        #expect(identifiers.count == Set(identifiers).count)
+        #expect(ImportFormatCatalog.importableTypeIdentifiers.first == "com.adobe.pdf")
+
+        // What Settings lists is what it listed before the lists were made one.
+        #expect(ImportFormat.image.fileExtensions == ["jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "gif", "webp", "bmp", "avif"])
+        #expect(ImportFormat.word.fileExtensions == ["docx", "doc", "docm", "dotx"])
+        #expect(ImportFormat.powerPoint.fileExtensions == ["pptx", "ppt", "pptm", "ppsx", "pps"])
+        #expect(ImportFormat.comicArchive.fileExtensions == ["cbz", "zip"])
+    }
+
     @Test func converterFamilies() {
         #expect(ImportFormat.pdf.converterFamily == .none)
         #expect(ImportFormat.comicArchive.converterFamily == .images)

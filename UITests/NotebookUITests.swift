@@ -1,6 +1,6 @@
 import XCTest
 
-/// Notebook (WP9): grouping along the outline, type filter and search, the inked note, opening
+/// Notebook: grouping along the outline, type filter and search, the inked note, opening
 /// the reader from a row, export through the share sheet, live updates, and screenshots
 /// (`build/shots/notebook-*.png`, suffix `-ios17` on iOS 17).
 ///
@@ -131,30 +131,6 @@ final class NotebookUITests: XCTestCase {
 
     // MARK: Tests
 
-    func testSectionsGroupItemsUnderTheRightHeadings() {
-        let app = launch()
-        // Front matter first, then chapter 3 with its highlight and note.
-        let front = row(app, ID.header("Front matter"))
-        XCTAssertTrue(front.exists)
-        XCTAssertLessThan(front.frame.minY, row(app, ID.pageNote(1)).frame.minY)
-        XCTAssertLessThan(row(app, ID.pageNote(1)).frame.minY, row(app, ID.header("3 Matrices and Linear Maps")).frame.minY)
-
-        select(app, scope: "5 Eigenvalues and Eigenvectors")
-        let chapter = row(app, ID.header("5 Eigenvalues and Eigenvectors"))
-        let s51 = row(app, ID.header("5.1 Invariant Directions"))
-        let s52 = row(app, ID.header("5.2 The Characteristic Equation"))
-        XCTAssertTrue(s51.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitForAbsence(row(app, ID.header("3 Matrices and Linear Maps"))), "other chapters filtered out")
-        let order = [chapter, row(app, ID.headingNote("5 Eigenvalues and Eigenvectors")), s51,
-                     row(app, ID.headingNote("5.1 Invariant Directions")), row(app, ID.pageNote(17)),
-                     row(app, ID.highlight(19, 0)), s52]
-        for (upper, lower) in zip(order, order.dropFirst()) {
-            XCTAssertTrue(upper.exists && lower.exists, "\(upper.identifier) and \(lower.identifier)")
-            XCTAssertLessThan(upper.frame.minY, lower.frame.minY, "\(upper.identifier) above \(lower.identifier)")
-        }
-        XCTAssertTrue(row(app, ID.header("5 Eigenvalues and Eigenvectors")).label.contains("pages 15 to 30"))
-    }
-
     func testTypeFilterAndSearchNarrowTheFeed() {
         let app = launch()
         let filter = app.segmentedControls[ID.typeFilter].firstMatch
@@ -221,6 +197,10 @@ final class NotebookUITests: XCTestCase {
         select(app, scope: "5 Eigenvalues and Eigenvectors")
         let note = row(app, ID.headingNote("5 Eigenvalues and Eigenvectors"))
         XCTAssertTrue(note.waitForExistence(timeout: 5))
+        // The scope shows only its own headings, and a header speaks its page range. (Which
+        // rows a scope lists, and in what order, is `NotebookFeedTests` in ReaderCore.)
+        XCTAssertTrue(waitForAbsence(row(app, ID.header("3 Matrices and Linear Maps"))), "other chapters filtered out")
+        XCTAssertTrue(row(app, ID.header("5 Eigenvalues and Eigenvectors")).label.contains("pages 15 to 30"))
         note.tap()
         let pill = app.buttons["reader.pagePill"].firstMatch
         XCTAssertTrue(pill.waitForExistence(timeout: 30))

@@ -17,6 +17,7 @@ struct BackupScreen: View {
                 ProgressView()
             }
         }
+        .settingsPageMargins()
         .navigationTitle("Backup & Restore")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { if model == nil { model = BackupScreenModel(environment: environment) } }

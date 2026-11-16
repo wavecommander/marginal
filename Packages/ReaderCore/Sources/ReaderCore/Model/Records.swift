@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 // Value types for everything the app stores. All IDs are UUIDs; all page references are
-// zero-based page indices (see `PageNumbering`). The SwiftData models in WP2 mirror these
+// zero-based page indices (see `PageNumbering`). The SwiftData models in ReaderStore mirror these
 // field-for-field and convert at the repository boundary.
 
 /// One book in the Library: a PDF, either imported as it was or made from another format at import.
@@ -10,8 +10,8 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
     /// Display title (initially the file name without extension; the reader can rename it).
     public var title: String
-    /// Opaque content identity computed by the importer (WP3), e.g. a SHA-256 hex digest of the
-    /// file. Two imports with equal fingerprints are the same book (`BookRepository.book(fingerprint:)`).
+    /// Opaque content identity computed by the importer, e.g. a SHA-256 hex digest of the
+    /// file. Two imports with equal fingerprints are the same book (`RecordStore.book(fingerprint:)`).
     /// For a converted book this is the fingerprint of the original file, not of the generated PDF.
     public var fingerprint: String
     /// File name of the PDF inside the book's directory (`BookStorageLayout.documentPath`).
@@ -55,6 +55,25 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     /// Whether the PDF was made from another format at import.
     public var isConverted: Bool { sourceFormat?.isConverted == true }
 
+    /// Decodes like the synthesised form, except that a `sourceFormat` this version does not know
+    /// (a newer version's backup) reads as `nil`, as the database does: the book is kept, as one
+    /// imported as a PDF (docs/DESIGN.md "Keeping data openable across versions").
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+                  title: try c.decode(String.self, forKey: .title),
+                  fingerprint: try c.decode(String.self, forKey: .fingerprint),
+                  fileName: try c.decode(String.self, forKey: .fileName),
+                  pageCount: try c.decode(Int.self, forKey: .pageCount),
+                  fileSize: try c.decode(Int64.self, forKey: .fileSize),
+                  addedAt: try c.decode(Date.self, forKey: .addedAt),
+                  lastOpenedAt: try c.decodeIfPresent(Date.self, forKey: .lastOpenedAt),
+                  lastReadPageIndex: try c.decode(Int.self, forKey: .lastReadPageIndex),
+                  sourceFormat: try c.decodeIfPresent(String.self, forKey: .sourceFormat).flatMap(ImportFormat.init(rawValue:)),
+                  originalFileName: try c.decodeIfPresent(String.self, forKey: .originalFileName),
+                  converterVersion: try c.decodeIfPresent(Int.self, forKey: .converterVersion))
+    }
+
     /// Reading progress in `0...1`: `(lastReadPageIndex + 1) / pageCount`, clamped; `0` for a book
     /// with no pages. The last page reads as 1.0 (finished).
     public var progress: Double {
@@ -65,8 +84,24 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
 }
 
 /// The colours a highlight can have. A fixed set of four; `rawValue` is the stored form.
+///
+/// Decoding is lenient (docs/DESIGN.md "Keeping data openable across versions"): a colour this
+/// version does not know, from a newer version's backup or database, reads as `fallback`, so the
+/// highlight is kept instead of the book failing to restore.
 public enum HighlightColor: String, CaseIterable, Hashable, Codable, Sendable {
     case yellow, green, blue, pink
+
+    /// What a colour this version does not know reads as.
+    public static let fallback: HighlightColor = .yellow
+
+    /// The colour stored as `rawValue`, or `fallback` for one this version does not know.
+    public init(storedValue rawValue: String) {
+        self = HighlightColor(rawValue: rawValue) ?? .fallback
+    }
+
+    public init(from decoder: any Decoder) throws {
+        self.init(storedValue: try decoder.singleValueContainer().decode(String.self))
+    }
 }
 
 /// Where a highlight's `text` came from. `rawValue` is the stored form.
@@ -97,8 +132,23 @@ public struct Highlight: Identifiable, Hashable, Codable, Sendable {
     /// Where `text` came from; `nil` means the page's text layer (every highlight made before
     /// scanned books existed). Decided from the page in the file, never the on-screen document,
     /// which gains Live Text the file lacks. Optional so that stored highlights and version 1
-    /// backups, which have no such field, still decode; encoded only when set.
+    /// backups, which have no such field, still decode; encoded only when set. A source this
+    /// version does not know, from a newer version's backup, reads as `nil` (docs/DESIGN.md
+    /// "Keeping data openable across versions"), as it does from the database.
     public var textSource: HighlightTextSource?
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        bookID = try container.decode(UUID.self, forKey: .bookID)
+        pageIndex = try container.decode(Int.self, forKey: .pageIndex)
+        rects = try container.decode([CGRect].self, forKey: .rects)
+        color = try container.decode(HighlightColor.self, forKey: .color)
+        text = try container.decode(String.self, forKey: .text)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        textSource = try container.decodeIfPresent(String.self, forKey: .textSource)
+            .flatMap(HighlightTextSource.init(rawValue:))
+    }
 
     public init(id: UUID = UUID(), bookID: UUID, pageIndex: Int, rects: [CGRect], color: HighlightColor,
                 text: String, createdAt: Date = Date(), textSource: HighlightTextSource? = nil) {
@@ -184,4 +234,17 @@ public struct UserHeading: Identifiable, Hashable, Codable, Sendable {
 
     /// The anchor notes on this heading use: `HeadingAnchor(userHeadingID: id)`.
     public var anchor: HeadingAnchor { HeadingAnchor(userHeadingID: id) }
+
+    /// Decodes like the synthesised form, except that a `parent` of a kind this version does not
+    /// know (a newer version's backup) reads as `nil`: the heading is kept, at top level, as for a
+    /// parent that no longer resolves (docs/DESIGN.md "Keeping data openable across versions").
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+                  bookID: try c.decode(UUID.self, forKey: .bookID),
+                  title: try c.decode(String.self, forKey: .title),
+                  pageIndex: try c.decode(Int.self, forKey: .pageIndex),
+                  parent: try c.decodeIfPresent(String.self, forKey: .parent).flatMap(HeadingAnchor.init(rawValue:)),
+                  createdAt: try c.decode(Date.self, forKey: .createdAt))
+    }
 }

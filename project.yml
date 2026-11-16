@@ -52,6 +52,15 @@ targets:
         SWIFT_APPROACHABLE_CONCURRENCY: YES
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
+        # The "Stamp Build Info" phase below runs git on the checkout and edits the built
+        # Info.plist, neither of which a sandboxed script phase may do.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Writes the branch, commit and build time into the built Info.plist (`MarginalBuild`) for
+    # Settings ▸ About. Runs on every build; the committed App/Info.plist is not touched.
+    postBuildScripts:
+      - name: Stamp Build Info
+        script: '"$SRCROOT/scripts/stamp-build-info.sh"'
+        basedOnDependencyAnalysis: false
     info:
       path: App/Info.plist
       properties:
@@ -78,7 +87,8 @@ targets:
         NSUserActivityTypes:
           - software.tactile.marginal.openBook
         # "Open in" for every format the app imports (docs/FORMAT_IMPORT_PLAN.md, "Formats").
-        # The same list is App/Features/Import/ImportContentTypes.swift `importable`.
+        # The types are `ImportFormat.typeIdentifiers` in Packages/ReaderCore (the one list of
+        # importable formats); Tests/ImportFormatCatalogTests.swift fails when the two disagree.
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF Document
             CFBundleTypeRole: Viewer
@@ -100,11 +110,7 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
-              - public.jpeg
-              - public.png
-              - public.heic
-              - public.heif
-              - public.tiff
+              - public.image
           - CFBundleTypeName: Text Document
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
@@ -120,6 +126,9 @@ targets:
             LSItemContentTypes:
               - org.openxmlformats.wordprocessingml.document
               - com.microsoft.word.doc
+              - org.openxmlformats.wordprocessingml.document.macroenabled
+              - org.openxmlformats.wordprocessingml.template
+              - com.microsoft.word.dot
               - public.rtf
               - com.apple.iwork.pages.sffpages
               - com.apple.iwork.pages.pages
@@ -129,6 +138,10 @@ targets:
             LSItemContentTypes:
               - org.openxmlformats.presentationml.presentation
               - com.microsoft.powerpoint.ppt
+              - org.openxmlformats.presentationml.presentation.macroenabled
+              - org.openxmlformats.presentationml.slideshow
+              - com.microsoft.powerpoint.pps
+              - com.microsoft.powerpoint.pot
               - com.apple.iwork.keynote.sffkey
               - com.apple.iwork.keynote.key
           - CFBundleTypeName: Tactile Texts Backup
@@ -140,7 +153,8 @@ targets:
         # usually present; declaring them makes a `.pages`/`.key` folder a document even on a
         # device without Pages or Keynote. The `software.tactile.marginal.*` types exist so the
         # Files picker and drops can offer comics, and the formats the app names when it turns
-        # them down (Kindle, DjVu, CBR).
+        # them down (Kindle, DjVu, CBR). The identifiers and their extensions are
+        # `ImportFormatCatalog.declaredTypes` in Packages/ReaderCore (checked by the same test).
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: software.tactile.marginal.cbz
             UTTypeDescription: Comic Book Archive
@@ -158,7 +172,7 @@ targets:
             UTTypeDescription: Kindle Book
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
-              public.filename-extension: [mobi, azw, azw3, kfx, prc]
+              public.filename-extension: [mobi, azw, azw3, azw4, kfx, prc]
               public.mime-type: [application/x-mobipocket-ebook]
           - UTTypeIdentifier: software.tactile.marginal.djvu
             UTTypeDescription: DjVu Document

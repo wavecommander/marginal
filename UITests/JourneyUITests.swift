@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// The main journey end to end (WP12), on `small.pdf` (page 3 is in "1 Linear Systems" ›
+/// The main journey end to end, on `small.pdf` (page 3 is in "1 Linear Systems" ›
 /// "1.1 Foundations"; its first body line reads "Remember that the quick amber fox annotates
 /// margins."):
 ///
@@ -20,8 +20,6 @@ final class JourneyUITests: XCTestCase {
         static let pagePill = "reader.pagePill"
         static let pdfView = "reader.pdfView"
         static let markupToggle = "reader.toolbar.markup"
-        static let notesToggle = "reader.toolbar.notes"
-        static let contentsToggle = "reader.toolbar.contents"
         static let more = "reader.toolbar.more"
         static let notesTabs = "notesPanel.tabs"
         static let notesTitle = "notesPanel.title"
@@ -29,7 +27,6 @@ final class JourneyUITests: XCTestCase {
         static let noteEditor = "notePage.editor"
         static let noteInk = "notePage.ink"
         static let noteStatus = "notePage.status"
-        static let sidebarTabs = "sidebar.tabs"
         static let export = "notebook.export"
         static let typeFilter = "notebook.typeFilter"
         static func pageInk(_ page: Int) -> String { "pageInk.ink.\(page)" }
@@ -69,7 +66,6 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(wait(pill, "label == %@", ["Page 1 of 12"]), pill.label)
 
         // Read: go to page 3.
-        sleep(1)  // hardware-key events need the window to have become key
         SidebarUITests.goToPage(app, 3)
         XCTAssertTrue(wait(pill, "label == %@", ["Page 3 of 12"]), pill.label)
 
@@ -95,7 +91,7 @@ final class JourneyUITests: XCTestCase {
 
         // Page note (the notes panel shows by default at this width; open it if it is hidden).
         let pageTab = tab(app, "Page note")
-        if !pageTab.waitForExistence(timeout: 3) { app.buttons[ID.notesToggle].firstMatch.tap() }
+        XCTAssertTrue(app.setPanel(.notes, shown: true), "notes panel")
         XCTAssertTrue(pageTab.waitForExistence(timeout: 10), "notes panel")
         if !pageTab.isSelected { pageTab.tap() }
         let listed = app.buttons["notesPanel.highlight"].firstMatch
@@ -155,7 +151,7 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(highlightAgain.waitForExistence(timeout: 10), "highlight after relaunch")
         XCTAssertEqual(highlightAgain.value as? String, Self.phrase)
 
-        if !tab(app, "Page note").waitForExistence(timeout: 3) { app.buttons[ID.notesToggle].firstMatch.tap() }
+        XCTAssertTrue(app.setPanel(.notes, shown: true), "notes panel after relaunch")
         XCTAssertTrue(tab(app, "Page note").waitForExistence(timeout: 10))
         tab(app, "Page note").tap()
         XCTAssertTrue(wait(noteText(app), "value == %@", [Self.pageNoteText]), "page note after relaunch")
@@ -164,9 +160,7 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(wait(app.staticTexts[ID.notesTitle].firstMatch, "label == %@", [Self.headingTitle]))
         XCTAssertTrue(wait(noteText(app), "value == %@", [Self.sectionNoteText]), "section note after relaunch")
 
-        if !app.segmentedControls[ID.sidebarTabs].firstMatch.waitForExistence(timeout: 3) {
-            app.buttons[ID.contentsToggle].firstMatch.tap()
-        }
+        XCTAssertTrue(app.setPanel(.contents, shown: true), "Contents after relaunch")
         SidebarUITests.selectTab(app, "Contents")
         let heading = app.buttons[ID.heading(Self.headingTitle)].firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 10), "the reader's heading in Contents after relaunch")

@@ -7,7 +7,7 @@ import Testing
 /// The notes panel controller on a real session over `small.pdf` (12 pages; "1 Linear Systems"
 /// p1 with 1.1 p2 and 1.2 p4; "2 Vector Spaces" p5 with 2.1 p6 and 2.2 p8; "3 Eigenvalues" p9
 /// with 3.1 p10 and 3.2 p12; indices are one less): following the page, deferral while typing,
-/// saving on switch, the level choice, the model cap, and the anchor repair (WP8).
+/// saving on switch, the level choice, the model cap, and the anchor repair.
 @MainActor
 struct NotesPanelControllerTests {
     struct Fixture {

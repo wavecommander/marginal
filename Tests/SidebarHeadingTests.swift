@@ -4,7 +4,7 @@ import ReaderStore
 import Testing
 @testable import Marginal
 
-/// WP5: "Add heading at page N", rename and delete of user headings.
+/// Contents sidebar: "Add heading at page N", rename and delete of user headings.
 @MainActor
 struct SidebarHeadingTests {
     typealias Support = SidebarTestSupport
@@ -12,7 +12,7 @@ struct SidebarHeadingTests {
     // MARK: Parent choices
 
     @Test func parentChoicesAreTopLevelPlusTheHeadingPath() {
-        let outline = SidebarTreeTests.largeOutline()
+        let outline = Support.largeOutline()
         let choices = UserHeadingEditor.parentChoices(outline: outline, pageIndex: 420)
         #expect(choices.map(\.title) == ["Top level", "5 Chapter", "5.2 Section", "5.2.1 Sub"])
         #expect(choices.map(\.childLevel) == [1, 2, 3, 4])
@@ -30,7 +30,7 @@ struct SidebarHeadingTests {
 
     @Test func containingHeadingsMatchesTheCoreAndIgnoresTheEditedHeading() {
         let bookID = UUID()
-        let outline = SidebarTreeTests.largeOutline()
+        let outline = Support.largeOutline()
         // Without an exclusion (or with an anchor not in the outline) it is the heading path.
         let stranger = HeadingAnchor(userHeadingID: UUID())
         for page in stride(from: 0, to: 1500, by: 7) {
@@ -41,7 +41,7 @@ struct SidebarHeadingTests {
         // split ranges by start page)…
         let mine = UserHeading(bookID: bookID, title: "Mine", pageIndex: 311, parent: nil)
         let child = UserHeading(bookID: bookID, title: "Mine child", pageIndex: 312, parent: mine.anchor)
-        let withMine = SidebarTreeTests.largeOutline(userHeadings: [mine, child])
+        let withMine = Support.largeOutline(userHeadings: [mine, child])
         #expect(withMine.headingPath(forPage: 312).map(\.title) == ["Mine", "Mine child"])
         // …but when editing it, chapter 4's own path is offered, never itself or its child.
         let choices = UserHeadingEditor.parentChoices(outline: withMine, pageIndex: 312, excluding: mine.anchor)
@@ -49,7 +49,7 @@ struct SidebarHeadingTests {
     }
 
     @Test func rememberedPlacementFollowsTheReader() {
-        let outline = SidebarTreeTests.largeOutline()
+        let outline = Support.largeOutline()
         let choices420 = UserHeadingEditor.parentChoices(outline: outline, pageIndex: 420)  // 5 › 5.2 › 5.2.1
         let choices640 = UserHeadingEditor.parentChoices(outline: outline, pageIndex: 640)  // 7 › 7.3 › 7.3.2
         #expect(UserHeadingEditor.rememberedParent(nil, choices: choices420) == nil)

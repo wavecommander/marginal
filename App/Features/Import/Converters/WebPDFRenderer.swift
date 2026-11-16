@@ -138,19 +138,11 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
     nonisolated static let scheme = "tactile-content"
     nonisolated static let host = "document"
     nonisolated static let ruleListIdentifier = "software.tactile.marginal.block-network.v2"
-    /// Everything is blocked, then the content scheme is let through. Alternation is not allowed
-    /// in rule-list regexes, and `^(https?|…):` was rejected (F0 findings).
-    ///
-    /// `x-apple-ql-id:` is also let through: when WebKit converts an Office or iWork document
-    /// itself (QuickLook), the pictures of the converted page are served under that scheme from
-    /// the converted package in memory; blocked, every picture in a Word file or a slide is lost.
-    /// Nothing under it reaches the network. `data:` URLs are not loads and are never blocked.
-    nonisolated static let quickLookScheme = "x-apple-ql-id"
-    nonisolated static let ruleListJSON = """
-        [{"trigger":{"url-filter":".*"},"action":{"type":"block"}},\
-        {"trigger":{"url-filter":"^\(scheme):"},"action":{"type":"ignore-previous-rules"}},\
-        {"trigger":{"url-filter":"^\(quickLookScheme):"},"action":{"type":"ignore-previous-rules"}}]
-        """
+    /// Everything is blocked, then the content scheme is let through, and the scheme QuickLook
+    /// serves a converted Office or iWork document's pictures under
+    /// (`WebKitWorkarounds.ruleListBlockingEverything`, `QuickLookWorkarounds`).
+    nonisolated static let ruleListJSON = WebKitWorkarounds.ruleListBlockingEverything(
+        except: [scheme, QuickLookWorkarounds.convertedResourceScheme])
 
     private(set) var configuration: Configuration
     let schemeHandler: WebResourceSchemeHandler

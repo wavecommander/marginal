@@ -39,7 +39,7 @@ nonisolated struct SlidesConverter: DocumentConverter {
             let ext = file.pathExtension.lowercased()
             let format: ImportFormat = input.format == .keynote ? .keynote : .powerPoint
             let path = "presentation.\(ext.isEmpty ? (format == .keynote ? "key" : "pptx") : ext)"
-            let resources = WebFileResources([path: .init(source: .file(file), mimeType: OfficeMIMEType.forFile(extension: ext, format: format),
+            let resources = WebFileResources([path: .init(source: .file(file), mimeType: QuickLookWorkarounds.mimeType(forFileExtension: ext, format: format),
                                                           textEncodingName: nil)])
             let title = await Self.readTitle(file, format: format)
             progress(0.05)

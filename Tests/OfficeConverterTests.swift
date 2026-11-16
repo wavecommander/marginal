@@ -200,7 +200,7 @@ struct OfficeConverterTests {
         var configuration = WebPDFRenderer.Configuration(pageSize: OfficePageGeometry.letter, margins: .zero)
         configuration.blocksNetwork = false
         configuration.loadTimeout = 30
-        let renderer = WebPDFRenderer(provider: WebFileResources(["d.docx": .init(source: .data(data), mimeType: OfficeMIMEType.forFile(extension: "docx", format: .word), textEncodingName: nil)]),
+        let renderer = WebPDFRenderer(provider: WebFileResources(["d.docx": .init(source: .data(data), mimeType: QuickLookWorkarounds.mimeType(forFileExtension: "docx", format: .word), textEncodingName: nil)]),
                                       configuration: configuration)
         try await renderer.start()
         try await renderer.load(path: "d.docx")

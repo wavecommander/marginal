@@ -7,7 +7,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// WP14 · Ink navigation in the Notebook: handwriting rows in the feed and the filter, live
+/// Ink navigation in the Notebook: handwriting rows in the feed and the filter, live
 /// updates from page-ink changes, previews (off the main thread, light paper, bounded cache), and
 /// the exports.
 @MainActor
@@ -77,7 +77,7 @@ struct NotebookHandwritingTests {
         #expect(NotebookFeed.rows(for: notebook, filter: NotebookFilter(type: .handwriting, query: "eigen")).isEmpty)
         #expect(!NotebookFeed.rows(for: notebook, filter: NotebookFilter(query: "determinant")).map(Self.describe)
             .contains { $0.hasPrefix("ink") })
-        // Counts in the heading column include inked pages (WP9's were [16, 1, 2, 2, 11, 3, 7]).
+        // Counts in the heading column include inked pages (without inked pages they were [16, 1, 2, 2, 11, 3, 7]).
         let entries = NotebookFeed.scopeEntries(for: notebook)
         #expect(entries.map(\.count) == [19, 2, 2, 2, 13, 4, 8])
         #expect(NotebookFeed.itemCount(notebook) == 19)
@@ -244,7 +244,7 @@ struct NotebookHandwritingTests {
         #expect(previews.cachedCount == 0)
 
         let metrics = """
-        WP14 metrics (large.pdf, 1,500 pages, ink on 300 pages, 6 strokes each, simulator)
+        Notebook handwriting metrics (large.pdf, 1,500 pages, ink on 300 pages, 6 strokes each, simulator)
         first build (outline + records + 1 listing + tree): \(buildTime)
         rebuild after one page-ink change (incl. 20 ms debounce): \(rebuildTime)
         directory listings: \(store.inkedPages.listingCount)

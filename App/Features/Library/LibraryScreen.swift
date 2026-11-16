@@ -2,7 +2,7 @@ import ReaderCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Library (WP3): the root of every window's navigation stack. Continue-reading card, an
+/// The Library: the root of every window's navigation stack. Continue-reading card, an
 /// adaptive grid of covers, search, sort, import (Files picker, drops, "Open in", progress and
 /// cancel), and per-book actions. Layout follows the window's own size and size class.
 ///
@@ -520,9 +520,11 @@ struct LibraryScreen: View {
                 try await store.deleteBook(id: book.id, origin: origin)
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
+                ReaderPositionStore().removePosition(for: book.id)
             } catch LibraryStoreError.bookFilesNotRemoved {
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
+                ReaderPositionStore().removePosition(for: book.id)
                 // The book is gone; its leftover files are removed by the next launch's sweep.
             } catch {
                 errorMessage = "Couldn't delete “\(book.title)”: \(error)"

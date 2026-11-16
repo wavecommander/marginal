@@ -223,7 +223,9 @@ final class ScannedHighlightsUITests: XCTestCase {
             return XCTFail("the scanned page never became selectable (no Highlight in the edit menu after 60 s)")
         }
         // Grow the word to the whole line: press on "The" and drag to the end of "tidewater.".
-        app.tap()   // dismiss the menu and the word selection
+        // Dismiss the menu and the word selection with a tap in the page's blank left margin
+        // (the middle of the app can be text, where a tap leaves the selection in place).
+        origin.withOffset(CGVector(dx: frame.minX - 24, dy: frame.midY)).tap()
         sleep(1)
         let start = origin.withOffset(CGVector(dx: frame.minX + 3, dy: frame.midY))
         let end = origin.withOffset(CGVector(dx: frame.maxX - 1, dy: frame.midY))

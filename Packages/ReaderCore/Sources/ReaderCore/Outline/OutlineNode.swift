@@ -3,7 +3,7 @@ import Foundation
 /// One item of a PDF outline, as produced by flattening `PDFDocument.outlineRoot` depth-first
 /// (pre-order: an item, then its children in order, then its next sibling).
 ///
-/// The flattener (WP4) must emit every item, including ones with no destination, in that order.
+/// The flattener (in the reader) must emit every item, including ones with no destination, in that order.
 public struct RawOutlineEntry: Hashable, Sendable, Codable {
     /// The item's label as the PDF gives it. Normalised by the outline builder.
     public var title: String

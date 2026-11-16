@@ -2,9 +2,26 @@ import Foundation
 import PDFKit
 import UIKit
 
-// Plug points of the PDF bridge. Later packages implement these in their own folders and
-// register with `session.pdf` from their controller's `init(session:)`; no reader file needs
-// editing. Every callback runs on the main actor. `pageIndex` is zero-based. "Page space" is
+// What the PDF bridge (`ReaderPDFController`) hands to the session's features, and the values it
+// hands them. The bridge calls the features directly, through the session's typed properties:
+//
+// - Page overlays (page ink): `session.pageInk` supplies one overlay view per displayed
+//   page (`makeOverlayView`, `overlayWillAppear`, `overlayDidDisappear`). PDFKit owns the
+//   overlay's frame: it sizes the overlay to the page and scales it with the page under zoom, so
+//   draw in the overlay's own bounds (one point = one page point at 100%) and never set its
+//   frame. PDFKit asks for an overlay when a page comes near the screen and ends it when the
+//   page goes away; release everything per page in `overlayDidDisappear`.
+// - The edit menu of a text selection (`ReaderPDFController.selectionMenuElements()`): the
+//   highlight colours from `session.highlights`, then "Add as Heading"
+//   (`SidebarHeadingActions`, Contents sidebar), inserted as an inline group at the start of the menu
+//   whenever there is a non-empty selection. Use `session.pdf.clearSelection()` after acting.
+// - Single taps on a page: `session.highlights` first (it consumes a tap on a highlight), then
+//   the window's search if it exists (it clears its mark). The bridge's tap recogniser runs
+//   alongside PDFKit's own gestures (text selection, links), never instead.
+// - The set of on-screen pages (ascending, deduplicated): `session.highlights`. SwiftUI code
+//   reads `session.visiblePageIndices`.
+//
+// Every call runs on the main actor. `pageIndex` is zero-based. "Page space" is
 // PDFKit page space: points, origin at the lower-left of the page's media box, y up, unrotated
 // (the space of `PDFSelection.bounds(for:)`, `PDFPage.bounds(for:)` and stored `Highlight.rects`).
 //
@@ -25,54 +42,6 @@ import UIKit
 // placed anywhere else are not reached: subviews of a page view or page overlay (PDFKit exposes
 // only its page text there), and subviews of PDFKit's scroll or document view. A hidden view
 // (`isHidden` or `accessibilityElementsHidden`) is skipped. Example: `PageInkAccessibilityView`.
-
-/// WP6: supplies one overlay view per displayed page (page ink canvases).
-///
-/// Set with `session.pdf.pageOverlayProvider = self` (weak) in your `init(session:)`; the
-/// session keeps your controller alive. The bridge installs PDFKit's `pageOverlayViewProvider`
-/// before the document is assigned; if you set it later, the bridge re-assigns the document so
-/// the provider takes effect (keeping the page).
-///
-/// PDFKit owns the overlay's frame: it sizes the overlay to the page and scales it with the
-/// page under zoom, so draw in the overlay's own bounds (one point = one page point at 100%)
-/// and never set its frame. PDFKit asks for an overlay when a page comes near the screen and
-/// ends it when the page goes away; release everything per page in `overlayDidDisappear`.
-@MainActor
-protocol ReaderPageOverlayProviding: AnyObject {
-    /// The overlay for a page about to be displayed, or `nil` for none.
-    func makeOverlayView(for page: PDFPage, pageIndex: Int) -> UIView?
-    /// The overlay is about to be shown (register your `MarkupSurface` here).
-    func overlayWillAppear(_ overlay: UIView, for page: PDFPage, pageIndex: Int)
-    /// The overlay is leaving the screen (save, unregister, release).
-    func overlayDidDisappear(_ overlay: UIView, for page: PDFPage, pageIndex: Int)
-}
-
-/// WP7: adds actions to the edit menu PDFKit shows for a text selection.
-///
-/// Register with `session.pdf.addSelectionMenuProvider(self)`. The bridge's `PDFView` subclass
-/// overrides `buildMenu(with:)` and inserts your elements as an inline group at the start of the
-/// menu whenever there is a non-empty selection. Read the selection from the argument (or
-/// `session.pdf.currentSelection`); use `session.pdf.clearSelection()` after acting.
-@MainActor
-protocol ReaderSelectionMenuProviding: AnyObject {
-    func selectionMenuElements(for selection: ReaderTextSelection) -> [UIMenuElement]
-}
-
-/// WP7 (and others): single taps on the page. Register with `session.pdf.addTapHandler(self)`.
-/// Handlers are asked in registration order; return `true` to consume the tap. The bridge's tap
-/// recogniser runs alongside PDFKit's own gestures (text selection, links), never instead.
-@MainActor
-protocol ReaderPageTapHandling: AnyObject {
-    func handleTap(_ tap: ReaderPageTap) -> Bool
-}
-
-/// Anyone: told when the set of on-screen pages changes (ascending, deduplicated). Register
-/// with `session.pdf.addVisiblePagesObserver(self)`. SwiftUI code can read
-/// `session.visiblePageIndices` instead.
-@MainActor
-protocol ReaderVisiblePagesObserving: AnyObject {
-    func visiblePagesDidChange(_ pageIndices: [Int])
-}
 
 /// A text selection on the on-screen document, split per page and per line.
 struct ReaderTextSelection {

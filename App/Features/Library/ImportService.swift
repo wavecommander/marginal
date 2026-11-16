@@ -86,9 +86,9 @@ struct ImportFailureAlert: Identifiable, Equatable {
     let error: ImportError
 }
 
-/// The import pipeline: one per app, shared by every window (it lives in `FixtureImporter`,
-/// which `AppEnvironment` owns). Sources are the Files picker, drops, "Open in" and
-/// `-importFixture`; all go through `importFiles`.
+/// The import pipeline: one per app, shared by every window (`AppEnvironment.importService`).
+/// Sources are the Files picker, drops, "Open in" and `-importFixture`; all go through
+/// `importFiles`.
 ///
 /// Per batch:
 /// 1. **Preflight** every file (off the main thread): format (`ImportFormatDetector`), size,

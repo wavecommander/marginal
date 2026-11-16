@@ -4,7 +4,7 @@ import ReaderCore
 import SwiftUI
 import UIKit
 
-// WP14 · Ink navigation: a Notebook row for each page with page ink, showing the page with its
+// Ink navigation: a Notebook row for each page with page ink, showing the page with its
 // ink, so whatever the Pencil put on a page (highlighter strokes and drawings alike) can be found
 // and returned to (design: "Ink is navigable like highlights and bookmarks").
 

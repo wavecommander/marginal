@@ -1,6 +1,6 @@
 # Scanned books: S0 findings
 
-Package S0 of "Scanned books" (`docs/DESIGN.md`, `docs/WORK_PACKAGES.md`). Established on 16
+Package S0 of "Scanned books" (`docs/DESIGN.md`, `docs/SCANNED_BOOKS_PLAN.md`). Established on 16
 November 2026 with Xcode 27.2 (27B52), the iPhoneOS/iPhoneSimulator 27.2 SDKs, the iOS 27.0
 simulator runtime (iPad Pro 11-inch (M5), the device `scripts/sim.sh` picks) and macOS 26.7.3, on
 an Apple M1 Max host. Nothing here was run on an iPad or on iOS 17.

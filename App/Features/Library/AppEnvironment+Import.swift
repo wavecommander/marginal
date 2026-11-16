@@ -1,9 +1,6 @@
 import Foundation
 
 extension AppEnvironment {
-    /// The shared import pipeline.
-    var importService: ImportService { fixtureImporter.service }
-
     /// The import pipeline, once launch work (the orphan sweep and `-importFixture` imports) has
     /// finished. Every import that starts from a window must go through this: the launch-time
     /// sweep removes `Books/<id>` directories that have no record, and an import committed

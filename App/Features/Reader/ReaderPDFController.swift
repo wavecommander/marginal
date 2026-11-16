@@ -7,8 +7,9 @@ import UIKit
 /// The PDFKit bridge of one reader window (`ReaderSession.pdf`). Owns the window's `PDFView`
 /// (created once per session and re-hosted if SwiftUI rebuilds the layout, so the scroll
 /// position survives switching between wide and narrow layouts), tracks the current and visible
-/// pages, keeps the current page on resize and rotation, and exposes the plug points in
-/// `ReaderExtensionPoints.swift`.
+/// pages, keeps the current page on resize and rotation, and hands page overlays, the selection
+/// menu, taps and visible pages to the session's features (`ReaderSession.pageInk`,
+/// `highlights`, `searchModelIfCreated`; see `ReaderExtensionPoints.swift`).
 ///
 /// Performance rules it keeps: the document is opened lazily by PDFKit (no page walk, no text
 /// extraction here); only visible pages are rendered; overlays exist only for displayed pages.
@@ -24,55 +25,18 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// The document shown, once attached.
     var document: PDFDocument? { isViewLoaded ? view.document : nil }
 
-    /// WP6's overlay provider (weak; the session retains feature controllers). Set it in your
-    /// controller's `init(session:)`, before the document is opened.
-    weak var pageOverlayProvider: (any ReaderPageOverlayProviding)? {
-        didSet { reinstallOverlayProviderIfNeeded() }
-    }
+    /// Which offset changes are reading and which are layout (design: "The reading position is
+    /// stable"): the phase, the reading anchor and the rule are `ReadingPositionKeeper`'s; this
+    /// class tells it what PDFKit and the reader do, and moves the view as it answers.
+    private var position: ReadingPositionKeeper
 
-    private var selectionMenuProviders: [WeakBox<any ReaderSelectionMenuProviding>] = []
-    private var tapHandlers: [WeakBox<any ReaderPageTapHandling>] = []
-    private var visiblePagesObservers: [WeakBox<any ReaderVisiblePagesObserving>] = []
+    /// The view has shown its first page (or its page after the pages were laid out again).
+    var hasPositionedInitially: Bool { position.isPositioned }
+    /// The reader's place: the page point at the top-left of the view (`ReadingPositionKeeper.anchor`).
+    var readingAnchor: ReadingAnchor? { position.anchor }
 
-    /// Page to show once the view has a size and a document.
-    private var pendingPageIndex: Int?
-    /// While true, PDFKit's page-changed reports are ignored (initial positioning).
-    private var isTrackingSuspended = true
-    private(set) var hasPositionedInitially = false
-
-    /// The reader's place: the page point at the top-left of the view. Updated only when the
-    /// scroll position changes outside a size-change layout pass (scrolling, zooming, jumps,
-    /// links, accessibility scrolling); restored, never re-derived, after every size change and
-    /// fit-width refit (`anchorScale`), so
-    /// no rounding or transient layout can accumulate into drift.
-    private(set) var readingAnchor: ReadingAnchor?
-    /// True from the start of a size-change layout pass until the anchor has been restored.
-    /// Offset changes in that window are layout, not reading.
-    private var isRestoringPosition = false
-    /// The position moved since PDFKit's last page report was honoured. A page report with no
-    /// movement behind it (PDFKit re-deriving "current" for a new width) is ignored, so the
-    /// current page, subtitle, pill and last-read save never flicker during a size change.
-    private var positionMovedSinceReport = false
-    /// The scale `readingAnchor` was taken or last put back at.
-    ///
-    /// In fit width (`autoScales`: a double tap or Fit Width) PDFKit refits the scale on its
-    /// own, outside the size-change layout pass: a moment after each width change, and on the
-    /// next layout after a double tap. Taken as reading, those offset changes moved the reader
-    /// pages away when a panel opened (TSOFT-223). So a scale change the reader did not make
-    /// (no touch on the page, pinch or zoom command) is layout: the anchor is put back after it,
-    /// and after every other offset change PDFKit makes while it settles (`refitSettlesAt`).
-    private var anchorScale: CGFloat = 0
-    /// Until this time (set by a width change in fit width, or a refit), offset changes the
-    /// reader did not make are PDFKit settling its refit. A touch, zoom command or navigation
-    /// ends it.
-    private var refitSettlesAt: CFAbsoluteTime = 0
-    private static let refitSettleInterval: CFTimeInterval = 0.5
-    /// Until this time a scale change is the reader's own zoom (touch on the page, zoom command):
-    /// long enough for PDFKit's double-tap zoom animation.
-    private var readerZoomUntil: CFAbsoluteTime = 0
-    private static let readerZoomInterval: CFTimeInterval = 0.8
-    private var refitRestoreGeneration = 0
-    private var isRefitRestoreScheduled = false
+    /// The exact place and zoom to show with the keeper's pending page (first positioning only).
+    private var pendingPosition: ReaderPosition?
     private let tapDelegate = SimultaneousGestureDelegate()
     private var offsetObservation: NSKeyValueObservation?
 
@@ -89,8 +53,14 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return probe
     }()
 
+    /// A document is attached and has not been positioned yet (the view has had no size).
+    var isAwaitingFirstPosition: Bool { isViewLoaded && view.document != nil && !hasPositionedInitially }
+
+    /// The PDF view's scale (1 before the view exists).
+    var scale: CGFloat { isViewLoaded ? view.scaleFactor : 1 }
+
     /// The scroll view PDFKit scrolls the document in.
-    var scrollView: UIScrollView? { isViewLoaded ? view.documentView?.superview as? UIScrollView : nil }
+    var scrollView: UIScrollView? { isViewLoaded ? PDFKitWorkarounds.scrollView(of: view) : nil }
 
     /// The reading anchor of the current scroll position (page point at the top-left corner).
     func captureAnchor() -> ReadingAnchor? {
@@ -115,52 +85,73 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     private func scrollViewDidChangeOffset() {
-        guard !isRestoringPosition else { return }
-        if isRefitByPDFKit {
+        switch position.offsetDidChange(scale: view.scaleFactor, isReaderGesturing: isReaderGesturing) {
+        case .layout:
+            return
+        case .refit:
             scheduleRefitRestore()
             return
-        }
-        session?.revealPagePill()
-        if hasPositionedInitially, let anchor = captureAnchor() {
-            readingAnchor = anchor
-            anchorScale = view.scaleFactor
-            positionMovedSinceReport = true
+        case .positioning:
+            session?.revealPagePill()
+        case .reading:
+            session?.revealPagePill()
+            if let anchor = captureAnchor() {
+                position.recordReading(anchor: anchor, scale: view.scaleFactor)
+                session?.pdfReportedPlaceChange()
+                reportCurrentPageIfChanged()
+            }
         }
         updateAnchorProbe()
     }
 
-    init(session: ReaderSession) {
+    /// PDFKit posts `PDFViewPageChanged` only now and then during a scroll (often not until it
+    /// settles), so the pill, subtitle and page note lagged behind the page. Each reading offset
+    /// change asks PDFKit for its current page as well. The page report is taken only when the page
+    /// differs, so PDFKit's own later notification about the same page changes nothing. Most
+    /// frames stop at the identity check (no page lookup).
+    private func reportCurrentPageIfChanged() {
+        guard let session, let page = view.currentPage, page !== lastSeenCurrentPage else { return }
+        lastSeenCurrentPage = page
+        guard let index = pageIndex(of: page), index != session.currentPageIndex,
+              position.takePageReport() else { return }
+        session.pdfReportedCurrentPage(index)
+    }
+    /// The page `reportCurrentPageIfChanged` last saw PDFKit call current.
+    private weak var lastSeenCurrentPage: PDFPage?
+
+    /// `clock` times the position keeper's two windows (tests inject their own).
+    init(session: ReaderSession, clock: ReadingPositionClock = .system) {
         self.session = session
+        self.position = ReadingPositionKeeper(clock: clock)
         super.init()
-    }
-
-    // MARK: Plug-point registration
-
-    func addSelectionMenuProvider(_ provider: any ReaderSelectionMenuProviding) {
-        selectionMenuProviders.removeAll { $0.value == nil }
-        selectionMenuProviders.append(WeakBox(provider))
-    }
-
-    func addTapHandler(_ handler: any ReaderPageTapHandling) {
-        tapHandlers.removeAll { $0.value == nil }
-        tapHandlers.append(WeakBox(handler))
-    }
-
-    func addVisiblePagesObserver(_ observer: any ReaderVisiblePagesObserving) {
-        visiblePagesObservers.removeAll { $0.value == nil }
-        visiblePagesObservers.append(WeakBox(observer))
     }
 
     // MARK: Document
 
-    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size.
-    func attach(_ document: PDFDocument, initialPageIndex: Int) {
-        pendingPageIndex = initialPageIndex
-        isTrackingSuspended = true
+    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size: at
+    /// `startPosition`'s exact place and zoom when given (a resumed reader's, or the book's
+    /// latest), else at the top of the page.
+    func attach(_ document: PDFDocument, initialPageIndex: Int, position startPosition: ReaderPosition? = nil) {
+        position.setPendingPage(initialPageIndex)
+        pendingPosition = startPosition
         view.document = document
         view.applyPDFKitPolicies()
         observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
+    }
+
+    /// Lets the document go for good (`ReaderSession.close()`): PDFKit's pages, tiles and the
+    /// page overlays go with it, and the view leaves its host.
+    func close() {
+        guard isViewLoaded else { return }
+        position.clearPendingPage()
+        pendingPosition = nil
+        offsetObservation = nil
+        position.invalidatePosition()
+        view.clearSelection()
+        view.highlightedSelections = nil
+        view.document = nil
+        view.removeFromSuperview()
     }
 
     /// The page object for a zero-based index on the on-screen document.
@@ -178,12 +169,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// **Not for features**: moves the view without recording section history. Use `session.jump…`.
     func moveWithoutRecordingHistory(toPage pageIndex: Int) {
         guard hasPositionedInitially, let page = page(at: pageIndex), view.bounds.width > 0 else {
-            pendingPageIndex = pageIndex
+            position.setPendingPage(pageIndex)
+            pendingPosition = nil
             applyPendingPageIfPossible()
             return
         }
-        acceptCurrentScale()
-        isTrackingSuspended = false
+        position.willNavigate(scale: view.scaleFactor)
         view.showTop(of: page)
     }
 
@@ -194,8 +185,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             moveWithoutRecordingHistory(toPage: anchor.pageIndex)
             return
         }
-        acceptCurrentScale()
-        isTrackingSuspended = false
+        position.willNavigate(scale: view.scaleFactor)
         view.show(anchor.point, of: page)
     }
 
@@ -244,18 +234,16 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     func scrollDirectionDidChange(to direction: ReaderScrollDirection, keepingPage pageIndex: Int) {
         guard isViewLoaded, view.displayDirection != direction.pdfDisplayDirection else { return }
         view.clearSelection()
-        hasPositionedInitially = false
-        readingAnchor = nil
-        isTrackingSuspended = true
-        refitRestoreGeneration += 1
+        position.invalidatePosition()
         view.displayDirection = direction.pdfDisplayDirection
         view.autoScales = true
         view.layoutDocumentView()
-        pendingPageIndex = pageIndex
+        position.setPendingPage(pageIndex)
+        pendingPosition = nil
         applyPendingPageIfPossible()
     }
 
-    // MARK: Selection (WP7)
+    // MARK: Selection (highlights)
 
     /// The current text selection split per page and line, or `nil` when nothing is selected.
     var currentSelection: ReaderTextSelection? {
@@ -344,7 +332,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         selectionProbe.accessibilityValue = "pages \(pages); ms \(ms)"
     }
 
-    // MARK: Annotations (WP7). The file on disk is never written; these live in memory only.
+    // MARK: Annotations (highlights). The file on disk is never written; these live in memory only.
 
     /// Adds an annotation to a page of the on-screen document (shown immediately).
     func addAnnotation(_ annotation: PDFAnnotation, toPageAt pageIndex: Int) {
@@ -360,7 +348,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         page(at: pageIndex)?.annotations ?? []
     }
 
-    // MARK: Search marking (WP10)
+    // MARK: Search marking
 
     /// **Not for features** (use `session.jump(toPage:revealing:mark:)`, which records history).
     /// Scrolls `rects` (page space) on `pageIndex` into view and, with `mark`, marks the text
@@ -372,7 +360,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// (`SearchMarkAnnotation`, in memory on the on-screen page only).
     func revealWithoutRecordingHistory(pageIndex: Int, rects: [CGRect], mark: Bool = true) {
         guard let page = page(at: pageIndex) else { return }
-        acceptCurrentScale()
+        position.willNavigate(scale: view.scaleFactor)
         let union = rects.reduce(CGRect.null) { $0.union($1) }
         if !union.isNull {
             view.go(to: union.insetBy(dx: -8, dy: -40), on: page)
@@ -431,21 +419,21 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.isInMarkupMode = mode == .markup
     }
 
-    // MARK: PDFPageOverlayViewProvider (adapter to ReaderPageOverlayProviding)
+    // MARK: PDFPageOverlayViewProvider (page ink: `ReaderSession.pageInk`)
 
     func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return nil }
-        return provider.makeOverlayView(for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return nil }
+        return pageInk.makeOverlayView(for: page, pageIndex: index)
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return }
-        provider.overlayWillAppear(overlayView, for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return }
+        pageInk.overlayWillAppear(overlayView, for: page, pageIndex: index)
     }
 
     func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return }
-        provider.overlayDidDisappear(overlayView, for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return }
+        pageInk.overlayDidDisappear(overlayView, for: page, pageIndex: index)
     }
 
     // MARK: View-facing (ReaderPDFView)
@@ -457,7 +445,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// relative to PDFKit's current page (TSOFT-220). A destination PDFKit cannot resolve is
     /// not followed, so nothing is recorded.
     func willPerform(_ action: PDFAction) {
-        acceptCurrentScale()
+        position.willNavigate(scale: view.scaleFactor)
         let target: Int?
         switch action {
         case let goTo as PDFActionGoTo:
@@ -489,13 +477,13 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return (0..<pageCount).contains(target) && target != currentPage ? target : nil
     }
 
+    /// The actions the features add to the edit menu of a text selection, in this order: the
+    /// highlight colours, then "Add as Heading" (Contents sidebar).
     func selectionMenuElements() -> [UIMenuElement] {
-        guard let selection = currentSelection else { return [] }
-        var elements: [UIMenuElement] = []
-        for provider in selectionMenuProviders.compactMap(\.value) {
-            elements.append(contentsOf: provider.selectionMenuElements(for: selection))
-        }
-        if session?.configuration.selectionMenuProbe == true {
+        guard let selection = currentSelection, let session else { return [] }
+        var elements = session.highlights?.selectionMenuElements(for: selection) ?? []
+        elements.append(contentsOf: SidebarHeadingActions.selectionMenuElements(for: selection, in: session))
+        if session.configuration.selectionMenuProbe {
             elements.append(UIAction(title: "Probe") { _ in })
         }
         return elements
@@ -505,14 +493,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// scroll offset and page frames are still the old ones, so if no anchor exists yet it is
     /// captured here from the place the reader is looking at.
     func sizeChangeWillLayout() {
-        guard hasPositionedInitially, view.document != nil else { return }
-        if readingAnchor == nil {
-            readingAnchor = captureAnchor()
-            anchorScale = view.scaleFactor
-        }
-        // A panel or rotation is not a zoom: PDFKit's refit for the new width is layout.
-        readerZoomUntil = 0
-        isRestoringPosition = true
+        guard view.document != nil, position.isPositioned else { return }
+        let placeOnScreen = position.anchor == nil ? captureAnchor() : nil
+        position.beginSizeChange(scale: view.scaleFactor, placeOnScreen: placeOnScreen)
     }
 
     /// Called by `ReaderPDFView.layoutSubviews` *after* PDFKit has laid out for the new size,
@@ -520,73 +503,42 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// of being fixed up afterwards). Lays out the document view now (the layout this pass
     /// would do anyway), then puts the anchor's page point back at the top-left corner.
     func sizeChangeDidLayout() {
-        defer {
-            isRestoringPosition = false
-            updateAnchorProbe()
-        }
-        guard isRestoringPosition else { return }
+        defer { updateAnchorProbe() }
+        guard position.phase == .restoring else { return }
         placeReadingAnchor()
-        anchorScale = view.scaleFactor
-        if view.autoScales { refitSettlesAt = CFAbsoluteTimeGetCurrent() + Self.refitSettleInterval }
+        position.endSizeChange(scale: view.scaleFactor, isFitWidth: view.autoScales)
     }
 
-    // MARK: Fit-width refits (see `anchorScale`)
+    // MARK: Fit-width refits (see `ReadingPositionKeeper.ScaleOwner`)
 
     /// The reader touched the page or chose a zoom command: the scale changes that follow are
     /// theirs, and the place they leave is reading.
     func readerDidZoom() {
-        readerZoomUntil = CFAbsoluteTimeGetCurrent() + Self.readerZoomInterval
-        refitSettlesAt = 0
-        refitRestoreGeneration += 1
+        position.readerDidZoom()
     }
 
-    /// A navigation is about to move the view: its offset change is reading even if a refit
-    /// restore is still pending (which it cancels).
-    private func acceptCurrentScale() {
-        anchorScale = view.scaleFactor
-        refitSettlesAt = 0
-        refitRestoreGeneration += 1
-    }
-
-    private var isReaderZooming: Bool {
-        if CFAbsoluteTimeGetCurrent() < readerZoomUntil { return true }
+    /// The scroll view is being dragged or pinched, or is bouncing back from a pinch.
+    private var isReaderGesturing: Bool {
         guard let scrollView else { return false }
         return scrollView.isZooming || scrollView.isZoomBouncing || scrollView.isTracking
-    }
-
-    /// PDFKit is refitting (the scale moved away from the anchor's) or settling a refit, with
-    /// nothing from the reader behind it. A new refit opens the settle window.
-    private var isRefitByPDFKit: Bool {
-        guard hasPositionedInitially, readingAnchor != nil, !isReaderZooming else { return false }
-        let now = CFAbsoluteTimeGetCurrent()
-        if abs(view.scaleFactor - anchorScale) > 0.0001 {
-            refitSettlesAt = now + Self.refitSettleInterval
-            return true
-        }
-        return now < refitSettlesAt
     }
 
     /// Puts the reading anchor back once PDFKit has finished this refit (coalesced per turn:
     /// PDFKit sets the zoom, then the offset).
     private func scheduleRefitRestore() {
-        guard !isRefitRestoreScheduled else { return }
-        isRefitRestoreScheduled = true
-        let generation = refitRestoreGeneration
+        guard let ticket = position.scheduleRefitRestore() else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isRefitRestoreScheduled = false
-            guard generation == self.refitRestoreGeneration, !self.isRestoringPosition,
-                  !self.isReaderZooming else { return }
-            self.isRestoringPosition = true
+            guard let self,
+                  self.position.beginRefitRestore(ticket: ticket, isReaderGesturing: self.isReaderGesturing)
+            else { return }
             self.placeReadingAnchor()
-            self.anchorScale = self.view.scaleFactor
-            self.isRestoringPosition = false
+            self.position.endRefitRestore(scale: self.view.scaleFactor)
             self.updateAnchorProbe()
         }
     }
 
     /// Scrolls so the reading anchor's page point is at the top-left corner, after laying out
-    /// the document view. Call with `isRestoringPosition` set.
+    /// the document view. Call while the keeper is `restoring`.
     private func placeReadingAnchor() {
         guard let anchor = readingAnchor, let page = page(at: anchor.pageIndex), let scrollView else { return }
         scrollView.layoutIfNeeded()
@@ -612,7 +564,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         isViewLoaded = true
         let view = ReaderPDFView(frame: .zero)
         view.controller = self
-        // Must be set before a document is assigned for PDFKit to ask for overlays.
+        // Must be set before a document is assigned for PDFKit to ask for overlays (the session
+        // makes its page ink before it opens the document).
         view.pageOverlayViewProvider = self
         view.displayMode = .singlePageContinuous
         view.displayDirection = (session?.scrollDirection ?? .vertical).pdfDisplayDirection
@@ -643,34 +596,28 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return view
     }
 
-    private func reinstallOverlayProviderIfNeeded() {
-        // PDFKit consults the provider only for pages displayed after a document is assigned.
-        guard isViewLoaded, let document = view.document, let session else { return }
-        let page = session.currentPageIndex
-        view.document = nil
-        view.document = document
-        hasPositionedInitially = false
-        readingAnchor = nil
-        pendingPageIndex = page
-        isTrackingSuspended = true
-        applyPendingPageIfPossible()
-    }
-
     private func applyPendingPageIfPossible() {
         guard isViewLoaded, view.document != nil, view.bounds.width > 0, view.bounds.height > 0,
-              pendingPageIndex != nil else { return }
+              position.pendingPageIndex != nil else { return }
         // Let PDFKit lay out the document view first, then position.
         DispatchQueue.main.async { [weak self] in
-            guard let self, let index = self.pendingPageIndex, let page = self.page(at: index) else { return }
-            self.pendingPageIndex = nil
-            self.acceptCurrentScale()
-            self.view.showTop(of: page)
-            self.hasPositionedInitially = true
+            guard let self, let index = self.position.pendingPageIndex, let page = self.page(at: index) else { return }
+            self.position.clearPendingPage()
+            let start = self.pendingPosition
+            self.pendingPosition = nil
+            if let start, !start.isFitWidth, start.scale > 0 {
+                self.view.autoScales = false
+                self.view.scaleFactor = min(max(CGFloat(start.scale), self.view.minScaleFactor), self.view.maxScaleFactor)
+            }
+            self.position.willNavigate(scale: self.view.scaleFactor)
+            if let start, let anchorPage = self.page(at: start.anchor.pageIndex) {
+                self.view.show(start.anchor.point, of: anchorPage)
+            } else {
+                self.view.showTop(of: page)
+            }
             PerfMarks.mark("positioned")
-            self.isTrackingSuspended = false
             self.observeScrollViewIfNeeded()
-            self.readingAnchor = self.captureAnchor()
-            self.anchorScale = self.view.scaleFactor
+            self.position.didPosition(anchor: self.captureAnchor(), scale: self.view.scaleFactor)
             self.session?.pdfReportedCurrentPage(index)
             self.reportVisiblePages()
             self.reportNavigationState()
@@ -678,9 +625,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     @objc private func pageChanged(_ notification: Notification) {
-        guard !isTrackingSuspended, !isRestoringPosition, positionMovedSinceReport,
-              let page = view.currentPage, let index = pageIndex(of: page) else { return }
-        positionMovedSinceReport = false
+        guard let page = view.currentPage, let index = pageIndex(of: page),
+              position.takePageReport() else { return }
         session?.pdfReportedCurrentPage(index)
     }
 
@@ -693,24 +639,24 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         updateAnchorProbe()
     }
 
+    /// A single tap on a page goes to highlights first (a tap on a highlight opens its menu
+    /// and is consumed), then to the search if there is one (it clears its mark).
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended else { return }
-        let handlers = tapHandlers.compactMap(\.value)
-        guard !handlers.isEmpty else { return }
+        guard recognizer.state == .ended, let session,
+              session.highlights != nil || session.searchModelIfCreated != nil else { return }
         let point = recognizer.location(in: view)
         guard let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
         let tap = ReaderPageTap(pageIndex: index, page: page, pointInPage: view.convert(point, to: page),
                                 pointInView: point, view: view)
-        for handler in handlers where handler.handleTap(tap) { break }
+        if session.highlights?.handleTap(tap) == true { return }
+        session.searchModelIfCreated?.pageWasTapped()
     }
 
     private func reportVisiblePages() {
         guard view.document != nil else { return }
         let pages = Array(Set(view.visiblePages.compactMap { pageIndex(of: $0) })).sorted()
         session?.pdfReportedVisiblePages(pages)
-        for observer in visiblePagesObservers.compactMap(\.value) {
-            observer.visiblePagesDidChange(pages)
-        }
+        session?.highlights?.visiblePagesDidChange(pages)
     }
 
     private func reportNavigationState() {
@@ -765,7 +711,7 @@ final class ReaderPDFView: PDFView {
     /// The page at the top of the visible area (scrolling horizontally: at its left edge) and
     /// the page-space y there.
     func pageAndPointAtTop() -> (page: PDFPage, pageY: CGFloat)? {
-        guard let scrollView = documentView?.superview as? UIScrollView else { return nil }
+        guard let scrollView = PDFKitWorkarounds.scrollView(of: self) else { return nil }
         let insets = scrollView.adjustedContentInset
         let probe = isHorizontal
             ? CGPoint(x: bounds.minX + insets.left + 1, y: bounds.midY)
@@ -782,8 +728,7 @@ final class ReaderPDFView: PDFView {
     private func align(_ page: PDFPage, pageY: CGFloat, pageX: CGFloat?, attemptsLeft: Int, generation: Int) {
         DispatchQueue.main.async { [weak self, weak page] in
             guard let self, let page, attemptsLeft > 0, generation == self.alignmentGeneration,
-                  let documentView = self.documentView,
-                  let scrollView = documentView.superview as? UIScrollView else { return }
+                  let scrollView = PDFKitWorkarounds.scrollView(of: self) else { return }
             self.layoutIfNeeded()
             let bounds = page.bounds(for: self.displayBox)
             let pointInView = self.convert(CGPoint(x: pageX ?? bounds.midX, y: pageY), from: page)
@@ -803,43 +748,29 @@ final class ReaderPDFView: PDFView {
         }
     }
 
-    /// "No scroll-to-top" (design): every scroll view PDFKit puts inside this view opts out of
-    /// the system's tap-to-scroll-to-top, which a tap on the status bar (and on iPadOS 26+ the
-    /// navigation bar / title) sends to the window's scroll-to-top scroll view and which would
-    /// take the reader to page 1. PDFKit can replace its scroll view when the document, display
-    /// mode or layout changes, so this runs on every subview addition and layout pass. It walks
-    /// only PDFKit's chrome, never into the document view's page views.
-    func disableScrollsToTop() {
-        var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) }
-        while !queue.isEmpty {
-            let (current, depth) = queue.removeFirst()
-            if let scrollView = current as? UIScrollView, scrollView.scrollsToTop {
-                scrollView.scrollsToTop = false
-            }
-            guard depth < 4, current !== documentView else { continue }
-            queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
-        }
-    }
-
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
         applyPDFKitPolicies()
-        if !isPDFKitChrome(subview) { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+        if !PDFKitWorkarounds.isPDFKitView(subview, in: self) {
+            UIAccessibility.post(notification: .layoutChanged, argument: nil)
+        }
     }
 
     override func willRemoveSubview(_ subview: UIView) {
         super.willRemoveSubview(subview)
-        if !isPDFKitChrome(subview) {
+        if !PDFKitWorkarounds.isPDFKitView(subview, in: self) {
             DispatchQueue.main.async { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
         }
     }
 
-    /// The per-view policies PDFKit's own views need, re-applied whenever PDFKit may have
-    /// replaced them (subview added, every layout pass, document attached).
+    /// The per-view policies PDFKit's own views need (`PDFKitWorkarounds`), re-applied whenever
+    /// PDFKit may have replaced them (subview added, every layout pass, document attached):
+    /// "No scroll-to-top" (design), text-input proxies hidden from accessibility, and Select All
+    /// routed to `selectParagraphs()`.
     func applyPDFKitPolicies() {
-        disableScrollsToTop()
-        hideTextInputProxies()
-        if let documentView { PDFSelectAllRouting.install(on: documentView) }
+        PDFKitWorkarounds.disableScrollsToTop(in: self)
+        PDFKitWorkarounds.hideTextInputProxies(in: self)
+        if let documentView { PDFKitWorkarounds.routeSelectAll(from: documentView) }
     }
 
     // MARK: Select All ("Select All selects the paragraph")
@@ -866,11 +797,9 @@ final class ReaderPDFView: PDFView {
 
     // MARK: Accessibility
 
-    /// PDFKit's document view is a `UITextInput` spanning the whole book. An accessibility
-    /// client that reads it as a text element (its value, or `text(in:)` over its full range,
-    /// as UIKit's text-element accessibility does) makes PDFKit build a selection over every
-    /// page on the main thread: measured 9.7 s and 3.4 M characters for `large.pdf` in one call,
-    /// repeated per query. So the PDF view's accessibility children are, in this order:
+    /// PDFKit's document view must not be read as one text element
+    /// (`PDFKitWorkarounds.visiblePageViews`). So the PDF view's accessibility children are, in
+    /// this order:
     ///
     /// 1. the page views on screen, in reading order (top to bottom, or left to right when
     ///    scrolling horizontally) instead of the document view: VoiceOver
@@ -885,26 +814,14 @@ final class ReaderPDFView: PDFView {
     /// notification is posted when a feature view comes or goes). Sighted text selection,
     /// highlights and the edit menu are untouched (they never go through accessibility).
     private var visiblePageViews: [UIView] {
-        guard let documentView else { return [] }
-        let visible = convert(bounds, to: documentView)
-        let horizontal = isHorizontal
-        return documentView.subviews
-            .filter { !($0 is UITextInput) && !$0.isHidden && $0.frame.intersects(visible) }
-            .sorted { horizontal ? $0.frame.minX < $1.frame.minX : $0.frame.minY < $1.frame.minY }
-    }
-
-    /// PDFKit's own views (its scroll view, the document view and anything containing it) as
-    /// opposed to views a feature added.
-    private func isPDFKitChrome(_ view: UIView) -> Bool {
-        if Bundle(for: type(of: view)) == Bundle(for: PDFView.self) { return true }
-        if let documentView, documentView === view || documentView.isDescendant(of: view) { return true }
-        return false
+        PDFKitWorkarounds.visiblePageViews(in: self, horizontal: isHorizontal)
     }
 
     /// Feature-added direct subviews (see `accessibilityElements`), never a text input.
     private var featureAccessibilityViews: [UIView] {
         subviews.filter {
-            !isPDFKitChrome($0) && !($0 is UITextInput) && !$0.isHidden && !$0.accessibilityElementsHidden
+            !PDFKitWorkarounds.isPDFKitView($0, in: self) && !($0 is UITextInput) && !$0.isHidden
+                && !$0.accessibilityElementsHidden
         }
     }
 
@@ -930,23 +847,6 @@ final class ReaderPDFView: PDFView {
     override func index(ofAccessibilityElement element: Any) -> Int {
         guard let object = element as AnyObject?, let elements = accessibilityElements else { return NSNotFound }
         return elements.firstIndex { ($0 as AnyObject) === object } ?? NSNotFound
-    }
-
-    /// Any other `UITextInput` view PDFKit adds (a text-input proxy such as `PDFTextInputView`
-    /// while text is selected) answers accessibility with whole-document text in the same way;
-    /// it has no visible content of its own, so it is hidden from accessibility.
-    private func hideTextInputProxies() {
-        guard let documentView else { return }
-        var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) } + documentView.subviews.map { ($0, 1) }
-        while !queue.isEmpty {
-            let (current, depth) = queue.removeFirst()
-            if current is UITextInput, current !== documentView {
-                if !current.accessibilityElementsHidden { current.accessibilityElementsHidden = true }
-                PDFSelectAllRouting.install(on: current)
-            }
-            guard depth < 3, current !== documentView else { continue }
-            queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
-        }
     }
 
     /// Every bounds-size change (panel toggles, the divider, window resize, rotation, the
@@ -1093,11 +993,4 @@ nonisolated final class SearchMarkAnnotation: PDFAnnotation {
         for rect in lineRects { context.fill(rect) }
         context.restoreGState()
     }
-}
-
-/// A weak reference to a class-constrained existential.
-final class WeakBox<T> {
-    private weak var object: AnyObject?
-    init(_ value: T) { object = value as AnyObject }
-    var value: T? { object as? T }
 }

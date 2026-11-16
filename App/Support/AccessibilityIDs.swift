@@ -1,4 +1,4 @@
-/// Accessibility identifiers used by UI tests. One place for the whole app: later packages add
+/// Accessibility identifiers used by UI tests. One place for the whole app: each feature adds
 /// their own nested enum (or cases to the existing ones) here rather than inlining strings.
 /// UI tests mirror the strings they use (the test target cannot import the app).
 nonisolated enum AccessibilityID {
@@ -23,8 +23,14 @@ nonisolated enum AccessibilityID {
         static let backupProgress = "library.backupProgress"
         /// The "PDF missing" badge on a book's cover: `library.book.<title>.pdfMissing`.
         static func pdfMissing(_ title: String) -> String { "library.book.\(title).pdfMissing" }
-        /// The screen shown instead of the Library when the store could not be opened.
+        /// The title of the screen shown instead of the Library when the store could not be opened.
         static let unavailable = "library.unavailable"
+        /// Its "Open in This Version…" (a library from a newer version).
+        static let openInThisVersion = "library.unavailable.openInThisVersion"
+        /// Its "Use an Earlier Copy" menu.
+        static let useEarlierCopy = "library.unavailable.useEarlierCopy"
+        /// Shown once the library was changed and opens at the next launch.
+        static let recoveryReady = "library.unavailable.ready"
     }
 
     /// Settings ▸ Backup & Restore and a destination's screen.
@@ -164,6 +170,7 @@ nonisolated enum AccessibilityID {
         static let markupState = "reader.markupState"
         static let markupUndoProbe = "reader.markupUndo"
         static let markupRedoProbe = "reader.markupRedo"
+        static let memoryWarningProbe = "reader.memoryWarning"
         static let loading = "reader.loading"
         /// The "Cannot Open Book" state's "Locate PDF…" and "Open Notebook" (book without its PDF).
         static let locatePDF = "reader.locatePDF"
@@ -210,6 +217,12 @@ nonisolated enum AccessibilityID {
         static func accent(_ rawValue: String) -> String { "settings.accent.\(rawValue)" }
         static let reset = "settings.accent.reset"
         static let preview = "settings.accent.preview"
+        /// Settings ▸ About: the build's version, branch, commit and time (`BuildInfo`).
+        static let aboutVersion = "settings.about.version"
+        static let aboutBranch = "settings.about.branch"
+        static let aboutCommit = "settings.about.commit"
+        static let aboutBuilt = "settings.about.built"
+        static let aboutCopy = "settings.about.copy"
     }
 
     /// Placeholders the next packages replace (keep the identifiers if convenient).

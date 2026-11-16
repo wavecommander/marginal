@@ -53,8 +53,6 @@ struct ReaderScreen: View {
     @State private var searchAnchor = CGRect.zero
     /// `searchAnchor` has been measured since search last opened.
     @State private var isSearchAnchored = false
-    /// The notes pane's width while its handle slides it shut (below its narrowest width).
-    @State private var notesCollapsingWidth: CGFloat?
 
     var body: some View {
         GeometryReader { geometry in
@@ -151,7 +149,6 @@ struct ReaderScreen: View {
                 .environment(session)
         }
         .environment(session)
-        .focusedSceneValue(session)
     }
 
     // MARK: Layouts
@@ -166,27 +163,11 @@ struct ReaderScreen: View {
             }
             pageArea
             if session.isNotesVisible {
-                let notesWidth = ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: width)
-                // The divider and the pane come and go as one, sliding in from and out to the
+                // The handle and the pane come and go as one, sliding in from and out to the
                 // trailing edge when the notes button shows or hides them.
-                HStack(spacing: 0) {
-                    // Neither the divider nor the pane starts the system back swipe: a rightward
-                    // drag that misses the divider's pill must not leave the book (TSOFT-225).
-                    NotesDivider(session: session, windowWidth: width, collapsingWidth: $notesCollapsingWidth)
-                        .backSwipeGuard()
-                        .zIndex(1)  // the handle's hit area overlaps the note
-                    // While the handle slides the pane shut, the pane (laid out at its narrowest
-                    // width, so the note does not re-wrap) is cut from its leading edge.
-                    NotesPanel(session: session)
-                        .frame(width: notesWidth)
-                        .frame(width: notesCollapsingWidth ?? notesWidth, alignment: .leading)
-                        .clipped()
-                        .background(Color(uiColor: .systemBackground))
-                        .backSwipeGuard()
-                        .paneContainer(AccessibilityID.Reader.notesPane)
-                }
-                .transition(.move(edge: .trailing))
-                .zIndex(1)  // the handle's hit area overlaps the page
+                NotesSidePane(session: session, windowWidth: width)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(1)  // the handle's hit area overlaps the page
             }
         }
     }
@@ -432,9 +413,14 @@ private struct NotesBottomPanel: View {
     let session: ReaderSession
     let containerHeight: CGFloat
     @State private var isLarge = false
-    @State private var dragOffset: CGFloat = 0
+    /// The grabber's vertical travel in the drag under way (0 otherwise). A gesture state, so a
+    /// cancelled drag puts the panel back. Its reset is not animated (see `NotesSidePane`).
+    @GestureState private var dragOffset: CGFloat = 0
+    /// The travel at release, animated to 0 as the panel settles at its new height.
+    @State private var releaseOffset: CGFloat = 0
 
-    private var baseHeight: CGFloat { containerHeight * (isLarge ? 0.85 : 0.5) }
+    private var largeHeight: CGFloat { containerHeight * 0.85 }
+    private var baseHeight: CGFloat { isLarge ? largeHeight : containerHeight * 0.5 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -446,15 +432,18 @@ private struct NotesBottomPanel: View {
                 .hoverEffect(.highlight)
                 .onTapGesture { withAnimation { isLarge.toggle() } }
                 .gesture(
-                    DragGesture()
-                        .onChanged { dragOffset = $0.translation.height }
+                    // Global coordinates: the grabber moves with the panel's top edge, so
+                    // measuring in its own space would halve the drag and make it jitter.
+                    DragGesture(coordinateSpace: .global)
+                        .updating($dragOffset) { value, offset, _ in offset = value.translation.height }
                         .onEnded { value in
                             let dy = value.translation.height
+                            releaseOffset = dy
                             withAnimation {
+                                releaseOffset = 0
                                 if dy < -60 { isLarge = true }
                                 else if dy > 60 && isLarge { isLarge = false }
                                 else if dy > 60 { session.isNotesVisible = false }
-                                dragOffset = 0
                             }
                         }
                 )
@@ -466,7 +455,7 @@ private struct NotesBottomPanel: View {
                 }
             NotesPanel(session: session)
         }
-        .frame(height: max(120, baseHeight - dragOffset))
+        .frame(height: min(largeHeight, max(120, baseHeight - dragOffset - releaseOffset)))
         .frame(maxWidth: .infinity)
         .background(Color(uiColor: .systemBackground))
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))
@@ -522,7 +511,7 @@ private struct SectionHistoryButton: View {
     }
 }
 
-/// The toolbar's bookmark toggle (state from WP5's `BookmarkActions`).
+/// The toolbar's bookmark toggle (state from the sidebar's `BookmarkActions`).
 private struct BookmarkButton: View {
     let session: ReaderSession
 
@@ -537,18 +526,26 @@ private struct BookmarkButton: View {
     }
 }
 
-/// The draggable divider before the notes panel (wide layout). Dragging left widens the panel
-/// up to half the window; dragging right narrows it, and past its narrowest width the pane
-/// follows the finger towards its own edge and, on release, snaps shut (as the toolbar's notes
-/// button closes it) or springs back (design: "Writing room"). VoiceOver can adjust it and has
-/// a "Close notes" action.
-private struct NotesDivider: View {
+/// The wide layout's notes pane: a draggable handle on its leading edge, then the panel.
+/// Dragging the handle left widens the pane up to half the window; dragging it right narrows it,
+/// and past its narrowest width the pane follows the finger towards its own edge and, on
+/// release, snaps shut (as the toolbar's notes button closes it) or springs back (design:
+/// "Writing room"). VoiceOver can adjust the width and has a "Close notes" action.
+///
+/// The drag lives in a gesture state: the pane's width is derived from the committed width
+/// (`session.notesPanelWidth`, written only on release) and the finger's travel, so a drag the
+/// system cancels (a back swipe, a window change) puts the pane back where it was.
+private struct NotesSidePane: View {
     let session: ReaderSession
     let windowWidth: CGFloat
-    /// The pane's live width below its narrowest width, `nil` otherwise.
-    @Binding var collapsingWidth: CGFloat?
-    /// The pane's width when the current drag began.
-    @State private var startWidth: Double?
+    /// The handle's horizontal travel in the drag under way (0 otherwise). Its reset must not be
+    /// animated: with an animated reset (`resetTransaction`), the next slow drag on the handle
+    /// went to the note's text view or, slid right, became the system back swipe (iOS 27
+    /// simulator). The spring back is animated explicitly through `releaseWidth` instead.
+    @GestureState private var dragTranslation: CGFloat = 0
+    /// The pane's visible width from a release below the narrowest width until it has slid
+    /// shut or sprung back to the narrowest width.
+    @State private var releaseWidth: CGFloat?
 
     /// Collapse thresholds, as fractions of the narrowest width (330 pt): released more than
     /// 40 % of the way shut it closes, like the system sidebar's "past the middle-ish" snap; a
@@ -560,7 +557,35 @@ private struct NotesDivider: View {
 
     private var minimumWidth: CGFloat { CGFloat(ReaderSession.defaultNotesPanelWidth) }
 
+    /// The width the finger asks for: the committed width less the handle's travel (unclamped).
+    private func proposedWidth(_ translation: CGFloat) -> CGFloat {
+        ReaderLayout.notesWidth(requested: session.notesPanelWidth, windowWidth: windowWidth) - translation
+    }
+
     var body: some View {
+        let proposed = proposedWidth(dragTranslation)
+        // The pane is laid out between its narrowest width and half the window. Below the
+        // narrowest width it keeps that layout (the note does not re-wrap) and is cut from its
+        // leading edge.
+        let layoutWidth = ReaderLayout.notesWidth(requested: Double(proposed), windowWidth: windowWidth)
+        let visibleWidth = releaseWidth ?? min(layoutWidth, max(0, proposed))
+        HStack(spacing: 0) {
+            // Neither the handle nor the pane starts the system back swipe: a rightward drag
+            // that misses the handle's pill must not leave the book (TSOFT-225).
+            handle
+                .backSwipeGuard()
+                .zIndex(1)  // the handle's hit area overlaps the note
+            NotesPanel(session: session)
+                .frame(width: layoutWidth)
+                .frame(width: visibleWidth, alignment: .leading)
+                .clipped()
+                .background(Color(uiColor: .systemBackground))
+                .backSwipeGuard()
+                .paneContainer(AccessibilityID.Reader.notesPane)
+        }
+    }
+
+    private var handle: some View {
         ZStack {
             Rectangle().fill(Color(uiColor: .separator)).frame(width: 1)
             Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 5, height: 44)
@@ -572,12 +597,16 @@ private struct NotesDivider: View {
         .hoverEffect(.highlight)
         .gesture(drag)
         // The pill's comfortable hit area (44 x 96 pt): it overlaps the page and the note only
-        // around the pill, so their edges keep their touches everywhere else.
+        // around the pill, so their edges keep their touches everywhere else. Both areas feed
+        // the same gesture state; only one can be dragging at a time. The hit area needs its
+        // own back-swipe guard: the strip's guard covers only the strip, and a slow rightward
+        // drag that started on the pill beside it became the system back swipe.
         .overlay {
             Color.clear
                 .frame(width: 44, height: 96)
                 .contentShape(Rectangle())
                 .gesture(drag)
+                .backSwipeGuard()
                 .accessibilityHidden(true)
         }
         .accessibilityElement()
@@ -593,42 +622,44 @@ private struct NotesDivider: View {
     }
 
     private var drag: some Gesture {
+        // Global coordinates: the handle moves with the finger, so measuring in its own space
+        // would feed its movement back into the drag.
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
-            .onChanged { value in
-                let start = startWidth ?? Double(ReaderLayout.notesWidth(requested: session.notesPanelWidth,
-                                                                         windowWidth: windowWidth))
-                startWidth = start
-                let proposed = CGFloat(start) - value.translation.width
-                if proposed < minimumWidth {
-                    session.notesPanelWidth = Double(minimumWidth)
-                    collapsingWidth = max(0, proposed)
-                } else {
-                    collapsingWidth = nil
-                    session.notesPanelWidth = Double(ReaderLayout.notesWidth(requested: Double(proposed),
-                                                                             windowWidth: windowWidth))
-                }
+            .updating($dragTranslation) { value, translation, _ in translation = value.translation.width }
+            .onEnded(release)
+    }
+
+    private func release(_ value: DragGesture.Value) {
+        let proposed = proposedWidth(value.translation.width)
+        let overshoot = minimumWidth - proposed
+        let predictedOvershoot = minimumWidth - proposedWidth(value.predictedEndTranslation.width)
+        let closes = overshoot > Self.closeFraction * minimumWidth
+            || (overshoot > Self.flickMinimumDistance && predictedOvershoot > Self.flickFraction * minimumWidth)
+        if closes {
+            // Slide the rest of the way shut from where the finger let go, then close exactly as
+            // the toolbar's notes button does. The committed width is untouched, so reopening
+            // brings back the width from before this drag.
+            releaseWidth = max(0, proposed)
+            withAnimation(.snappy(duration: 0.22)) {
+                releaseWidth = 0
+            } completion: {
+                session.isNotesVisible = false
+                releaseWidth = nil
             }
-            .onEnded { value in
-                guard let start = startWidth else { return }
-                startWidth = nil
-                let overshoot = minimumWidth - (CGFloat(start) - value.translation.width)
-                let predicted = minimumWidth - (CGFloat(start) - value.predictedEndTranslation.width)
-                let closes = overshoot > Self.closeFraction * minimumWidth
-                    || (overshoot > Self.flickMinimumDistance && predicted > Self.flickFraction * minimumWidth)
-                if closes {
-                    // Slide the rest of the way shut, then close exactly as the toolbar's notes
-                    // button does; reopening brings back the width from before this drag.
-                    withAnimation(.snappy(duration: 0.22)) {
-                        collapsingWidth = 0
-                    } completion: {
-                        session.isNotesVisible = false
-                        collapsingWidth = nil
-                        session.notesPanelWidth = start
-                    }
-                } else if collapsingWidth != nil {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { collapsingWidth = nil }
-                }
+            return
+        }
+        // Commit the width the pane shows (at least the narrowest width).
+        session.notesPanelWidth = Double(ReaderLayout.notesWidth(requested: Double(proposed),
+                                                                 windowWidth: windowWidth))
+        if proposed < minimumWidth {
+            // Spring back from where the finger let go to the narrowest width.
+            releaseWidth = max(0, proposed)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                releaseWidth = minimumWidth
+            } completion: {
+                releaseWidth = nil
             }
+        }
     }
 }
 
@@ -729,7 +760,7 @@ private struct PagePill: View {
 
 private extension View {
     /// Wraps a pane in its own accessibility container with a fixed identifier, so the
-    /// identifiers inside the pane (owned by later packages) never replace the pane's.
+    /// identifiers inside the pane (owned by the features in it) never replace the pane's.
     func paneContainer(_ identifier: String) -> some View {
         ZStack { self }
             .accessibilityElement(children: .contain)

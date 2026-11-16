@@ -3,8 +3,9 @@ import SwiftUI
 import UIKit
 
 /// The app's highlight palette: the one place the four highlight colours are defined. The
-/// reader's page drawing, the edit-menu swatches, the notes panel's list and the Notebook all
-/// read it (the Notebook through `NotebookHighlightStyle`, which forwards here).
+/// reader's page drawing, the edit-menu swatches, the notes panel's list, the Notebook (through
+/// `NotebookHighlightStyle`) and the design system (`Palette.highlight`, `HighlightSwatch`,
+/// `HighlightedText`) all read it.
 ///
 /// - `pageFill` is what is laid on the PDF page (`HighlightAnnotation`). It is drawn with a
 ///   multiply blend, so black text stays black and the colour shows only on the paper; the alpha

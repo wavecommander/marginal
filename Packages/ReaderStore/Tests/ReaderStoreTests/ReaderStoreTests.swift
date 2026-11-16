@@ -29,7 +29,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
     @Test func rawRecordStore() throws {
         let container = try SchemaFactory.makeContainer(storeURL: nil)
         let s = SwiftDataRecordStore(container: container)
-        try RepositoryConformance.verifyRecordStores(books: s, notes: s, highlights: s, bookmarks: s, headings: s)
+        try RepositoryConformance.verifyRecordStore(s)
     }
 
     @Test func throughLibraryStore() throws {
@@ -37,6 +37,17 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
         try RepositoryConformance.verifyRecordStores(books: store.books, notes: store.notes, highlights: store.highlights,
                                                      bookmarks: store.bookmarks, headings: store.headings)
+    }
+
+    @Test func swiftDataStorePostsWhatTheContractSays() async throws {
+        let store = try LibraryStore.ephemeral()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        try await RepositoryConformance.verifyChangePosting(store)
+    }
+
+    @Test func onDiskStorePostsWhatTheContractSays() async throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        try await RepositoryConformance.verifyChangePosting(try LibraryStore.live(rootDirectory: root.url))
     }
 
     @Test func fileInkStoreConformance() async throws {
@@ -600,8 +611,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         let container = try SchemaFactory.makeContainer(storeURL: nil)
         let records = SwiftDataRecordStore(container: container)
         let root = TempRoot(); defer { root.cleanup() }
-        let store = LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                                 headings: records, inkStore: FileInkStore(rootDirectory: root.url), rootDirectory: root.url)
+        let store = LibraryStore(records: records, inkStore: FileInkStore(rootDirectory: root.url), rootDirectory: root.url)
         let book = try makeBook(in: store, pageCount: 2000)
         let other = try makeBook(in: store, pageCount: 10)
         try store.highlights.save(Highlight(bookID: other.id, pageIndex: 5, rects: [], color: .blue, text: "other"))

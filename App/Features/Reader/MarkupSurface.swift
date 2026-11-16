@@ -4,8 +4,8 @@ import Observation
 import PencilKit
 import UIKit
 
-/// An ink canvas that takes part in the reader window's markup mode: a page canvas (WP6, one per
-/// visible page) or the note canvas (WP13).
+/// An ink canvas that takes part in the reader window's markup mode: a page canvas (page ink, one per
+/// visible page) or the note canvas (the note page).
 ///
 /// ## The sequence a surface must follow
 /// 1. **Create** your `PKCanvasView` (a subclass is fine). Set `canvasView.delegate` yourself.
@@ -19,7 +19,7 @@ import UIKit
 ///    `markupModeDidChange(_:)` with the current mode.
 /// 3. **Mode.** In `markupModeDidChange(_:)` make the canvas editable (`true`) or read-only
 ///    (`false`): e.g. `canvasView.isUserInteractionEnabled = isMarkup` for a page canvas;
-///    WP13 routes touches itself. Ink stays visible in both modes.
+///    The note page routes touches itself. Ink stays visible in both modes.
 /// 4. **Activity.** When a stroke begins (`canvasViewDidBeginUsingTool`) call
 ///    `session.markup.surfaceDidBeginStroke(self)`; when it ends (`canvasViewDidEndUsingTool`)
 ///    call `session.markup.surfaceDidEndStroke(self)`. Undo/Redo (the tool picker's buttons,
@@ -67,7 +67,7 @@ protocol MarkupSurface: AnyObject {
 /// becomes active and when its own text fields end editing.
 /// A responder that is *not* registered (the go-to-page field, search field) hides the picker
 /// while it is first responder; when it resigns, call `reassertToolPicker()` (the shell does
-/// this for its own fields). A note's text view (WP13) is registered with
+/// this for its own fields). A note's text view is registered with
 /// `registerAuxiliaryResponder(_:)`: with a hardware keyboard attached, typing in markup mode
 /// keeps the picker. Without one the picker steps aside while the text view is first responder,
 /// so the on-screen keyboard has the bottom of the screen (the docked picker and the keyboard
@@ -184,7 +184,7 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     }
 
     /// Registers a non-canvas responder that may become first responder during markup mode
-    /// (WP13's note text view). With a hardware keyboard the tool picker stays visible while it
+    /// (the note page's text view). With a hardware keyboard the tool picker stays visible while it
     /// is first responder; without one the picker steps aside for the on-screen keyboard
     /// (`keepsPickerWhileTyping`), and `reassertToolPicker()` brings it back when typing ends.
     func registerAuxiliaryResponder(_ responder: UIResponder) {
@@ -276,27 +276,16 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         updateBackSwipe()
     }
 
-    /// Runs `body`, which may put the tool picker on screen. The first time a `PKToolPicker` is
-    /// shown in a window, PencilKit adds its palette host view (in the scene's text-effects
-    /// window, not the reader's) centred on the window's origin and docks the palette inside it;
-    /// the host gets its real frame on a later layout pass, and PencilKit animates its own
-    /// layout when the host's safe area changes in between. Either one animated, and the palette
-    /// flies in from the top centre of the screen instead of appearing at its docked edge
-    /// (TSOFT-219; on the simulator, when a note's text view is first responder). So until the
-    /// picker has been on screen in this window, show it without animation and lay the scene's
-    /// windows out at once: it appears in its docked place. Later shows (host laid out) keep
+    /// Runs `body`, which may put the tool picker on screen. Until the picker has been on screen
+    /// in this window it is shown so that it appears in its docked place instead of flying in
+    /// (TSOFT-219, `PencilKitWorkarounds.showToolPickerForTheFirstTime`). Later shows keep
     /// PencilKit's own slide-in from that edge.
     private func showingToolPicker(_ body: () -> Void) {
         guard isMarkup, let window = responderView.window, window !== toolPickerWindow else {
             body()
             return
         }
-        UIView.performWithoutAnimation {
-            body()
-            for sceneWindow in window.windowScene?.windows ?? [window] {
-                sceneWindow.layoutIfNeeded()
-            }
-        }
+        PencilKitWorkarounds.showToolPickerForTheFirstTime(in: window, body)
     }
 
     /// In markup mode the navigation stack's back-swipe gestures are disabled for this window:
@@ -408,16 +397,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         if let manager = notification.object as? UndoManager, manager === routingUndoManager { return }
         refreshUndoState()
         if let routed = routedUndoManager, let manager = notification.object as? UndoManager, manager === routed,
-           Self.mirroredNotifications.contains(notification.name) {
+           PencilKitWorkarounds.toolPickerUndoNotifications.contains(notification.name) {
             announce(notification.name, userInfo: notification.userInfo)
         }
     }
-
-    /// The routed manager's notifications the proxy re-posts as its own: the ones PencilKit's
-    /// tool picker listens to (its binary imports exactly these three).
-    private static let mirroredNotifications: Set<Notification.Name> = [
-        .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
-    ]
 
     private func refreshUndoState() {
         let manager = routedUndoManager
@@ -434,9 +417,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         }
     }
 
-    /// Posts `name` from the proxy and remembers what its observers will read now.
+    /// Posts `name` from the proxy (`PencilKitWorkarounds.postUndoNotification`: the tool picker
+    /// follows the proxy through these) and remembers what its observers will read now.
     private func announce(_ name: Notification.Name, userInfo: [AnyHashable: Any]?) {
-        NotificationCenter.default.post(name: name, object: routingUndoManager, userInfo: userInfo)
+        PencilKitWorkarounds.postUndoNotification(name, as: routingUndoManager, userInfo: userInfo)
         announcedState = (routingUndoManager.canUndo, routingUndoManager.canRedo)
         scheduleStateCheck()
     }

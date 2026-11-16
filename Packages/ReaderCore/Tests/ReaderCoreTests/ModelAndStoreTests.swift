@@ -83,8 +83,14 @@ struct ModelTests {
 struct StoreContractTests {
     @Test @MainActor func inMemoryRecordStoreConforms() throws {
         let store = InMemoryRecordStore()
-        try RepositoryConformance.verifyRecordStores(books: store, notes: store, highlights: store, bookmarks: store, headings: store)
+        try RepositoryConformance.verifyRecordStore(store)
         #expect(try store.allBooks().isEmpty)   // the check cleans up after itself
+    }
+
+    @Test @MainActor func inMemoryStorePostsWhatTheContractSays() async throws {
+        let store = LibraryStore.inMemory()
+        try await RepositoryConformance.verifyChangePosting(store)
+        #expect(try store.books.allBooks().isEmpty)   // the check cleans up after itself
     }
 
     @Test func inMemoryInkStoreConforms() async throws {
@@ -93,29 +99,33 @@ struct StoreContractTests {
 
     @Test @MainActor func conformanceCatchesABrokenStore() throws {
         /// Stores empty notes instead of deleting them.
-        @MainActor final class Leaky: NoteRepository {
-            let inner = InMemoryRecordStore()
-            func note(bookID: UUID, target: NoteTarget) throws -> Note? { try inner.note(bookID: bookID, target: target) }
-            func note(id: UUID) throws -> Note? { try inner.note(id: id) }
-            func notes(bookID: UUID) throws -> [Note] { try inner.notes(bookID: bookID) }
-            func pageNotes(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Note] { try inner.pageNotes(bookID: bookID, in: pages) }
-            func save(_ note: Note) throws -> Note? {
+@MainActor final class Leaky: InMemoryRecordStore {
+            override func storeNote(_ note: Note) throws -> NoteStoreOutcome {
                 var copy = note
                 if copy.isEmpty { copy.text = "kept" }
-                return try inner.save(copy)
+                return try super.storeNote(copy)
             }
-            func deleteNote(id: UUID) throws { try inner.deleteNote(id: id) }
-            func retarget(noteID: UUID, to target: NoteTarget) throws { try inner.retarget(noteID: noteID, to: target) }
-            func noteCount(bookID: UUID) throws -> Int { try inner.noteCount(bookID: bookID) }
         }
-        let leaky = Leaky()
         #expect(throws: RepositoryConformance.Failure.self) {
-            try RepositoryConformance.verifyRecordStores(books: leaky.inner, notes: leaky, highlights: leaky.inner,
-                                                         bookmarks: leaky.inner, headings: leaky.inner)
+            try RepositoryConformance.verifyRecordStore(Leaky())
         }
     }
 
-    @Test @MainActor func deletionSummaryCounts() async throws {
+    @Test @MainActor func conformanceCatchesAStoreThatPostsTheWrongThing() async throws {
+        /// Reports a moved highlight as new, so the page it left is never announced.
+        @MainActor final class Forgetful: InMemoryRecordStore {
+            override func storeHighlight(_ highlight: Highlight) throws -> Highlight? {
+                _ = try super.storeHighlight(highlight)
+                return nil
+            }
+        }
+        let store = LibraryStore(records: Forgetful(), inkStore: InMemoryInkStore(), rootDirectory: URL(fileURLWithPath: "/tmp"))
+        await #expect(throws: RepositoryConformance.Failure.self) {
+            try await RepositoryConformance.verifyChangePosting(store)
+        }
+    }
+
+        @Test @MainActor func deletionSummaryCounts() async throws {
         let store = InMemoryRecordStore()
         let ink = InMemoryInkStore()
         try store.save(Book(id: bookA, title: "B", fingerprint: "f", fileName: "b.pdf", pageCount: 10, fileSize: 1))

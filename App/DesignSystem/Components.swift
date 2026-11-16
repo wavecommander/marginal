@@ -1,3 +1,4 @@
+import ReaderCore
 import SwiftUI
 
 // MARK: Buttons
@@ -133,12 +134,12 @@ struct NoteBadge: View {
 
 /// A highlighter swatch for the edit-menu colour choice and Notebook filter.
 struct HighlightSwatch: View {
-    var colour: Highlighter
+    var colour: HighlightColor
     var isSelected = false
 
     var body: some View {
         Circle()
-            .fill(colour.pigment)
+            .fill(HighlightPalette.swatchColor(colour))
             .frame(width: 28, height: 28)
             .overlay(Circle().strokeBorder(Palette.ink.opacity(0.18)))
             .overlay {
@@ -147,7 +148,7 @@ struct HighlightSwatch: View {
                 }
             }
             .frame(width: Size.touch, height: Size.touch)
-            .accessibilityLabel(colour.label)
+            .accessibilityLabel(HighlightPalette.name(colour))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -155,14 +156,14 @@ struct HighlightSwatch: View {
 /// Text as it looks once highlighted on a page (for Notebook rows and previews).
 struct HighlightedText: View {
     var text: String
-    var colour: Highlighter
+    var colour: HighlightColor
 
     var body: some View {
         Text(text)
             .font(Typeface.notePage)
             .foregroundStyle(Palette.ink)
             .padding(.horizontal, Space.xs)
-            .background(colour.pigment.opacity(Highlighter.fillOpacity),
+            .background(HighlightPalette.swatchColor(colour).opacity(HighlightPalette.pageAlpha(colour)),
                         in: RoundedRectangle(cornerRadius: 3, style: .continuous))
     }
 }

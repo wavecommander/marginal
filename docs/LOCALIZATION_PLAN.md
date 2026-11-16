@@ -1,8 +1,8 @@
 # Tactile Texts: localization plan
 
 Draft, 15 November 2026. Expanded the same day from French, Spanish and German to ten
-languages. Read `docs/DESIGN.md` and `docs/WORK_PACKAGES.md` first. The plan uses the same
-orchestrator/subagent model as the build plan, the owner's standing rules (Opus for every
+languages. Read `docs/DESIGN.md` first. The plan uses the orchestrator/subagent model of the
+original build plan (now retired), the owner's standing rules in `AGENTS.md` (Opus for every
 package, targeted tests only with the full gate suspended, iOS 27 simulators only, at most three
 build/simulator agents at a time), and the same "Done when" style.
 

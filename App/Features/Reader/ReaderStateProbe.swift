@@ -12,9 +12,11 @@ import UIKit
 ///   of that manager's notifications (as the tool picker is) read in the last one, and `posts`
 ///   how many it has heard. `scroll=vertical|horizontal` is the book's scroll direction. `pill` is
 ///   the page pill's idle state (`isPagePillIdle`) and `pillReturns` how many times it has come
-///   back after going idle.
+///   back after going idle. `sessions=N` counts the reader sessions alive in the process (a
+///   sleeping reader has none).
 /// - `reader.markupUndo` / `reader.markupRedo`: tapping calls `undo()` / `redo()` on the markup
 ///   responder's `undoManager`, the call the tool picker's own buttons make.
+/// - `reader.memoryWarning`: tapping posts the system's memory warning notification.
 @MainActor
 enum ReaderStateProbe {
     static func makeViews(session: ReaderSession) -> [UIView] {
@@ -24,6 +26,10 @@ enum ReaderStateProbe {
          },
          ActionView(identifier: AccessibilityID.Reader.markupRedoProbe, label: "Probe Redo") { [weak session] in
              session?.markup.responderView.undoManager?.redo()
+         },
+         ActionView(identifier: AccessibilityID.Reader.memoryWarningProbe, label: "Probe Memory Warning") {
+             NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification,
+                                             object: UIApplication.shared)
          }]
     }
 
@@ -74,7 +80,8 @@ enum ReaderStateProbe {
                         "posts=\(posts)",
                         "scroll=\(session.scrollDirection.rawValue)",
                         "pill=\(session.isPagePillIdle ? "idle" : "shown")",
-                        "pillReturns=\(session.pagePillReturnCount)"].joined(separator: " ")
+                        "pillReturns=\(session.pagePillReturnCount)",
+                        "sessions=\(OpenEditorRegistry.shared.sessions(of: session.store).count)"].joined(separator: " ")
             }
             set {}
         }

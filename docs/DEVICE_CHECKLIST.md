@@ -109,6 +109,12 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       expands in Files to a folder whose Markdown shows the images from `images/` and
       `handwriting/` (open it in a Markdown app such as Obsidian).
 - [ ] **Export a selection.** Select, tick a few rows and a heading, export: only those appear.
+- [ ] **Sleeping readers.** With Xcode's memory gauge (Debug Navigator) on a large image-heavy PDF
+      (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
+      Memory falls back about five seconds after each new reader opens; going back through every
+      screen, each reader shows briefly loading and then the place and zoom it was itself left at.
+      With two readers open one over the other, Debug ▸ Simulate Memory Warning (simulator) lets
+      the covered one go at once.
 
 ## Importing other formats
 
@@ -343,3 +349,7 @@ Note the iPad model and iPadOS version with each result.
 - [ ] **7-day expiry.** The build is signed with a free Personal Team profile, so it stops
       launching seven days after it was installed. Reinstall from Xcode (`scripts/device.sh`)
       before then; reinstalling keeps the library and notes.
+- [ ] **Build details.** After `scripts/device.sh` (a signed Release build), Settings ▸ About
+      shows the branch and commit `device.sh` printed, and a build time a few minutes ago in the
+      iPad's time zone; the app launches (the stamp is written before signing). Copy Build
+      Details pastes the same values as one line.

@@ -61,5 +61,34 @@ struct LaunchOptionsTests {
 
     @Test func defaultsAreEmpty() {
         #expect(LaunchOptions(arguments: ["app"]) == LaunchOptions())
+        #expect(LaunchOptions(arguments: ["app"], environment: ["HOME": "/"]) == LaunchOptions())
+    }
+
+    /// The switches that used to be read where they were used (process arguments, the
+    /// environment, the arguments domain of `UserDefaults`).
+    @Test func parsesProbesSeedsAndDebugSwitches() {
+        let options = LaunchOptions(arguments: [
+            "app", "-perfProbe", "-perfAutoScroll", "-sidebarDebugStats", "-sidebarAutoScroll",
+            "-seedSidebar", "-seedSidebarHeadings", "-searchPageDelayMs", "60", "-pageInkDebug", "-markup",
+        ])
+        #expect(options.perfProbe && options.perfAutoScroll)
+        #expect(options.sidebarDebugStats && options.sidebarAutoScroll)
+        #expect(options.seedSidebar && options.seedSidebarHeadings)
+        #expect(options.searchPageDelayMs == 60)
+        #expect(options.pageInkDebug && options.markup)
+
+        let plain = LaunchOptions(arguments: ["app"])
+        #expect(!plain.perfProbe && !plain.perfAutoScroll && !plain.sidebarDebugStats && !plain.sidebarAutoScroll)
+        #expect(!plain.seedSidebar && !plain.seedSidebarHeadings && !plain.pageInkDebug)
+        #expect(plain.searchPageDelayMs == nil)
+        #expect(LaunchOptions(arguments: ["app", "-searchPageDelayMs", "-5"]).searchPageDelayMs == nil)
+        #expect(LaunchOptions(arguments: ["app", "-searchPageDelayMs", "soon", "-markup"]).markup)
+        #expect(LaunchOptions(arguments: ["app", "-searchPageDelayMs"]).searchPageDelayMs == nil)
+    }
+
+    @Test func pageInkDebugAlsoComesFromTheEnvironment() {
+        #expect(LaunchOptions(arguments: ["app"], environment: ["PAGE_INK_DEBUG": "1"]).pageInkDebug)
+        #expect(LaunchOptions(arguments: ["app"], environment: ["PAGE_INK_DEBUG": ""]).pageInkDebug)
+        #expect(!LaunchOptions(arguments: ["app"], environment: ["OTHER": "1"]).pageInkDebug)
     }
 }

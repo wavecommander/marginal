@@ -41,7 +41,7 @@ nonisolated enum NotebookAccessibilityID {
 }
 
 /// Colours of highlights in the Notebook: forwards to the app's highlight palette
-/// (`HighlightPalette`, WP7), so the Notebook, the reader and the notes panel share one set.
+/// (`HighlightPalette`), so the Notebook, the reader and the notes panel share one set.
 nonisolated enum NotebookHighlightStyle {
     static func color(_ color: HighlightColor) -> Color { HighlightPalette.swatchColor(color) }
 

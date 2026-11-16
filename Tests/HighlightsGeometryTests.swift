@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// WP7's pure rules: text normalisation, overlap, hit-testing, the palette and the menus.
+/// Highlights' pure rules: text normalisation, overlap, hit-testing, the palette and the menus.
 @MainActor
 struct HighlightsGeometryTests {
     private let bookID = UUID()
@@ -87,7 +87,7 @@ struct HighlightsGeometryTests {
         #expect(menu.children.map(\.title) == ["Yellow", "Green", "Blue", "Pink"])
         let (store, book) = try HighlightsTestSupport.makeStore()
         let session = ReaderSession(book: book, store: store)
-        let controller = try #require(HighlightController.of(session))
+        let controller = try #require(session.highlights)
         let tapMenu = controller.tapMenu(for: Highlight(bookID: book.id, pageIndex: 0, rects: [], color: .green, text: "x"))
         let colours = try #require(tapMenu.children.first as? UIMenu)
         #expect(colours.children.map(\.title) == ["Yellow", "\u{2713} Green", "Blue", "Pink"])

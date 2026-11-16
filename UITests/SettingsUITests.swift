@@ -79,14 +79,52 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "teal"])
         waitForAccent(app, "teal")
         XCTAssertTrue(app.buttons["settings.open"].waitForExistence(timeout: 10))
-        app.typeKey(",", modifierFlags: .command)
+        // Settings… is disabled until the window is the focused one, and a hardware-key event
+        // sent before that is dropped; nothing on screen says when it is, so press again if
+        // Settings did not open.
         let reset = app.buttons["settings.accent.reset"]
-        XCTAssertTrue(reset.waitForExistence(timeout: 5), app.debugDescription)
+        var opened = false
+        for _ in 0..<3 where !opened {
+            app.typeKey(",", modifierFlags: .command)
+            opened = reset.waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(opened, app.debugDescription)
         XCTAssertEqual(app.buttons["settings.accent.teal"].value as? String, "selected")
         reset.tap()
         XCTAssertEqual(app.buttons["settings.accent.raspberry"].value as? String, "selected")
         app.buttons["settings.done"].tap()
         waitForAccent(app, "raspberry")
+    }
+
+    /// Settings ▸ About shows this build's version, branch, commit and build time, stamped by
+    /// `scripts/stamp-build-info.sh`. Saves `build/shots/settings-about.png`.
+    func testAboutShowsTheBuild() throws {
+        let app = XCUIApplication.launchFresh([])
+        openSettingsFromLibrary(app)
+        let rows = ["settings.about.version", "settings.about.branch", "settings.about.commit", "settings.about.built"]
+            .map { app.descendants(matching: .any)[$0].firstMatch }
+        let copy = app.buttons["settings.about.copy"].firstMatch
+        // Rows off screen are not in the tree: drag the form up until Copy is on screen.
+        let form = app.collectionViews.firstMatch
+        for _ in 0..<12 where !(copy.exists && copy.isHittable) {
+            form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.1, thenDragTo: form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+        }
+        XCTAssertTrue(copy.waitForExistence(timeout: 5), app.debugDescription)
+        for row in rows {
+            XCTAssertTrue(row.exists, app.debugDescription)
+        }
+        // The tests build from a git checkout, so every value is known (the branch reads
+        // "Detached" on a detached HEAD).
+        XCTAssertTrue(rows[0].label.contains("0.1"), rows[0].label)
+        for row in rows {
+            XCTAssertFalse(row.label.contains("Unknown"), row.label)
+        }
+
+        let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: directory.appendingPathComponent("settings-about.png"))
     }
 
     func testResetStateClearsTheStoredAccent() {
