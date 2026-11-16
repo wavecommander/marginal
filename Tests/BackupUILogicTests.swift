@@ -121,11 +121,11 @@ struct BackupUILogicTests {
 
     @Test func automaticStatusLine() {
         func line(enabled: Bool = true, name: String? = "Folder", availability: BackupDestinationAvailability? = .available,
-                  success: Date? = nil, failure: String? = nil) -> String {
+                  success: Date? = nil, failure: String? = nil) -> String? {
             AutomaticBackupLogic.statusLine(isEnabled: enabled, destinationName: name, availability: availability,
                                             lastSuccess: success, lastFailureMessage: failure, dateText: fixedDate)
         }
-        #expect(line(enabled: false) == "Automatic backups are off.")
+        #expect(line(enabled: false) == nil, "the switch says it is off")
         #expect(line(name: nil) == "Choose where automatic backups go.")
         #expect(line(availability: .unavailable(reason: "Gone.")) == "Automatic backups to Folder are waiting: Gone.")
         #expect(line(success: Date(), failure: "Disk full.") == "The last automatic backup didn’t finish: Disk full.")

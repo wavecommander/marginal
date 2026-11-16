@@ -120,8 +120,6 @@ private struct BackupScreenContent: View {
             }
         } header: {
             Text("Back Up to a File")
-        } footer: {
-            Text("Makes one backup file and lets you choose where it goes: On My iPad, iCloud Drive, another app’s storage, or a drive.")
         }
     }
 
@@ -177,7 +175,7 @@ private struct BackupScreenContent: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("To restore from a destination, open it above and choose one of its backups. You see what a backup holds before anything is restored.")
+            Text("To restore from a destination, open it above.")
         }
     }
 }
@@ -238,14 +236,16 @@ private struct AutomaticBackupSection: View {
                 Toggle("Include PDFs", isOn: $settings.includesPDFs)
                     .accessibilityIdentifier(AccessibilityID.Backup.automaticIncludePDFs)
             }
-            Text(AutomaticBackupLogic.statusLine(
+            if let status = AutomaticBackupLogic.statusLine(
                 isEnabled: settings.isEnabled, destinationName: current?.name,
                 availability: current.flatMap { model.availability[$0.id] },
                 lastSuccess: current.flatMap { model.lastSuccess($0.id) },
-                lastFailureMessage: settings.lastFailureMessage))
-                .font(Typeface.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier(AccessibilityID.Backup.automaticStatus)
+                lastFailureMessage: settings.lastFailureMessage) {
+                Text(status)
+                    .font(Typeface.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(AccessibilityID.Backup.automaticStatus)
+            }
         } header: {
             Text("Automatic Backup")
         } footer: {

@@ -77,11 +77,6 @@ nonisolated final class BackupFolderStore: Sendable {
         save(bookmark: data, name: Self.name(of: url))
     }
 
-    /// Forgets the backup folder.
-    func clearFolder() {
-        defaults.removeObject(forKey: key)
-    }
-
     /// `true` when a folder has been chosen (whether or not it can be reached now).
     var hasFolder: Bool { saved?.bookmark != nil }
 

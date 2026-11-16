@@ -471,7 +471,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   the app, except those to Tactile Texts Cloud (encrypted on the iPad; see below), and the
   Backup screen's footnote says which.
 - **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
-  remembered across launches; the app's own iCloud container; Google Drive (the app can see only
+  remembered across launches, which Choose Another Folder… replaces but nothing clears (owner
+  decision, 16 November 2026: no Stop Using This Folder); the app's own iCloud container; Google Drive (the app can see only
   the files it creates); and an S3-compatible bucket the developer configures at build time (for
   example Cloudflare R2). The last three are switched on from `Config/Local.xcconfig` and are
   off, or reported as not available, in a build without them. **S3 credentials set at build

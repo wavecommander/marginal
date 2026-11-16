@@ -324,7 +324,7 @@ final class CloudBackupUITests: XCTestCase {
         scrollTo(footnote, in: app)
         XCTAssertTrue(footnote.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.buttons[ID.cloudRow].exists, "no Tactile Texts Cloud row")
-        XCTAssertTrue(footnote.label.contains("doesn’t encrypt"), footnote.label)
+        XCTAssertTrue(footnote.label.hasPrefix("Backups aren’t encrypted."), footnote.label)
     }
 
     // MARK: Screenshots

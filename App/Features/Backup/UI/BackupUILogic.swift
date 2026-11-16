@@ -82,7 +82,13 @@ nonisolated enum BackupUIText {
     }
 
     /// The footnote under the Backup screen.
-    static let footnote = "Tactile Texts doesn’t encrypt backups: anyone who can open a backup file can read the notes in it. A backup without PDFs is much smaller; after restoring it, link each book to its PDF with Locate PDF…."
+    static let footnote = "Backups aren’t encrypted. \(withoutPDFsNote)"
+
+    /// What a backup without PDFs needs after restoring (the footnote's second sentence).
+    static let withoutPDFsNote = "After restoring a backup without PDFs, use Locate PDF… on each book."
+
+    /// Under Back Up Now: how many backups a destination keeps.
+    static let retention = "The newest \(SnapshotRetention.defaultKeepCount) backups are kept."
 }
 
 // MARK: - Errors
@@ -150,7 +156,7 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
         }
     }
 
-    /// "Choose Folder…", the folder's name and "Stop Using This Folder".
+    /// "Choose Folder…" (or "Choose Another Folder…").
     var showsFolderControls: Bool { self == .pickedFolder }
     /// The Google account's state with Sign In / Sign Out.
     var showsGoogleAccount: Bool { self == .googleDrive }
@@ -177,7 +183,7 @@ nonisolated struct GoogleAccountPresentation: Equatable, Sendable {
     }
 
     /// What the app can see in the reader's Drive.
-    static let scopeSentence = "Tactile Texts can see only the files it creates in your Google Drive (the “Tactile Texts Backups” folder), nothing else."
+    static let scopeSentence = "Tactile Texts can see only the files it creates in your Google Drive."
 }
 
 // MARK: - Automatic backup
@@ -200,11 +206,12 @@ nonisolated enum AutomaticBackupLogic {
         return choices.first?.id
     }
 
-    /// The status line under the automatic-backup controls.
+    /// The status line under the automatic-backup controls; `nil` while they are off (the
+    /// switch says so).
     static func statusLine(isEnabled: Bool, destinationName: String?, availability: BackupDestinationAvailability?,
                            lastSuccess: Date?, lastFailureMessage: String?,
-                           dateText: (Date) -> String = BackupUIText.date) -> String {
-        guard isEnabled else { return "Automatic backups are off." }
+                           dateText: (Date) -> String = BackupUIText.date) -> String? {
+        guard isEnabled else { return nil }
         guard let destinationName else { return "Choose where automatic backups go." }
         if case .unavailable(let reason) = availability {
             return "Automatic backups to \(destinationName) are waiting: \(reason)"
@@ -216,7 +223,7 @@ nonisolated enum AutomaticBackupLogic {
         return "No backup to \(destinationName) yet."
     }
 
-    static let footer = "Once a day, when something has changed, Tactile Texts backs up to the chosen destination while it is open or in the background."
+    static let footer = "Backs up once a day when something has changed."
 }
 
 // MARK: - Restore preview: choices
