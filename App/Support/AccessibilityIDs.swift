@@ -70,8 +70,6 @@ nonisolated enum AccessibilityID {
         static let backUpNow = "backup.destinationScreen.backUpNow"
         static let destinationResult = "backup.destinationScreen.result"
         static let chooseFolder = "backup.destinationScreen.chooseFolder"
-        static let folderName = "backup.destinationScreen.folderName"
-        static let stopUsingFolder = "backup.destinationScreen.stopUsingFolder"
         static let googleStatus = "backup.destinationScreen.google.status"
         static let googleSignIn = "backup.destinationScreen.google.signIn"
         static let googleSignOut = "backup.destinationScreen.google.signOut"

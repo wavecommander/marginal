@@ -47,11 +47,6 @@ final class BackupDestinationModel {
         return service.lastSuccessfulBackup(destinationID: entryID)
     }
 
-    var folderName: String? {
-        _ = revision
-        return environment.backupFolderStore.folderName
-    }
-
     var hasFolder: Bool {
         _ = revision
         return environment.backupFolderStore.hasFolder
@@ -128,12 +123,6 @@ final class BackupDestinationModel {
         Task { await refresh() }
     }
 
-    func stopUsingFolder() {
-        environment.backupFolderStore.clearFolder()
-        resultLine = nil
-        Task { await refresh() }
-    }
-
     func signIn(anchor: UIWindow?) {
         guard let anchor else {
             failure = BackupFailure(title: "Couldn’t Sign In", message: "The sign-in page can’t be shown in this window. Try again.",
@@ -193,7 +182,6 @@ private struct BackupDestinationContent: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(WindowContext.self) private var window: WindowContext?
     @State private var isFolderPickerPresented = false
-    @State private var isStopConfirmationPresented = false
     @State private var restoreRequest: RestoreRequest?
 
     init(model: BackupDestinationModel) {
@@ -202,7 +190,6 @@ private struct BackupDestinationContent: View {
 
     private var service: BackupService { environment.backupService }
     private var isAvailable: Bool { model.availability?.isAvailable == true }
-    private let backUpFooter = "Each PDF is sent once and stored by its contents; later backups send only notes and ink. The newest \(SnapshotRetention.defaultKeepCount) backups are kept."
 
     var body: some View {
         Form {
@@ -212,7 +199,7 @@ private struct BackupDestinationContent: View {
             statusSection
             if model.kind.showsFolderControls { folderSection }
             if model.kind.showsGoogleAccount { googleSection }
-            BackupDestinationBackUpSection(model: model, canBackUp: isAvailable, footer: backUpFooter)
+            BackupDestinationBackUpSection(model: model, canBackUp: isAvailable, footer: BackupUIText.retention)
             BackupDestinationSnapshotsSection(model: model, restoreRequest: $restoreRequest)
         }
         .settingsPageMargins()
@@ -230,12 +217,6 @@ private struct BackupDestinationContent: View {
         .sheet(item: $restoreRequest, onDismiss: { Task { await model.refresh() } }) { RestoreFlowView(request: $0) }
         .backupFailureAlert($model.failure, signIn: { model.signIn(anchor: window?.presentationAnchor) })
         .backupSnapshotDeleteAlert(model)
-        .confirmationDialog("Stop using “\(model.folderName ?? "this folder")” for backups?",
-                            isPresented: $isStopConfirmationPresented, titleVisibility: .visible) {
-            Button("Stop Using This Folder", role: .destructive) { model.stopUsingFolder() }
-        } message: {
-            Text("The backups already in the folder stay there. Choose the folder again to use them.")
-        }
     }
 
     private var statusSection: some View {
@@ -251,24 +232,12 @@ private struct BackupDestinationContent: View {
         }
     }
 
+    /// The folder's name is the screen's title, so the section holds only the button.
     private var folderSection: some View {
-        Section {
-            if let name = model.folderName {
-                LabeledContent("Folder", value: name)
-                    .accessibilityIdentifier(AccessibilityID.Backup.folderName)
-            }
+        Section("Folder") {
             Button(model.hasFolder ? "Choose Another Folder…" : "Choose Folder…") { isFolderPickerPresented = true }
                 .disabled(service.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.chooseFolder)
-            if model.hasFolder {
-                Button("Stop Using This Folder", role: .destructive) { isStopConfirmationPresented = true }
-                    .disabled(service.isBusy)
-                    .accessibilityIdentifier(AccessibilityID.Backup.stopUsingFolder)
-            }
-        } header: {
-            Text("Folder")
-        } footer: {
-            Text("Pick a folder in Files, for example in iCloud Drive. Backups go into its “Backups” folder and PDFs into “PDFs”.")
         }
     }
 
@@ -366,8 +335,6 @@ struct BackupDestinationSnapshotsSection: View {
             }
         } header: {
             Text("Backups Here")
-        } footer: {
-            Text("Choose a backup to see what it holds and pick the books to restore.")
         }
     }
 

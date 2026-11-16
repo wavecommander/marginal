@@ -29,10 +29,6 @@ struct BackupDestinationFolderTests {
         #expect(url.resolvingSymlinksInPath().path == folder.resolvingSymlinksInPath().path)
         #expect(name == "My Backups")
         #expect(PickedFolderBackupDestination(store: reopened).displayName == "My Backups")
-
-        reopened.clearFolder()
-        #expect(!BackupFolderStore(defaults: suite.defaults).hasFolder)
-        #expect(BackupFolderStore(defaults: suite.defaults).resolveFolder() == .unavailable(reason: BackupFolderStore.notChosenReason))
     }
 
     @Test func staleBookmarkIsRefreshed() throws {

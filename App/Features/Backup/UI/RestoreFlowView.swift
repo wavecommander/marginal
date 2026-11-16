@@ -239,11 +239,10 @@ private struct RestorePreviewForm: View {
             }
 
             if model.offersRestorePDFs {
+                // Each book's row says where its PDF comes from, so the switch needs no footer.
                 Section {
                     Toggle("Restore PDFs", isOn: $model.restorePDFs)
                         .accessibilityIdentifier(AccessibilityID.Restore.restorePDFs)
-                } footer: {
-                    Text("Off: a book whose PDF is already on this iPad keeps it; the others come back without their PDF, to be linked later with Locate PDF….")
                 }
             }
         }

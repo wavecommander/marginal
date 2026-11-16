@@ -291,11 +291,14 @@ struct CloudBackupUILogicTests {
 
     @Test func footnoteIsHonestAboutEncryption() {
         #expect(BackupUIText.footnote(hasEncryptedDestination: false) == BackupUIText.footnote)
-        #expect(BackupUIText.footnote.contains("doesn’t encrypt"))
+        #expect(BackupUIText.footnote.hasPrefix("Backups aren’t encrypted."))
         let withCloud = BackupUIText.footnote(hasEncryptedDestination: true)
-        #expect(withCloud.contains("Tactile Texts Cloud are encrypted on this iPad"))
-        #expect(withCloud.contains("Other backups aren’t encrypted"))
-        #expect(!withCloud.contains("doesn’t encrypt backups"))
+        #expect(withCloud.contains("Tactile Texts Cloud are encrypted"))
+        #expect(withCloud.contains("other backups aren’t"))
+        #expect(!withCloud.hasPrefix("Backups aren’t encrypted."))
+        // Both still say what a backup without PDFs needs.
+        #expect(BackupUIText.footnote.contains("Locate PDF…"))
+        #expect(withCloud.contains("Locate PDF…"))
     }
 
     // MARK: The UI-test mode

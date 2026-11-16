@@ -205,7 +205,7 @@ nonisolated enum CloudBackupStatusText {
         return min(1, max(0, Double(usage.bytes) / Double(usage.allowanceBytes)))
     }
 
-    static let backUpFooter = "Backups are encrypted on this iPad before they are sent. Each PDF is sent once; later backups send only notes and ink. The newest \(SnapshotRetention.defaultKeepCount) backups are kept."
+    static let backUpFooter = "Backups are encrypted on this iPad. \(BackupUIText.retention)"
 
     /// Under Back Up Now when it is off: why.
     static func backUpRefusedFooter(_ status: CloudBackupAccount.Status) -> String? {
@@ -412,6 +412,6 @@ extension BackupUIText {
     /// The footnote under the Backup screen: cloud backups are encrypted, other backups aren't.
     nonisolated static func footnote(hasEncryptedDestination: Bool) -> String {
         guard hasEncryptedDestination else { return footnote }
-        return "Backups to \(CloudServiceError.serviceName) are encrypted on this iPad. Other backups aren’t encrypted: anyone who can open one can read the notes in it. A backup without PDFs is much smaller; after restoring it, link each book to its PDF with Locate PDF…."
+        return "Backups to \(CloudServiceError.serviceName) are encrypted; other backups aren’t. \(withoutPDFsNote)"
     }
 }
