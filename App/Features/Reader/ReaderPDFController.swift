@@ -52,7 +52,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }()
 
     /// The scroll view PDFKit scrolls the document in.
-    var scrollView: UIScrollView? { isViewLoaded ? view.documentView?.superview as? UIScrollView : nil }
+    var scrollView: UIScrollView? { isViewLoaded ? PDFKitWorkarounds.scrollView(of: view) : nil }
 
     /// The reading anchor of the current scroll position (page point at the top-left corner).
     func captureAnchor() -> ReadingAnchor? {
@@ -623,7 +623,7 @@ final class ReaderPDFView: PDFView {
     /// The page at the top of the visible area (scrolling horizontally: at its left edge) and
     /// the page-space y there.
     func pageAndPointAtTop() -> (page: PDFPage, pageY: CGFloat)? {
-        guard let scrollView = documentView?.superview as? UIScrollView else { return nil }
+        guard let scrollView = PDFKitWorkarounds.scrollView(of: self) else { return nil }
         let insets = scrollView.adjustedContentInset
         let probe = isHorizontal
             ? CGPoint(x: bounds.minX + insets.left + 1, y: bounds.midY)
@@ -640,8 +640,7 @@ final class ReaderPDFView: PDFView {
     private func align(_ page: PDFPage, pageY: CGFloat, pageX: CGFloat?, attemptsLeft: Int, generation: Int) {
         DispatchQueue.main.async { [weak self, weak page] in
             guard let self, let page, attemptsLeft > 0, generation == self.alignmentGeneration,
-                  let documentView = self.documentView,
-                  let scrollView = documentView.superview as? UIScrollView else { return }
+                  let scrollView = PDFKitWorkarounds.scrollView(of: self) else { return }
             self.layoutIfNeeded()
             let bounds = page.bounds(for: self.displayBox)
             let pointInView = self.convert(CGPoint(x: pageX ?? bounds.midX, y: pageY), from: page)
@@ -661,43 +660,29 @@ final class ReaderPDFView: PDFView {
         }
     }
 
-    /// "No scroll-to-top" (design): every scroll view PDFKit puts inside this view opts out of
-    /// the system's tap-to-scroll-to-top, which a tap on the status bar (and on iPadOS 26+ the
-    /// navigation bar / title) sends to the window's scroll-to-top scroll view and which would
-    /// take the reader to page 1. PDFKit can replace its scroll view when the document, display
-    /// mode or layout changes, so this runs on every subview addition and layout pass. It walks
-    /// only PDFKit's chrome, never into the document view's page views.
-    func disableScrollsToTop() {
-        var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) }
-        while !queue.isEmpty {
-            let (current, depth) = queue.removeFirst()
-            if let scrollView = current as? UIScrollView, scrollView.scrollsToTop {
-                scrollView.scrollsToTop = false
-            }
-            guard depth < 4, current !== documentView else { continue }
-            queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
-        }
-    }
-
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
         applyPDFKitPolicies()
-        if !isPDFKitChrome(subview) { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+        if !PDFKitWorkarounds.isPDFKitView(subview, in: self) {
+            UIAccessibility.post(notification: .layoutChanged, argument: nil)
+        }
     }
 
     override func willRemoveSubview(_ subview: UIView) {
         super.willRemoveSubview(subview)
-        if !isPDFKitChrome(subview) {
+        if !PDFKitWorkarounds.isPDFKitView(subview, in: self) {
             DispatchQueue.main.async { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
         }
     }
 
-    /// The per-view policies PDFKit's own views need, re-applied whenever PDFKit may have
-    /// replaced them (subview added, every layout pass, document attached).
+    /// The per-view policies PDFKit's own views need (`PDFKitWorkarounds`), re-applied whenever
+    /// PDFKit may have replaced them (subview added, every layout pass, document attached):
+    /// "No scroll-to-top" (design), text-input proxies hidden from accessibility, and Select All
+    /// routed to `selectParagraphs()`.
     func applyPDFKitPolicies() {
-        disableScrollsToTop()
-        hideTextInputProxies()
-        if let documentView { PDFSelectAllRouting.install(on: documentView) }
+        PDFKitWorkarounds.disableScrollsToTop(in: self)
+        PDFKitWorkarounds.hideTextInputProxies(in: self)
+        if let documentView { PDFKitWorkarounds.routeSelectAll(from: documentView) }
     }
 
     // MARK: Select All ("Select All selects the paragraph")
@@ -724,11 +709,9 @@ final class ReaderPDFView: PDFView {
 
     // MARK: Accessibility
 
-    /// PDFKit's document view is a `UITextInput` spanning the whole book. An accessibility
-    /// client that reads it as a text element (its value, or `text(in:)` over its full range,
-    /// as UIKit's text-element accessibility does) makes PDFKit build a selection over every
-    /// page on the main thread: measured 9.7 s and 3.4 M characters for `large.pdf` in one call,
-    /// repeated per query. So the PDF view's accessibility children are, in this order:
+    /// PDFKit's document view must not be read as one text element
+    /// (`PDFKitWorkarounds.visiblePageViews`). So the PDF view's accessibility children are, in
+    /// this order:
     ///
     /// 1. the page views on screen, in reading order (top to bottom, or left to right when
     ///    scrolling horizontally) instead of the document view: VoiceOver
@@ -743,26 +726,14 @@ final class ReaderPDFView: PDFView {
     /// notification is posted when a feature view comes or goes). Sighted text selection,
     /// highlights and the edit menu are untouched (they never go through accessibility).
     private var visiblePageViews: [UIView] {
-        guard let documentView else { return [] }
-        let visible = convert(bounds, to: documentView)
-        let horizontal = isHorizontal
-        return documentView.subviews
-            .filter { !($0 is UITextInput) && !$0.isHidden && $0.frame.intersects(visible) }
-            .sorted { horizontal ? $0.frame.minX < $1.frame.minX : $0.frame.minY < $1.frame.minY }
-    }
-
-    /// PDFKit's own views (its scroll view, the document view and anything containing it) as
-    /// opposed to views a feature added.
-    private func isPDFKitChrome(_ view: UIView) -> Bool {
-        if Bundle(for: type(of: view)) == Bundle(for: PDFView.self) { return true }
-        if let documentView, documentView === view || documentView.isDescendant(of: view) { return true }
-        return false
+        PDFKitWorkarounds.visiblePageViews(in: self, horizontal: isHorizontal)
     }
 
     /// Feature-added direct subviews (see `accessibilityElements`), never a text input.
     private var featureAccessibilityViews: [UIView] {
         subviews.filter {
-            !isPDFKitChrome($0) && !($0 is UITextInput) && !$0.isHidden && !$0.accessibilityElementsHidden
+            !PDFKitWorkarounds.isPDFKitView($0, in: self) && !($0 is UITextInput) && !$0.isHidden
+                && !$0.accessibilityElementsHidden
         }
     }
 
@@ -788,23 +759,6 @@ final class ReaderPDFView: PDFView {
     override func index(ofAccessibilityElement element: Any) -> Int {
         guard let object = element as AnyObject?, let elements = accessibilityElements else { return NSNotFound }
         return elements.firstIndex { ($0 as AnyObject) === object } ?? NSNotFound
-    }
-
-    /// Any other `UITextInput` view PDFKit adds (a text-input proxy such as `PDFTextInputView`
-    /// while text is selected) answers accessibility with whole-document text in the same way;
-    /// it has no visible content of its own, so it is hidden from accessibility.
-    private func hideTextInputProxies() {
-        guard let documentView else { return }
-        var queue: [(view: UIView, depth: Int)] = subviews.map { ($0, 1) } + documentView.subviews.map { ($0, 1) }
-        while !queue.isEmpty {
-            let (current, depth) = queue.removeFirst()
-            if current is UITextInput, current !== documentView {
-                if !current.accessibilityElementsHidden { current.accessibilityElementsHidden = true }
-                PDFSelectAllRouting.install(on: current)
-            }
-            guard depth < 3, current !== documentView else { continue }
-            queue.append(contentsOf: current.subviews.map { ($0, depth + 1) })
-        }
     }
 
     /// Every bounds-size change (panel toggles, the divider, window resize, rotation, the

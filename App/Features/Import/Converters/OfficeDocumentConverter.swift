@@ -77,7 +77,7 @@ nonisolated struct OfficeDocumentConverter: DocumentConverter {
             let resources = WebFileResources(["document.html": .init(source: .data(converted.html), mimeType: "text/html", textEncodingName: "utf-8")])
             return Source(kind: .rtf, resources: resources, mainPath: "document.html", page: converted.page, title: converted.title, headings: [])
         case .word:
-            let mime = OfficeMIMEType.forFile(extension: ext, format: .word)
+            let mime = QuickLookWorkarounds.mimeType(forFileExtension: ext, format: .word)
             let path = "document.\(ext.isEmpty ? "docx" : ext)"
             let resources = WebFileResources([path: .init(source: .file(file), mimeType: mime, textEncodingName: nil)])
             // A .doc is not a ZIP: nothing to read cheaply.
@@ -86,7 +86,7 @@ nonisolated struct OfficeDocumentConverter: DocumentConverter {
                           headings: info.headings)
         case .pages:
             let path = "document.pages"
-            let resources = WebFileResources([path: .init(source: .file(file), mimeType: OfficeMIMEType.forFile(extension: "pages", format: .pages), textEncodingName: nil)])
+            let resources = WebFileResources([path: .init(source: .file(file), mimeType: QuickLookWorkarounds.mimeType(forFileExtension: "pages", format: .pages), textEncodingName: nil)])
             return Source(kind: .pages, resources: resources, mainPath: path, page: nil, title: nil, headings: [])
         default:
             throw ConversionError.unsupported(reason: "This converter does not handle \(input.format.rawValue) files.")
