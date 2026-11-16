@@ -80,6 +80,7 @@ final class ReaderSession: Identifiable {
         var startInMarkup = false
         /// Open the notes panel on this tab (`-notesPanel`).
         var openNotesTab: NotesTab?
+        #if DEBUG
         /// `-inkAnyInput`: canvases draw with any input.
         var inkAnyInput = false
         /// `-selectionMenuProbe` (UI tests only).
@@ -90,6 +91,16 @@ final class ReaderSession: Identifiable {
         var exposesViewportAnchor = false
         /// `-exposeSelection` (UI tests only): publish the text selection for accessibility.
         var exposesSelection = false
+        #else
+        // A release build has no test switches (`LaunchOptions`): these are constants, so
+        // nothing can set them and the code behind them is never reached.
+        // (`exposesMarkupState` below is still stored; nothing sets it in a release build.)
+        var inkAnyInput: Bool { false }
+        var selectionMenuProbe: Bool { false }
+        var markupProbeSurface: Bool { false }
+        var exposesViewportAnchor: Bool { false }
+        var exposesSelection: Bool { false }
+        #endif
         /// `-exposeMarkupState` (UI tests only): add `ReaderStateProbe`'s elements.
         var exposesMarkupState = false
         /// `-hardwareKeyboard` (UI tests only): pin whether a hardware keyboard is attached

@@ -108,10 +108,14 @@ final class SearchModel {
     init(session: ReaderSession, hitCap: Int = PDFTextSearch.defaultHitCap, pageDelay: Duration? = nil) {
         self.session = session
         self.hitCap = hitCap
-        // Test hook: the UI tests' `-searchPageDelayMs <n>` launch argument (read through the
-        // arguments domain of `UserDefaults`) slows the scan so a test can act mid-search.
-        let ms = UserDefaults.standard.integer(forKey: "searchPageDelayMs")
-        self.pageDelay = pageDelay ?? .milliseconds(max(0, ms))
+        // Test hook: the UI tests' `-searchPageDelayMs <n>` launch argument (`LaunchOptions`)
+        // slows the scan so a test can act mid-search. Debug builds only.
+        #if DEBUG
+        let ms = LaunchOptions.current.searchPageDelayMs ?? 0
+        #else
+        let ms = 0
+        #endif
+        self.pageDelay = pageDelay ?? .milliseconds(ms)
         totalPages = session.pageCount
 
         changeObservation = session.observeBookChanges(includeOwn: true) { [weak self] event in
