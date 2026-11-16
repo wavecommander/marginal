@@ -48,4 +48,34 @@ struct ReaderSessionLifetimeTests {
         #expect(!OpenEditorRegistry.shared.sessions(of: session.store).contains { $0 === session })
         await host.close()
     }
+
+    /// `PDFView` keeps the page it last navigated away from after its document is cleared, and
+    /// that page keeps PDFKit's mapping of the whole file. A closed session (which SwiftUI may
+    /// keep) must hold neither the view nor any page of the book, however it was read.
+    @Test func aClosedSessionKeepsNoPageOfTheBook() async throws {
+        let host = try await openHost()
+        let session = host.session
+        final class WeakPage { weak var page: PDFPage?; init(_ page: PDFPage?) { self.page = page } }
+        let pages: [WeakPage]
+        do {
+            let document = try #require(session.document)
+            pages = (0..<document.pageCount).map { WeakPage(document.page(at: $0)) }
+        }
+        #expect(pages.allSatisfy { $0.page != nil })
+        weak var pdfView = session.pdf.view
+
+        // Navigate, so PDFKit has a page it went from.
+        for target in [3, 7, 5] {
+            #expect(session.jump(toPage: target))
+            #expect(await PageInkTestSupport.waitUntil { session.currentPageIndex == target })
+        }
+
+        await session.suspend()
+        session.close()
+        #expect(session.isClosed)
+        #expect(await PageInkTestSupport.waitUntil(timeout: 20) { pdfView == nil }, "the PDF view")
+        #expect(await PageInkTestSupport.waitUntil(timeout: 20) { pages.allSatisfy { $0.page == nil } },
+                "pages still alive: \(pages.indices.filter { pages[$0].page != nil })")
+        await host.close()
+    }
 }

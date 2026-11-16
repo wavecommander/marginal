@@ -18,9 +18,19 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     private weak var session: ReaderSession?
 
     /// The on-screen PDF view. Use for presenting menus or converting coordinates; navigate and
-    /// zoom through the session so its state stays in step.
-    private(set) lazy var view: ReaderPDFView = makeView()
-    private var isViewLoaded = false
+    /// zoom through the session so its state stays in step. Made on first use; `close()` lets it
+    /// go, and a use after that gets a bare view that is never shown.
+    var view: ReaderPDFView {
+        if let loadedView { return loadedView }
+        let view = isClosed ? ReaderPDFView(frame: .zero) : makeView()
+        loadedView = view
+        return view
+    }
+    private var loadedView: ReaderPDFView?
+    private var isViewLoaded: Bool { loadedView != nil }
+
+    /// `close()` has run: the view and the document are gone and the session is finished.
+    private(set) var isClosed = false
 
     /// The document shown, once attached.
     var document: PDFDocument? { isViewLoaded ? view.document : nil }
@@ -154,9 +164,18 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     /// Lets the document go for good (`ReaderSession.close()`): PDFKit's pages, tiles and the
-    /// page overlays go with it, and the view leaves its host.
+    /// page overlays go with it, the view leaves its host, and the controller lets the view go.
+    ///
+    /// Clearing `document` is not enough on its own: `PDFView` keeps the page it last navigated
+    /// away from (a private `fromPage`) after its document is cleared, and that page keeps
+    /// PDFKit's copy of the whole file mapped (about the file's size of address space). SwiftUI
+    /// can hold a finished screen's session for a long time (its environment reaches the UIKit
+    /// views' trait collections), so each closed reader held one mapping of the book, until a
+    /// long reading session ran out of address space (an allocation in PencilKit failed on
+    /// device). Releasing the view drops that page with it.
     func close() {
-        guard isViewLoaded else { return }
+        isClosed = true
+        guard let view = loadedView else { return }
         position.clearPendingPage()
         pendingPosition = nil
         offsetObservation = nil
@@ -165,6 +184,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.highlightedSelections = nil
         view.document = nil
         view.removeFromSuperview()
+        view.pageOverlayViewProvider = nil
+        NotificationCenter.default.removeObserver(self, name: nil, object: view)
+        loadedView = nil
     }
 
     /// The page object for a zero-based index on the on-screen document.
@@ -574,7 +596,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     // MARK: Private
 
     private func makeView() -> ReaderPDFView {
-        isViewLoaded = true
         let view = ReaderPDFView(frame: .zero)
         view.controller = self
         // Must be set before a document is assigned for PDFKit to ask for overlays (the session
@@ -959,6 +980,9 @@ final class ReaderPDFHostView: UIView {
     }
 
     private func adopt() {
+        // A finished screen's host can move into a window while SwiftUI tears it down; a closed
+        // session shows nothing (and must not make a new view).
+        guard !controller.isClosed else { return }
         let pdfView = controller.view
         if pdfView.superview !== self {
             pdfView.frame = bounds
