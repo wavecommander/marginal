@@ -107,6 +107,7 @@ struct SupportedFormatsView: View {
                 Text("Not Supported", comment: "Settings ▸ Supported Formats: header of the list of kinds of file that can't be imported.")
             }
         }
+        .settingsPageMargins()
         .navigationTitle(Text("Supported Formats", comment: "Settings ▸ Supported Formats: screen title."))
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier(AccessibilityID.SupportedFormats.screen)

@@ -131,6 +131,7 @@ struct CloudBackupScreen: View {
                 ProgressView()
             }
         }
+        .settingsPageMargins()
         .navigationTitle(CloudServiceError.serviceName)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

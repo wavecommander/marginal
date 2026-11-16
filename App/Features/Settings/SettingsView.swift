@@ -86,6 +86,7 @@ struct SettingsView: View {
                     Text("The Quick Guide is a six-page book that shows how notes, highlights and Markup work. If you deleted it, this brings it back.")
                 }
             }
+            .settingsPageMargins()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -105,6 +106,16 @@ struct SettingsView: View {
             if let page = window?.settingsPage, path != [page] { path = [page] }
         }
         .accessibilityIdentifier(AccessibilityID.Settings.sheet)
+    }
+}
+
+extension View {
+    /// The side and bottom margins every page reachable from the Settings sheet shares. Apply it
+    /// to the page's root (it reaches the scroll view inside), so pushed pages don't drift apart.
+    func settingsPageMargins() -> some View {
+        self
+            .contentMargins(.horizontal, Space.l, for: .scrollContent)
+            .contentMargins(.bottom, Space.xxl, for: .scrollContent)
     }
 }
 

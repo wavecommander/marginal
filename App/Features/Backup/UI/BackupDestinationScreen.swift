@@ -215,6 +215,7 @@ private struct BackupDestinationContent: View {
             BackupDestinationBackUpSection(model: model, canBackUp: isAvailable, footer: backUpFooter)
             BackupDestinationSnapshotsSection(model: model, restoreRequest: $restoreRequest)
         }
+        .settingsPageMargins()
         .navigationTitle(model.name)
         .accessibilityIdentifier(AccessibilityID.Backup.destinationScreen)
         .toolbar { BackupDoneToolbarItem() }
