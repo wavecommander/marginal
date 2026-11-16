@@ -1,5 +1,6 @@
 import Foundation
 import ReaderBackup
+import UIKit
 import UniformTypeIdentifiers
 
 /// What happens when a file arrives from outside the app (Files "Open With", the share sheet,
@@ -34,7 +35,19 @@ enum IncomingDocumentHandler {
                 // A scanned book: its notice comes first, in this window's Library (S3).
                 if let notice = service.scanNotices.notice(about: book.id) {
                     window.backToLibrary()
-                    await service.scanNotices.waitUntilAnswered(notice.id)
+                    // The window may be closed with the notice unanswered: the notice is then
+                    // dropped, so this wait ends and no notice is left for a window that is gone.
+                    let notices = service.scanNotices
+                    let closed = window.scene.map { scene in
+                        NotificationCenter.default.addObserver(forName: UIScene.didDisconnectNotification,
+                                                               object: scene, queue: .main) { _ in
+                            MainActor.assumeIsolated { notices.drop(notice.id) }
+                        }
+                    }
+                    await notices.waitUntilAnswered(notice.id)
+                    if let closed { NotificationCenter.default.removeObserver(closed) }
+                    // Closed meanwhile: there is no window left to open the book in.
+                    if closed != nil, window.scene.map({ $0.activationState == .unattached }) ?? true { return }
                 }
                 window.openReader(bookID: book.id)
             } else if result.conversionRequestID != nil {

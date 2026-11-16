@@ -100,6 +100,20 @@ struct TextRecognitionNoticeTests {
         await waiting.value  // the dropped notice releases its waiters
     }
 
+    /// A notice whose window closed is dropped unanswered: whoever waits for the answer ("Open
+    /// in") goes on, and the notice is not left for a window that is gone.
+    @Test func droppingANoticeReleasesItsWaiters() async throws {
+        let queue = ScanNoticeQueue()
+        let id = try #require(queue.post([ScanNoticeBook(id: UUID(), title: "Scan", pageCount: 30)], windowKey: nil))
+        let waiting = Task { await queue.waitUntilAnswered(id) }
+        await Task.yield()
+        queue.drop(id)
+        #expect(queue.notices.isEmpty)
+        await waiting.value
+        queue.drop(id)  // dropping it again does nothing
+        await queue.waitUntilAnswered(id)  // nothing queued: returns at once
+    }
+
     @Test func makeSearchableAcceptsEveryBookAndNotNowDeclines() async throws {
         let fixture = try Support.scannedFixture()
         defer { fixture.cleanUp() }

@@ -61,6 +61,11 @@ targets:
       - name: Stamp Build Info
         script: '"$SRCROOT/scripts/stamp-build-info.sh"'
         basedOnDependencyAnalysis: false
+        # The processed Info.plist is this phase's input, so the build system always runs it
+        # after "Process Info.plist"; without it an incremental build could stamp first and
+        # have the stamp overwritten.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
     info:
       path: App/Info.plist
       properties:

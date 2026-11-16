@@ -33,6 +33,8 @@ struct ScanNotice: Identifiable, Equatable {
 /// - **Never stale.** Before it is shown, `check` drops the books that are no longer "not
 ///   decided" (made searchable from search meanwhile, or `-recognizeBook`) or no longer in the
 ///   Library, and drops the notice when none is left.
+/// - **A closed window.** "Open in" drops its notice when the window it waits in closes
+///   (`drop`), so the wait always ends.
 /// - **Nowhere else.** Notices live in memory only: a notice not answered before the app quits
 ///   is not shown again (the book stays "not decided" and search makes the offer).
 @Observable
@@ -115,6 +117,12 @@ final class ScanNoticeQueue {
     func waitUntilAnswered(_ id: UUID) async {
         guard notices.contains(where: { $0.id == id }) else { return }
         await withCheckedContinuation { waiters[id, default: []].append($0) }
+    }
+
+    /// Drops the notice unanswered (its window closed): its books stay "not decided", so search
+    /// still makes the offer, and anyone waiting for the answer goes on.
+    func drop(_ id: UUID) {
+        finish(id)
     }
 
     private func finish(_ id: UUID) {

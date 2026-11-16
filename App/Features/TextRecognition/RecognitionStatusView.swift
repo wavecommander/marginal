@@ -22,43 +22,23 @@ nonisolated enum TextRecognitionAccessibilityID {
 /// and Not Now, or pages done out of the total with a bar and Pause or Resume. Built from
 /// `RecognitionStatus`; the panel passes the actions on to the app's one recognition queue.
 ///
-/// Fits narrow panels and large text: the buttons sit beside each other when they fit and stack
+/// Fits narrow panels and large text: the buttons sit beside the text when they fit and stack
 /// otherwise, and every line wraps.
+///
+/// `isCompact` (the panel sets it while a query is typed) leaves the room to the results: the
+/// offer shrinks to its title beside Make Searchable, without the explanation or Not Now. The
+/// full offer is back as soon as the field is cleared. Progress and paused keep everything.
 struct RecognitionStatusView: View {
     let status: RecognitionStatus
+    var isCompact = false
     let perform: (RecognitionStatus.Action) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(status.title)
-                .font(.subheadline.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier(TextRecognitionAccessibilityID.title)
-            if let progress = status.progress {
-                ProgressView(value: progress.fractionDone)
-                    .accessibilityLabel(Text(status.title))
-                    .accessibilityValue(Text(status.detail))
-                    .accessibilityIdentifier(TextRecognitionAccessibilityID.progress)
-            }
-            Text(status.detail)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(TextRecognitionAccessibilityID.detail)
-            if let note = status.note {
-                Text(note)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier(TextRecognitionAccessibilityID.note)
-            }
-            if !status.actions.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) { buttons }
-                    VStack(alignment: .leading, spacing: 8) { buttons }
-                }
+        Group {
+            if isCompact, status.kind == .offer {
+                compactOffer
+            } else {
+                full
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -66,6 +46,83 @@ struct RecognitionStatusView: View {
         .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(TextRecognitionAccessibilityID.status)
+    }
+
+    private var title: some View {
+        Text(status.title)
+            .font(.subheadline.weight(.semibold))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(TextRecognitionAccessibilityID.title)
+    }
+
+    private var detail: some View {
+        Text(status.detail)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier(TextRecognitionAccessibilityID.detail)
+    }
+
+    /// The offer while a query is typed: the title and Make Searchable on one row when they fit.
+    private var compactOffer: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                title
+                Spacer(minLength: 0)
+                button(.makeSearchable)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                title
+                button(.makeSearchable)
+            }
+        }
+    }
+
+    private var full: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            title
+            if let progress = status.progress {
+                ProgressView(value: progress.fractionDone)
+                    .accessibilityLabel(Text(status.title))
+                    .accessibilityValue(Text(status.detail))
+                    .accessibilityIdentifier(TextRecognitionAccessibilityID.progress)
+                // "12 of 30 pages" beside Pause or Resume when they fit.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        detail
+                        Spacer(minLength: 0)
+                        buttons
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        detail
+                        buttons
+                    }
+                }
+                noteLine
+            } else {
+                detail
+                noteLine
+                if !status.actions.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) { buttons }
+                        VStack(alignment: .leading, spacing: 8) { buttons }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var noteLine: some View {
+        if let note = status.note {
+            Text(note)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(TextRecognitionAccessibilityID.note)
+        }
     }
 
     @ViewBuilder
@@ -131,7 +188,10 @@ struct SearchRecognitionStatus: View {
 
     var body: some View {
         if let status = RecognitionStatus.make(state: model.recognitionState, pageCount: session.pageCount) {
-            let view = RecognitionStatusView(status: status, perform: perform)
+            // While a query is typed the results need the room (above the keyboard the panel is
+            // short): the offer shrinks to one row.
+            let isTyping = !model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let view = RecognitionStatusView(status: status, isCompact: isTyping, perform: perform)
             Group {
                 if dynamicTypeSize.isAccessibilitySize {
                     ViewThatFits(in: .vertical) {
