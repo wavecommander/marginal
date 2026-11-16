@@ -56,11 +56,12 @@ nonisolated enum ReaderDocumentLoader {
         Outline(pdfEntries: entries, userHeadings: userHeadings, pageCount: pageCount)
     }
 
-    /// Builds the Notebook tree off the main thread.
+    /// Builds the Notebook tree, pages with ink included, off the main thread.
     @concurrent
     static func buildNotebook(outline: Outline, notes: [Note], highlights: [Highlight],
-                              bookmarks: [Bookmark]) async -> Notebook {
-        NotebookBuilder.build(outline: outline, notes: notes, highlights: highlights, bookmarks: bookmarks)
+                              bookmarks: [Bookmark], inkedPages: [Int] = []) async -> Notebook {
+        NotebookBuilder.build(outline: outline, notes: notes, highlights: highlights, bookmarks: bookmarks,
+                              inkedPages: inkedPages)
     }
 }
 

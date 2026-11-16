@@ -52,6 +52,7 @@ struct ReaderHost: View {
         .focusedSceneValue(isOnTop ? slot : nil)
         .onAppear(perform: appeared)
         .onDisappear {
+            slot?.isShown = false
             guard let session else { return }
             Task { await session.suspend() }
         }
@@ -72,6 +73,8 @@ struct ReaderHost: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            // On screen only: the window puts its off-screen readers to sleep (`WindowRootView`).
+            guard slot?.isShown == true else { return }
             session?.handleMemoryWarning()
         }
         .onChange(of: window.readerJumpRequests) { _, _ in
@@ -97,6 +100,7 @@ struct ReaderHost: View {
             slot = shown
             shown.wake(takingOverrides: true)
         }
+        shown.isShown = true
         window.readerSlotDidAppear(shown)
     }
 }

@@ -3,8 +3,8 @@ import Darwin
 import QuartzCore
 import SwiftUI
 
-/// DEBUG-only measurement hook for UI tests (read from the process arguments here, so the shell's
-/// `LaunchOptions` is untouched): `-sidebarDebugStats` shows a small button over the Pages grid
+/// DEBUG-only measurement hook for UI tests (`LaunchOptions.sidebarDebugStats` and
+/// `sidebarAutoScroll`): `-sidebarDebugStats` shows a small button over the Pages grid
 /// whose accessibility value is
 /// `requests R hits H rendered N cancelled C cached K bytes B footprintMB F maxGapMS G longFrames L`.
 /// - thumbnail loader counters and cache size/bytes;
@@ -13,14 +13,14 @@ import SwiftUI
 ///   number of frames longer than 50 ms (a stall of the main thread, which drives the PDF view).
 /// Tapping the button resets the frame counters.
 enum SidebarDebugStats {
-    static let isEnabled = ProcessInfo.processInfo.arguments.contains("-sidebarDebugStats")
+    static let isEnabled = LaunchOptions.current.sidebarDebugStats
 
     /// `-sidebarAutoScroll` (with `-sidebarDebugStats`): when the Pages tab opens, the app scrolls
     /// its own grid through the whole book and back, one step every 16 ms (no XCUITest gestures
     /// or queries while it runs, so the frame figures are the app's own). The phase shows in the
     /// stats value (`phase down|up|done`); the frame counters are reset when it starts, and
     /// `doneMaxGapMS` / `doneLongFrames` freeze them when it ends.
-    static let autoScroll = ProcessInfo.processInfo.arguments.contains("-sidebarAutoScroll")
+    static let autoScroll = LaunchOptions.current.sidebarAutoScroll
     @MainActor static var phase = "idle"
     @MainActor static var doneFigures = ""
 

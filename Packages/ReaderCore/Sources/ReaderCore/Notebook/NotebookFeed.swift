@@ -1,11 +1,10 @@
 import Foundation
-import ReaderCore
 
 // The pure part of the Notebook screen: which rows the feed shows for a filter, and the entries of
-// the heading filter column. No UI types; unit-tested in `Tests/NotebookFeedTests.swift`.
+// the heading filter column. No UI types; unit-tested in `NotebookFeedTests`.
 
 /// The type filter (the segmented control above the feed, as in the mockup).
-nonisolated enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
+public enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
     case all
     /// Notes attached to headings (including unfiled heading notes).
     case sectionNotes
@@ -15,7 +14,7 @@ nonisolated enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
     /// Pages with page ink (Pencil highlighter strokes and drawings alike).
     case handwriting
 
-    var title: String {
+    public var title: String {
         switch self {
         case .all: "All"
         case .sectionNotes: "Section Notes"
@@ -25,14 +24,14 @@ nonisolated enum NotebookTypeFilter: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    var allowsSectionNotes: Bool { self == .all || self == .sectionNotes }
-    var allowsPageNotes: Bool { self == .all || self == .pageNotes }
-    var allowsHighlights: Bool { self == .all || self == .highlights }
-    var allowsHandwriting: Bool { self == .all || self == .handwriting }
+    public var allowsSectionNotes: Bool { self == .all || self == .sectionNotes }
+    public var allowsPageNotes: Bool { self == .all || self == .pageNotes }
+    public var allowsHighlights: Bool { self == .all || self == .highlights }
+    public var allowsHandwriting: Bool { self == .all || self == .handwriting }
 }
 
 /// What part of the book the feed shows (the heading filter column).
-nonisolated enum NotebookScope: Hashable, Sendable {
+public enum NotebookScope: Hashable, Sendable {
     /// The whole book: front matter, every heading with content, unfiled notes.
     case all
     /// Pages before the first heading.
@@ -43,7 +42,7 @@ nonisolated enum NotebookScope: Hashable, Sendable {
     case section(HeadingAnchor)
 
     /// Stable string for scene storage.
-    var storageKey: String {
+    public var storageKey: String {
         switch self {
         case .all: "all"
         case .frontMatter: "front"
@@ -52,7 +51,7 @@ nonisolated enum NotebookScope: Hashable, Sendable {
         }
     }
 
-    init?(storageKey: String) {
+    public init?(storageKey: String) {
         switch storageKey {
         case "all": self = .all
         case "front": self = .frontMatter
@@ -66,41 +65,55 @@ nonisolated enum NotebookScope: Hashable, Sendable {
 }
 
 /// The feed's filter: scope, type and search text (per window).
-nonisolated struct NotebookFilter: Hashable, Sendable {
-    var scope: NotebookScope = .all
-    var type: NotebookTypeFilter = .all
+public struct NotebookFilter: Hashable, Sendable {
+    public var scope: NotebookScope = .all
+    public var type: NotebookTypeFilter = .all
     /// Search text; blank shows everything. Matches note text and highlight text,
     /// case- and diacritic-insensitively (`localizedStandardContains`). Handwriting has no text,
     /// so a search hides it.
-    var query: String = ""
+    public var query: String = ""
 
-    var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var isSearching: Bool { !trimmedQuery.isEmpty }
+    public init(scope: NotebookScope = .all, type: NotebookTypeFilter = .all, query: String = "") {
+        self.scope = scope
+        self.type = type
+        self.query = query
+    }
+
+    public var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    public var isSearching: Bool { !trimmedQuery.isEmpty }
 }
 
 /// A heading (or a pseudo-heading such as "Front matter") as shown in the feed.
-nonisolated struct NotebookHeader: Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
+public struct NotebookHeader: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
         case section(HeadingAnchor)
         case frontMatter
         case unfiled
     }
 
-    let kind: Kind
-    let title: String
+    public let kind: Kind
+    public let title: String
     /// 1-based outline level (front matter and unfiled are level 1).
-    let level: Int
-    let pageRange: ClosedRange<Int>?
+    public let level: Int
+    public let pageRange: ClosedRange<Int>?
     /// Where tapping the header opens the reader (`nil`: not openable).
-    let startPage: Int?
+    public let startPage: Int?
+
+    public init(kind: Kind, title: String, level: Int, pageRange: ClosedRange<Int>?, startPage: Int?) {
+        self.kind = kind
+        self.title = title
+        self.level = level
+        self.pageRange = pageRange
+        self.startPage = startPage
+    }
 
     /// "pp. 291–376" (empty without a range).
-    var pageRangeLabel: String { pageRange.map(PageNumbering.label(forPageRange:)) ?? "" }
+    public var pageRangeLabel: String { pageRange.map(PageNumbering.label(forPageRange:)) ?? "" }
 }
 
 /// One row of the feed.
-nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
+public struct NotebookFeedRow: Identifiable, Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
         case header(NotebookHeader)
         /// A heading's own note. `heading` is the heading it belongs to.
         case headingNote(Note, heading: NotebookHeader)
@@ -114,11 +127,16 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
         case handwriting(pageIndex: Int)
     }
 
-    let id: String
-    let kind: Kind
+    public let id: String
+    public let kind: Kind
+
+    public init(id: String, kind: Kind) {
+        self.id = id
+        self.kind = kind
+    }
 
     /// The page the reader opens at for this row, or `nil` when it cannot be opened.
-    var targetPage: Int? {
+    public var targetPage: Int? {
         switch kind {
         case .header(let header): header.startPage
         case .headingNote(_, let heading): heading.startPage
@@ -130,17 +148,17 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
     }
 
     /// The note shown by this row, if any.
-    var note: Note? {
+    public var note: Note? {
         switch kind {
         case .headingNote(let note, _), .unfiledHeadingNote(let note, _), .pageNote(let note, _): note
         case .header, .highlight, .handwriting: nil
         }
     }
 
-    var isHeader: Bool { if case .header = kind { true } else { false } }
+    public var isHeader: Bool { if case .header = kind { true } else { false } }
 
     /// The item this row shows (what selecting the row selects); `nil` for a header.
-    var itemID: NotebookItemID? {
+    public var itemID: NotebookItemID? {
         switch kind {
         case .header: nil
         case .headingNote(let note, _), .unfiledHeadingNote(let note, _), .pageNote(let note, _): .note(note.id)
@@ -152,10 +170,10 @@ nonisolated struct NotebookFeedRow: Identifiable, Hashable, Sendable {
 
 /// How much of a row is selected for export: an item row is `.none` or `.all`; a header is
 /// `.some` when only part of what the feed shows under it is selected.
-nonisolated enum NotebookRowSelection: Hashable, Sendable {
+public enum NotebookRowSelection: Hashable, Sendable {
     case none, some, all
 
-    var accessibilityValue: String {
+    public var accessibilityValue: String {
         switch self {
         case .none: "Not selected"
         case .some: "Partly selected"
@@ -165,25 +183,32 @@ nonisolated enum NotebookRowSelection: Hashable, Sendable {
 }
 
 /// One entry of the heading filter column.
-nonisolated struct NotebookScopeEntry: Identifiable, Hashable, Sendable {
-    let scope: NotebookScope
-    let title: String
+public struct NotebookScopeEntry: Identifiable, Hashable, Sendable {
+    public let scope: NotebookScope
+    public let title: String
     /// 1 for top level (and "Whole book", front matter, unfiled), deeper for nested headings.
-    let level: Int
+    public let level: Int
     /// Notes, highlights and inked pages in the scope.
-    let count: Int
+    public let count: Int
 
-    var id: String { scope.storageKey }
+    public init(scope: NotebookScope, title: String, level: Int, count: Int) {
+        self.scope = scope
+        self.title = title
+        self.level = level
+        self.count = count
+    }
+
+    public var id: String { scope.storageKey }
 }
 
 /// Builds feed rows and filter entries from a `Notebook`.
-nonisolated enum NotebookFeed {
+public enum NotebookFeed {
     /// The feed for `filter`, in outline order: front matter; then every heading with content,
     /// depth first, each as its header, its own note, then its pages (each page's note, then its
     /// highlights in reading order, then its handwriting), then its children; then unfiled notes.
     /// A header is shown only when something under it passes the filter. Bookmark-only pages are
     /// not shown. A page's note, highlights and ink are separate rows.
-    static func rows(for notebook: Notebook, filter: NotebookFilter) -> [NotebookFeedRow] {
+    public static func rows(for notebook: Notebook, filter: NotebookFilter) -> [NotebookFeedRow] {
         let query = filter.trimmedQuery
         let type = filter.type
         func matches(_ text: String) -> Bool { query.isEmpty || text.localizedStandardContains(query) }
@@ -252,7 +277,7 @@ nonisolated enum NotebookFeed {
     /// The heading filter column: "Whole book", front matter (if it has content), every heading
     /// with content in outline order (indented by level), and unfiled notes (if any). Counts are
     /// notes, highlights and inked pages (`NotebookCounts.items`).
-    static func scopeEntries(for notebook: Notebook) -> [NotebookScopeEntry] {
+    public static func scopeEntries(for notebook: Notebook) -> [NotebookScopeEntry] {
         func count(_ counts: NotebookCounts) -> Int { counts.items }
         var entries = [NotebookScopeEntry(scope: .all, title: "Whole book", level: 1, count: count(notebook.totalCounts))]
         let front = count(notebook.frontMatterCounts)
@@ -273,23 +298,23 @@ nonisolated enum NotebookFeed {
     }
 
     /// Notes, highlights and inked pages in the whole book.
-    static func itemCount(_ notebook: Notebook) -> Int {
+    public static func itemCount(_ notebook: Notebook) -> Int {
         notebook.totalCounts.items
     }
 
     /// Whether `scope` still exists in `notebook` (a heading may lose its content or be deleted).
-    static func contains(_ scope: NotebookScope, in notebook: Notebook) -> Bool {
+    public static func contains(_ scope: NotebookScope, in notebook: Notebook) -> Bool {
         scopeEntries(for: notebook).contains { $0.scope == scope }
     }
 
     // MARK: Selection
 
     /// The items of `rows`, in feed order.
-    static func items(in rows: [NotebookFeedRow]) -> [NotebookItemID] { rows.compactMap(\.itemID) }
+    public static func items(in rows: [NotebookFeedRow]) -> [NotebookItemID] { rows.compactMap(\.itemID) }
 
     /// For every header row of `rows` (by row `id`), the items the feed shows under it: its own
     /// and those under its subheadings, down to the next header of the same or a higher level.
-    static func itemsByHeader(_ rows: [NotebookFeedRow]) -> [String: [NotebookItemID]] {
+    public static func itemsByHeader(_ rows: [NotebookFeedRow]) -> [String: [NotebookItemID]] {
         var result: [String: [NotebookItemID]] = [:]
         var open: [(id: String, level: Int)] = []
         for row in rows {
@@ -305,38 +330,38 @@ nonisolated enum NotebookFeed {
     }
 
     /// The selection state of `items` (a header's, or one row's) in `selection`.
-    static func selectionState(of items: [NotebookItemID], in selection: Set<NotebookItemID>) -> NotebookRowSelection {
+    public static func selectionState(of items: [NotebookItemID], in selection: Set<NotebookItemID>) -> NotebookRowSelection {
         let selected = items.count { selection.contains($0) }
         return selected == 0 ? .none : (selected == items.count ? .all : .some)
     }
 
     // MARK: Helpers
 
-    static func header(for section: NotebookSection) -> NotebookHeader {
+    public static func header(for section: NotebookSection) -> NotebookHeader {
         NotebookHeader(kind: .section(section.anchor), title: section.title, level: section.level,
                        pageRange: section.pageRange, startPage: section.startPage)
     }
 
     /// "Front matter" opens the reader at the first page with an item there.
-    static func frontMatterHeader(_ notebook: Notebook) -> NotebookHeader {
+    public static func frontMatterHeader(_ notebook: Notebook) -> NotebookHeader {
         NotebookHeader(kind: .frontMatter, title: "Front matter", level: 1, pageRange: nil,
                        startPage: notebook.frontMatter.first?.pageIndex)
     }
 
-    static let unfiledHeader = NotebookHeader(kind: .unfiled, title: "Unfiled notes", level: 1, pageRange: nil, startPage: nil)
+    public static let unfiledHeader = NotebookHeader(kind: .unfiled, title: "Unfiled notes", level: 1, pageRange: nil, startPage: nil)
 
-    static func unfiledTitle(_ note: Note) -> String {
+    public static func unfiledTitle(_ note: Note) -> String {
         guard let title = note.target.headingAnchor?.title, !title.isEmpty else { return "Untitled heading" }
         return title
     }
 
-    static func unfiledCount(_ notebook: Notebook) -> Int {
+    public static func unfiledCount(_ notebook: Notebook) -> Int {
         notebook.orphanNotes.count + notebook.orphanPages.reduce(0) {
             $0 + ($1.note == nil ? 0 : 1) + $1.highlights.count + ($1.hasInk ? 1 : 0)
         }
     }
 
-    static func findSection(_ anchor: HeadingAnchor, in sections: [NotebookSection]) -> NotebookSection? {
+    public static func findSection(_ anchor: HeadingAnchor, in sections: [NotebookSection]) -> NotebookSection? {
         for section in sections {
             if section.anchor == anchor { return section }
             if let found = findSection(anchor, in: section.children) { return found }
@@ -345,5 +370,5 @@ nonisolated enum NotebookFeed {
     }
 
     /// "Chapter" for a top-level heading's note, "Section" below (the mockup's labels).
-    static func headingNoteLabel(level: Int) -> String { level <= 1 ? "Chapter" : "Section" }
+    public static func headingNoteLabel(level: Int) -> String { level <= 1 ? "Chapter" : "Section" }
 }

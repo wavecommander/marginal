@@ -113,6 +113,8 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
       Memory falls back about five seconds after each new reader opens; going back through every
       screen, each reader shows briefly loading and then the place and zoom it was itself left at.
+      With two readers open one over the other, Debug ▸ Simulate Memory Warning (simulator) lets
+      the covered one go at once.
 
 ## Importing other formats
 

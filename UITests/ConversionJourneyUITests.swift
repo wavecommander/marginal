@@ -41,8 +41,6 @@ final class ConversionJourneyUITests: XCTestCase {
         static let pagePill = "reader.pagePill"
         static let pdfView = "reader.pdfView"
         static let more = "reader.toolbar.more"
-        static let contentsToggle = "reader.toolbar.contents"
-        static let notesToggle = "reader.toolbar.notes"
         static let notesTabs = "notesPanel.tabs"
         static let notesTitle = "notesPanel.title"
         static let noteText = "notePage.text"
@@ -102,9 +100,7 @@ final class ConversionJourneyUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(pageCount, 6, "several pages: \(pill.label)")
 
         // Contents is the EPUB's table of contents, nested as in its nav document.
-        if !app.segmentedControls["sidebar.tabs"].firstMatch.waitForExistence(timeout: 3) {
-            app.buttons[ID.contentsToggle].firstMatch.tap()
-        }
+        XCTAssertTrue(app.setPanel(.contents, shown: true), "Contents")
         SidebarUITests.selectTab(app, "Contents")
         for title in [EPUB.chapter1, EPUB.chapter2, EPUB.chapter3] {
             XCTAssertTrue(SidebarUITests.heading(app, title).waitForExistence(timeout: 10), "\(title) in Contents")
@@ -147,7 +143,7 @@ final class ConversionJourneyUITests: XCTestCase {
 
         // A section note on the converted heading.
         let sectionTab = tab(app, "Section note")
-        if !sectionTab.waitForExistence(timeout: 3) { app.buttons[ID.notesToggle].firstMatch.tap() }
+        XCTAssertTrue(app.setPanel(.notes, shown: true), "notes panel")
         XCTAssertTrue(sectionTab.waitForExistence(timeout: 10), "notes panel")
         sectionTab.tap()
         XCTAssertTrue(wait(app.staticTexts[ID.notesTitle].firstMatch, "label == %@", [EPUB.lighthouse]),

@@ -95,11 +95,13 @@ struct AccentRoot: ViewModifier {
         content
             .environment(\.accentTheme, theme)
             .tint(theme.accent)
+            #if DEBUG
             .background {
                 if launchOptions.exposeAccent {
                     AccentProbe(choice: theme.choice).frame(width: 1, height: 1)
                 }
             }
+            #endif
             .onChange(of: storedAccent, initial: true) { applyToWindows() }
             .onChange(of: scene) { applyToWindows() }
             // Windows the scene adds later (alerts, the tool picker's host) start untinted.
@@ -122,9 +124,11 @@ extension View {
     func accentRoot(scene: UIWindowScene?) -> some View { modifier(AccentRoot(scene: scene)) }
 }
 
+#if DEBUG
 /// Test hook (`-exposeAccent`): an element per window, `settings.accentProbe`, whose value is
 /// read live: `theme=<preset> window=<preset|other>`, the environment's choice and the preset
-/// matching this window's `UIWindow.tintColor`. Never created in normal runs.
+/// matching this window's `UIWindow.tintColor`. Never created in normal runs, and not part of a
+/// release build.
 private struct AccentProbe: UIViewRepresentable {
     let choice: AccentChoice
 
@@ -167,3 +171,4 @@ private struct AccentProbe: UIViewRepresentable {
         }
     }
 }
+#endif

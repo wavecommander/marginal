@@ -16,6 +16,7 @@ import UIKit
 ///   sleeping reader has none).
 /// - `reader.markupUndo` / `reader.markupRedo`: tapping calls `undo()` / `redo()` on the markup
 ///   responder's `undoManager`, the call the tool picker's own buttons make.
+/// - `reader.memoryWarning`: tapping posts the system's memory warning notification.
 @MainActor
 enum ReaderStateProbe {
     static func makeViews(session: ReaderSession) -> [UIView] {
@@ -25,6 +26,10 @@ enum ReaderStateProbe {
          },
          ActionView(identifier: AccessibilityID.Reader.markupRedoProbe, label: "Probe Redo") { [weak session] in
              session?.markup.responderView.undoManager?.redo()
+         },
+         ActionView(identifier: AccessibilityID.Reader.memoryWarningProbe, label: "Probe Memory Warning") {
+             NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification,
+                                             object: UIApplication.shared)
          }]
     }
 

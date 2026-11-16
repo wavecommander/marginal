@@ -1,4 +1,4 @@
-/// Accessibility identifiers of the sidebar (WP5), kept in the feature folder so the shell's
+/// Accessibility identifiers of the sidebar, kept in the feature folder so the shell's
 /// `AccessibilityID` is untouched. `UITests/SidebarUITests.swift` mirrors these strings.
 nonisolated enum SidebarAccessibilityID {
     /// The whole sidebar (inside the shell's pane container).

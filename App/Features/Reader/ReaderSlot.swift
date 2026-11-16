@@ -32,6 +32,10 @@ final class ReaderSlot {
     /// after the path was rearranged by a deletion; such a slot stays as it is until shown again).
     var pathIndex: Int?
 
+    /// The screen is on screen now (between its appearing and disappearing, so also while the
+    /// back swipe reveals it). `ReaderHost` keeps it.
+    @ObservationIgnored var isShown = false
+
     @ObservationIgnored private let environment: AppEnvironment
     @ObservationIgnored private weak var window: WindowContext?
     /// What the reader left when it last fell asleep (`nil` before then).
@@ -62,6 +66,8 @@ final class ReaderSlot {
         title = book.title
         let options = environment.launchOptions
         var configuration = ReaderSession.Configuration()
+        #if DEBUG
+        // Test switches from the launch arguments; a release build has none (`LaunchOptions`).
         configuration.inkAnyInput = options.inkAnyInput
         configuration.selectionMenuProbe = options.selectionMenuProbe
         configuration.markupProbeSurface = options.markupProbeSurface
@@ -70,6 +76,7 @@ final class ReaderSlot {
         configuration.exposesMarkupState = options.exposeMarkupState
         configuration.hardwareKeyboard = options.hardwareKeyboard
         configuration.scrollDirection = options.scrollDirection
+        #endif
         configuration.restoredState = leftState ?? window.readerState(for: bookID)
         configuration.resumePosition = leftPosition
         let overrides = takingOverrides ? window.takeReaderOverrides(for: bookID) : nil
@@ -97,6 +104,17 @@ final class ReaderSlot {
         }
     }
 
+    /// Falls asleep now, without the countdown (a memory warning while off screen). Does nothing
+    /// while asleep; being woken or shown while it saves keeps it awake.
+    func sleepNow() {
+        guard session != nil else { return }
+        cancelSleep()
+        let generation = sleepGeneration
+        sleepTask = Task { [weak self] in
+            await self?.fallAsleep(generation: generation)
+        }
+    }
+
     func cancelSleep() {
         sleepGeneration += 1
         sleepTask?.cancel()
@@ -108,7 +126,7 @@ final class ReaderSlot {
     private func fallAsleep(generation: Int) async {
         guard let session, generation == sleepGeneration else { return }
         await session.suspend()
-        await session.existingFeatureState(NotesPanelController.self)?.flushAll()
+        await session.notesPanelIfCreated?.flushAll()
         // Woken (or shown) while saving: stay awake.
         guard generation == sleepGeneration, self.session === session else { return }
         sleepTask = nil

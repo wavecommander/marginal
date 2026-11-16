@@ -1,3 +1,4 @@
+import ReaderCore
 import SwiftUI
 
 /// Living reference for the design system. Open the preview; nothing here ships in a screen.
@@ -33,7 +34,7 @@ struct DesignSystemGallery: View {
                 }
                 section("Highlighters") {
                     HStack(spacing: Space.s) {
-                        ForEach(Highlighter.allCases) { HighlightSwatch(colour: $0, isSelected: $0 == .yellow) }
+                        ForEach(HighlightColor.allCases, id: \.self) { HighlightSwatch(colour: $0, isSelected: $0 == .yellow) }
                     }
                     HighlightedText(text: "The characteristic polynomial", colour: .yellow)
                 }

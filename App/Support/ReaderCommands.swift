@@ -148,7 +148,7 @@ struct ReaderCommands: Commands {
 
     /// The focused reader's search, if one exists and has results to step through.
     private var activeSearch: SearchModel? {
-        guard let model = session?.existingFeatureState(SearchModel.self), model.canStep else { return nil }
+        guard let model = session?.searchModelIfCreated, model.canStep else { return nil }
         return model
     }
 

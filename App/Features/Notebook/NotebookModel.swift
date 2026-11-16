@@ -4,25 +4,23 @@ import ReaderCore
 
 /// The live Notebook of one book, for one Notebook screen (one per window showing it).
 ///
-/// **Building.** `start()` reads the book, flattens its PDF outline once off the main thread
-/// (`ReaderDocumentLoader.outlineEntries`), then `rebuild()`s: the records (notes, highlights,
-/// bookmarks, user headings) are read on the main actor through the store's repositories (they are
-/// main-actor), and the outline and the `Notebook` tree are built off the main thread
-/// (`ReaderDocumentLoader.buildOutline` / `buildNotebook`). A newer rebuild supersedes an older
-/// one still in flight (generation check).
+/// **Building.** The tree is the book's shared one (`BookIndex`: one per book, for every reader
+/// and Notebook window on it, kept current from the store's change hub). `start()` reads the
+/// book, joins its index, asks it for the pages with ink (`BookIndex.wantInkedPages()`: only a
+/// Notebook lists them) and waits for the first tree that has them.
 ///
-/// **Staying live.** A Notebook window has no reader session, so the model observes `store.hub`
-/// itself, filtered to its book: note, highlight and bookmark changes from any window schedule a
-/// debounced rebuild (`rebuildDelay`); user-heading changes also rebuild the outline; note-ink
-/// writes bump `inkVersions[noteID]` so an on-screen row reloads that note's ink; page-ink writes
-/// and deletions bump `pageInkVersions[page]` (the handwriting row's preview reloads) and schedule
-/// a rebuild, which reads the pages with ink from `store.inkedPages` (cached for every window,
-/// re-listed once after a change), so a page appears when inked and goes when all its ink is
-/// erased; `bookDeleted`
+/// **Staying live.** The model takes each tree the index builds (`buildCount` counts them): after
+/// a note, highlight, bookmark or user-heading change from any window (debounced by
+/// `rebuildDelay`), and after a page-ink write or deletion, so a page appears when inked and goes
+/// when all its ink is erased (the pages with ink come from `store.inkedPages`, cached for every
+/// window and re-listed once after a change). The model itself observes `store.hub`, filtered to
+/// its book, for what is its own: note-ink writes bump `inkVersions[noteID]` so an on-screen row
+/// reloads that note's ink; page-ink writes and deletions bump `pageInkVersions[page]` (the
+/// handwriting row's preview reloads); `bookDeleted`
 /// moves to `.missing` (the window's `WindowContext` drops the route or closes the window).
 ///
-/// **Anchor repairs.** After the first successful build, `Notebook.anchorRepairs` are applied
-/// once with `store.notes.retarget` (attributed to `origin`, whose own echoes are ignored), so
+/// **Anchor repairs.** After the first tree, `Notebook.anchorRepairs` are applied once
+/// (`BookIndex.applyAnchorRepairs`, attributed to `origin`; the tree is not rebuilt for them), so
 /// heading notes re-attach to headings that moved.
 @Observable
 @MainActor
@@ -38,7 +36,7 @@ final class NotebookModel {
     private(set) var phase: Phase = .loading
     private(set) var book: Book?
     private(set) var notebook: Notebook?
-    /// Increases after every completed build (for views and tests).
+    /// Increases with every tree taken from the book's index (for views and tests).
     private(set) var buildCount = 0
     /// Per note: increases when its ink file is written or deleted (a row reloads its ink).
     private(set) var inkVersions: [UUID: Int] = [:]
@@ -52,26 +50,31 @@ final class NotebookModel {
     /// Attributes the anchor repairs this model makes.
     @ObservationIgnored let origin = ChangeOrigin(label: "notebook")
     @ObservationIgnored private let rebuildDelay: Duration
-    @ObservationIgnored private let loadOutlineEntries: @Sendable (URL) async -> [RawOutlineEntry]
-    @ObservationIgnored private var rawEntries: [RawOutlineEntry]?
-    @ObservationIgnored private var outline: Outline?
+    @ObservationIgnored private let loadOutlineEntries: (@Sendable (URL) async -> [RawOutlineEntry])?
     @ObservationIgnored private var observation: StoreChangeObservation?
     @ObservationIgnored private var startTask: Task<Void, Never>?
-    @ObservationIgnored private var rebuildTask: Task<Void, Never>?
-    @ObservationIgnored private var generation = 0
+    /// The book's shared outline and Notebook tree.
+    @ObservationIgnored private var index: BookIndex?
+    @ObservationIgnored private var indexObservation: BookIndexObservation?
+    @ObservationIgnored private var inkedPagesDemand: BookIndex.InkedPagesDemand?
+    @ObservationIgnored private var adoptedBuild = 0
+    /// `start()` waiting for the first tree that lists the pages with ink.
+    @ObservationIgnored private var firstTreeWaiter: CheckedContinuation<Void, Never>?
     @ObservationIgnored private var repairsApplied = false
     @ObservationIgnored private var snapshots = NotebookSnapshotCache(capacity: 48)
 
     /// - Parameters:
-    ///   - rebuildDelay: debounce of rebuilds after a change.
-    ///   - outlineEntries: how to flatten the PDF outline (default: the shell's background loader).
+    ///   - rebuildDelay: debounce of rebuilds after a change (the book's index uses the shortest
+    ///     any of its windows asked for).
+    ///   - outlineEntries: how to flatten the PDF outline (default: the shell's background
+    ///     loader). Used when this model is the first window on the book.
     init(store: LibraryStore, bookID: UUID, rebuildDelay: Duration = .milliseconds(250),
          outlineEntries: (@Sendable (URL) async -> [RawOutlineEntry])? = nil) {
         self.store = store
         self.bookID = bookID
         self.rebuildDelay = rebuildDelay
         self.pagePreviews = NotebookPagePreviews(store: store, bookID: bookID)
-        self.loadOutlineEntries = outlineEntries ?? { url in await ReaderDocumentLoader.outlineEntries(at: url) }
+        self.loadOutlineEntries = outlineEntries
     }
 
     /// Starts observing and builds the first time. Idempotent; concurrent callers share one start.
@@ -82,10 +85,12 @@ final class NotebookModel {
         await task.value
     }
 
-    /// Stops observing and cancels pending work.
+    /// Stops observing and lets go of the pages with ink.
     func stop() {
         observation?.cancel()
-        rebuildTask?.cancel()
+        indexObservation?.cancel()
+        inkedPagesDemand = nil
+        resumeFirstTreeWaiter()
         pagePreviews.purge()
     }
 
@@ -100,61 +105,38 @@ final class NotebookModel {
             return
         }
         self.book = book
-        rawEntries = await loadOutlineEntries(store.documentURL(for: book))
-        await rebuild()
+        let index = BookIndex.shared(for: book, in: store, rebuildDelay: rebuildDelay, outlineEntries: loadOutlineEntries)
+        self.index = index
+        inkedPagesDemand = index.wantInkedPages()
+        indexObservation = index.observe { [weak self] update in
+            if case .notebook = update { self?.adoptNotebook() }
+        }
+        await index.load()
+        adoptNotebook()
+        if phase == .loading, indexObservation?.isActive == true {
+            // The index was built for a reader, without the pages with ink: the tree that lists
+            // them is on its way (`adoptNotebook` ends the wait; so do `stop()` and a deleted book).
+            await withCheckedContinuation { firstTreeWaiter = $0 }
+        }
     }
 
     // MARK: Building
 
-    /// Re-reads the book's records and rebuilds the tree now.
-    func rebuild() async {
-        guard phase != .missing, let book else { return }
-        generation += 1
-        let current = generation
-        let records = readRecords()
-        // Cached across windows; one directory listing only after a page-ink change.
-        let inkedPages = (try? await store.inkedPages.pages(bookID: book.id)) ?? []
-        let outline: Outline
-        if let cached = self.outline {
-            outline = cached
-        } else {
-            outline = await ReaderDocumentLoader.buildOutline(entries: rawEntries ?? [], userHeadings: records.headings,
-                                                              pageCount: book.pageCount)
-        }
-        let built = await Self.buildNotebook(outline: outline, notes: records.notes, highlights: records.highlights,
-                                             bookmarks: records.bookmarks, inkedPages: inkedPages)
-        guard current == generation, phase != .missing else { return }
-        self.outline = outline
+    /// Takes the index's tree, once per build, as soon as it lists the pages with ink.
+    private func adoptNotebook() {
+        guard phase != .missing, let index, index.notebookIncludesInk, index.buildCount != adoptedBuild,
+              let built = index.notebook else { return }
+        adoptedBuild = index.buildCount
         notebook = built
         phase = .ready
         buildCount += 1
         applyRepairsOnce(built)
+        resumeFirstTreeWaiter()
     }
 
-    /// Builds the tree, pages with ink included, off the main thread.
-    @concurrent
-    private nonisolated static func buildNotebook(outline: Outline, notes: [Note], highlights: [Highlight],
-                                                  bookmarks: [Bookmark], inkedPages: [Int]) async -> Notebook {
-        NotebookBuilder.build(outline: outline, notes: notes, highlights: highlights, bookmarks: bookmarks,
-                              inkedPages: inkedPages)
-    }
-
-    private func readRecords() ->(notes: [Note], highlights: [Highlight], bookmarks: [Bookmark], headings: [UserHeading]) {
-        ((try? store.notes.notes(bookID: bookID)) ?? [],
-         (try? store.highlights.highlights(bookID: bookID)) ?? [],
-         (try? store.bookmarks.bookmarks(bookID: bookID)) ?? [],
-         (try? store.headings.userHeadings(bookID: bookID)) ?? [])
-    }
-
-    private func scheduleRebuild() {
-        guard phase != .missing, book != nil else { return }
-        rebuildTask?.cancel()
-        let delay = rebuildDelay
-        rebuildTask = Task { [weak self] in
-            try? await Task.sleep(for: delay)
-            guard !Task.isCancelled else { return }
-            await self?.rebuild()
-        }
+    private func resumeFirstTreeWaiter() {
+        firstTreeWaiter?.resume()
+        firstTreeWaiter = nil
     }
 
     /// Deletes a note and its ink (design: "Deleting a note"; the Notebook row's Delete Note).
@@ -175,11 +157,7 @@ final class NotebookModel {
         guard !repairsApplied else { return }
         repairsApplied = true
         guard !notebook.anchorRepairs.isEmpty else { return }
-        store.perform(as: origin) {
-            for repair in notebook.anchorRepairs {
-                try? store.notes.retarget(noteID: repair.noteID, to: repair.target)
-            }
-        }
+        index?.applyAnchorRepairs(as: origin)
     }
 
     // MARK: Changes
@@ -189,26 +167,20 @@ final class NotebookModel {
         case .bookDeleted:
             phase = .missing
             notebook = nil
-            rebuildTask?.cancel()
-            generation += 1
+            indexObservation?.cancel()
+            inkedPagesDemand = nil
+            resumeFirstTreeWaiter()
         case .bookSaved:
             if let stored = try? store.books.book(id: bookID) { book = stored }
-        case .userHeadingsChanged:
-            outline = nil
-            scheduleRebuild()
-        case .noteSaved, .noteRemoved:
-            // The only notes this model writes are anchor repairs, which change nothing shown.
-            if event.isFrom(origin) { return }
-            scheduleRebuild()
-        case .highlightsChanged, .bookmarksChanged:
-            scheduleRebuild()
+        case .userHeadingsChanged, .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
+            break  // The book's index rebuilds the tree (`adoptNotebook`).
         case .noteInkChanged(_, let noteID):
             inkVersions[noteID, default: 0] += 1
             snapshots.remove(noteID: noteID)
         case .pageInkChanged(_, let page):
-            // Ink added or erased on a page, in any window: its row appears, changes or goes.
+            // Ink added or erased on a page, in any window: its row's preview reloads (the row
+            // itself appears or goes with the index's next tree).
             pageInkVersions[page, default: 0] += 1
-            scheduleRebuild()
         }
     }
 

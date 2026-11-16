@@ -89,7 +89,11 @@ final class WindowContext {
     @ObservationIgnored private var pendingOverrides: [UUID: ReaderOverrides] = [:]
     @ObservationIgnored private var hubToken: StoreChangeObservation?
     /// The reader screens shown in this window so far (weak: a popped screen's slot goes with it).
-    @ObservationIgnored private var readerSlots: [WeakBox<ReaderSlot>] = []
+    @ObservationIgnored private var readerSlots: [WeakSlot] = []
+    private final class WeakSlot {
+        weak var value: ReaderSlot?
+        init(_ value: ReaderSlot) { self.value = value }
+    }
     /// The window's latest reader state per book (panels, section history), as also kept in
     /// scene storage: a new reader on a book in this window starts from it (a woken reader
     /// resumes its own, `ReaderSlot`).
@@ -212,7 +216,7 @@ final class WindowContext {
     func readerSlotDidAppear(_ slot: ReaderSlot) {
         slot.pathIndex = Self.pathIndex(ofShownReader: slot.bookID, in: path)
         if !readerSlots.contains(where: { $0.value === slot }) {
-            readerSlots.append(WeakBox(slot))
+            readerSlots.append(WeakSlot(slot))
         }
         updateReaderSlots()
     }
@@ -235,6 +239,18 @@ final class WindowContext {
     /// A popped reader lets its session go after this long (once its screen has animated away),
     /// even if SwiftUI still holds the screen's state.
     nonisolated static let poppedReaderSleepDelay: Duration = .seconds(1)
+
+    /// A memory warning: every reader that is not on screen falls asleep now, the one under the
+    /// top screen and any still counting down included (`WindowRootView` calls this). The reader
+    /// on screen stays, and handles the warning itself (`ReaderSession.handleMemoryWarning()`).
+    /// A reader put to sleep here wakes like any other: when it is shown, or when the path next
+    /// changes and it is the top screen or the one under it.
+    func sleepOffScreenReaders() {
+        readerSlots.removeAll { $0.value == nil }
+        for slot in readerSlots.compactMap(\.value) where !slot.isShown {
+            slot.sleepNow()
+        }
+    }
 
     /// Wakes the readers near the top and counts down the others. `popped`: the path lost
     /// screens from its top (and nothing else changed).

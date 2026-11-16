@@ -108,10 +108,14 @@ final class SearchModel {
     init(session: ReaderSession, hitCap: Int = PDFTextSearch.defaultHitCap, pageDelay: Duration? = nil) {
         self.session = session
         self.hitCap = hitCap
-        // Test hook: the UI tests' `-searchPageDelayMs <n>` launch argument (read through the
-        // arguments domain of `UserDefaults`) slows the scan so a test can act mid-search.
-        let ms = UserDefaults.standard.integer(forKey: "searchPageDelayMs")
-        self.pageDelay = pageDelay ?? .milliseconds(max(0, ms))
+        // Test hook: the UI tests' `-searchPageDelayMs <n>` launch argument (`LaunchOptions`)
+        // slows the scan so a test can act mid-search. Debug builds only.
+        #if DEBUG
+        let ms = LaunchOptions.current.searchPageDelayMs ?? 0
+        #else
+        let ms = 0
+        #endif
+        self.pageDelay = pageDelay ?? .milliseconds(ms)
         totalPages = session.pageCount
 
         changeObservation = session.observeBookChanges(includeOwn: true) { [weak self] event in
@@ -122,7 +126,6 @@ final class SearchModel {
                 break
             }
         }
-        session.pdf.addTapHandler(self)
         observeOutline()
     }
 
@@ -433,19 +436,9 @@ final class SearchModel {
         hasMark = false
         session?.pdf.clearMarks()
     }
-}
 
-// Tapping the page clears the search mark (and is never consumed: other handlers still get it).
-extension SearchModel: ReaderPageTapHandling {
-    func handleTap(_ tap: ReaderPageTap) -> Bool {
+    /// A page was tapped (and no highlight took the tap): the search mark goes.
+    func pageWasTapped() {
         clearMarks()
-        return false
-    }
-}
-
-extension ReaderSession {
-    /// This window's search (created on first use, kept for the session's lifetime).
-    var searchModel: SearchModel {
-        featureState { SearchModel(session: self) }
     }
 }

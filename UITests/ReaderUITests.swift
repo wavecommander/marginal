@@ -72,12 +72,19 @@ final class ReaderUITests: XCTestCase {
     }
 
     private func openGoToPageField(_ app: XCUIApplication) {
-        if #available(iOS 26.0, *) {
-            app.typeKey("g", modifierFlags: [.command, .option])
-        } else {
-            pill(app).tap()
+        // A hardware-key event sent before the window has become key is dropped: press again
+        // if the field did not appear. The field takes focus as it appears; typing before
+        // that is lost.
+        let field = app.textFields[ReaderID.goToPageField].firstMatch
+        for _ in 0..<3 {
+            if #available(iOS 26.0, *) {
+                app.typeKey("g", modifierFlags: [.command, .option])
+            } else {
+                pill(app).tap()
+            }
+            if field.waitForExistence(timeout: 3) { break }
         }
-        sleep(1)
+        field.waitForKeyboardFocus()
     }
 
     /// The navigation bar shows `text` (the subtitle on iOS 26+, the title block before).
@@ -129,14 +136,15 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("9\n")
         XCTAssertTrue(waitForLabel(pill(app), "Page 9 of 12"))
-        sleep(3)
-        XCTAssertEqual(pill(app).label, "Page 9 of 12")
+        // Once the field and the keyboard have gone, the page still has to be 9.
+        XCTAssertTrue(field.waitForGone(), "the go-to-page field closed")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForGone(), "the keyboard closed")
+        XCTAssertEqual(UIWait.settled(interval: 0.5) { pill(app).label }, "Page 9 of 12")
         let back = app.buttons[ReaderID.historyBack].firstMatch
         XCTAssertTrue(waitForEnabled(back))
         back.tap()
         XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 12"))
-        sleep(2)
-        XCTAssertEqual(pill(app).label, "Page 1 of 12")
+        XCTAssertEqual(UIWait.settled(interval: 0.5) { pill(app).label }, "Page 1 of 12")
     }
 
     /// Without `-pagePillStaysVisible` the pill fades once the page stands still, and scrolling
@@ -175,7 +183,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testContentsAndNotesTogglesInWideLayout() {
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let contents = element(app, ReaderID.contentsPane)
         let notes = element(app, ReaderID.notesPane)
@@ -201,7 +209,7 @@ final class ReaderUITests: XCTestCase {
 
     func testNarrowWidthUsesOverlayAndSheet() {
         XCUIDevice.shared.orientation = .portrait
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         XCTAssertTrue(app.buttons[ReaderID.contentsToggle].waitForExistence(timeout: 30))
         // Notes is a sheet; Contents starts hidden and opens as an overlay.
         let sheet = element(app, ReaderID.notesSheet)
@@ -221,7 +229,8 @@ final class ReaderUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(element(app, ReaderID.contentsPane).waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, ReaderID.notesPane).exists)
-        sleep(1)
+        // The rotation has finished when the pill has stopped moving; the page is still 9.
+        pill(app).waitForStableFrame()
         XCTAssertTrue(waitForLabel(pill(app), "Page 9 of 12"))
     }
 
@@ -247,8 +256,8 @@ final class ReaderUITests: XCTestCase {
         scrollPage(app)
         scrollPage(app)
         scrollPage(app)
-        sleep(1)
-        let leftInA = currentPage(app)
+        // The page once the scroll has come to rest.
+        let leftInA = UIWait.settled(interval: 0.5) { currentPage(app) }
         XCTAssertTrue((312...317).contains(leftInA), "scrolled to \(leftInA)")
         // B: "10.1.1 Definitions"; C: "13.4 Structure".
         goToPage(app, 905)
@@ -284,11 +293,12 @@ final class ReaderUITests: XCTestCase {
     func testNewWindowOpensAtRequestedPage() {
         let app = openSmall(["-alsoOpenWindow", "small", "-alsoOpenWindowPage", "9"])
         let pills = app.buttons.matching(identifier: ReaderID.pagePill)
-        let deadline = Date().addingTimeInterval(30)
-        while pills.count < 2 && Date() < deadline { usleep(250_000) }
+        pills.waitForCount(atLeast: 2)
         XCTAssertEqual(pills.count, 2)
-        sleep(2)
-        let labels = Set((0..<pills.count).map { pills.element(boundBy: $0).label })
+        // Both windows have their documents once neither pill changes any more.
+        let labels = UIWait.settled(timeout: 10, interval: 0.5) {
+            Set((0..<pills.count).map { pills.element(boundBy: $0).label })
+        }
         XCTAssertEqual(labels, ["Page 1 of 12", "Page 9 of 12"])
         closeFrontWindow(app)
         if app.buttons.matching(identifier: ReaderID.pagePill).count > 1 { closeFrontWindow(app) }
@@ -301,10 +311,16 @@ final class ReaderUITests: XCTestCase {
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 30))
         XCTAssertTrue(waitForSelected(toggle, true), "markup on")
-        sleep(2)
-        app.typeKey("f", modifierFlags: [.command, .shift])
-        XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
-        app.buttons["search.done"].firstMatch.tap()
+        // A hardware-key event sent before the window has become key is dropped: press again
+        // if search did not open.
+        let done = app.buttons["search.done"].firstMatch
+        var opened = false
+        for _ in 0..<3 where !opened {
+            app.typeKey("f", modifierFlags: [.command, .shift])
+            opened = done.waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(opened, "search did not open")
+        done.tap()
         XCTAssertTrue(waitForSelected(toggle, true), "markup stays on after search")
         // The toolbar's search button is there in markup mode too.
         XCTAssertTrue(app.buttons["reader.toolbar.search"].firstMatch.exists)
@@ -315,7 +331,7 @@ final class ReaderUITests: XCTestCase {
     func testSearchAndNarrowNotesSheetCoexist() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("the system notes sheet is iPadOS 26+") }
         XCUIDevice.shared.orientation = .portrait
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         let sheet = element(app, ReaderID.notesSheet)
         XCTAssertTrue(sheet.waitForExistence(timeout: 15))
         app.buttons["reader.toolbar.search"].firstMatch.tap()
@@ -334,23 +350,28 @@ final class ReaderUITests: XCTestCase {
         let app = openSmall(["-openPage", "7", "-alsoOpenWindow", "small"])
         // Each reader window has its own page pill; both are in the hierarchy once the second opens.
         let pills = app.buttons.matching(identifier: ReaderID.pagePill)
-        let deadline = Date().addingTimeInterval(30)
-        while pills.count < 2 && Date() < deadline { usleep(250_000) }
+        pills.waitForCount(atLeast: 2)
         XCTAssertEqual(pills.count, 2)
-        sleep(1)
         // Move the front window only; the other keeps its page.
         let mores = app.buttons.matching(identifier: ReaderID.more)
-        let front = (0..<mores.count).map { mores.element(boundBy: $0) }.first { $0.isHittable }
-        XCTAssertNotNil(front)
-        let before = Set((0..<pills.count).map { pills.element(boundBy: $0).label })
+        func frontMore() -> XCUIElement? {
+            (0..<mores.count).map { mores.element(boundBy: $0) }.first { $0.isHittable }
+        }
+        XCTAssertTrue(UIWait.until { frontMore() != nil }, "the front window's More button")
+        let front = frontMore()
+        // Both windows have their documents once neither pill changes any more.
+        let before = UIWait.settled(timeout: 10, interval: 0.5) {
+            Set((0..<pills.count).map { pills.element(boundBy: $0).label })
+        }
         front?.tap()
         let item = app.buttons["Go to Page…"].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.tap()
-        sleep(1)
+        app.textFields[ReaderID.goToPageField].firstMatch.waitForKeyboardFocus()
         app.typeText("3\n")
-        sleep(2)
-        let after = (0..<pills.count).map { pills.element(boundBy: $0).label }
+        func labels() -> [String] { (0..<pills.count).map { pills.element(boundBy: $0).label } }
+        XCTAssertTrue(UIWait.until { labels().contains("Page 3 of 12") }, "\(labels())")
+        let after = labels()
         XCTAssertTrue(after.contains("Page 3 of 12"), "\(after)")
         XCTAssertEqual(after.count, 2)
         // The window not moved still shows a page it had before.
@@ -365,8 +386,13 @@ final class ReaderUITests: XCTestCase {
     /// Closes the focused window with the system Close command (test isolation: a window left
     /// open would be restored as a "hidden window" on later launches).
     private func closeFrontWindow(_ app: XCUIApplication) {
+        let pills = app.buttons.matching(identifier: ReaderID.pagePill)
+        let before = pills.count
         app.typeKey("w", modifierFlags: .command)
-        sleep(2)
+        // Closed when a reader has gone (callers press again if the key reached no window), or
+        // when the app has left the foreground because that was its last window (it cannot be
+        // queried then).
+        _ = UIWait.until(timeout: 3) { app.state != .runningForeground || pills.count < before }
     }
 
     /// Regression for the main-menu crash ("Replacement elements contain duplicates", a reader
@@ -500,9 +526,12 @@ final class ReaderUITests: XCTestCase {
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, true))
-        sleep(2)  // the probe canvas has become first responder by now
         XCTAssertTrue(waitForState(app, "responder=surface"), "the probe canvas is first responder")
         XCTAssertTrue(waitForState(app, "picker=shown"))
+        // It stays: still so once the probe has stopped changing.
+        let probe = app.buttons["reader.markupState"].firstMatch
+        let settled = UIWait.settled(interval: 0.5) { probe.value as? String ?? "" }
+        XCTAssertTrue(settled.contains("responder=surface") && settled.contains("picker=shown"), settled)
         let directory = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
         let suffix = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 18 ? "-ios17" : ""
         try? XCUIScreen.main.screenshot().pngRepresentation
@@ -564,9 +593,7 @@ final class ReaderUITests: XCTestCase {
         // something else; press again until a word is selected.
         for _ in 0..<3 {
             line.coordinate(withNormalizedOffset: point).press(forDuration: 1.2)
-            let deadline = Date().addingTimeInterval(4)
-            while selectionProbe(app).label == "none" && Date() < deadline { usleep(200_000) }
-            if selectionProbe(app).label != "none" { break }
+            if UIWait.until(timeout: 4, poll: 0.2, { selectionProbe(app).label != "none" }) { break }
         }
         print("SELECT-ALL selected: \(selectionProbe(app).label) [\(selectionProbe(app).value ?? "")]")
         return line.coordinate(withNormalizedOffset: point)
@@ -585,7 +612,7 @@ final class ReaderUITests: XCTestCase {
     func testSelectAllSelectsTheParagraph() throws {
         let app = openSmall(["-openPage", "3", "-exposeSelection"])
         XCTAssertTrue(selectionProbe(app).waitForExistence(timeout: 10))
-        sleep(1)
+        XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"), "opened at page 3")
         let pillBefore = pill(app).label
         selectAmber(app)
         let word = selectionProbe(app).label
@@ -601,8 +628,7 @@ final class ReaderUITests: XCTestCase {
         let item = try XCTUnwrap(selectAll, "Select All is not in the edit menu")
         item.tap()
         let paragraph = "Remember that the quick amber fox annotates margins."
-        let deadline = Date().addingTimeInterval(5)
-        while !selectionProbe(app).label.contains(paragraph) && Date() < deadline { usleep(200_000) }
+        _ = UIWait.until(timeout: 5, poll: 0.2) { selectionProbe(app).label.contains(paragraph) }
         let label = selectionProbe(app).label.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = selectionProbe(app).value as? String ?? ""
         print("SELECT-ALL after menu: \(label) [\(value)]")
@@ -613,7 +639,7 @@ final class ReaderUITests: XCTestCase {
 
         // ⌘A on a fresh word selection.
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.6)).tap()
-        sleep(1)
+        _ = UIWait.until(timeout: 5) { selectionProbe(app).label == "none" }  // the tap cleared the selection
         let wordPoint = selectAmber(app)
         // After a long press, XCUITest's synthesized ⌘A reaches the app only with the next touch
         // on the page (measured with a route trace: the app then runs Select All on
@@ -624,8 +650,7 @@ final class ReaderUITests: XCTestCase {
         for _ in 0..<3 where !selectionProbe(app).label.contains(paragraph) {
             sleep(1)
             wordPoint.tap()
-            let keyDeadline = Date().addingTimeInterval(5)
-            while !selectionProbe(app).label.contains(paragraph) && keyDeadline > Date() { usleep(200_000) }
+            _ = UIWait.until(timeout: 5, poll: 0.2) { selectionProbe(app).label.contains(paragraph) }
         }
         print("SELECT-ALL after ⌘A: \(selectionProbe(app).label) [\(selectionProbe(app).value ?? "")]")
         // Not held against the test: after a long press the synthesized key is delivered in some

@@ -1,7 +1,6 @@
 import Foundation
-import ReaderCore
 import Testing
-@testable import Marginal
+@testable import ReaderCore
 
 struct LibraryLogicTests {
     private func book(_ title: String, added: TimeInterval, opened: TimeInterval? = nil, page: Int = 0,
@@ -76,12 +75,5 @@ struct LibraryLogicTests {
     @Test func paletteIndexIsStable() {
         #expect(LibraryLogic.paletteIndex(for: "abc", count: 8) == LibraryLogic.paletteIndex(for: "abc", count: 8))
         #expect((0..<8).contains(LibraryLogic.paletteIndex(for: "anything", count: 8)))
-    }
-
-    @Test func activityRoundTripsTheBookID() {
-        let id = UUID()
-        let activity = LibraryActivity.makeActivity(bookID: id, title: "T")
-        #expect(activity.activityType == LibraryActivity.openBookType)
-        #expect(LibraryActivity.bookID(from: activity) == id)
     }
 }

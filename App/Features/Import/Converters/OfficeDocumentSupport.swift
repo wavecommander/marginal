@@ -8,31 +8,6 @@ import UIKit
 // from the file (title, page size, heading styles), and how the page size of a document WebKit
 // shows in its PDF viewer is found. See docs/FORMAT_IMPORT_PLAN.md, F0 finding 6.
 
-/// The MIME type that makes WebKit convert the file itself. Found on the iOS 27 simulator:
-/// `text/rtf` shows the RTF source as text and `application/vnd.apple.pages`/`…keynote` fail the
-/// load, so these are the ones that work.
-nonisolated enum OfficeMIMEType {
-    static func forFile(extension ext: String, format: ImportFormat) -> String {
-        switch ext.lowercased() {
-        case "docx", "docm", "dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        case "doc", "dot": "application/msword"
-        case "pptx", "pptm", "ppsx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        case "ppt", "pps", "pot": "application/vnd.ms-powerpoint"
-        case "pages": "application/x-iwork-pages-sffpages"
-        case "key": "application/x-iwork-keynote-sffkey"
-        case "rtf": "application/rtf"
-        default:
-            switch format {
-            case .word: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            case .powerPoint: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            case .pages: "application/x-iwork-pages-sffpages"
-            case .keynote: "application/x-iwork-keynote-sffkey"
-            default: "application/octet-stream"
-            }
-        }
-    }
-}
-
 // MARK: - The file handed to WebKit
 
 nonisolated enum OfficeSourceFile {

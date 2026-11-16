@@ -79,9 +79,16 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "teal"])
         waitForAccent(app, "teal")
         XCTAssertTrue(app.buttons["settings.open"].waitForExistence(timeout: 10))
-        app.typeKey(",", modifierFlags: .command)
+        // Settings… is disabled until the window is the focused one, and a hardware-key event
+        // sent before that is dropped; nothing on screen says when it is, so press again if
+        // Settings did not open.
         let reset = app.buttons["settings.accent.reset"]
-        XCTAssertTrue(reset.waitForExistence(timeout: 5), app.debugDescription)
+        var opened = false
+        for _ in 0..<3 where !opened {
+            app.typeKey(",", modifierFlags: .command)
+            opened = reset.waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(opened, app.debugDescription)
         XCTAssertEqual(app.buttons["settings.accent.teal"].value as? String, "selected")
         reset.tap()
         XCTAssertEqual(app.buttons["settings.accent.raspberry"].value as? String, "selected")

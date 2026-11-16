@@ -44,6 +44,9 @@ struct WindowRootView: View {
         })
         .accentRoot(scene: scene)
         .onAppear(perform: makeContextIfNeeded)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            context?.sleepOffScreenReaders()
+        }
         .task { await applyLaunchPlanIfFirstWindow() }
     }
 
@@ -65,9 +68,11 @@ struct WindowRootView: View {
         // screens are dropped (a reader/Notebook window left empty shows the Library).
         path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
+        #if DEBUG
         if let delay = environment.launchOptions.readerSleepDelay {
             context.readerSleepDelay = .milliseconds(Int(delay * 1000))
         }
+        #endif
         if let opensAt {
             context.setReaderOverrides(opensAt.overrides, for: opensAt.bookID)
         }

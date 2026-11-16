@@ -33,8 +33,8 @@ struct ReaderSessionLifetimeTests {
         let host = try await openHost()
         let session = host.session
         weak var document = session.document
-        weak var highlights = HighlightController.of(session)
-        weak var notes = session.existingFeatureState(NotesPanelController.self)
+        weak var highlights = session.highlights
+        weak var notes = session.notesPanelIfCreated
         #expect(document != nil && highlights != nil && notes != nil)
 
         await session.suspend()

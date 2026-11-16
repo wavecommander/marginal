@@ -25,14 +25,14 @@ struct SidebarActions {
     var delete: (_ node: OutlineNode) -> Void
 }
 
-/// The reader's sidebar (WP5): **Contents** (the merged outline with note badges and
+/// The reader's sidebar: **Contents** (the merged outline with note badges and
 /// current-section tracking, plus the reader's own headings), **Pages** (a lazy thumbnail grid)
 /// and **Bookmarks**. The shell hosts it as the left pane at wide widths and as an overlay at
 /// narrow widths, and owns the container, its width and visibility; this view lays itself out
 /// from the size it is given.
 ///
 /// - Reads and commands only its own window's `session`; per-window state lives in
-///   `ContentsSidebarModel` (`session.featureState`), the selected tab in scene storage.
+///   `ContentsSidebarModel` (`session.sidebarModel`), the selected tab in scene storage.
 /// - Navigates only through `session.jump(…)` (section history), never the PDF view; showing,
 ///   hiding or switching tabs never touches the reading position.
 /// - Presents the one heading sheet for every add/edit entry point (`model.headingSheet`).
@@ -48,8 +48,7 @@ struct ContentsSidebar: View {
 
     init(session: ReaderSession) {
         self.session = session
-        self.model = session.featureState { ContentsSidebarModel(session: session) }
-        SidebarHeadingActions.install(on: session)
+        self.model = session.sidebarModel
     }
 
     private var tab: Binding<SidebarTab> {

@@ -13,6 +13,7 @@ final class ReaderSleepUITests: XCTestCase {
         static let markupState = "reader.markupState"
         static let viewportAnchor = "reader.viewportAnchor"
         static let more = "reader.toolbar.more"
+        static let memoryWarning = "reader.memoryWarning"
         static func header(_ title: String) -> String { "notebook.header.\(title)" }
         static func pageNote(_ page: Int) -> String { "notebook.pageNote.\(page)" }
         static func scope(_ title: String) -> String { "notebook.scope.\(title)" }
@@ -101,6 +102,66 @@ final class ReaderSleepUITests: XCTestCase {
         // The menu bar commands act on the woken reader.
         goToPage(app, 25)
         XCTAssertTrue(wait(pill, "label == %@", ["Page 25 of 40"]), pill.label)
+    }
+
+    /// A memory warning puts every off-screen reader to sleep at once: here the sleep delay is
+    /// ten minutes, so only the warning can have done it. The reader on screen stays.
+    func testAMemoryWarningSleepsOffScreenReadersAtOnce() {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.noOutline)
+            + ["-screen", "notebook", "-seedNotebook", "-exposeMarkupState", "-exposeViewportAnchor",
+               "-pagePillStaysVisible", "-readerSleepDelay", "600"])
+        let section = "5.1 Invariant Directions"
+        XCTAssertTrue(row(app, ID.header("3 Matrices and Linear Maps")).waitForExistence(timeout: 30), "seeded feed")
+        let scope = app.collectionViews["notebook.scopes"].otherElements[ID.scope(section)].firstMatch
+        XCTAssertTrue(scope.waitForExistence(timeout: 5))
+        scope.tap()
+
+        // Notebook → reader A (page 17) → its Notebook → reader B (page 16).
+        let note = row(app, ID.pageNote(17))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.tap()
+        let pill = app.buttons[ID.pagePill].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 30))
+        XCTAssertTrue(wait(pill, "label == %@", ["Page 17 of 40"]), pill.label)
+        let leftInA = settledAnchor(app)
+        let more = app.buttons[ID.more].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        let notebookItem = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@",
+                                                            "Notebook", "BackButton")).firstMatch
+        for _ in 0..<3 where !notebookItem.exists {
+            more.tap()
+            _ = notebookItem.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(notebookItem.exists, "Notebook in the More menu")
+        notebookItem.tap()
+        let header = row(app, ID.header(section))
+        XCTAssertTrue(header.waitForExistence(timeout: 15))
+        header.tap()
+        XCTAssertTrue(wait(pill, "label == %@", ["Page 16 of 40"]), pill.label)
+
+        // Both readers are awake, and stay so: the countdown is ten minutes.
+        let state = app.buttons[ID.markupState].firstMatch
+        XCTAssertTrue(state.waitForExistence(timeout: 10))
+        XCTAssertTrue(wait(state, "value CONTAINS %@", ["sessions=2"]), "both awake: \(state.value ?? "")")
+        sleep(3)
+        XCTAssertTrue((state.value as? String)?.contains("sessions=2") == true, "still both: \(state.value ?? "")")
+
+        // The warning: reader A sleeps now; reader B, on screen, stays where it is.
+        let warning = app.buttons[ID.memoryWarning].firstMatch
+        XCTAssertTrue(warning.waitForExistence(timeout: 5))
+        warning.tap()
+        XCTAssertTrue(wait(state, "value CONTAINS %@", ["sessions=1"], timeout: 5), "A sleeps at once: \(state.value ?? "")")
+        XCTAssertEqual(pill.label, "Page 16 of 40")
+
+        // Reader A wakes where it was left.
+        back(app)
+        XCTAssertTrue(header.waitForExistence(timeout: 10), "back in the Notebook")
+        back(app)
+        XCTAssertTrue(pill.waitForExistence(timeout: 30))
+        XCTAssertTrue(wait(pill, "label == %@", ["Page 17 of 40"]), pill.label)
+        let woken = settledAnchor(app)
+        XCTAssertEqual(woken.page, leftInA.page)
+        XCTAssertLessThanOrEqual(abs(woken.y - leftInA.y), 1, "A resumes its own place: \(leftInA) -> \(woken)")
     }
 
     // MARK: Helpers

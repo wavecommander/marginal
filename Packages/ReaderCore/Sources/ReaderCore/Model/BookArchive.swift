@@ -30,7 +30,7 @@ public struct BookArchive: Hashable, Codable, Sendable {
             && bookmarks.allSatisfy { $0.bookID == id } && userHeadings.allSatisfy { $0.bookID == id }
     }
 
-    /// Checks the rules `BookRepository.replaceBook(_:removing:)` applies to the archive on its
+    /// Checks the rules `RecordStore.replaceBook(_:removing:)` applies to the archive on its
     /// own, before it looks at the store, so every implementation refuses the same archives with
     /// the same error. In order: every record belongs to `book` (`.archiveInconsistent`); no ID
     /// repeats within one kind of record (`.archiveDuplicateRecordID`); at most one note per

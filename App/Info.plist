@@ -71,11 +71,7 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>public.jpeg</string>
-				<string>public.png</string>
-				<string>public.heic</string>
-				<string>public.heif</string>
-				<string>public.tiff</string>
+				<string>public.image</string>
 			</array>
 		</dict>
 		<dict>
@@ -105,6 +101,9 @@
 			<array>
 				<string>org.openxmlformats.wordprocessingml.document</string>
 				<string>com.microsoft.word.doc</string>
+				<string>org.openxmlformats.wordprocessingml.document.macroenabled</string>
+				<string>org.openxmlformats.wordprocessingml.template</string>
+				<string>com.microsoft.word.dot</string>
 				<string>public.rtf</string>
 				<string>com.apple.iwork.pages.sffpages</string>
 				<string>com.apple.iwork.pages.pages</string>
@@ -121,6 +120,10 @@
 			<array>
 				<string>org.openxmlformats.presentationml.presentation</string>
 				<string>com.microsoft.powerpoint.ppt</string>
+				<string>org.openxmlformats.presentationml.presentation.macroenabled</string>
+				<string>org.openxmlformats.presentationml.slideshow</string>
+				<string>com.microsoft.powerpoint.pps</string>
+				<string>com.microsoft.powerpoint.pot</string>
 				<string>com.apple.iwork.keynote.sffkey</string>
 				<string>com.apple.iwork.keynote.key</string>
 			</array>
@@ -294,6 +297,7 @@
 					<string>mobi</string>
 					<string>azw</string>
 					<string>azw3</string>
+					<string>azw4</string>
 					<string>kfx</string>
 					<string>prc</string>
 				</array>

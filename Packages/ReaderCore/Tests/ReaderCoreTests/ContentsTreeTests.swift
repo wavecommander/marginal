@@ -1,11 +1,9 @@
 import Foundation
-import ReaderCore
 import Testing
-@testable import Marginal
+@testable import ReaderCore
 
 /// WP5: the pure Contents tree rules (`ContentsTree`, `ContentsExpansion`).
-@MainActor
-struct SidebarTreeTests {
+struct ContentsTreeTests {
     // MARK: Builders
 
     /// A 4-level outline: 2 chapters × 2 sections × 2 subsections × 2 items, pages ascending.

@@ -276,27 +276,16 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         updateBackSwipe()
     }
 
-    /// Runs `body`, which may put the tool picker on screen. The first time a `PKToolPicker` is
-    /// shown in a window, PencilKit adds its palette host view (in the scene's text-effects
-    /// window, not the reader's) centred on the window's origin and docks the palette inside it;
-    /// the host gets its real frame on a later layout pass, and PencilKit animates its own
-    /// layout when the host's safe area changes in between. Either one animated, and the palette
-    /// flies in from the top centre of the screen instead of appearing at its docked edge
-    /// (TSOFT-219; on the simulator, when a note's text view is first responder). So until the
-    /// picker has been on screen in this window, show it without animation and lay the scene's
-    /// windows out at once: it appears in its docked place. Later shows (host laid out) keep
+    /// Runs `body`, which may put the tool picker on screen. Until the picker has been on screen
+    /// in this window it is shown so that it appears in its docked place instead of flying in
+    /// (TSOFT-219, `PencilKitWorkarounds.showToolPickerForTheFirstTime`). Later shows keep
     /// PencilKit's own slide-in from that edge.
     private func showingToolPicker(_ body: () -> Void) {
         guard isMarkup, let window = responderView.window, window !== toolPickerWindow else {
             body()
             return
         }
-        UIView.performWithoutAnimation {
-            body()
-            for sceneWindow in window.windowScene?.windows ?? [window] {
-                sceneWindow.layoutIfNeeded()
-            }
-        }
+        PencilKitWorkarounds.showToolPickerForTheFirstTime(in: window, body)
     }
 
     /// In markup mode the navigation stack's back-swipe gestures are disabled for this window:
@@ -408,16 +397,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         if let manager = notification.object as? UndoManager, manager === routingUndoManager { return }
         refreshUndoState()
         if let routed = routedUndoManager, let manager = notification.object as? UndoManager, manager === routed,
-           Self.mirroredNotifications.contains(notification.name) {
+           PencilKitWorkarounds.toolPickerUndoNotifications.contains(notification.name) {
             announce(notification.name, userInfo: notification.userInfo)
         }
     }
-
-    /// The routed manager's notifications the proxy re-posts as its own: the ones PencilKit's
-    /// tool picker listens to (its binary imports exactly these three).
-    private static let mirroredNotifications: Set<Notification.Name> = [
-        .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
-    ]
 
     private func refreshUndoState() {
         let manager = routedUndoManager
@@ -434,9 +417,10 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         }
     }
 
-    /// Posts `name` from the proxy and remembers what its observers will read now.
+    /// Posts `name` from the proxy (`PencilKitWorkarounds.postUndoNotification`: the tool picker
+    /// follows the proxy through these) and remembers what its observers will read now.
     private func announce(_ name: Notification.Name, userInfo: [AnyHashable: Any]?) {
-        NotificationCenter.default.post(name: name, object: routingUndoManager, userInfo: userInfo)
+        PencilKitWorkarounds.postUndoNotification(name, as: routingUndoManager, userInfo: userInfo)
         announcedState = (routingUndoManager.canUndo, routingUndoManager.canRedo)
         scheduleStateCheck()
     }
