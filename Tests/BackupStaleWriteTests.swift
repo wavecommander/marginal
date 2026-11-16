@@ -150,7 +150,7 @@ struct BackupStaleWriteTests {
         try await restore(fixture, flushEditors: {})
         session.open()
         #expect(await Support.waitUntil { session.isOutlineLoaded })
-        let controller = NotesPanelController.forSession(session)
+        let controller = session.notesPanel
         controller.refresh(explicit: true)
         #expect(!controller.didRepairAnchors)
 
@@ -158,7 +158,7 @@ struct BackupStaleWriteTests {
         let fresh = makeSession(fixture)
         fresh.open()
         #expect(await Support.waitUntil { fresh.isOutlineLoaded })
-        let freshController = NotesPanelController.forSession(fresh)
+        let freshController = fresh.notesPanel
         freshController.refresh(explicit: true)
         #expect(freshController.didRepairAnchors)
     }

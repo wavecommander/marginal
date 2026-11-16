@@ -38,7 +38,7 @@ enum HighlightsTestSupport {
     }
 
     static func controller(_ host: PageInkTestSupport.Host) -> HighlightController {
-        HighlightController.of(host.session)!
+        host.session.highlights!
     }
 
     /// Selects `text` (its `occurrence`-th match) on a page of the on-screen document through

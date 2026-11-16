@@ -7,8 +7,9 @@ import UIKit
 /// The PDFKit bridge of one reader window (`ReaderSession.pdf`). Owns the window's `PDFView`
 /// (created once per session and re-hosted if SwiftUI rebuilds the layout, so the scroll
 /// position survives switching between wide and narrow layouts), tracks the current and visible
-/// pages, keeps the current page on resize and rotation, and exposes the plug points in
-/// `ReaderExtensionPoints.swift`.
+/// pages, keeps the current page on resize and rotation, and hands page overlays, the selection
+/// menu, taps and visible pages to the session's features (`ReaderSession.pageInk`,
+/// `highlights`, `searchModelIfCreated`; see `ReaderExtensionPoints.swift`).
 ///
 /// Performance rules it keeps: the document is opened lazily by PDFKit (no page walk, no text
 /// extraction here); only visible pages are rendered; overlays exist only for displayed pages.
@@ -23,16 +24,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// The document shown, once attached.
     var document: PDFDocument? { isViewLoaded ? view.document : nil }
-
-    /// WP6's overlay provider (weak; the session retains feature controllers). Set it in your
-    /// controller's `init(session:)`, before the document is opened.
-    weak var pageOverlayProvider: (any ReaderPageOverlayProviding)? {
-        didSet { reinstallOverlayProviderIfNeeded() }
-    }
-
-    private var selectionMenuProviders: [WeakBox<any ReaderSelectionMenuProviding>] = []
-    private var tapHandlers: [WeakBox<any ReaderPageTapHandling>] = []
-    private var visiblePagesObservers: [WeakBox<any ReaderVisiblePagesObserving>] = []
 
     /// Which offset changes are reading and which are layout (design: "The reading position is
     /// stable"): the phase, the reading anchor and the rule are `ReadingPositionKeeper`'s; this
@@ -108,23 +99,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         self.session = session
         self.position = ReadingPositionKeeper(clock: clock)
         super.init()
-    }
-
-    // MARK: Plug-point registration
-
-    func addSelectionMenuProvider(_ provider: any ReaderSelectionMenuProviding) {
-        selectionMenuProviders.removeAll { $0.value == nil }
-        selectionMenuProviders.append(WeakBox(provider))
-    }
-
-    func addTapHandler(_ handler: any ReaderPageTapHandling) {
-        tapHandlers.removeAll { $0.value == nil }
-        tapHandlers.append(WeakBox(handler))
-    }
-
-    func addVisiblePagesObserver(_ observer: any ReaderVisiblePagesObserving) {
-        visiblePagesObservers.removeAll { $0.value == nil }
-        visiblePagesObservers.append(WeakBox(observer))
     }
 
     // MARK: Document
@@ -367,21 +341,21 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.isInMarkupMode = mode == .markup
     }
 
-    // MARK: PDFPageOverlayViewProvider (adapter to ReaderPageOverlayProviding)
+    // MARK: PDFPageOverlayViewProvider (page ink: `ReaderSession.pageInk`)
 
     func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return nil }
-        return provider.makeOverlayView(for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return nil }
+        return pageInk.makeOverlayView(for: page, pageIndex: index)
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return }
-        provider.overlayWillAppear(overlayView, for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return }
+        pageInk.overlayWillAppear(overlayView, for: page, pageIndex: index)
     }
 
     func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let provider = pageOverlayProvider, let index = pageIndex(of: page) else { return }
-        provider.overlayDidDisappear(overlayView, for: page, pageIndex: index)
+        guard let pageInk = session?.pageInk, let index = pageIndex(of: page) else { return }
+        pageInk.overlayDidDisappear(overlayView, for: page, pageIndex: index)
     }
 
     // MARK: View-facing (ReaderPDFView)
@@ -425,13 +399,13 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return (0..<pageCount).contains(target) && target != currentPage ? target : nil
     }
 
+    /// The actions the features add to the edit menu of a text selection, in this order: the
+    /// highlight colours (WP7), then "Add as Heading" (WP5).
     func selectionMenuElements() -> [UIMenuElement] {
-        guard let selection = currentSelection else { return [] }
-        var elements: [UIMenuElement] = []
-        for provider in selectionMenuProviders.compactMap(\.value) {
-            elements.append(contentsOf: provider.selectionMenuElements(for: selection))
-        }
-        if session?.configuration.selectionMenuProbe == true {
+        guard let selection = currentSelection, let session else { return [] }
+        var elements = session.highlights?.selectionMenuElements(for: selection) ?? []
+        elements.append(contentsOf: SidebarHeadingActions.selectionMenuElements(for: selection, in: session))
+        if session.configuration.selectionMenuProbe {
             elements.append(UIAction(title: "Probe") { _ in })
         }
         return elements
@@ -512,7 +486,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         isViewLoaded = true
         let view = ReaderPDFView(frame: .zero)
         view.controller = self
-        // Must be set before a document is assigned for PDFKit to ask for overlays.
+        // Must be set before a document is assigned for PDFKit to ask for overlays (the session
+        // makes its page ink before it opens the document).
         view.pageOverlayViewProvider = self
         view.displayMode = .singlePageContinuous
         view.displayDirection = (session?.scrollDirection ?? .vertical).pdfDisplayDirection
@@ -541,17 +516,6 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         touchDown.delegate = tapDelegate
         view.addGestureRecognizer(touchDown)
         return view
-    }
-
-    private func reinstallOverlayProviderIfNeeded() {
-        // PDFKit consults the provider only for pages displayed after a document is assigned.
-        guard isViewLoaded, let document = view.document, let session else { return }
-        let page = session.currentPageIndex
-        view.document = nil
-        view.document = document
-        position.invalidatePosition()
-        position.setPendingPage(page)
-        applyPendingPageIfPossible()
     }
 
     private func applyPendingPageIfPossible() {
@@ -587,24 +551,24 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         updateAnchorProbe()
     }
 
+    /// A single tap on a page goes to highlights first (WP7: a tap on a highlight opens its menu
+    /// and is consumed), then to the search if there is one (WP10: it clears its mark).
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended else { return }
-        let handlers = tapHandlers.compactMap(\.value)
-        guard !handlers.isEmpty else { return }
+        guard recognizer.state == .ended, let session,
+              session.highlights != nil || session.searchModelIfCreated != nil else { return }
         let point = recognizer.location(in: view)
         guard let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
         let tap = ReaderPageTap(pageIndex: index, page: page, pointInPage: view.convert(point, to: page),
                                 pointInView: point, view: view)
-        for handler in handlers where handler.handleTap(tap) { break }
+        if session.highlights?.handleTap(tap) == true { return }
+        session.searchModelIfCreated?.pageWasTapped()
     }
 
     private func reportVisiblePages() {
         guard view.document != nil else { return }
         let pages = Array(Set(view.visiblePages.compactMap { pageIndex(of: $0) })).sorted()
         session?.pdfReportedVisiblePages(pages)
-        for observer in visiblePagesObservers.compactMap(\.value) {
-            observer.visiblePagesDidChange(pages)
-        }
+        session?.highlights?.visiblePagesDidChange(pages)
     }
 
     private func reportNavigationState() {
@@ -956,11 +920,4 @@ final class ReaderPDFHostView: UIView {
             addSubview(probe)
         }
     }
-}
-
-/// A weak reference to a class-constrained existential.
-final class WeakBox<T> {
-    private weak var object: AnyObject?
-    init(_ value: T) { object = value as AnyObject }
-    var value: T? { object as? T }
 }

@@ -284,8 +284,9 @@ final class ReaderSession: Identifiable {
     @ObservationIgnored private var notebookTask: Task<Void, Never>?
     @ObservationIgnored private var notebookGeneration = 0
     @ObservationIgnored private var openTask: Task<Void, Never>?
-    @ObservationIgnored private var featureObjects: [AnyObject] = []
-    @ObservationIgnored private var featureStates: [ObjectIdentifier: AnyObject] = [:]
+    @ObservationIgnored private var notesPanelIfCreated: NotesPanelController?
+    @ObservationIgnored private var sidebarModelIfCreated: ContentsSidebarModel?
+    @ObservationIgnored private var markupProbe: MarkupProbeSurface?
 
     // MARK: Init
 
@@ -325,7 +326,7 @@ final class ReaderSession: Identifiable {
         }
         OpenEditorRegistry.shared.register(self)
         if configuration.installsFeatures {
-            ReaderFeatureWiring.install(on: self)
+            installFeatures()
         }
         if configuration.startInMarkup {
             setMode(.markup)
@@ -617,29 +618,58 @@ final class ReaderSession: Identifiable {
         }
     }
 
-    // MARK: Feature plug-in storage
+    // MARK: Features
+    //
+    // One of each per window, for the session's lifetime. The PDF bridge calls the ones that
+    // plug into it directly (`ReaderPDFController`: page overlays, the selection menu, taps,
+    // visible pages).
 
-    /// Per-session state for a feature, created on first use and kept for the session's
-    /// lifetime (e.g. a search model that should survive closing its popover). One instance per
-    /// type: `let model = session.featureState { SearchModel(session: session) }`.
-    func featureState<T: AnyObject>(_ make: () -> T) -> T {
-        let key = ObjectIdentifier(T.self)
-        if let existing = featureStates[key] as? T { return existing }
-        let made = make()
-        featureStates[key] = made
-        return made
+    /// Page ink (WP6): one canvas per displayed page. `nil` in a session made without features
+    /// (`Configuration.installsFeatures`).
+    @ObservationIgnored private(set) var pageInk: PageInkOverlayProvider?
+    /// Text highlights (WP7). `nil` in a session made without features.
+    @ObservationIgnored private(set) var highlights: HighlightController?
+    /// The notes panel's state (WP8): made with the window, or on first use in a session made
+    /// without features (unit tests).
+    var notesPanel: NotesPanelController {
+        if let notesPanelIfCreated { return notesPanelIfCreated }
+        let controller = NotesPanelController(session: self)
+        notesPanelIfCreated = controller
+        return controller
     }
-
-    /// The feature state of type `T` if it has been created, without creating it (e.g. menu
-    /// commands that are disabled while there is no search).
-    func existingFeatureState<T: AnyObject>(_ type: T.Type) -> T? {
-        featureStates[ObjectIdentifier(type)] as? T
+    /// The Contents sidebar's state (WP5), made on first use (`ContentsSidebarModel.shared(for:)`
+    /// also starts it).
+    var sidebarModel: ContentsSidebarModel {
+        if let sidebarModelIfCreated { return sidebarModelIfCreated }
+        let model = ContentsSidebarModel(session: self)
+        sidebarModelIfCreated = model
+        return model
     }
+    /// This window's search (WP10), made on first use and kept for the session's lifetime (it
+    /// survives closing its popover).
+    var searchModel: SearchModel {
+        if let searchModelIfCreated { return searchModelIfCreated }
+        let model = SearchModel(session: self)
+        searchModelIfCreated = model
+        return model
+    }
+    /// The search if it has been made, without making it (menu commands that are disabled while
+    /// there is no search; taps on the page).
+    @ObservationIgnored private(set) var searchModelIfCreated: SearchModel?
 
-    /// Keeps a feature controller alive for the session's lifetime (used by
-    /// `ReaderFeatureWiring`).
-    func retainFeature(_ object: AnyObject) {
-        featureObjects.append(object)
+    /// Makes the feature controllers that live with the window. They are made inside `init`,
+    /// before the document opens, so page ink is in place before PDFKit first asks for overlays.
+    private func installFeatures() {
+        pageInk = PageInkOverlayProvider(session: self)
+        highlights = HighlightController(session: self)
+        // With the window, not with the panel, so heading-anchor repair and section-pin tracking
+        // run in a window that never shows the notes panel. Safe this early: its init only reads
+        // the session's page and tab, subscribes to the store hub, makes (does not load) the page
+        // note's model, and defers anything else until the outline has loaded.
+        _ = notesPanel
+        if configuration.markupProbeSurface {
+            markupProbe = MarkupProbeSurface(session: self)   // UI tests only
+        }
     }
 
     // MARK: - Internal (bridge and tests)

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import ReaderCore
 
-/// The sidebar's per-window state (one per `ReaderSession`, kept in `session.featureState`, so
+/// The sidebar's per-window state (one per `ReaderSession`, kept in `session.sidebarModel`, so
 /// it survives hiding the sidebar, switching tabs and rebuilding the outline): the Contents
 /// expansion and its flattened visible rows, current-section tracking, the bookmark list, page
 /// marks for the Pages grid (notes and highlights; ink is not flagged: owner decision, ink
@@ -93,7 +93,7 @@ final class ContentsSidebarModel {
 
     /// The window's model (created on first use).
     static func shared(for session: ReaderSession) -> ContentsSidebarModel {
-        let model = session.featureState { ContentsSidebarModel(session: session) }
+        let model = session.sidebarModel
         model.start()
         return model
     }

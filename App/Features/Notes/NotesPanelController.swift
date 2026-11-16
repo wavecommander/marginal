@@ -4,7 +4,7 @@ import ReaderCore
 
 /// The notes panel's per-window state (WP8): which note the editor shows, the Section tab's
 /// level choice, the reader's zoom, and the note models kept alive. One per reader window,
-/// stored in the session (`featureState`), so it survives the panel being closed, reopened, or
+/// stored in the session (`ReaderSession.notesPanel`), so it survives the panel being closed, reopened, or
 /// moved between the pane and the narrow sheet, and dies with the window.
 ///
 /// ## Following the page (design: "Page note tab", "Section note tab")
@@ -36,12 +36,6 @@ import ReaderCore
 final class NotesPanelController {
     /// Models kept alive at once.
     static let modelCapacity = 3
-
-    /// The controller of a session's window: created with the window (`ReaderFeatureWiring`), or
-    /// on first use when feature wiring is off (unit tests).
-    static func forSession(_ session: ReaderSession) -> NotesPanelController {
-        session.featureState { NotesPanelController(session: session) }
-    }
 
     // MARK: State
 
@@ -77,8 +71,8 @@ final class NotesPanelController {
             return NotePageModel(session: session, target: target)
         }
         // A pending `showNotes(.section, heading:)` request is honoured on the next turn: this
-        // initialiser runs inside `ReaderSession.init` (`ReaderFeatureWiring`), or, when feature
-        // wiring is off, while SwiftUI builds the panel, where the session must not change.
+        // initialiser runs inside `ReaderSession.init`, or, in a session made without features,
+        // while SwiftUI builds the panel, where the session must not change.
         refresh(explicit: true, honoursRequests: false)
         track()
         Task { @MainActor [weak self] in self?.refresh() }

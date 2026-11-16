@@ -38,7 +38,7 @@ struct NotesPanel: View {
 
     init(session: ReaderSession) {
         self.session = session
-        self.controller = NotesPanelController.forSession(session)
+        self.controller = session.notesPanel
     }
 
     var body: some View {

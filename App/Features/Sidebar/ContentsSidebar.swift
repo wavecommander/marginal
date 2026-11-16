@@ -32,7 +32,7 @@ struct SidebarActions {
 /// from the size it is given.
 ///
 /// - Reads and commands only its own window's `session`; per-window state lives in
-///   `ContentsSidebarModel` (`session.featureState`), the selected tab in scene storage.
+///   `ContentsSidebarModel` (`session.sidebarModel`), the selected tab in scene storage.
 /// - Navigates only through `session.jump(…)` (section history), never the PDF view; showing,
 ///   hiding or switching tabs never touches the reading position.
 /// - Presents the one heading sheet for every add/edit entry point (`model.headingSheet`).
@@ -48,8 +48,7 @@ struct ContentsSidebar: View {
 
     init(session: ReaderSession) {
         self.session = session
-        self.model = session.featureState { ContentsSidebarModel(session: session) }
-        SidebarHeadingActions.install(on: session)
+        self.model = session.sidebarModel
     }
 
     private var tab: Binding<SidebarTab> {

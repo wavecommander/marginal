@@ -64,7 +64,7 @@ enum PageInkTestSupport {
         }
 
         var provider: PageInkOverlayProvider? {
-            session.pdf.pageOverlayProvider as? PageInkOverlayProvider
+            session.pageInk
         }
 
         var pdfView: ReaderPDFView { session.pdf.view }
