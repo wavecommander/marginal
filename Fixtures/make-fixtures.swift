@@ -1,8 +1,9 @@
 // Deterministic fixture PDF generator (macOS). Usage:
 //   swiftc -O -o /tmp/make-fixtures Fixtures/make-fixtures.swift && /tmp/make-fixtures <outdir>
 // (scripts/fixtures.sh wraps this.) Writes small.pdf, links.pdf, link-forms.pdf, large.pdf,
-// no-outline.pdf, and the files the app converts at import (small.epub, protected.epub, small.cbz,
-// small.md, small.docx, small.pptx), then verifies them and exits non-zero on any mismatch.
+// no-outline.pdf, scanned.pdf (page images with no text layer), and the files the app converts at
+// import (small.epub, protected.epub, small.cbz, small.md, small.docx, small.pptx), then verifies
+// them and exits non-zero on any mismatch.
 import CoreGraphics
 import CoreText
 import Foundation
@@ -437,6 +438,112 @@ func writeLinkForms(to dir: URL) throws {
         + "/Names << /Dests \(tree) 0 R >> /Dests \(dests) 0 R >>")
     let info = pdf.add("<< /Title (link-forms.pdf) /Producer (make-fixtures) >>")
     try pdf.data(root: catalog, info: info).write(to: dir.appendingPathComponent("link-forms.pdf"))
+}
+
+// MARK: scanned.pdf (pictures of printed text, no text layer)
+//
+// A scanned book for the "Scanned books" packages (S0 to S4). Page 1 is a typed cover with a
+// real text layer; pages 2 to 30 are each one greyscale raster image of a printed page (11 pt
+// Times body, like the other fixtures, rendered at 300 dpi and drawn over the whole page) with
+// no text of their own. The known phrase is on its own line, the first line of page 17's body.
+
+enum Scanned {
+    static let file = "scanned.pdf"
+    static let pages = 30
+    /// Rendering resolution of the page images (dots per inch).
+    static let dpi: CGFloat = 300
+    /// The typed cover's title (page 1, real text).
+    static let coverTitle = "The Scanned Fixture Book"
+    /// The known phrase: page `phrasePage` (1-based), alone on the first body line.
+    static let phrase = "The quiet heron measures tidewater."
+    static let phrasePage = 17
+    /// Page-space baseline of the first body line (and of the phrase on `phrasePage`).
+    static let firstBaseline: CGFloat = pageH - 96
+    /// Page-space box the phrase is drawn in (its line: left margin, 11 pt body, baseline
+    /// `firstBaseline`), generous by a few points so a recognised box should fall inside it.
+    static var phraseBox: CGRect { CGRect(x: margin - 4, y: firstBaseline - 6, width: 260, height: 20) }
+}
+
+/// One printed page as a greyscale bitmap at `Scanned.dpi`: running header and rule, body
+/// paragraphs, footer. Drawn with the same helpers as the typed fixtures, in page points.
+func scannedPageImage(_ page: Int) -> CGImage {
+    let scale = Scanned.dpi / 72
+    let width = Int((pageW * scale).rounded()), height = Int((pageH * scale).rounded())
+    let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    ctx.scaleBy(x: scale, y: scale)
+    ctx.setFillColor(CGColor(gray: 0.08, alpha: 1))
+    ctx.setStrokeColor(CGColor(gray: 0.6, alpha: 1))
+    drawLine(ctx, "Scanned Fixture Book  |  Chapter \((page - 2) / 5 + 1)", font: font("Helvetica", 9),
+             at: CGPoint(x: margin, y: pageH - 44))
+    ctx.move(to: CGPoint(x: margin, y: pageH - 50))
+    ctx.addLine(to: CGPoint(x: pageW - margin, y: pageH - 50))
+    ctx.strokePath()
+    var top = Scanned.firstBaseline + 11  // the body frame's top: its first baseline lands near firstBaseline
+    if page == Scanned.phrasePage {
+        drawLine(ctx, Scanned.phrase, font: font("Times-Roman", 11), at: CGPoint(x: margin, y: Scanned.firstBaseline))
+        top -= 24
+    }
+    var rng = LCG(state: UInt64(page) &* 2654435761 &+ 4242)
+    let body = (0..<4).map { _ in paragraph(&rng, sentences: 5 + rng.next() % 3) }.joined(separator: "\n")
+    drawBody(ctx, body, in: CGRect(x: margin, y: 90, width: pageW - 2 * margin, height: top - 90))
+    drawLine(ctx, "Scanned page \(page)", font: font("Helvetica", 9), at: CGPoint(x: margin, y: 54))
+    return ctx.makeImage()!
+}
+
+func writeScanned(to dir: URL) throws {
+    let data = NSMutableData()
+    var box = CGRect(x: 0, y: 0, width: pageW, height: pageH)
+    let info = [kCGPDFContextTitle as String: Scanned.file] as CFDictionary
+    let ctx = CGContext(consumer: CGDataConsumer(data: data as CFMutableData)!, mediaBox: &box, info)!
+    // Page 1: a typed cover (real text).
+    ctx.beginPDFPage(nil)
+    ctx.setFillColor(CGColor(gray: 0.08, alpha: 1))
+    drawLine(ctx, Scanned.coverTitle, font: font("Helvetica-Bold", 28), at: CGPoint(x: margin, y: 520))
+    drawLine(ctx, "A typed cover on a scanned book", font: font("Helvetica", 14), at: CGPoint(x: margin, y: 488))
+    drawLine(ctx, "Fixture page 1", font: font("Helvetica", 9), at: CGPoint(x: margin, y: 54))
+    ctx.endPDFPage()
+    // Pages 2...: one image each, nothing else.
+    for page in 2...Scanned.pages {
+        ctx.beginPDFPage(nil)
+        ctx.interpolationQuality = .high
+        ctx.draw(scannedPageImage(page), in: box)
+        ctx.endPDFPage()
+    }
+    ctx.closePDF()
+    try (data as Data).write(to: dir.appendingPathComponent(Scanned.file))
+}
+
+/// Page 1 has text and no image; every other page has no text and exactly one image XObject.
+func verifyScanned(dir: URL) {
+    let url = dir.appendingPathComponent(Scanned.file)
+    guard let doc = PDFDocument(url: url), let cg = CGPDFDocument(url as CFURL) else {
+        failures.append("\(Scanned.file): cannot open"); return
+    }
+    check(doc.pageCount == Scanned.pages, "\(Scanned.file): page count \(doc.pageCount)")
+    func resourceCount(_ page: Int, _ key: String) -> Int {
+        guard let dict = cg.page(at: page)?.dictionary else { return -1 }
+        var resources: CGPDFDictionaryRef?, sub: CGPDFDictionaryRef?
+        guard CGPDFDictionaryGetDictionary(dict, "Resources", &resources), let resources,
+              CGPDFDictionaryGetDictionary(resources, key, &sub), let sub else { return 0 }
+        return CGPDFDictionaryGetCount(sub)
+    }
+    let cover = doc.page(at: 0)?.string ?? ""
+    check(cover.contains(Scanned.coverTitle) && cover.contains("Fixture page 1"), "\(Scanned.file): cover text '\(cover)'")
+    check(resourceCount(1, "XObject") == 0, "\(Scanned.file): cover has an image")
+    for index in 1..<doc.pageCount {
+        let text = doc.page(at: index)?.string ?? ""
+        check(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              "\(Scanned.file): page \(index + 1) has text '\(text.prefix(40))'")
+        check(resourceCount(index + 1, "XObject") == 1 && resourceCount(index + 1, "Font") == 0,
+              "\(Scanned.file): page \(index + 1) is not exactly one image")
+    }
+    check(doc.findString(Scanned.phrase, withOptions: [.caseInsensitive]).isEmpty,
+          "\(Scanned.file): the phrase is in a text layer")
+    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+    print("  \(Scanned.file): pages=\(doc.pageCount) size=\(size / 1024) KB phrase p.\(Scanned.phrasePage)")
 }
 
 // MARK: verification
@@ -999,6 +1106,7 @@ try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories:
 let started = Date()
 for spec in [smallSpec, linksSpec, noOutlineSpec, largeSpec] { try write(spec, to: outDir) }
 try writeLinkForms(to: outDir)
+try writeScanned(to: outDir)
 try writeConvertedFormats(to: outDir)
 print(String(format: "generated in %.1fs", Date().timeIntervalSince(started)))
 verify(smallSpec, dir: outDir, expectedDepth: 2)
@@ -1006,6 +1114,7 @@ verify(linksSpec, dir: outDir, expectedDepth: 2)
 verify(largeSpec, dir: outDir, expectedDepth: 3)
 verify(noOutlineSpec, dir: outDir, expectedDepth: 0)
 verifyLinkForms(dir: outDir)
+verifyScanned(dir: outDir)
 verifyConvertedFormats(dir: outDir)
 if failures.isEmpty {
     print("fixtures verified OK")

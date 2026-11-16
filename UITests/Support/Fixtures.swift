@@ -17,6 +17,9 @@ enum Fixtures {
     static var linkForms: String { path("link-forms.pdf") }
     static var large: String { path("large.pdf") }
     static var noOutline: String { path("no-outline.pdf") }
+    /// A scanned book: 30 pages, a typed cover (page 1, real text) and 29 page images with no
+    /// text layer; "The quiet heron measures tidewater." is the first body line of page 17.
+    static var scanned: String { path("scanned.pdf") }
 
     static func path(_ name: String) -> String {
         repoRoot.appendingPathComponent("Fixtures/out/\(name)").path
