@@ -296,6 +296,48 @@ only. Open Settings › Backup & Restore › Tactile Texts Cloud.
       next backup makes a new key), and the subscription is still active in Manage
       Subscription.
 
+## Scanned books
+
+What the simulator could not establish (`docs/SCANNED_BOOKS_FINDINGS.md`): PDFKit's own reading
+of scanned pages (Live Text), Vision's speed and memory on the iPad, and real scans. Import
+`Fixtures/out/scanned.pdf` (page 1 typed, pages 2 to 30 pictures of text; "The quiet heron
+measures tidewater." is the first body line of page 17) and a real scanned book of a few
+hundred pages (a library or archive scan, ideally with skewed, noisy and two-column pages).
+Note the iPad model and iPadOS version with each result.
+
+- [ ] **Live Text reads a scanned page.** Open `scanned.pdf` at page 17 and wait: note how many
+      seconds pass before a long-press selects a word (the simulator took about 6 to 15 s).
+      Repeat with Low Power Mode on, and once the iPad is warm after a long session: note any
+      change, or that it never happens.
+- [ ] **On iPadOS 17.0** (if an iPad on 17 is at hand): the same. If PDFKit never makes the
+      page selectable there, scanned pages cannot be selected or highlighted on the floor;
+      search is unaffected. Note which.
+- [ ] **The menu on a scanned page.** With a word selected on page 17: Highlight, Copy, Look Up
+      (the dictionary opens), Add as Heading and Select All (it grows to the whole paragraph)
+      all work as on a typed page.
+- [ ] **A scanned-page highlight.** Highlight "The quiet heron measures tidewater." with a
+      finger, outside markup mode: it is drawn over the line at once. Quit the app (swipe it
+      away) and reopen: the highlight is drawn straight away, before the page can be selected
+      again. Tap it: recolour, Copy and Delete work.
+- [ ] **Its crop.** The notes panel's "Highlights on this page" and the Notebook show the line
+      as a picture of the page with the text underneath; VoiceOver reads it as "highlight on a
+      scanned page". Export the Notebook as Markdown (ZIP) and PDF: the ZIP has
+      `highlights/highlight-001.png` showing the line, and the PDF shows it with its caption.
+- [ ] **Recognition speed and memory.** Make the real book searchable and note the seconds per
+      page (time ten pages in the search status) and, with the app run from Xcode,
+      the memory gauge's peak while it runs. Then leave it running for the whole book: note the
+      battery used and whether the iPad gets warm. The import notice's estimate should come from
+      these numbers.
+- [ ] **Real scans.** In the real book: skewed, noisy and two-column pages, JPEG or JBIG2 pages,
+      a page rotated with `/Rotate` and a page whose crop box is not at the origin. Search finds
+      words on each, and a found word's mark lands on the word in the picture.
+- [ ] **Smooth while it runs.** While recognition runs, scrolling, zooming and drawing in markup
+      mode stay smooth (no stutter compared with the same book when recognition is paused).
+- [ ] **Backups.** Back up with the scanned book partly recognised, then restore the backup on
+      this iPad with Merge and, separately, Replace with Backup: the search status shows the same
+      pages done as before (the recognised text is kept). Restored onto another iPad, the book
+      asks again whether to make it searchable.
+
 ## Install
 
 - [ ] **7-day expiry.** The build is signed with a free Personal Team profile, so it stops
