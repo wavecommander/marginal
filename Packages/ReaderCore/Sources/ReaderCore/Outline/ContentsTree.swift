@@ -1,21 +1,27 @@
 import Foundation
-import ReaderCore
 
 /// One visible row of the Contents tree: a heading plus what the row needs to draw itself.
 /// The list shows `ContentsTree.visibleRows(...)`, a flat array of only the rows that are on
 /// display (children of collapsed headings are not in it), so a 5,000-heading outline costs
 /// one small value per *visible* row and SwiftUI creates views lazily for the rows on screen.
-nonisolated struct ContentsRow: Identifiable, Equatable, Sendable {
-    let node: OutlineNode
+public struct ContentsRow: Identifiable, Equatable, Sendable {
+    public let node: OutlineNode
     /// 0 for top level.
-    let depth: Int
-    let hasChildren: Bool
-    let isExpanded: Bool
+    public let depth: Int
+    public let hasChildren: Bool
+    public let isExpanded: Bool
 
-    var id: HeadingAnchor { node.anchor }
-    var anchor: HeadingAnchor { node.anchor }
+    public init(node: OutlineNode, depth: Int, hasChildren: Bool, isExpanded: Bool) {
+        self.node = node
+        self.depth = depth
+        self.hasChildren = hasChildren
+        self.isExpanded = isExpanded
+    }
 
-    static func == (a: Self, b: Self) -> Bool {
+    public var id: HeadingAnchor { node.anchor }
+    public var anchor: HeadingAnchor { node.anchor }
+
+    public static func == (a: Self, b: Self) -> Bool {
         a.node.anchor == b.node.anchor && a.node.title == b.node.title && a.node.startPage == b.node.startPage
             && a.depth == b.depth && a.hasChildren == b.hasChildren && a.isExpanded == b.isExpanded
     }
@@ -32,23 +38,23 @@ nonisolated struct ContentsRow: Identifiable, Equatable, Sendable {
 ///   section's row is visible. When the current section moves to another branch, revealed
 ///   headings that are not ancestors of the new section close again, so reading through a book
 ///   does not leave every chapter open. Collapsing a revealed heading by hand removes it.
-nonisolated struct ContentsExpansion: Equatable, Sendable {
-    private(set) var byReader: Set<HeadingAnchor> = []
-    private(set) var revealed: Set<HeadingAnchor> = []
+public struct ContentsExpansion: Equatable, Sendable {
+    public private(set) var byReader: Set<HeadingAnchor> = []
+    public private(set) var revealed: Set<HeadingAnchor> = []
     /// `true` once the default expansion was applied (it is applied once per window).
-    private(set) var hasDefaults = false
+    public private(set) var hasDefaults = false
 
-    init() {}
+    public init() {}
 
-    func isExpanded(_ anchor: HeadingAnchor) -> Bool {
+    public func isExpanded(_ anchor: HeadingAnchor) -> Bool {
         byReader.contains(anchor) || revealed.contains(anchor)
     }
 
     /// The union of both kinds.
-    var expanded: Set<HeadingAnchor> { byReader.union(revealed) }
+    public var expanded: Set<HeadingAnchor> { byReader.union(revealed) }
 
     /// The reader taps the chevron.
-    mutating func toggle(_ anchor: HeadingAnchor) {
+    public mutating func toggle(_ anchor: HeadingAnchor) {
         if isExpanded(anchor) {
             byReader.remove(anchor)
             revealed.remove(anchor)
@@ -58,14 +64,14 @@ nonisolated struct ContentsExpansion: Equatable, Sendable {
     }
 
     /// The reader expands (`true`) or collapses (`false`).
-    mutating func set(_ anchor: HeadingAnchor, expanded: Bool) {
+    public mutating func set(_ anchor: HeadingAnchor, expanded: Bool) {
         if expanded != isExpanded(anchor) { toggle(anchor) }
     }
 
     /// Opens every ancestor of the last node of `path` (the current section) and closes the
     /// revealed headings that are not on `path`. Returns `true` if anything changed.
     @discardableResult
-    mutating func reveal(path: [OutlineNode]) -> Bool {
+    public mutating func reveal(path: [OutlineNode]) -> Bool {
         let ancestors = Set(path.dropLast().map(\.anchor))
         let newRevealed = revealed.intersection(ancestors).union(ancestors.subtracting(byReader))
         guard newRevealed != revealed else { return false }
@@ -74,30 +80,30 @@ nonisolated struct ContentsExpansion: Equatable, Sendable {
     }
 
     /// Opens the ancestors of a heading for good (e.g. a heading the reader just added).
-    mutating func expandLineage(_ lineage: [OutlineNode]) {
+    public mutating func expandLineage(_ lineage: [OutlineNode]) {
         for node in lineage.dropLast() where !isExpanded(node.anchor) { byReader.insert(node.anchor) }
     }
 
     /// Applies `ContentsTree.defaultExpansion(for:)` once.
-    mutating func applyDefaultsIfNeeded(for outline: Outline) {
+    public mutating func applyDefaultsIfNeeded(for outline: Outline) {
         guard !hasDefaults, !outline.isEmpty else { return }
         hasDefaults = true
         byReader.formUnion(ContentsTree.defaultExpansion(for: outline))
     }
 
     /// Drops anchors that no longer exist (deleted user headings). Optional hygiene.
-    mutating func prune(keeping outline: Outline) {
+    public mutating func prune(keeping outline: Outline) {
         byReader = byReader.filter { outline.node(for: $0) != nil }
         revealed = revealed.filter { outline.node(for: $0) != nil }
     }
 }
 
 /// Pure rules of the Contents tree (no SwiftUI, no session), unit-tested in
-/// `Tests/SidebarTreeTests.swift`.
-nonisolated enum ContentsTree {
+/// `ContentsTreeTests`.
+public enum ContentsTree {
     /// The flattened visible rows: a pre-order walk that descends only into expanded headings.
     /// O(visible rows).
-    static func visibleRows(_ outline: Outline, expanded: Set<HeadingAnchor>) -> [ContentsRow] {
+    public static func visibleRows(_ outline: Outline, expanded: Set<HeadingAnchor>) -> [ContentsRow] {
         var rows: [ContentsRow] = []
         rows.reserveCapacity(min(outline.nodes.count, 512))
         var stack: [(node: OutlineNode, depth: Int)] = outline.roots.reversed().map { ($0, 0) }
@@ -112,16 +118,16 @@ nonisolated enum ContentsTree {
     }
 
     /// Up to this many rows the default expansion opens another level.
-    static let defaultRowBudget = 40
+    public static let defaultRowBudget = 40
     /// With at least this many top-level headings nothing is opened by default: the top level is
     /// already a usable table of contents (a 15-chapter, 375-entry textbook shows its chapters,
     /// with the current chapter opened by current-section tracking).
-    static let defaultTopLevelThreshold = 8
+    public static let defaultTopLevelThreshold = 8
 
     /// The default expansion of a newly opened outline: when the top level is short (a book whose
     /// outline is one "Book" root, or a few "Part" headings), open whole levels, shallowest first,
     /// for as long as the visible rows stay within `defaultRowBudget`. Otherwise nothing.
-    static func defaultExpansion(for outline: Outline) -> Set<HeadingAnchor> {
+    public static func defaultExpansion(for outline: Outline) -> Set<HeadingAnchor> {
         guard outline.roots.count < defaultTopLevelThreshold else { return [] }
         var expanded = Set<HeadingAnchor>()
         var level = outline.roots
@@ -141,7 +147,7 @@ nonisolated enum ContentsTree {
     /// The row that stands for the current section: the deepest heading of `path` that has a
     /// visible row (the current section itself, or its nearest visible ancestor when a branch
     /// is collapsed). `nil` for a page before the first heading.
-    static func currentRowAnchor(path: [OutlineNode], visibleAnchors: Set<HeadingAnchor>) -> HeadingAnchor? {
+    public static func currentRowAnchor(path: [OutlineNode], visibleAnchors: Set<HeadingAnchor>) -> HeadingAnchor? {
         path.reversed().first { visibleAnchors.contains($0.anchor) }?.anchor
     }
 
@@ -157,7 +163,7 @@ nonisolated enum ContentsTree {
     /// current row is back on screen or after the next jump. When it follows, the list scrolls
     /// only if the new current row is off screen (centring it); a row already on screen never
     /// moves.
-    static func shouldFollow(isJump: Bool, previousCurrentRow: HeadingAnchor?,
+    public static func shouldFollow(isJump: Bool, previousCurrentRow: HeadingAnchor?,
                              onScreen: Set<HeadingAnchor>) -> Bool {
         if isJump { return true }
         guard let previousCurrentRow else { return true }

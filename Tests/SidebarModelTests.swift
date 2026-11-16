@@ -10,6 +10,24 @@ import UIKit
 enum SidebarTestSupport {
     static let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 
+    /// The `large.pdf` fixture's outline shape: 15 chapters × 6 sections × 3 subsections (375).
+    /// The same builder as `ContentsTreeTests.largeOutline` in ReaderCore's tests.
+    static func largeOutline(userHeadings: [UserHeading] = []) -> Outline {
+        var entries: [RawOutlineEntry] = []
+        for c in 0..<15 {
+            let cStart = c * 100
+            entries.append(RawOutlineEntry(title: "\(c + 1) Chapter", level: 1, pageIndex: cStart))
+            for s in 0..<6 {
+                let sStart = cStart + s * 16 + 1
+                entries.append(RawOutlineEntry(title: "\(c + 1).\(s + 1) Section", level: 2, pageIndex: sStart))
+                for u in 0..<3 {
+                    entries.append(RawOutlineEntry(title: "\(c + 1).\(s + 1).\(u + 1) Sub", level: 3, pageIndex: sStart + u * 4 + 1))
+                }
+            }
+        }
+        return Outline(pdfEntries: entries, userHeadings: userHeadings, pageCount: 1500)
+    }
+
     struct Fixture {
         let store: LibraryStore
         let book: Book
