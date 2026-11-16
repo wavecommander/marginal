@@ -243,6 +243,78 @@ struct TextRecognitionEngineTests {
         await engine.shutDown()
     }
 
+    // MARK: Restores (S4)
+
+    /// A restore replacing the book posts `.bookDeleted` then `.bookSaved` for the same ID and
+    /// carries its recognised text across: nothing is removed, and recognition resumes from the
+    /// files on disk.
+    @Test func aReplaceCancelsWithoutRemovingAndResumesFromTheFiles() async throws {
+        let fixture = try Support.scannedFixture()
+        defer { fixture.cleanUp() }
+        let bookID = fixture.book.id
+        let engine = Support.makeEngine(fixture.store, recognizer: FakePageRecognizer(delay: 0.1))
+        await engine.start()
+        #expect(await engine.accept(bookID: bookID))
+        #expect(await Support.waitUntil { engine.recognisedPages.count >= 4 })
+
+        fixture.store.hub.post(.bookDeleted(bookID: bookID), origin: ChangeOrigin(label: "restore"))
+        let onDisk = await Support.recognisedIndices(fixture.store, bookID)
+        #expect(await engine.state(bookID: bookID) != nil, "the stored state is still there")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await Support.recognisedIndices(fixture.store, bookID).count >= onDisk.count, "nothing was removed")
+        let pagesBefore = engine.recognisedPages.count
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(engine.recognisedPages.count == pagesBefore, "cancelled until the book is back")
+
+        fixture.store.hub.post(.bookSaved(bookID: bookID), origin: ChangeOrigin(label: "restore"))
+        #expect(await Support.waitUntil(timeout: 60) { await Support.state(fixture.store, bookID) == .complete })
+        await engine.shutDown()
+        #expect(await Support.recognisedIndices(fixture.store, bookID) == Array(1..<30))
+        let pages = engine.recognisedPages.map(\.pageIndex)
+        #expect(Set(pages).count == pages.count, "no page read twice: resumed from the files")
+    }
+
+    /// While a restore holds the book at `BookWriteGate`, nothing is written into it.
+    @Test func writesWaitWhileARestoreHoldsTheBook() async throws {
+        let fixture = try Support.scannedFixture()
+        defer { fixture.cleanUp() }
+        let bookID = fixture.book.id
+        let engine = Support.makeEngine(fixture.store, recognizer: FakePageRecognizer(delay: 0.05))
+        await engine.start()
+        #expect(await engine.accept(bookID: bookID))
+        #expect(await Support.waitUntil { engine.recognisedPages.count >= 2 })
+
+        let pause = await BookWriteGate.shared.pause([bookID])
+        let held = await Support.recognisedIndices(fixture.store, bookID)
+        let stateHeld = await Support.state(fixture.store, bookID)
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(await Support.recognisedIndices(fixture.store, bookID) == held, "no page written while held")
+        #expect(await Support.state(fixture.store, bookID) == stateHeld, "no state written while held")
+        BookWriteGate.shared.resume(pause)
+        #expect(await Support.waitUntil(timeout: 60) { await Support.state(fixture.store, bookID) == .complete })
+        await engine.shutDown()
+    }
+
+    /// Pages lost from disk while the queue runs (a merge's set-aside directory) are read again
+    /// before the book is marked complete, and the count matches the files.
+    @Test func pagesLostFromDiskAreReadAgainBeforeCompleting() async throws {
+        let fixture = try Support.scannedFixture()
+        defer { fixture.cleanUp() }
+        let bookID = fixture.book.id
+        let engine = Support.makeEngine(fixture.store, recognizer: FakePageRecognizer(delay: 0.05))
+        await engine.start()
+        #expect(await engine.accept(bookID: bookID))
+        #expect(await Support.waitUntil { engine.recognisedPages.count >= 5 })
+        let lost = fixture.store.rootDirectory.appendingPathComponent(
+            BookStorageLayout.recognisedPagePath(bookID: bookID, pageIndex: 2))
+        try FileManager.default.removeItem(at: lost)
+
+        #expect(await Support.waitUntil(timeout: 60) { await Support.state(fixture.store, bookID) == .complete })
+        await engine.shutDown()
+        #expect(await Support.recognisedIndices(fixture.store, bookID) == Array(1..<30))
+        #expect(engine.recognisedPages.filter { $0.pageIndex == 2 }.count == 2, "page 3 was read again")
+    }
+
     // MARK: Order
 
     @Test func pagesNearestTheReaderGoFirst() throws {

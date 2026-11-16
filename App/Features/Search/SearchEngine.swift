@@ -437,8 +437,7 @@ nonisolated enum PDFTextSearch {
             autoreleasepool {
                 guard let pdfPage = pages.page(at: page) else { return }
                 let fileText = pdfPage.string
-                if let recognised,
-                   !PageTextPolicy.hasOwnText(characterCount: (fileText as NSString?)?.length ?? 0) {
+                if let recognised, !PageTextPolicy.hasOwnText(fileText) {
                     var found = recognised.page(page)
                     if found == nil, recognised.ledger?.searchedWithoutRecognisedText(page) == true {
                         found = recognised.page(page)  // recognised while this page was being read

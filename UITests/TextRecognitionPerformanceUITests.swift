@@ -96,6 +96,9 @@ final class TextRecognitionPerformanceUITests: XCTestCase {
             lines.append("mean \(key): without \(mean(baseline, key)), with \(mean(recognising, key))")
         }
         record(lines)
+        // Leave no book in progress behind: the next process on this simulator (a unit-test
+        // host, which does not reset state) would otherwise resume recognising it.
+        XCUIApplication.launchFresh().terminate()
         // The bound (WORK_PACKAGES S2: "stays within the bound it has without it"), on the slow
         // phase, where the view scrolls throughout (the 30-page book runs out early in the fast
         // phase): no more frames over 50 ms, and at most two more dropped frames per run on

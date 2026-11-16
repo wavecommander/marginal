@@ -66,7 +66,7 @@ nonisolated final class TextRecognitionWorker: @unchecked Sendable {
             for index in 0..<count where !skipping.contains(index) {
                 let hasText: Bool = autoreleasepool {
                     guard let page = worker.page(url: url, index: index, budget: PDFTextSearch.pagesPerDocument) else { return false }
-                    return PageTextPolicy.hasOwnText(characterCount: page.numberOfCharacters)
+                    return PageTextPolicy.hasOwnText(page)
                 }
                 if hasText { own.insert(index) }
             }
@@ -81,7 +81,7 @@ nonisolated final class TextRecognitionWorker: @unchecked Sendable {
                 guard let page = worker.page(url: url, index: pageIndex, budget: Self.pagesPerDocument) else {
                     return .failed("page \(pageIndex) could not be opened")
                 }
-                if PageTextPolicy.hasOwnText(characterCount: page.numberOfCharacters) { return .hasOwnText }
+                if PageTextPolicy.hasOwnText(page) { return .hasOwnText }
                 guard let rendered = PageImageRenderer.render(page, dpi: worker.dpi) else {
                     return .failed("page \(pageIndex) could not be rendered")
                 }

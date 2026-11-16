@@ -18,16 +18,26 @@ import UIKit
 /// - **Order.** Books with a reader window open come first; within a book, the page nearest a
 ///   reader's current page (`TextRecognitionOrder`), otherwise the first page left.
 /// - **Resume.** Each page is saved as it finishes. When a book's job starts (at launch, on
-///   accept, on resume), the pages already on disk and the pages with text of their own are
-///   counted done and only the rest are read, so the count continues after a relaunch.
+///   accept, after a restore), the pages whose files are on disk and the pages with text of their
+///   own are counted done, the stored count is corrected to match, and only the rest are read, so
+///   the count continues after a relaunch. Before a book is marked complete the files on disk are
+///   checked again, so pages lost meanwhile (a merge's set-aside directory) are read again.
 /// - **Pauses.** Low Power Mode and serious or critical thermal pressure pause every book
 ///   (`RecognitionPauseReason.lowPowerMode`, `.thermal`) and resume it when they clear; the
 ///   reader's own Pause (`pause(bookID:)`) is `.reader`. A page in flight when a pause comes is
 ///   still saved (S1's transitions allow it).
 /// - **Suspension.** Nothing new starts while the app is in the background; it picks up again
 ///   when the app returns. The state is not changed (it is not a pause).
-/// - **Deletion.** Deleting a book cancels its job: a page in flight is dropped, and anything it
-///   wrote after the book's files were removed is removed again.
+/// - **Restores.** Every write into `Books/<id>/text/` and `recognition.json` goes through
+///   `BookWriteGate.performSave` with the job's `BookSaveToken`, so it waits while a restore
+///   holds the book and never lands mid-commit.
+/// - **Deletion.** `.bookDeleted` cancels the book's job (its token is revoked, so a page in
+///   flight is dropped) but removes nothing: a real delete has already removed the files
+///   (`LibraryStore.deleteBook`), and a restore that replaces the book under the same ID posts
+///   `.bookDeleted` then `.bookSaved` and carries the recognised text across. On that
+///   `.bookSaved` the book's state is read again and a job in progress resumes from the `text/`
+///   listing. Only when a page saved by a write already past the gate finds the book's record
+///   gone are its files removed again (`LibraryStore.removeBookFiles`).
 /// - **Not stuttering.** The worker runs at `.utility` QoS on its own thread, never on the main
 ///   thread or the cooperative pool, and the queue waits `pauseBetweenPages` after each page.
 ///
@@ -65,10 +75,15 @@ final class TextRecognitionEngine {
         let bookID: UUID
         let url: URL
         var state: RecognitionState
+        /// This job's permission to write the book's files (revoked on `.bookDeleted`).
+        let token: BookSaveToken
         /// `false` until the pages done and left have been worked out (`survey`).
         var isSurveyed = false
         /// Pages left to read, ascending.
         var remaining: [Int] = []
+        /// From the survey: the book's page count and its pages with text of their own.
+        var pageCount = 0
+        var pagesWithOwnText: Set<Int> = []
         /// Pages that could not be read in this run (retried after a relaunch).
         var failed: Set<Int> = []
         /// The file could not be opened in this run.
@@ -80,6 +95,9 @@ final class TextRecognitionEngine {
     private var jobs: [UUID: Job] = [:]
     /// Bumped when a book's job is cancelled (deletion), so work in flight for it is dropped.
     private var generations: [UUID: Int] = [:]
+    /// Books whose job `.bookDeleted` cancelled: a `.bookSaved` for one (a restore replacing it)
+    /// reads its state again.
+    private var cancelledBooks: Set<UUID> = []
     private var nextOrder = 0
     private var isStarted = false
     private var loop: Task<Void, Never>?
@@ -328,11 +346,20 @@ final class TextRecognitionEngine {
             textRecognitionLog.error("recognition: the PDF of \(bookID, privacy: .public) could not be opened")
             return
         }
-        let all = 0..<survey.pageCount
-        let done = recognised.union(survey.pagesWithOwnText).filter { all.contains($0) }
-        jobs[bookID]?.remaining = all.filter { !done.contains($0) }
+        jobs[bookID]?.pageCount = survey.pageCount
+        jobs[bookID]?.pagesWithOwnText = survey.pagesWithOwnText
         jobs[bookID]?.isSurveyed = true
-        let progress = RecognitionProgress(pagesDone: done.count, totalPages: survey.pageCount)
+        await reconcile(bookID, recognised: recognised)
+    }
+
+    /// Sets the pages left and the stored count from the files on disk (`recognised`) and the
+    /// survey's pages with text of their own; completes the book when nothing is left.
+    private func reconcile(_ bookID: UUID, recognised: Set<Int>) async {
+        guard let job = jobs[bookID], job.isSurveyed else { return }
+        let all = 0..<job.pageCount
+        let done = recognised.union(job.pagesWithOwnText).filter { all.contains($0) }
+        jobs[bookID]?.remaining = all.filter { !done.contains($0) }
+        let progress = RecognitionProgress(pagesDone: done.count, totalPages: job.pageCount)
         if progress.isFinished {
             await transition(bookID) { $0.finishing() }
         } else {
@@ -348,8 +375,16 @@ final class TextRecognitionEngine {
         guard isCurrent(bookID, generation) else { return }
         switch outcome {
         case .recognised(let page):
+            let store = store
+            let origin = origin
             do {
-                try await store.saveRecognisedPage(page, bookID: bookID, origin: origin)
+                // Through the gate: waits while a restore holds the book; dropped once the
+                // token is revoked (`.bookDeleted`).
+                let saved: Bool? = try await BookWriteGate.shared.performSave(bookID: bookID, token: job.token) {
+                    try await store.saveRecognisedPage(page, bookID: bookID, origin: origin)
+                    return true
+                }
+                if saved == nil { return }
             } catch {
                 jobs[bookID]?.failed.insert(pageIndex)
                 textRecognitionLog.error("recognition: page \(pageIndex) not saved: \(String(describing: error), privacy: .public)")
@@ -372,7 +407,10 @@ final class TextRecognitionEngine {
             textRecognitionLog.error("recognition: \(reason, privacy: .public)")
         }
         if let left = jobs[bookID], left.isSurveyed, left.remaining.isEmpty {
-            await transition(bookID) { $0.finishing() }
+            // Before completing, check the files actually on disk: pages lost meanwhile (with a
+            // merge's set-aside directory) go back on the list and the count is corrected.
+            let onDisk = Set((try? await store.recognisedPageIndices(bookID: bookID)) ?? [])
+            if isCurrent(bookID, generation) { await reconcile(bookID, recognised: onDisk) }
         }
         if !isCurrent(bookID, generation) { await removeLeftoversIfDeleted(bookID) }
     }
@@ -380,7 +418,7 @@ final class TextRecognitionEngine {
     // MARK: State
 
     private func addJob(bookID: UUID, url: URL, state: RecognitionState) {
-        jobs[bookID] = Job(bookID: bookID, url: url, state: state, order: nextOrder)
+        jobs[bookID] = Job(bookID: bookID, url: url, state: state, token: BookSaveToken(bookID: bookID), order: nextOrder)
         nextOrder += 1
     }
 
@@ -392,26 +430,30 @@ final class TextRecognitionEngine {
     /// state changed. A book that leaves in progress and paused leaves the queue.
     @discardableResult
     private func transition(_ bookID: UUID, _ change: (RecognitionState) -> RecognitionState?) async -> Bool {
-        guard let current = jobs[bookID]?.state, let next = change(current), next != current else { return false }
+        guard let job = jobs[bookID], let next = change(job.state), next != job.state else { return false }
         jobs[bookID]?.state = next
         if next.progress == nil { jobs[bookID] = nil }
-        await write(next, bookID: bookID)
+        await write(next, bookID: bookID, token: job.token)
         return true
     }
 
     /// Writes a state through the store, one write after another (so the file always ends with
-    /// the latest), posting `.recognitionStateChanged`.
-    private func write(_ state: RecognitionState, bookID: UUID) async {
+    /// the latest), posting `.recognitionStateChanged`. Through `BookWriteGate`, like the pages;
+    /// dropped when `token` has been revoked.
+    private func write(_ state: RecognitionState, bookID: UUID, token: BookSaveToken? = nil) async {
         if jobs[bookID] != nil { jobs[bookID]?.state = state }
         let previous = stateWrites
         let store = store
         let origin = origin
+        let token = token ?? jobs[bookID]?.token
         let write = Task { @MainActor in
             await previous?.value
-            do {
-                try await store.saveRecognitionState(state, bookID: bookID, origin: origin)
-            } catch {
-                textRecognitionLog.error("recognition: state of \(bookID, privacy: .public) not saved: \(String(describing: error), privacy: .public)")
+            _ = await BookWriteGate.shared.performSave(bookID: bookID, token: token) {
+                do {
+                    try await store.saveRecognitionState(state, bookID: bookID, origin: origin)
+                } catch {
+                    textRecognitionLog.error("recognition: state of \(bookID, privacy: .public) not saved: \(String(describing: error), privacy: .public)")
+                }
             }
         }
         stateWrites = write
@@ -432,10 +474,15 @@ final class TextRecognitionEngine {
     private func handle(_ event: StoreChangeEvent) {
         switch event.change {
         case .bookDeleted(let bookID):
-            // Cancel: work in flight for the book is dropped. A restore that replaced the book
-            // under the same ID leaves a book behind; its state is read again.
+            // Cancel, removing nothing (see the type's "Deletion"): the token stops any write
+            // still waiting at the gate, and work in flight is dropped. A restore that replaced
+            // the book posts `.bookSaved` next, and the book's state is read again then.
+            jobs[bookID]?.token.revoke()
             generations[bookID, default: 0] += 1
             jobs[bookID] = nil
+            cancelledBooks.insert(bookID)
+        case .bookSaved(let bookID) where cancelledBooks.contains(bookID):
+            cancelledBooks.remove(bookID)
             Task { await self.reloadIfPresent(bookID) }
         case .recognitionStateChanged(let bookID) where !event.isFrom(origin):
             Task { await self.reloadIfPresent(bookID) }
@@ -458,7 +505,9 @@ final class TextRecognitionEngine {
         if jobs[bookID] == nil {
             addJob(bookID: bookID, url: store.documentURL(for: book), state: state)
         } else {
+            // Written elsewhere (a restore, say): work out again from the files on disk.
             jobs[bookID]?.state = state
+            jobs[bookID]?.isSurveyed = false
         }
         await applyConditions()
         wake()

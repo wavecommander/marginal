@@ -15,15 +15,20 @@ let textRecognitionLog = Logger(subsystem: "software.tactile.marginal", category
 /// skips such pages) and by the search worker (which then reads the file's text, not the
 /// recognised text). Always asked of a page of a private `PDFDocument` opened from the file:
 /// PDFKit adds Live Text to pages of the on-screen document (`docs/SCANNED_BOOKS_FINDINGS.md`).
+///
+/// The rule is the one S4 uses for a highlight's text source: a page has text of its own when its
+/// text in the file has at least one non-whitespace character (`numberOfCharacters == 0` or a
+/// whitespace-only `string` means none), so search, recognition and highlights agree.
 nonisolated enum PageTextPolicy {
-    /// A page with at least this many characters of its own has a text layer: the scan-detection
-    /// threshold, so a stray page number or stamp on a scanned page is not taken as one.
-    static let ownTextCharacterThreshold = ScanDetection.textCharacterThreshold
+    /// Whether a page whose file text is `string` has text of its own.
+    static func hasOwnText(_ string: String?) -> Bool {
+        guard let string, !string.isEmpty else { return false }
+        return string.unicodeScalars.contains { !$0.properties.isWhitespace }
+    }
 
-    /// Whether a page with `characterCount` characters of its own (`PDFPage.numberOfCharacters`,
-    /// or the UTF-16 length of `PDFPage.string`) has text of its own.
-    static func hasOwnText(characterCount: Int) -> Bool {
-        characterCount >= ownTextCharacterThreshold
+    /// The same for a page of a private document (cheap when the page has no characters).
+    static func hasOwnText(_ page: PDFPage) -> Bool {
+        page.numberOfCharacters > 0 && hasOwnText(page.string)
     }
 }
 
