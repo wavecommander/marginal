@@ -18,8 +18,11 @@ struct SearchPanel: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Scanned books (S3): where recognition stands, and the "partial" line.
+                SearchRecognitionStatus(session: session, model: model)
                 searchField
                 statusBar
+                SearchPartialResultsLine(model: model)
                 Divider()
                 content
             }

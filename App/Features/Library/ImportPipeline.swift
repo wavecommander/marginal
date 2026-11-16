@@ -32,6 +32,9 @@ nonisolated enum ImportPipeline {
         var pageCount: Int
         var fileSize: Int64
         var hasCover: Bool
+        /// Scan detection found the book scanned (S3: `ScanDetector`, sampled from this staged
+        /// file's own document).
+        var isScanned = false
     }
 
     static let copyChunkSize = 4 * 1024 * 1024
@@ -124,7 +127,7 @@ nonisolated enum ImportPipeline {
 
     /// The stage checks, for an imported PDF and a converted one alike: it opens, is not locked
     /// and has pages; then the cover (`coverImage` scaled down when given, else page one) is
-    /// written to `cover.jpg` in `directory`.
+    /// written to `cover.jpg` in `directory`, and scan detection samples the same document.
     static func check(pdf destination: URL, directory: URL, fileName: String, coverImage: URL?) throws -> Staged {
         guard let document = PDFDocument(url: destination) else { throw ImportError.notAPDF(fileName: fileName) }
         if document.isLocked { throw ImportError.locked(fileName: fileName) }
@@ -136,7 +139,9 @@ nonisolated enum ImportPipeline {
         let hasCover = coverImage.map { renderCover(ofImage: $0, to: coverURL) } == true
             || renderCover(of: destination, to: coverURL)
         let size = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-        return Staged(pageCount: pageCount, fileSize: size, hasCover: hasCover)
+        try Task.checkCancellation()
+        let isScanned = ScanDetector.isScanned(document)
+        return Staged(pageCount: pageCount, fileSize: size, hasCover: hasCover, isScanned: isScanned)
     }
 
     // MARK: Convert

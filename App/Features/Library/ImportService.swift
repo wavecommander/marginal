@@ -116,6 +116,11 @@ struct ImportFailureAlert: Identifiable, Equatable {
 ///    checks on the generated PDF, write `conversion.json`, then commit as above. **Cancel**
 ///    (`discard(_:)`) drops the request: nothing is copied and adopted files are deleted.
 ///
+/// **Scanned books** (S3): the stage checks also run scan detection (`ScanDetector`). A new book
+/// found scanned gets the recognition state "not decided" once committed; the batch's new PDFs
+/// that are scanned get one notice in `scanNotices`, addressed like its conversion request.
+/// Books converted from pictures get the state but no notice; other converted books have text.
+///
 /// Cancelling or failing removes the staging directory. Callers that run while the launch sweep
 /// may still be in progress must await `AppEnvironment.readyImportService()` first (the sweep
 /// snapshots the book list, so a directory committed between its snapshot and its scan would be
@@ -130,11 +135,16 @@ final class ImportService {
     /// Batches waiting for the reader's answer in a Convert to PDF sheet, oldest first. A screen
     /// shows the first one addressed to its window.
     private(set) var conversionRequests: [ConversionRequest] = []
+    /// Scanned-book notices waiting to be shown (S3); a window's Library shows the first one
+    /// addressed to it.
+    @ObservationIgnored let scanNotices = ScanNoticeQueue()
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored let converters: ConverterRegistry
     @ObservationIgnored let origin = ChangeOrigin(label: "import")
     @ObservationIgnored private var staleCleanup: Task<Void, Never>?
+    /// New PDFs found scanned by `importPDF`, until their batch posts its notice.
+    @ObservationIgnored private var detectedScans: Set<UUID> = []
 
     /// `Imports/` under the store's root: staging area and drop landing area.
     var stagingRoot: URL { store.rootDirectory.appendingPathComponent("Imports", isDirectory: true) }
@@ -248,6 +258,14 @@ final class ImportService {
             results[index] = ImportResult(fileName: job.fileName, result: outcome)
         }
 
+        // The batch's scanned PDFs: one notice, for the window that asked (or the first window).
+        var scanned: [ScanNoticeBook] = []
+        for result in results {
+            guard case .success(.imported(let book))? = result?.result, detectedScans.remove(book.id) != nil else { continue }
+            scanned.append(ScanNoticeBook(id: book.id, title: book.title, pageCount: book.pageCount))
+        }
+        scanNotices.post(scanned, windowKey: requester)
+
         // 4. `-confirmConversions`: convert now, as if the reader had chosen Convert.
         if let request, let options = convertWithoutAsking {
             let converted = await runConversion(request, options: options)
@@ -280,12 +298,14 @@ final class ImportService {
     }
 
     /// Addresses the unaddressed requests among `requestIDs` to the window with this key (the
-    /// first window takes `-importFixture`'s requests once launch work is done).
+    /// first window takes `-importFixture`'s requests once launch work is done), and every
+    /// unaddressed scanned-book notice with them.
     func address(_ requestIDs: [UUID], to windowKey: ObjectIdentifier) {
         for index in conversionRequests.indices
         where conversionRequests[index].windowKey == nil && requestIDs.contains(conversionRequests[index].id) {
             conversionRequests[index].windowKey = windowKey
         }
+        scanNotices.addressUnaddressed(to: windowKey)
     }
 
     /// Convert: the request leaves the queue (its sheet closes) and each file is converted and
@@ -363,7 +383,12 @@ final class ImportService {
             job.set(phase: .finishing)
             let book = Book(id: bookID, title: Self.title(forFileName: name), fingerprint: probe.fingerprint,
                             fileName: fileName, pageCount: staged.pageCount, fileSize: staged.fileSize)
-            return try commit(book, staging: staging, displayName: fileName)
+            let outcome = try commit(book, staging: staging, displayName: fileName)
+            if staged.isScanned, case .imported(let committed) = outcome {
+                await markScanned(committed.id)
+                detectedScans.insert(committed.id)
+            }
+            return outcome
         } catch {
             await ImportPipeline.remove(staging)
             throw error
@@ -410,7 +435,11 @@ final class ImportService {
                             pageCount: made.staged.pageCount, fileSize: made.staged.fileSize + made.originalSize,
                             sourceFormat: item.format, originalFileName: name, converterVersion: converter.version)
             try Task.checkCancellation()
-            return try commit(book, staging: staging, displayName: name)
+            let outcome = try commit(book, staging: staging, displayName: name)
+            // No notice for a converted book: one made from pictures was described as pictures by
+            // the Convert to PDF sheet; search makes the offer.
+            if made.staged.isScanned, case .imported(let committed) = outcome { await markScanned(committed.id) }
+            return outcome
         } catch {
             await ImportPipeline.remove(staging)
             throw error
@@ -481,6 +510,12 @@ final class ImportService {
             throw ImportError.storage(fileName: displayName, reason: String(describing: error))
         }
         return .imported(book)
+    }
+
+    /// A new book found scanned starts "not decided" (best effort: without the state the book
+    /// reads normally and is simply not offered).
+    private func markScanned(_ bookID: UUID) async {
+        try? await store.saveRecognitionState(.notDecided, bookID: bookID, origin: origin)
     }
 
     private func storeBook(fingerprint: String) throws -> Book? {

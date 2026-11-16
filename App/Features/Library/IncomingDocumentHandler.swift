@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
 ///
 /// - A **document** is imported through the shared `ImportService` (so with the same detection,
 ///   fingerprint check, copy, cover, Convert to PDF sheet and errors as the Files picker) and
-///   shown in the window that received it. A document already in the Library opens the existing
-///   book; one that needs converting shows the Convert to PDF sheet in that window's Library,
-///   and the converted book opens there once the reader chooses Convert.
+///   shown in the window that received it, after the scanned-book notice when detection finds
+///   it scanned (S3). A document already in the Library opens the existing book; one that
+///   needs converting shows the Convert to PDF sheet in that window's Library, and the
+///   converted book opens there once the reader chooses Convert.
 /// - A **backup** (`.ttbackup`) opens the restore sheet in the window that received it; an
 ///   Inbox copy is deleted when the sheet closes.
 ///
@@ -30,6 +31,11 @@ enum IncomingDocumentHandler {
                                                     requester: ObjectIdentifier(window), opensBookWhenDone: true)
             guard let result = results.first else { return }
             if let book = result.book {
+                // A scanned book: its notice comes first, in this window's Library (S3).
+                if let notice = service.scanNotices.notice(about: book.id) {
+                    window.backToLibrary()
+                    await service.scanNotices.waitUntilAnswered(notice.id)
+                }
                 window.openReader(bookID: book.id)
             } else if result.conversionRequestID != nil {
                 window.backToLibrary()  // the sheet is the Library's

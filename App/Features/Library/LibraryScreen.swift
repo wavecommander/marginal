@@ -59,6 +59,13 @@ struct LibraryScreen: View {
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
+        // The scanned-book notice (S3), outside the long chain below so it type-checks quickly.
+        screen
+            .scannedBookNotice(service.scanNotices, windowKey: windowKey, isBlocked: isScanNoticeBlocked,
+                               environment: environment)
+    }
+
+    private var screen: some View {
         ZStack {
             Color(.systemGroupedBackground).ignoresSafeArea()
             if let model {
@@ -143,6 +150,13 @@ struct LibraryScreen: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    /// The scanned-book notice waits for this window's Convert to PDF sheet, import alerts and
+    /// welcome sheet, and for the Library to be on screen (S3).
+    private var isScanNoticeBlocked: Bool {
+        service.conversionRequest(for: windowKey) != nil || service.failure(for: windowKey) != nil
+            || environment.onboarding.welcomeWindow == windowKey || !window.path.isEmpty
     }
 
     // MARK: Content
