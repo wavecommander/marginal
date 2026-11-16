@@ -183,7 +183,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testContentsAndNotesTogglesInWideLayout() {
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let contents = element(app, ReaderID.contentsPane)
         let notes = element(app, ReaderID.notesPane)
@@ -209,7 +209,7 @@ final class ReaderUITests: XCTestCase {
 
     func testNarrowWidthUsesOverlayAndSheet() {
         XCUIDevice.shared.orientation = .portrait
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         XCTAssertTrue(app.buttons[ReaderID.contentsToggle].waitForExistence(timeout: 30))
         // Notes is a sheet; Contents starts hidden and opens as an overlay.
         let sheet = element(app, ReaderID.notesSheet)
@@ -331,7 +331,7 @@ final class ReaderUITests: XCTestCase {
     func testSearchAndNarrowNotesSheetCoexist() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("the system notes sheet is iPadOS 26+") }
         XCUIDevice.shared.orientation = .portrait
-        let app = openSmall()
+        let app = openSmall(["-notesPanel", "page"])
         let sheet = element(app, ReaderID.notesSheet)
         XCTAssertTrue(sheet.waitForExistence(timeout: 15))
         app.buttons["reader.toolbar.search"].firstMatch.tap()

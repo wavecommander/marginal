@@ -418,6 +418,10 @@ struct HighlightsControllerTests {
         for size in [CGSize(width: 900, height: 1100), CGSize(width: 640, height: 900)] {
             host.resize(to: size)
             for scale in [1.0, 2.5] as [CGFloat] {
+                // The reader's own zoom, as a zoom command reports it. A scale change the
+                // controller was not told about counts as PDFKit refitting, and it puts the
+                // reading anchor back over the first `go(to:on:)` below (TSOFT-223).
+                host.session.pdf.readerDidZoom()
                 host.pdfView.autoScales = false
                 host.pdfView.scaleFactor = scale
                 for pageIndex in 0..<5 {
