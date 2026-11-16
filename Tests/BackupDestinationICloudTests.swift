@@ -67,7 +67,7 @@ struct BackupDestinationICloudTests {
         let older = backupTestSnapshotName(minutes: 0), newer = backupTestSnapshotName(minutes: 1)
         try await iCloud.uploadSnapshot(from: try scratch.file("a", backupTestBytes(300, seed: 1)), name: older, progress: nil)
         try await iCloud.uploadSnapshot(from: try scratch.file("b", backupTestBytes(400, seed: 2)), name: newer, progress: nil)
-        #expect(FileManager.default.fileExists(atPath: documents.appendingPathComponent("Backups/\(older)").path))
+        #expect(FileManager.default.fileExists(atPath: documents.appendingPathComponent("Tactile Texts Backups/\(older)").path))
         let listed = try await iCloud.listSnapshots()
         #expect(listed.map(\.name) == [newer, older])
 
@@ -90,8 +90,8 @@ struct BackupDestinationICloudTests {
         // Every access was coordinated, all inside the container's Documents folder.
         #expect(!coordinator.log.isEmpty)
         #expect(coordinator.log.allSatisfy { $0.path == "Documents" || $0.path.hasPrefix("Documents/") })
-        #expect(coordinator.log.contains(.init(path: "Documents/Backups/\(older)", kind: .writingForReplacing)))
-        #expect(coordinator.log.contains(.init(path: "Documents/Backups/\(older)", kind: .deleting)))
+        #expect(coordinator.log.contains(.init(path: "Documents/Tactile Texts Backups/\(older)", kind: .writingForReplacing)))
+        #expect(coordinator.log.contains(.init(path: "Documents/Tactile Texts Backups/\(older)", kind: .deleting)))
         #expect(coordinator.log.contains(.init(path: "Documents/PDFs/\(hash).pdf", kind: .reading)))
     }
 
@@ -111,7 +111,7 @@ struct BackupDestinationICloudTests {
         let container = try BackupDestinationScratch("Container"); defer { container.cleanup() }
         let scratch = try BackupDestinationScratch(); defer { scratch.cleanup() }
         let iCloud = destination(container: container.url)
-        let backups = container.url.appendingPathComponent("Documents/Backups", isDirectory: true)
+        let backups = container.url.appendingPathComponent("Documents/Tactile Texts Backups", isDirectory: true)
 
         let local = backupTestSnapshotName(minutes: 0)
         let remote = backupTestSnapshotName(minutes: 10, device: "Other iPad")
@@ -128,6 +128,37 @@ struct BackupDestinationICloudTests {
         #expect(listed[0].byteSize == 123_456)
         #expect(listed[0].deviceName == "Other iPad")
         #expect(listed[1].byteSize == 50)
+    }
+
+    /// Snapshots an earlier version put in `Backups/` still list (also as placeholders), and
+    /// deleting one removes its placeholder there.
+    @Test func snapshotsInTheOlderBackupsFolderStillWork() async throws {
+        let container = try BackupDestinationScratch("Container"); defer { container.cleanup() }
+        let scratch = try BackupDestinationScratch(); defer { scratch.cleanup() }
+        let iCloud = destination(container: container.url)
+        let legacy = container.url.appendingPathComponent("Documents/Backups", isDirectory: true)
+        let current = container.url.appendingPathComponent("Documents/Tactile Texts Backups", isDirectory: true)
+
+        let old = backupTestSnapshotName(minutes: 0), older = backupTestSnapshotName(minutes: -5, device: "Other iPad")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try backupTestBytes(40).write(to: legacy.appendingPathComponent(old))
+        try writeICloudPlaceholder(name: older, size: 77, in: legacy)
+        let new = try await iCloud.uploadSnapshot(from: try scratch.file("n", backupTestBytes(10)),
+                                                  name: backupTestSnapshotName(minutes: 10), progress: nil)
+        #expect(FileManager.default.fileExists(atPath: current.appendingPathComponent(new.name).path))
+        #expect(!FileManager.default.fileExists(atPath: legacy.appendingPathComponent(new.name).path))
+
+        let listed = try await iCloud.listSnapshots()
+        #expect(listed.map(\.name) == [new.name, old, older])
+
+        let file = scratch.url.appendingPathComponent("downloaded")
+        try await iCloud.downloadSnapshot(listed[1], to: file, progress: nil)
+        #expect(try Data(contentsOf: file) == backupTestBytes(40))
+
+        try await iCloud.deleteSnapshot(listed[1])
+        try await iCloud.deleteSnapshot(listed[2])
+        #expect(try await iCloud.listSnapshots().map(\.name) == [new.name])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: legacy.path).isEmpty)
     }
 
     @Test func pdfPlaceholderCountsAsPresent() async throws {
@@ -149,7 +180,7 @@ struct BackupDestinationICloudTests {
     @Test func downloadFetchesAPlaceholderFirst() async throws {
         let container = try BackupDestinationScratch("Container"); defer { container.cleanup() }
         let scratch = try BackupDestinationScratch(); defer { scratch.cleanup() }
-        let backups = container.url.appendingPathComponent("Documents/Backups", isDirectory: true)
+        let backups = container.url.appendingPathComponent("Documents/Tactile Texts Backups", isDirectory: true)
         let name = backupTestSnapshotName(minutes: 3)
         let bytes = backupTestBytes(2_048, seed: 4)
         try writeICloudPlaceholder(name: name, size: 2_048, in: backups)
@@ -246,7 +277,7 @@ struct BackupDestinationICloudTests {
 
     @Test func deletingASnapshotNotDownloadedRemovesItsPlaceholder() async throws {
         let container = try BackupDestinationScratch("Container"); defer { container.cleanup() }
-        let backups = container.url.appendingPathComponent("Documents/Backups", isDirectory: true)
+        let backups = container.url.appendingPathComponent("Documents/Tactile Texts Backups", isDirectory: true)
         let name = backupTestSnapshotName(minutes: 8)
         try writeICloudPlaceholder(name: name, size: 77, in: backups)
         let coordinator = RecordingCoordinator(real: container.url)
@@ -256,7 +287,7 @@ struct BackupDestinationICloudTests {
         try await iCloud.deleteSnapshot(snapshot)
         #expect(try await iCloud.listSnapshots().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: backups.appendingPathComponent(BackupICloudPlaceholder.placeholderName(for: name)).path))
-        #expect(coordinator.log.filter { $0.path.hasPrefix("Documents/Backups/") }.allSatisfy { $0.kind == .deleting })
+        #expect(coordinator.log.filter { $0.path.hasPrefix("Documents/Tactile Texts Backups/") }.allSatisfy { $0.kind == .deleting })
     }
 
     @Test func uploadState() async throws {
@@ -266,7 +297,7 @@ struct BackupDestinationICloudTests {
         let iCloud = destination(container: container.url, ubiquity: ubiquity)
         let snapshot = try await iCloud.uploadSnapshot(from: try scratch.file("a", backupTestBytes(10)),
                                                        name: backupTestSnapshotName(minutes: 0), progress: nil)
-        let url = container.url.appendingPathComponent("Documents/Backups/\(snapshot.name)")
+        let url = container.url.appendingPathComponent("Documents/Tactile Texts Backups/\(snapshot.name)")
         #expect(await iCloud.uploadState(of: snapshot) == .notTracked)
         ubiquity.set(BackupUbiquitousItemStatus(isDownloaded: true, isUploaded: false), for: url)
         #expect(await iCloud.uploadState(of: snapshot) == .waiting)
@@ -326,7 +357,7 @@ struct BackupDestinationICloudTests {
         let iCloud = destination(container: container.url, ubiquity: ubiquity, wait: wait)
         let snapshot = try await iCloud.uploadSnapshot(from: try scratch.file("a", backupTestBytes(64)),
                                                        name: backupTestSnapshotName(minutes: 2), progress: nil)
-        ubiquity.set(status, for: container.url.appendingPathComponent("Documents/Backups/\(snapshot.name)"))
+        ubiquity.set(status, for: container.url.appendingPathComponent("Documents/Tactile Texts Backups/\(snapshot.name)"))
         return (container, scratch, iCloud, snapshot, polls, ubiquity)
     }
 }

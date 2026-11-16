@@ -9,7 +9,7 @@ import ReaderBackup
 /// skip-if-present) and adds:
 /// - **Coordination.** The access hook runs every access under `BackupFileCoordinating` with the
 ///   intent's coordination: reads of the root folder (the availability check) are metadata-only;
-///   other reads (listing `Backups/`, reading a snapshot or PDF) are plain coordinated reads;
+///   other reads (listing `Tactile Texts Backups/`, reading a snapshot or PDF) are plain coordinated reads;
 ///   writes are `.forReplacing`; deletes `.forDeleting`.
 /// - **Items not downloaded yet.** Listing adds snapshots that exist only as iCloud
 ///   placeholders; `hasPDF` and `uploadPDF` count a placeholder of the right size as present;
@@ -31,7 +31,10 @@ nonisolated struct CoordinatedBackupFolder: Sendable {
         self.coordinator = coordinator
         self.ubiquity = ubiquity
         self.downloadWait = downloadWait
+        // New snapshots go in `Tactile Texts Backups/`; ones already in `Backups/` stay usable.
         self.folder = FolderBackupDestination(root: root, id: id, displayName: displayName,
+                                              backupsDirectory: BackupFolderLayout.localBackupsDirectory,
+                                              legacyBackupsDirectories: [BackupFolderLayout.backupsDirectory],
                                               access: Self.accessHook(root: root, coordinator: coordinator))
     }
 
@@ -68,7 +71,7 @@ nonisolated struct CoordinatedBackupFolder: Sendable {
 
     func downloadSnapshot(_ snapshot: BackupSnapshotInfo, to file: URL, progress: BackupProgress?) async throws {
         if SnapshotName.parse(snapshot.id) != nil, !snapshot.id.contains("/") {
-            try await ensureDownloaded(snapshotURL(snapshot.id), displayName: snapshot.name)
+            try await ensureDownloaded(try existingSnapshotURL(snapshot.id), displayName: snapshot.name)
         }
         try await folder.downloadSnapshot(snapshot, to: file, progress: progress)
     }
@@ -76,11 +79,12 @@ nonisolated struct CoordinatedBackupFolder: Sendable {
     func deleteSnapshot(_ snapshot: BackupSnapshotInfo) async throws {
         try await folder.deleteSnapshot(snapshot)
         // A snapshot that is only in iCloud is represented here by its placeholder.
-        let url = snapshotURL(snapshot.id)
-        try coordinator.coordinate(url, .deleting) { granted in
-            let placeholder = BackupICloudPlaceholder.placeholderURL(for: granted)
-            guard FileManager.default.fileExists(atPath: placeholder.path) else { return }
-            try BackupFileCoordinationError.mapping(placeholder) { try FileManager.default.removeItem(at: placeholder) }
+        for url in snapshotURLs(snapshot.id) {
+            try coordinator.coordinate(url, .deleting) { granted in
+                let placeholder = BackupICloudPlaceholder.placeholderURL(for: granted)
+                guard FileManager.default.fileExists(atPath: placeholder.path) else { return }
+                try BackupFileCoordinationError.mapping(placeholder) { try FileManager.default.removeItem(at: placeholder) }
+            }
         }
     }
 
@@ -115,30 +119,33 @@ nonisolated struct CoordinatedBackupFolder: Sendable {
 
     func uploadState(of snapshot: BackupSnapshotInfo) -> BackupUploadState {
         guard SnapshotName.parse(snapshot.id) != nil, !snapshot.id.contains("/"),
-              let status = ubiquity.status(of: snapshotURL(snapshot.id)) else { return .notTracked }
+              let url = try? existingSnapshotURL(snapshot.id),
+              let status = ubiquity.status(of: url) else { return .notTracked }
         if status.isUploaded { return .uploaded }
         if let error = status.uploadingError {
-            return .failed(reason: BackupFileCoordinationError.translate(error, url: snapshotURL(snapshot.id)).localizedDescription)
+            return .failed(reason: BackupFileCoordinationError.translate(error, url: url).localizedDescription)
         }
         return status.isUploading ? .uploading : .waiting
     }
 
     // MARK: - Not-downloaded items
 
-    /// Snapshots in `Backups/` present only as iCloud placeholders.
+    /// Snapshots in the backups folders present only as iCloud placeholders.
     private func placeholderSnapshots() throws -> [BackupSnapshotInfo] {
-        let directory = root.appendingPathComponent(BackupFolderLayout.backupsDirectory, isDirectory: true)
-        try Task.checkCancellation()
         var found: [BackupSnapshotInfo] = []
-        try coordinator.coordinate(directory, .reading) { granted in
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: granted.path) else { return }
-            for fileName in names {
-                guard let name = BackupICloudPlaceholder.itemName(forPlaceholder: fileName),
-                      !name.contains("/"), let parsed = SnapshotName.parse(name),
-                      let size = BackupICloudPlaceholder.recordedSize(at: granted.appendingPathComponent(fileName, isDirectory: false))
-                else { continue }
-                found.append(BackupSnapshotInfo(id: name, name: name, createdAt: parsed.createdAt,
-                                                deviceName: parsed.deviceName, byteSize: size))
+        for directoryName in folder.snapshotDirectories {
+            let directory = root.appendingPathComponent(directoryName, isDirectory: true)
+            try Task.checkCancellation()
+            try coordinator.coordinate(directory, .reading) { granted in
+                guard let names = try? FileManager.default.contentsOfDirectory(atPath: granted.path) else { return }
+                for fileName in names {
+                    guard let name = BackupICloudPlaceholder.itemName(forPlaceholder: fileName),
+                          !name.contains("/"), let parsed = SnapshotName.parse(name),
+                          let size = BackupICloudPlaceholder.recordedSize(at: granted.appendingPathComponent(fileName, isDirectory: false))
+                    else { continue }
+                    found.append(BackupSnapshotInfo(id: name, name: name, createdAt: parsed.createdAt,
+                                                    deviceName: parsed.deviceName, byteSize: size))
+                }
             }
         }
         return found
@@ -191,9 +198,22 @@ nonisolated struct CoordinatedBackupFolder: Sendable {
 
     // MARK: - Paths
 
-    private func snapshotURL(_ name: String) -> URL {
-        root.appendingPathComponent(BackupFolderLayout.backupsDirectory, isDirectory: true)
-            .appendingPathComponent(name, isDirectory: false)
+    /// `name` in each backups folder, the one new snapshots go to first.
+    private func snapshotURLs(_ name: String) -> [URL] {
+        folder.snapshotDirectories.map {
+            root.appendingPathComponent($0, isDirectory: true).appendingPathComponent(name, isDirectory: false)
+        }
+    }
+
+    /// Where the snapshot `name` is: the first backups folder holding it (a file or an iCloud
+    /// placeholder), or the folder new snapshots go to when none does.
+    private func existingSnapshotURL(_ name: String) throws -> URL {
+        let urls = snapshotURLs(name)
+        for url in urls {
+            let (real, placeholder) = try inspect(url)
+            if real || placeholder { return url }
+        }
+        return urls[0]
     }
 
     /// `PDFs/<sha256>.pdf`, or `nil` for a malformed hash (left to `FolderBackupDestination` to

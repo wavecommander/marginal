@@ -36,6 +36,35 @@ struct FolderBackupDestinationTests {
         try dir.file("local/\(name)", contents)
     }
 
+    @Test func newSnapshotsGoInTheLocalFolderAndOldOnesInBackupsStillWork() async throws {
+        let dir = try TemporaryDirectory()
+        let root = dir.url.appendingPathComponent("root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let destination = FolderBackupDestination(root: root, backupsDirectory: BackupFolderLayout.localBackupsDirectory,
+                                                  legacyBackupsDirectories: [BackupFolderLayout.backupsDirectory])
+        let old = SnapshotName.make(createdAt: Date(timeIntervalSince1970: 1_700_000_000), deviceName: "iPad A")
+        let new = SnapshotName.make(createdAt: Date(timeIntervalSince1970: 1_700_090_000), deviceName: "iPad B")
+        try dir.file("root/Backups/\(old)", Data("old".utf8))
+
+        try await destination.uploadSnapshot(from: try snapshot(dir, "n", Data("new".utf8)), name: new, progress: nil)
+        #expect(dir.allPaths(under: "root/Tactile Texts Backups") == [new])
+        #expect(dir.allPaths(under: "root/Backups") == [old])
+
+        let listed = try await destination.listSnapshots()
+        #expect(listed.map(\.name) == [new, old])
+
+        let downloaded = dir.url.appendingPathComponent("downloaded.ttbackup")
+        try await destination.downloadSnapshot(listed[1], to: downloaded, progress: nil)
+        #expect(try Data(contentsOf: downloaded) == Data("old".utf8))
+
+        // A name in both folders lists once and deletes from both.
+        try dir.file("root/Backups/\(new)", Data("dup".utf8))
+        #expect(try await destination.listSnapshots().map(\.name) == [new, old])
+        try await destination.deleteSnapshot(listed[0])
+        try await destination.deleteSnapshot(listed[1])
+        #expect(try await destination.listSnapshots().isEmpty)
+    }
+
     @Test func uploadListDownloadDelete() async throws {
         let dir = try TemporaryDirectory()
         let root = dir.url.appendingPathComponent("root", isDirectory: true)

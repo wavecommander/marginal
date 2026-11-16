@@ -498,7 +498,11 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Two layouts.** A *single file* (PDFs embedded or not) for saving anywhere in Files. A
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
-  when present. The newest 10 snapshots are kept; PDFs are never removed automatically.
+  when present. The newest 10 snapshots are kept; PDFs are never removed automatically. In a
+  folder the reader picked and in the iCloud container the snapshot folder is `Tactile Texts
+  Backups/` (owner decision, 16 November 2026), so it reads as the app's in Files; snapshots
+  already in `Backups/` there still list, restore and delete, and new ones are never written
+  to it. Google Drive, S3 and Tactile Texts Cloud keep `Backups/`.
 - **Include PDFs is one choice** (owner decision, 15 November 2026). The backup-file switch,
   each destination's switch and the automatic backup's switch all show and change the same
   stored value, in every window at once, so a reader who has decided once is never caught out

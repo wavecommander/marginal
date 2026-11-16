@@ -1,7 +1,8 @@
 import Foundation
 
-/// A `BackupDestination` over a directory: `<root>/Backups/<snapshot>.ttbackup` and
-/// `<root>/PDFs/<sha256>.pdf` (`BackupFolderLayout`). The Folder destination uses it on a
+/// A `BackupDestination` over a directory: `<root>/<backups directory>/<snapshot>.ttbackup` and
+/// `<root>/PDFs/<sha256>.pdf` (`BackupFolderLayout`). New snapshots go in `backupsDirectory`;
+/// snapshots in any `legacyBackupsDirectories` are still listed, downloaded and deleted. The Folder destination uses it on a
 /// folder the reader picked; the iCloud destination uses it on the ubiquity container.
 ///
 /// - Every write goes to a hidden temporary name in the target folder and is renamed into place
@@ -45,12 +46,23 @@ public struct FolderBackupDestination: BackupDestination {
     public let displayName: String
     /// The destination's folder.
     public let root: URL
+    /// The folder under `root` that new snapshots are written to.
+    public let backupsDirectory: String
+    /// Other folders under `root` whose snapshots are still read and deleted, never written.
+    public let legacyBackupsDirectories: [String]
     let access: AccessHook
+
+    /// Every folder under `root` that can hold snapshots, the one written to first.
+    public var snapshotDirectories: [String] { [backupsDirectory] + legacyBackupsDirectories }
 
     /// A destination rooted at `root`. `id` defaults to `folder:<root path>` and `displayName`
     /// to the folder's name.
-    public init(root: URL, id: String? = nil, displayName: String? = nil, access: @escaping AccessHook = FolderBackupDestination.directAccess) {
+    public init(root: URL, id: String? = nil, displayName: String? = nil,
+                backupsDirectory: String = BackupFolderLayout.backupsDirectory, legacyBackupsDirectories: [String] = [],
+                access: @escaping AccessHook = FolderBackupDestination.directAccess) {
         self.root = root
+        self.backupsDirectory = backupsDirectory
+        self.legacyBackupsDirectories = legacyBackupsDirectories
         self.id = id ?? "folder:\(root.path)"
         self.displayName = displayName ?? root.lastPathComponent
         self.access = access
@@ -70,18 +82,24 @@ public struct FolderBackupDestination: BackupDestination {
     }
 
     public func listSnapshots() async throws -> [BackupSnapshotInfo] {
-        let directory = root.appendingPathComponent(BackupFolderLayout.backupsDirectory, isDirectory: true)
-        let snapshots = try perform(directory, .read) { url -> [BackupSnapshotInfo] in
-            let manager = FileManager.default
-            var isDirectory: ObjCBool = false
-            guard manager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return [] }
-            let names = try mappingFileErrors(url) { try manager.contentsOfDirectory(atPath: url.path) }
-            return names.compactMap { name in
-                guard !name.hasPrefix("."), let size = FileOps.regularFileSize(url.appendingPathComponent(name, isDirectory: false)) else {
-                    return nil
+        var snapshots: [BackupSnapshotInfo] = []
+        var seen: Set<String> = []
+        for directoryName in snapshotDirectories {
+            let directory = root.appendingPathComponent(directoryName, isDirectory: true)
+            let found = try perform(directory, .read) { url -> [BackupSnapshotInfo] in
+                let manager = FileManager.default
+                var isDirectory: ObjCBool = false
+                guard manager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return [] }
+                let names = try mappingFileErrors(url) { try manager.contentsOfDirectory(atPath: url.path) }
+                return names.compactMap { name in
+                    guard !name.hasPrefix("."), let size = FileOps.regularFileSize(url.appendingPathComponent(name, isDirectory: false)) else {
+                        return nil
+                    }
+                    return Self.info(name: name, size: size)
                 }
-                return Self.info(name: name, size: size)
             }
+            // A name in two folders is listed once, from the first (the one written to).
+            for snapshot in found where seen.insert(snapshot.name).inserted { snapshots.append(snapshot) }
         }
         return snapshots.sorted(by: BackupSnapshotInfo.newestFirst)
     }
@@ -99,17 +117,25 @@ public struct FolderBackupDestination: BackupDestination {
 
     public func downloadSnapshot(_ snapshot: BackupSnapshotInfo, to file: URL, progress: BackupProgress?) async throws {
         guard Self.info(name: snapshot.id, size: 0) != nil else { throw BackupError.invalidSnapshotName(name: snapshot.id) }
-        try perform(snapshotURL(snapshot.id), .read) { url in
-            guard FileOps.regularFileSize(url) != nil else { throw BackupError.snapshotNotFound(name: snapshot.name) }
-            try FileOps.copyVerifying(url, to: file, expected: nil, mismatch: .contentMismatch(name: snapshot.name), progress: progress)
+        for url in snapshotURLs(snapshot.id) {
+            let copied = try perform(url, .read) { url -> Bool in
+                guard FileOps.regularFileSize(url) != nil else { return false }
+                try FileOps.copyVerifying(url, to: file, expected: nil, mismatch: .contentMismatch(name: snapshot.name), progress: progress)
+                return true
+            }
+            if copied { return }
         }
+        throw BackupError.snapshotNotFound(name: snapshot.name)
     }
 
     public func deleteSnapshot(_ snapshot: BackupSnapshotInfo) async throws {
         guard Self.info(name: snapshot.id, size: 0) != nil else { throw BackupError.invalidSnapshotName(name: snapshot.id) }
-        try perform(snapshotURL(snapshot.id), .delete) { url in
-            guard FileOps.regularFileSize(url) != nil else { return }
-            try mappingFileErrors(url) { try FileManager.default.removeItem(at: url) }
+        // From every folder, so a copy in an older folder does not bring the snapshot back.
+        for url in snapshotURLs(snapshot.id) {
+            try perform(url, .delete) { url in
+                guard FileOps.regularFileSize(url) != nil else { return }
+                try mappingFileErrors(url) { try FileManager.default.removeItem(at: url) }
+            }
         }
     }
 
@@ -157,8 +183,15 @@ public struct FolderBackupDestination: BackupDestination {
     // MARK: - Internals
 
     private func snapshotURL(_ name: String) -> URL {
-        root.appendingPathComponent(BackupFolderLayout.backupsDirectory, isDirectory: true)
+        root.appendingPathComponent(backupsDirectory, isDirectory: true)
             .appendingPathComponent(name, isDirectory: false)
+    }
+
+    /// `name` in each folder that can hold snapshots, the one written to first.
+    private func snapshotURLs(_ name: String) -> [URL] {
+        snapshotDirectories.map {
+            root.appendingPathComponent($0, isDirectory: true).appendingPathComponent(name, isDirectory: false)
+        }
     }
 
     private func pdfURL(_ sha256: String) -> URL {

@@ -39,8 +39,13 @@ public enum BackupArchiveLayout {
 ///     Backups/<snapshot name>.ttbackup   (never embeds PDFs)
 ///     PDFs/<sha256>.pdf                  (written once per PDF, never deleted automatically)
 public enum BackupFolderLayout {
-    /// `Backups`
+    /// `Backups`: where snapshots go in every destination except the local ones, and where the
+    /// local ones kept them before `localBackupsDirectory`.
     public static let backupsDirectory = "Backups"
+    /// `Tactile Texts Backups`: where a picked folder and the iCloud container (the local,
+    /// reader-visible destinations) put new snapshots. They still list, restore and delete
+    /// snapshots already in `Backups/`.
+    public static let localBackupsDirectory = "Tactile Texts Backups"
     /// `PDFs`
     public static let pdfsDirectory = "PDFs"
 

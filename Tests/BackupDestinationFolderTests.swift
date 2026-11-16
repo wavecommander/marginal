@@ -135,17 +135,18 @@ struct BackupDestinationFolderTests {
         #expect(stored.byteSize == 5_000)
         #expect(progress.values.last == 1)
         #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly),
-                                         A(path: "Backups/\(older)", kind: .writingForReplacing),
-                                         A(path: "Backups/\(newer)", kind: .writingForReplacing)])
-        #expect(try Data(contentsOf: real.appendingPathComponent("Backups/\(older)")) == olderBytes)
+                                         A(path: "Tactile Texts Backups/\(older)", kind: .writingForReplacing),
+                                         A(path: "Tactile Texts Backups/\(newer)", kind: .writingForReplacing)])
+        #expect(try Data(contentsOf: real.appendingPathComponent("Tactile Texts Backups/\(older)")) == olderBytes)
 
         // List: newest first, with sizes; anything else in the folder is ignored.
-        try Data("x".utf8).write(to: real.appendingPathComponent("Backups/notes.txt"))
+        try Data("x".utf8).write(to: real.appendingPathComponent("Tactile Texts Backups/notes.txt"))
         coordinator.reset()
         let listed = try await destination.listSnapshots()
         #expect(listed.map(\.name) == [newer, older])
         #expect(listed.map(\.byteSize) == [7_000, 5_000])
-        #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly), A(path: "Backups", kind: .reading)])
+        #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly), A(path: "Tactile Texts Backups", kind: .reading),
+                                         A(path: "Backups", kind: .reading)])
 
         // Download.
         coordinator.reset()
@@ -153,8 +154,8 @@ struct BackupDestinationFolderTests {
         try await destination.downloadSnapshot(listed[1], to: downloaded, progress: nil)
         #expect(try Data(contentsOf: downloaded) == olderBytes)
         #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly),
-                                         A(path: "Backups/\(older)", kind: .readingMetadataOnly),
-                                         A(path: "Backups/\(older)", kind: .reading)])
+                                         A(path: "Tactile Texts Backups/\(older)", kind: .readingMetadataOnly),
+                                         A(path: "Tactile Texts Backups/\(older)", kind: .reading)])
 
         // PDFs: upload, present, skip when present, download.
         let pdfBytes = backupTestBytes(20_000, seed: 3)
@@ -195,7 +196,8 @@ struct BackupDestinationFolderTests {
         coordinator.reset()
         try await destination.deleteSnapshot(listed[1])
         try await destination.deleteSnapshot(listed[1])
-        #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly), A(path: "Backups/\(older)", kind: .deleting)])
+        #expect(Set(coordinator.log) == [A(path: "", kind: .readingMetadataOnly), A(path: "Tactile Texts Backups/\(older)", kind: .deleting),
+                                         A(path: "Backups/\(older)", kind: .deleting)])
         #expect(try await destination.listSnapshots().map(\.name) == [newer])
 
         // Nothing was written outside the folder, and no temporary files are left.
@@ -219,10 +221,10 @@ struct BackupDestinationFolderTests {
         let offline = BackupFileCoordinationError.offlineReason("Offline")
         #expect(await destination.availability() == .unavailable(reason: offline))
         #expect(await thrownError { _ = try await destination.listSnapshots() } as? BackupError
-                == .destinationUnavailable(reason: BackupFileCoordinationError.offlineReason("Backups")))
+                == .destinationUnavailable(reason: BackupFileCoordinationError.offlineReason("Tactile Texts Backups")))
 
         coordinator.fail(with: CocoaError(.fileReadNoPermission))
-        #expect(await thrownError { _ = try await destination.listSnapshots() } as? BackupError == .permissionDenied(name: "Backups"))
+        #expect(await thrownError { _ = try await destination.listSnapshots() } as? BackupError == .permissionDenied(name: "Tactile Texts Backups"))
 
         // Coordination cancelled because the app was suspended: stopped, not failed.
         coordinator.fail(with: CocoaError(.userCancelled))
