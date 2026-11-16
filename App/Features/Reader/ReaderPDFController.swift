@@ -36,6 +36,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// Page to show once the view has a size and a document.
     private var pendingPageIndex: Int?
+    /// The exact place and zoom to show with `pendingPageIndex` (first positioning only).
+    private var pendingPosition: ReaderPosition?
     /// While true, PDFKit's page-changed reports are ignored (initial positioning).
     private var isTrackingSuspended = true
     private(set) var hasPositionedInitially = false
@@ -89,6 +91,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return probe
     }()
 
+    /// The PDF view's scale (1 before the view exists).
+    var scale: CGFloat { isViewLoaded ? view.scaleFactor : 1 }
+
     /// The scroll view PDFKit scrolls the document in.
     var scrollView: UIScrollView? { isViewLoaded ? view.documentView?.superview as? UIScrollView : nil }
 
@@ -125,6 +130,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             readingAnchor = anchor
             anchorScale = view.scaleFactor
             positionMovedSinceReport = true
+            session?.pdfReportedPlaceChange()
         }
         updateAnchorProbe()
     }
@@ -153,14 +159,32 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: Document
 
-    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size.
-    func attach(_ document: PDFDocument, initialPageIndex: Int) {
+    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size: at
+    /// `position`'s exact place and zoom when given (the book's latest position), else at the top
+    /// of the page.
+    func attach(_ document: PDFDocument, initialPageIndex: Int, position: ReaderPosition? = nil) {
         pendingPageIndex = initialPageIndex
+        pendingPosition = position
         isTrackingSuspended = true
         view.document = document
         view.applyPDFKitPolicies()
         observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
+    }
+
+    /// Lets the document go for good (`ReaderSession.close()`): PDFKit's pages, tiles and the
+    /// page overlays go with it, and the view leaves its host.
+    func close() {
+        guard isViewLoaded else { return }
+        pendingPageIndex = nil
+        pendingPosition = nil
+        offsetObservation = nil
+        hasPositionedInitially = false
+        readingAnchor = nil
+        view.clearSelection()
+        view.highlightedSelections = nil
+        view.document = nil
+        view.removeFromSuperview()
     }
 
     /// The page object for a zero-based index on the on-screen document.
@@ -179,6 +203,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     func moveWithoutRecordingHistory(toPage pageIndex: Int) {
         guard hasPositionedInitially, let page = page(at: pageIndex), view.bounds.width > 0 else {
             pendingPageIndex = pageIndex
+            pendingPosition = nil
             applyPendingPageIfPossible()
             return
         }
@@ -252,6 +277,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.autoScales = true
         view.layoutDocumentView()
         pendingPageIndex = pageIndex
+        pendingPosition = nil
         applyPendingPageIfPossible()
     }
 
@@ -629,8 +655,18 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         DispatchQueue.main.async { [weak self] in
             guard let self, let index = self.pendingPageIndex, let page = self.page(at: index) else { return }
             self.pendingPageIndex = nil
+            let position = self.pendingPosition
+            self.pendingPosition = nil
+            if let position, !position.isFitWidth, position.scale > 0 {
+                self.view.autoScales = false
+                self.view.scaleFactor = min(max(CGFloat(position.scale), self.view.minScaleFactor), self.view.maxScaleFactor)
+            }
             self.acceptCurrentScale()
-            self.view.showTop(of: page)
+            if let position, let anchorPage = self.page(at: position.anchor.pageIndex) {
+                self.view.show(position.anchor.point, of: anchorPage)
+            } else {
+                self.view.showTop(of: page)
+            }
             self.hasPositionedInitially = true
             PerfMarks.mark("positioned")
             self.isTrackingSuspended = false

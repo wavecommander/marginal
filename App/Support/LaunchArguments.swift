@@ -152,6 +152,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// stub page (so a test can see or cancel a conversion in progress).
     var stubConverterPageDelay: Int?
 
+    /// `-readerSleepDelay <seconds>`: test-only. A reader two or more screens below the top of
+    /// its window's navigation stack falls asleep after this long instead of
+    /// `WindowContext.defaultReaderSleepDelay` (see `ReaderSlot`).
+    var readerSleepDelay: Double?
+
     init() {}
 
     init(arguments: [String]) {
@@ -242,6 +247,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let text = value(after: index) {
                     index += 1
                     if let ms = Int(text), ms >= 0 { stubConverterPageDelay = ms }
+                }
+            case "-readerSleepDelay":
+                if let text = value(after: index) {
+                    index += 1
+                    if let seconds = Double(text), seconds >= 0 { readerSleepDelay = seconds }
                 }
             #if DEBUG
             case "-cloudBackupUITest":

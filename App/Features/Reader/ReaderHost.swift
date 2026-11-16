@@ -2,9 +2,10 @@ import ReaderCore
 import SwiftUI
 import UIKit
 
-/// Owns one `ReaderSession` for as long as the reader is shown (in place or in its own window),
-/// restores and saves its per-window state, and drives its lifecycle: suspend (flush) on
-/// background, window close and when the reader is left; memory warnings.
+/// One reader screen (in place or in its own window): holds its `ReaderSlot`, which owns the
+/// `ReaderSession` while the reader is awake (see `ReaderSlot` for sleeping), saves the window's
+/// state for the book, and drives the session's lifecycle: suspend (flush) on background, window
+/// close and when the reader is left; memory warnings.
 struct ReaderHost: View {
     let bookID: UUID
 
@@ -12,12 +13,18 @@ struct ReaderHost: View {
     @Environment(WindowContext.self) private var window
     @Environment(\.scenePhase) private var scenePhase
     @SceneStorage private var storedState: Data?
-    @State private var session: ReaderSession?
-    @State private var isMissing = false
+    @State private var slot: ReaderSlot?
 
     init(bookID: UUID) {
         self.bookID = bookID
         _storedState = SceneStorage("reader.state.\(bookID.uuidString)")
+    }
+
+    private var session: ReaderSession? { slot?.session }
+
+    private var isOnTop: Bool {
+        guard let index = slot?.pathIndex else { return false }
+        return index == window.path.count - 1
     }
 
     var body: some View {
@@ -26,16 +33,24 @@ struct ReaderHost: View {
                 ReaderScreen(session: session)
                     .onChange(of: session.restorableState) { _, state in
                         storedState = try? JSONEncoder().encode(state)
+                        window.setReaderState(state, for: bookID)
                         session.saveNotesPanelState()
                     }
-            } else if isMissing {
+            } else if slot?.isMissing == true {
                 ContentUnavailableView("Book Not Found", systemImage: "book.closed",
                                        description: Text("This book is no longer in the library."))
             } else {
+                // Loading, or asleep (then only the back button's menu shows the title).
                 ProgressView()
+                    .navigationTitle(slot?.title ?? "")
+                    .navigationBarTitleDisplayMode(.inline)
             }
         }
-        .onAppear(perform: makeSessionIfNeeded)
+        // The menu bar commands act on the top reader of the focused window. The slot, not the
+        // session, is published: SwiftUI can keep a published value after its screen has gone,
+        // and an asleep or popped slot holds no session.
+        .focusedSceneValue(isOnTop ? slot : nil)
+        .onAppear(perform: appeared)
         .onDisappear {
             guard let session else { return }
             Task { await session.suspend() }
@@ -60,44 +75,28 @@ struct ReaderHost: View {
             session?.handleMemoryWarning()
         }
         .onChange(of: window.readerJumpRequests) { _, _ in
-            guard let overrides = window.takeReaderOverrides(for: bookID) else { return }
-            if let page = overrides.pageIndex { session?.jump(toPage: page) }
-            if let heading = overrides.notesHeading { session?.showNotes(.section, heading: heading) }
+            // Only the reader on top is "already showing" the book (a sleeping or buried reader
+            // on it must not take the request).
+            guard let session, isOnTop, let overrides = window.takeReaderOverrides(for: bookID) else { return }
+            if let page = overrides.pageIndex { session.jump(toPage: page) }
+            if let heading = overrides.notesHeading { session.showNotes(.section, heading: heading) }
         }
     }
 
-    private func makeSessionIfNeeded() {
-        guard session == nil, !isMissing else { return }
-        guard let book = try? environment.store.books.book(id: bookID) else {
-            isMissing = true
-            // Never leave a dead reader on screen: drop this route (an empty reader window
-            // closes, a Library window shows the Library).
-            DispatchQueue.main.async { window.bookWasDeleted(bookID) }
-            return
+    private func appeared() {
+        let shown: ReaderSlot
+        if let slot {
+            shown = slot
+            shown.wake()
+        } else {
+            if window.readerState(for: bookID) == nil, let storedState,
+               let state = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState) {
+                window.setReaderState(state, for: bookID)
+            }
+            shown = ReaderSlot(bookID: bookID, environment: environment, window: window)
+            slot = shown
+            shown.wake(takingOverrides: true)
         }
-        var configuration = ReaderSession.Configuration()
-        configuration.inkAnyInput = environment.launchOptions.inkAnyInput
-        configuration.selectionMenuProbe = environment.launchOptions.selectionMenuProbe
-        configuration.markupProbeSurface = environment.launchOptions.markupProbeSurface
-        configuration.exposesViewportAnchor = environment.launchOptions.exposeViewportAnchor
-        configuration.exposesSelection = environment.launchOptions.exposeSelection
-        configuration.exposesMarkupState = environment.launchOptions.exposeMarkupState
-        configuration.hardwareKeyboard = environment.launchOptions.hardwareKeyboard
-        configuration.scrollDirection = environment.launchOptions.scrollDirection
-        if let storedState {
-            configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)
-        }
-        let overrides = window.takeReaderOverrides(for: bookID)
-        if let overrides {
-            configuration.initialPageIndex = overrides.pageIndex
-            configuration.startInMarkup = overrides.startInMarkup
-            configuration.openNotesTab = overrides.notesTab
-        }
-        PerfMarks.mark("readerHost")
-        let session = ReaderSession(book: book, store: environment.store, configuration: configuration)
-        // A Notebook heading-note row: the notes panel waits for the outline, then shows it.
-        if let heading = overrides?.notesHeading { session.showNotes(.section, heading: heading) }
-        self.session = session
-        session.open()
+        window.readerSlotDidAppear(shown)
     }
 }

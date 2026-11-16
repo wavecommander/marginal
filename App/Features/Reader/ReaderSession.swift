@@ -20,9 +20,11 @@ import UIKit
 /// - **React to changes** through `revisions` / `externalRevisions` (SwiftUI) or
 ///   `observeBookChanges(includeOwn:_:)` (UIKit/imperative code). Never subscribe to
 ///   `store.hub` directly from a feature: those helpers already filter to this book.
-/// - **Lifetime.** The session lives as long as its reader view (`ReaderHost`). `suspend()` runs
-///   when the window backgrounds, closes, or the reader is popped; it flushes the debounced
-///   last-read save and every markup surface. The hub subscription is dropped with the session.
+/// - **Lifetime.** The session lives while its reader screen is awake (`ReaderSlot`, shown by
+///   `ReaderHost`): a reader deep in the window's navigation stack falls asleep and its session
+///   is released; waking makes a new session. `suspend()` runs when the window backgrounds,
+///   closes, or the reader is covered or popped; it flushes the debounced position save and every
+///   markup surface. The hub subscription is dropped with the session.
 /// - **PDFKit.** `document` is the on-screen `PDFDocument`; use it only on the main actor and
 ///   never hand it to another thread (open your own instance from `documentURL` for background
 ///   work, or use `thumbnails`). The PDF view and its plug points live on `pdf`.
@@ -57,10 +59,11 @@ final class ReaderSession: Identifiable {
         case bookMissing
     }
 
-    /// Per-window state saved for state restoration (scene storage). Markup mode is deliberately
-    /// not part of it (the design does not restore markup mode).
+    /// Per-window state saved for state restoration (scene storage, one value per book in a
+    /// window). Markup mode is deliberately not part of it (the design does not restore markup
+    /// mode), and neither is the position: every reader opens at the book's latest position
+    /// (`ReaderPositionStore`).
     struct RestorableState: Codable, Equatable, Sendable {
-        var pageIndex: Int?
         var isContentsVisible = true
         var isNotesVisible = false
         var notesTab: NotesTab = .page
@@ -69,10 +72,11 @@ final class ReaderSession: Identifiable {
         var history: SectionHistory?
     }
 
-    /// How a session starts. Values from launch arguments win over restored state, which wins
-    /// over the book's stored `lastReadPageIndex`.
+    /// How a session starts. Values from launch arguments win over restored state. The start
+    /// page is `initialPageIndex` when given, else the book's latest position: its stored
+    /// `lastReadPageIndex`, at the exact place and zoom from `positionStore` when that is current.
     struct Configuration {
-        /// Explicit start page (e.g. `-openPage`); wins over everything.
+        /// Explicit start page (e.g. `-openPage`, a Notebook row); wins over the latest position.
         var initialPageIndex: Int?
         /// Restored window state, if any.
         var restoredState: RestorableState?
@@ -102,7 +106,9 @@ final class ReaderSession: Identifiable {
         var scrollDirectionStore = ReaderScrollDirectionStore()
         /// Where the notes panel's state is kept between openings of a book.
         var notesPanelStore = ReaderNotesPanelStore()
-        /// Delay of the debounced `lastReadPageIndex` save.
+        /// Where each book's latest exact position is kept.
+        var positionStore = ReaderPositionStore()
+        /// Delay of the debounced `lastReadPageIndex` and position save.
         var lastReadSaveDelay: Duration = .seconds(1)
         /// Delay of the debounced Notebook rebuild after a change.
         var notebookRebuildDelay: Duration = .milliseconds(250)
@@ -178,6 +184,9 @@ final class ReaderSession: Identifiable {
     /// The page PDFKit reports as current while scrolling (zero-based). The toolbar subtitle,
     /// the Contents selection and the notes panel follow it.
     private(set) var currentPageIndex: Int
+    /// The exact place and zoom the session opens at (the book's latest position), or `nil` to
+    /// open at the top of `currentPageIndex`.
+    let startPosition: ReaderPosition?
     /// Pages currently on screen, ascending (from `PDFViewVisiblePagesChanged`).
     private(set) var visiblePageIndices: [Int] = []
     /// This window's section history (Back/Forward between sections). Recorded by every
@@ -283,6 +292,8 @@ final class ReaderSession: Identifiable {
 
     @ObservationIgnored private var hubToken: StoreChangeObservation?
     @ObservationIgnored private var lastReadSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var placeSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var lastPlaceChange = ContinuousClock.now
     @ObservationIgnored private var lastSavedPageIndex: Int?
     @ObservationIgnored private var rawOutlineEntries: [RawOutlineEntry]?
     @ObservationIgnored private var outlineGeneration = 0
@@ -304,8 +315,10 @@ final class ReaderSession: Identifiable {
         self.saveToken = BookSaveToken(bookID: book.id)
 
         let restored = configuration.restoredState
-        let startPage = configuration.initialPageIndex ?? restored?.pageIndex ?? book.lastReadPageIndex
+        let startPage = configuration.initialPageIndex ?? book.lastReadPageIndex
         self.currentPageIndex = PageNumbering.isValid(startPage, pageCount: book.pageCount) ? startPage : 0
+        self.startPosition = configuration.initialPageIndex == nil
+            ? configuration.positionStore.position(for: book) : nil
         self.lastSavedPageIndex = book.lastReadPageIndex
         self.scrollDirection = configuration.scrollDirection
             ?? configuration.scrollDirectionStore.direction(for: book.id)
@@ -355,16 +368,22 @@ final class ReaderSession: Identifiable {
             PerfMarks.mark("documentOpening")
             let box = await ReaderDocumentLoader.openDocument(at: documentURL)
             PerfMarks.mark("documentOpened")
-            guard let self else { return }
+            guard let self, !self.isClosed else { return }
             guard let document = box?.value else {
                 self.loadState = .failed("The PDF could not be opened.")
                 return
             }
             self.document = document
+            var position = self.startPosition
             if !PageNumbering.isValid(self.currentPageIndex, pageCount: document.pageCount) {
                 self.currentPageIndex = 0
+                position = nil
             }
-            self.pdf.attach(document, initialPageIndex: self.currentPageIndex)
+            if let anchorPage = position?.anchor.pageIndex,
+               !PageNumbering.isValid(anchorPage, pageCount: document.pageCount) {
+                position = nil
+            }
+            self.pdf.attach(document, initialPageIndex: self.currentPageIndex, position: position)
             PerfMarks.mark("attached")
             self.loadState = .ready
             self.markOpened()
@@ -382,6 +401,35 @@ final class ReaderSession: Identifiable {
         await markup.flushAll()
     }
 
+    /// `close()` has run: the session is finished and holds nothing heavy.
+    private(set) var isClosed = false
+
+    /// Releases everything heavy for good: the document and its pages, the PDF view's content,
+    /// the feature controllers (note models, highlights, search), thumbnails, the outline and
+    /// the Notebook, and the store subscription. Called when the reader falls asleep or is
+    /// popped (`ReaderSlot`), after `suspend()`; the session is never shown again. SwiftUI can
+    /// keep a finished screen's state (and so this object) for a while, so what it held must not
+    /// stay with it. Saves nothing afterwards.
+    func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        for task in [openTask, notebookTask, lastReadSaveTask, placeSaveTask, pagePillIdleTask] { task?.cancel() }
+        hubToken = nil
+        if mode == .markup {
+            mode = .reading
+            markup.modeDidChange(to: .reading)
+        }
+        pdf.close()
+        document = nil
+        featureObjects.removeAll()
+        featureStates.removeAll()
+        thumbnailsIfCreated = nil
+        rawOutlineEntries = nil
+        outline = .empty
+        headingPath = []
+        notebook = nil
+    }
+
     /// Memory warning: bumps `memoryWarningCount`, flushes ink. PDFKit purges its own caches.
     func handleMemoryWarning() {
         memoryWarningCount += 1
@@ -394,9 +442,8 @@ final class ReaderSession: Identifiable {
 
     /// The restorable part of the session's state (for scene storage).
     var restorableState: RestorableState {
-        RestorableState(pageIndex: currentPageIndex, isContentsVisible: isContentsVisible,
-                        isNotesVisible: isNotesVisible, notesTab: notesTab, notesPanelWidth: notesPanelWidth,
-                        history: history)
+        RestorableState(isContentsVisible: isContentsVisible, isNotesVisible: isNotesVisible, notesTab: notesTab,
+                        notesPanelWidth: notesPanelWidth, history: history)
     }
 
     /// Remembers the notes panel's state for this book, so reopening it finds the panel as left.
@@ -708,21 +755,51 @@ final class ReaderSession: Identifiable {
         recordJump(toPage: pageIndex)
     }
 
-    /// Saves `lastReadPageIndex` now if it changed (cancels the pending debounced save). Each
-    /// save posts `.bookSaved` to every window, which is why it is debounced.
+    /// Saves the book's latest position now (cancels the pending debounced saves):
+    /// `lastReadPageIndex` if it changed, then the exact place and zoom (`positionStore`) once
+    /// the PDF view has positioned. Each page save posts `.bookSaved` to every window, which is
+    /// why it is debounced.
     func saveLastReadPageNow() {
         lastReadSaveTask?.cancel()
         lastReadSaveTask = nil
-        guard closeReason == nil, !saveToken.isRevoked, lastSavedPageIndex != currentPageIndex else { return }
-        do {
-            guard var stored = try store.books.book(id: book.id) else { return }
-            stored.lastReadPageIndex = currentPageIndex
-            stored.lastOpenedAt = Date()
-            try perform { try $0.books.save(stored) }
-            lastSavedPageIndex = currentPageIndex
-            book = stored
-        } catch {
-            // Keep `lastSavedPageIndex` so the next change retries.
+        placeSaveTask?.cancel()
+        placeSaveTask = nil
+        guard closeReason == nil, !saveToken.isRevoked, !isClosed else { return }
+        if lastSavedPageIndex != currentPageIndex {
+            do {
+                guard var stored = try store.books.book(id: book.id) else { return }
+                stored.lastReadPageIndex = currentPageIndex
+                stored.lastOpenedAt = Date()
+                try perform { try $0.books.save(stored) }
+                lastSavedPageIndex = currentPageIndex
+                book = stored
+            } catch {
+                // Keep `lastSavedPageIndex` so the next change retries; the position waits too.
+                return
+            }
+        }
+        guard let anchor = pdf.readingAnchor else { return }
+        configuration.positionStore.setPosition(
+            ReaderPosition(pageIndex: currentPageIndex, anchor: anchor, scale: Double(pdf.scale), isFitWidth: isFitWidth),
+            for: book.id)
+    }
+
+    /// Called by the PDF bridge whenever the reading anchor moves (scrolling, zooming, jumps):
+    /// saves the position once it has stood still for `lastReadSaveDelay`. One task per still
+    /// period, not per scroll frame.
+    func pdfReportedPlaceChange() {
+        lastPlaceChange = .now
+        guard placeSaveTask == nil else { return }
+        placeSaveTask = Task { [weak self] in
+            while true {
+                guard let due = self.map({ $0.lastPlaceChange + $0.configuration.lastReadSaveDelay }) else { return }
+                if ContinuousClock.now >= due { break }
+                try? await Task.sleep(until: due, clock: .continuous)
+                if Task.isCancelled { return }
+            }
+            guard let self else { return }
+            self.placeSaveTask = nil
+            self.saveLastReadPageNow()
         }
     }
 
@@ -808,7 +885,9 @@ final class ReaderSession: Identifiable {
 
     private func loadOutline() async {
         if rawOutlineEntries == nil {
-            rawOutlineEntries = await ReaderDocumentLoader.outlineEntries(at: documentURL)
+            let entries = await ReaderDocumentLoader.outlineEntries(at: documentURL)
+            guard !isClosed else { return }
+            rawOutlineEntries = entries
         }
         await rebuildOutline()
     }
@@ -820,7 +899,7 @@ final class ReaderSession: Identifiable {
         let userHeadings = (try? store.headings.userHeadings(bookID: book.id)) ?? []
         let built = await ReaderDocumentLoader.buildOutline(entries: entries, userHeadings: userHeadings,
                                                              pageCount: pageCount)
-        guard generation == outlineGeneration else { return }
+        guard generation == outlineGeneration, !isClosed else { return }
         outline = built
         isOutlineLoaded = true
         updateHeadingPath()
@@ -850,7 +929,7 @@ final class ReaderSession: Identifiable {
         let bookmarks = (try? store.bookmarks.bookmarks(bookID: bookID)) ?? []
         let built = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: notes,
                                                              highlights: highlights, bookmarks: bookmarks)
-        guard generation == notebookGeneration else { return }
+        guard generation == notebookGeneration, !isClosed else { return }
         notebook = built
     }
 }

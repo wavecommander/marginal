@@ -149,28 +149,47 @@ struct ReaderSessionTests {
     @Test func startPagePriority() throws {
         let fixture = try makeFixture()
         defer { cleanUp(fixture) }
+        let suite = "ReaderSessionTests.position.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let positions = ReaderPositionStore(defaults: defaults)
         var stored = fixture.book
         stored.lastReadPageIndex = 9
-        let restored = ReaderSession.RestorableState(pageIndex: 4, isContentsVisible: false, isNotesVisible: false,
+        let restored = ReaderSession.RestorableState(isContentsVisible: false, isNotesVisible: false,
                                                      notesTab: .section, notesPanelWidth: 500)
-        let fromBook = ReaderSession(book: stored, store: fixture.store)
-        #expect(fromBook.currentPageIndex == 9)
-        #expect(!fromBook.isNotesVisible)  // a first open starts with the notes panel closed
         var configuration = ReaderSession.Configuration()
+        configuration.positionStore = positions
+        let fromBook = ReaderSession(book: stored, store: fixture.store, configuration: configuration)
+        #expect(fromBook.currentPageIndex == 9)
+        #expect(fromBook.startPosition == nil)
+        #expect(!fromBook.isNotesVisible)  // a first open starts with the notes panel closed
+
+        // Scene state brings the panels back; the page is the book's latest position.
         configuration.restoredState = restored
         let fromScene = ReaderSession(book: stored, store: fixture.store, configuration: configuration)
-        #expect(fromScene.currentPageIndex == 4)
+        #expect(fromScene.currentPageIndex == 9)
         #expect(!fromScene.isContentsVisible && !fromScene.isNotesVisible)
         #expect(fromScene.notesTab == .section && fromScene.notesPanelWidth == 500)
         #expect(fromScene.mode == .reading)
+
+        // The exact place and zoom, when they belong to the stored last-read page.
+        let exact = ReaderPosition(pageIndex: 9, anchor: ReadingAnchor(pageIndex: 8, point: CGPoint(x: 20, y: 300)),
+                                   scale: 1.5, isFitWidth: false)
+        positions.setPosition(exact, for: stored.id)
+        #expect(ReaderSession(book: stored, store: fixture.store, configuration: configuration).startPosition == exact)
+        var moved = stored
+        moved.lastReadPageIndex = 3  // e.g. a restore or a merge moved the stored page
+        let stale = ReaderSession(book: moved, store: fixture.store, configuration: configuration)
+        #expect(stale.currentPageIndex == 3 && stale.startPosition == nil)
+
         configuration.initialPageIndex = 11
         configuration.startInMarkup = true
         configuration.openNotesTab = .page
         let fromLaunch = ReaderSession(book: stored, store: fixture.store, configuration: configuration)
         #expect(fromLaunch.currentPageIndex == 11)
+        #expect(fromLaunch.startPosition == nil)
         #expect(fromLaunch.isMarkupMode)
         #expect(fromLaunch.isNotesVisible && fromLaunch.notesTab == .page)
-        #expect(fromLaunch.restorableState.pageIndex == 11)
     }
 
     // MARK: Change filtering
@@ -254,6 +273,21 @@ struct ReaderSessionTests {
         #expect(context.path == [.notebook(bookID: a), .reader(bookID: a)])
     }
 
+    /// Sleeping readers: the top screen and the one under it stay awake; a reader being shown is
+    /// placed at the top, or just under it while the back swipe reveals it.
+    @Test func readerSleepRule() {
+        #expect(WindowContext.readerStaysAwake(pathIndex: 3, pathCount: 4))
+        #expect(WindowContext.readerStaysAwake(pathIndex: 2, pathCount: 4))
+        #expect(!WindowContext.readerStaysAwake(pathIndex: 1, pathCount: 4))
+        #expect(!WindowContext.readerStaysAwake(pathIndex: 0, pathCount: 4))
+        let a = UUID(), b = UUID()
+        let path: [WindowRoute] = [.reader(bookID: a), .notebook(bookID: a), .reader(bookID: a), .notebook(bookID: b)]
+        #expect(WindowContext.pathIndex(ofShownReader: a, in: Array(path.prefix(3))) == 2)
+        #expect(WindowContext.pathIndex(ofShownReader: a, in: path) == 2)
+        #expect(WindowContext.pathIndex(ofShownReader: a, in: Array(path.prefix(2))) == 0)
+        #expect(WindowContext.pathIndex(ofShownReader: b, in: path) == nil)
+    }
+
     // MARK: Section history
 
     /// Owner's acceptance rule: Back/Forward return to the exact page left in each section.
@@ -291,11 +325,13 @@ struct ReaderSessionTests {
         #expect(session.jump(toDisplayNumber: 12))  // 3.2
         #expect(!session.canGoForward)
 
-        // Restoration carries the trail.
+        // Restoration carries the trail, and opens at the book's latest position.
+        await session.suspend()
         var configuration = ReaderSession.Configuration()
         configuration.restoredState = session.restorableState
         configuration.installsFeatures = false
-        let restored = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        let book = try #require(try fixture.store.books.book(id: fixture.book.id))
+        let restored = ReaderSession(book: book, store: fixture.store, configuration: configuration)
         #expect(restored.history == session.history)
         #expect(restored.currentPageIndex == 11)
     }
@@ -488,6 +524,43 @@ struct ReaderSessionTests {
         await settle()
         expectSamePlace(restored.session.pdf.readingAnchor, inD, "Forward in the restored window")
         await restored.close()
+    }
+
+    /// Sleeping readers: a reader that loads the book (woken, or another window's) opens at the
+    /// exact place and zoom any reader on it last left, kept when the reader stops moving.
+    @Test func aNewReaderOpensAtTheBooksLatestExactPositionAndZoom() async throws {
+        let suite = "ReaderSessionTests.latest.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let positions = ReaderPositionStore(defaults: defaults)
+        let (store, book) = try PageInkTestSupport.makeStore(pdf: PageInkTestSupport.fixture("links.pdf"), pageCount: 12)
+        func host() async -> PageInkTestSupport.Host {
+            let fresh = (try? store.books.book(id: book.id)) ?? book
+            let host = PageInkTestSupport.Host(book: fresh, store: store) {
+                $0.installsFeatures = false
+                $0.positionStore = positions
+            }
+            _ = await waitUntil { host.session.pdf.hasPositionedInitially }
+            await settle()
+            return host
+        }
+
+        let first = await host()
+        first.session.zoomIn()
+        await settle()
+        try await scroll(first.session, toPage: 6, y: 420)
+        let left = try #require(first.session.pdf.readingAnchor)
+        let scale = first.session.pdf.scale
+        // Saved once the reader has stood still, without leaving.
+        #expect(await waitUntil { positions.position(for: book.id)?.anchor == left })
+        #expect(try store.books.book(id: book.id)?.lastReadPageIndex == first.session.currentPageIndex)
+
+        let second = await host()
+        expectSamePlace(second.session.pdf.readingAnchor, left, "a new reader opens where the last one was left")
+        #expect(abs(second.session.pdf.scale - scale) < 0.001, "and at its zoom")
+        #expect(!second.session.isFitWidth)
+        await second.close()
+        await first.close()
     }
 
     @Test func notesForARequestedHeading() throws {

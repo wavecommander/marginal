@@ -151,7 +151,6 @@ struct ReaderScreen: View {
                 .environment(session)
         }
         .environment(session)
-        .focusedSceneValue(session)
     }
 
     // MARK: Layouts

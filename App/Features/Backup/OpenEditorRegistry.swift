@@ -29,9 +29,10 @@ final class OpenEditorRegistry {
         noteModels.append(Weak(model))
     }
 
-    /// Live reader sessions on `store`.
+    /// Live reader sessions on `store` (a closed session, kept by SwiftUI after its reader slept
+    /// or was popped, is not one).
     func sessions(of store: LibraryStore) -> [ReaderSession] {
-        sessions.compactMap(\.value).filter { $0.store === store }
+        sessions.compactMap(\.value).filter { $0.store === store && !$0.isClosed }
     }
 
     /// Live note models on `store`.

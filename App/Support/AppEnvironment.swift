@@ -131,6 +131,7 @@ final class AppEnvironment {
             BackupAutomaticSettings.reset(in: .standard)
             ReaderScrollDirectionStore().removeAll()
             ReaderNotesPanelStore().removeAll()
+            ReaderPositionStore().removeAll()
         }
         OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
