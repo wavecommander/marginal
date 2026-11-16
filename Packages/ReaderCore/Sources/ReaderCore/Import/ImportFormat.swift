@@ -2,6 +2,15 @@ import Foundation
 
 /// A file format the app can import. PDFs are imported as they are; every other format is
 /// converted to a PDF at import. The raw values are stored, so never change them.
+///
+/// **The one list of what is importable.** A format's file name extensions and uniform type
+/// identifiers are written once, here (and for the kinds the app turns down by name, on
+/// `UnsupportedImportFormat`). Everything else is derived from them: detection by extension
+/// (`ImportFormatDetector`), Settings ▸ Supported Formats, what the Files picker and drops accept
+/// (`ImportContentTypes`), and the MIME type a file is handed to WebKit with. The app's
+/// `Info.plist` cannot be derived (it is written by XcodeGen from `project.yml`), so
+/// `ImportFormatCatalogTests` in the app's tests fails when its "Open in" document types or its
+/// type declarations disagree with this list.
 public enum ImportFormat: String, Codable, Sendable, CaseIterable, Hashable {
     case pdf, epub, comicArchive, image, plainText, markdown, html, webArchive
     case word, rtf, pages, powerPoint, keynote
@@ -31,7 +40,8 @@ public enum ImportFormat: String, Codable, Sendable, CaseIterable, Hashable {
     public var isConverted: Bool { self != .pdf }
 
     /// Lower-case file name extensions usually seen for this format (first is the canonical
-    /// one). Detection does not rely on these alone; see `ImportFormatDetector`.
+    /// one): the ones Settings ▸ Supported Formats lists. Detection does not rely on these
+    /// alone; see `ImportFormatDetector`.
     public var fileExtensions: [String] {
         switch self {
         case .pdf: ["pdf"]
@@ -48,6 +58,103 @@ public enum ImportFormat: String, Codable, Sendable, CaseIterable, Hashable {
         case .powerPoint: ["pptx", "ppt", "pptm", "ppsx", "pps"]
         case .keynote: ["key"]
         }
+    }
+
+    /// Rarer spellings of the same format that the app also takes but does not list.
+    public var unlistedFileExtensions: [String] {
+        switch self {
+        case .image: ["jpe", "dib"]
+        case .word: ["dot"]
+        case .powerPoint: ["pot"]
+        case .pdf, .epub, .comicArchive, .plainText, .markdown, .html, .webArchive, .rtf, .pages, .keynote: []
+        }
+    }
+
+    /// Every extension the app takes for this format: `fileExtensions`, then
+    /// `unlistedFileExtensions`.
+    public var allFileExtensions: [String] { fileExtensions + unlistedFileExtensions }
+
+    /// Those of `allFileExtensions` that name the pre-2007 binary (OLE) Office form of the
+    /// format. Empty for formats that have none.
+    public var binaryOfficeFileExtensions: [String] {
+        switch self {
+        case .word: ["doc", "dot"]
+        case .powerPoint: ["ppt", "pps", "pot"]
+        default: []
+        }
+    }
+
+    /// The uniform type identifiers a file of this format can carry: what the app's "Open in"
+    /// document types declare and what the Files picker and drops accept. A type that covers a
+    /// whole family (`public.image`) stands for every member of it.
+    public var typeIdentifiers: [String] {
+        switch self {
+        case .pdf: ["com.adobe.pdf"]
+        case .epub: ["org.idpf.epub-container"]
+        case .comicArchive: ["software.tactile.marginal.cbz", "public.zip-archive"]
+        case .image: ["public.image"]
+        case .plainText: ["public.plain-text"]
+        case .markdown: ["net.daringfireball.markdown"]
+        case .html: ["public.html", "public.xhtml"]
+        case .webArchive: ["com.apple.webarchive"]
+        case .word: [
+            "org.openxmlformats.wordprocessingml.document", "com.microsoft.word.doc",
+            "org.openxmlformats.wordprocessingml.document.macroenabled",
+            "org.openxmlformats.wordprocessingml.template", "com.microsoft.word.dot",
+        ]
+        case .rtf: ["public.rtf"]
+        case .pages: ["com.apple.iwork.pages.sffpages", "com.apple.iwork.pages.pages"]
+        case .powerPoint: [
+            "org.openxmlformats.presentationml.presentation", "com.microsoft.powerpoint.ppt",
+            "org.openxmlformats.presentationml.presentation.macroenabled",
+            "org.openxmlformats.presentationml.slideshow", "com.microsoft.powerpoint.pps",
+            "com.microsoft.powerpoint.pot",
+        ]
+        case .keynote: ["com.apple.iwork.keynote.sffkey", "com.apple.iwork.keynote.key"]
+        }
+    }
+
+    /// The format, among `candidates`, that takes `fileExtension` (lower case, no dot).
+    public static func format(forFileExtension fileExtension: String,
+                              among candidates: [ImportFormat] = ImportFormat.allCases) -> ImportFormat? {
+        candidates.first { $0.allFileExtensions.contains(fileExtension) }
+    }
+}
+
+/// The lists derived from every format at once.
+public enum ImportFormatCatalog {
+    /// The type identifiers of every importable format, in `ImportFormat.allCases` order: the
+    /// app's "Open in" document types, and what the Files picker and drops accept.
+    public static var importableTypeIdentifiers: [String] { ImportFormat.allCases.flatMap(\.typeIdentifiers) }
+
+    /// The type identifiers of the kinds of file the app recognises and turns down by name: the
+    /// Files picker and drops accept them too, so the app can say why.
+    public static var namedUnsupportedTypeIdentifiers: [String] {
+        UnsupportedImportFormat.allCases.flatMap(\.typeIdentifiers)
+    }
+
+    /// A type the app declares itself (`UTImportedTypeDeclarations` in its `Info.plist`),
+    /// because the system does not, or may not, know it.
+    public struct DeclaredType: Hashable, Sendable {
+        public let identifier: String
+        public let fileExtensions: [String]
+    }
+
+    /// The types the app's `Info.plist` must declare, with the extensions each declaration
+    /// must carry: the app's own (comics, and the kinds it names when it turns them down), and
+    /// the system types a device may lack (Markdown; the iWork packages on a device without
+    /// Pages or Keynote).
+    public static var declaredTypes: [DeclaredType] {
+        [
+            DeclaredType(identifier: "software.tactile.marginal.cbz", fileExtensions: ["cbz"]),
+            DeclaredType(identifier: "software.tactile.marginal.cbr", fileExtensions: ["cbr"]),
+            DeclaredType(identifier: "software.tactile.marginal.kindle-book",
+                         fileExtensions: UnsupportedImportFormat.kindle.fileExtensions),
+            DeclaredType(identifier: "software.tactile.marginal.djvu", fileExtensions: UnsupportedImportFormat.djvu.fileExtensions),
+            DeclaredType(identifier: "net.daringfireball.markdown", fileExtensions: ImportFormat.markdown.allFileExtensions),
+            DeclaredType(identifier: "com.apple.iwork.pages.pages", fileExtensions: ImportFormat.pages.allFileExtensions),
+            DeclaredType(identifier: "com.apple.iwork.keynote.key", fileExtensions: ImportFormat.keynote.allFileExtensions),
+        ]
     }
 }
 

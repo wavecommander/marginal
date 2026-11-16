@@ -115,7 +115,7 @@ public struct Notebook: Sendable {
     /// Anchors of every heading whose rolled-up counts have a badge (`NotebookCounts.hasBadge`).
     public let badgedAnchors: Set<HeadingAnchor>
     /// Heading notes whose stored target is stale: `(noteID, current target)`. The caller may
-    /// apply them with `NoteRepository.retarget` so later lookups by the current anchor are exact.
+    /// apply them with `RecordStore.retarget` so later lookups by the current anchor are exact.
     public let anchorRepairs: [(noteID: UUID, target: NoteTarget)]
     /// Counts of `frontMatter`.
     public let frontMatterCounts: NotebookCounts

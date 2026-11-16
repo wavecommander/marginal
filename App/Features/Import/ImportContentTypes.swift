@@ -1,44 +1,28 @@
 import Foundation
+import ReaderCore
 import UniformTypeIdentifiers
 
-/// The content types the Files picker and drops accept, for every format in
-/// docs/FORMAT_IMPORT_PLAN.md's table plus the formats the app names when it turns them down
-/// (Kindle, DjVu, CBR, spreadsheets). What a file really is is decided afterwards by
-/// `ImportFormatDetector`; these only decide what can be chosen or dropped.
+/// The content types the Files picker and drops accept: every importable format, plus the kinds
+/// the app names when it turns them down (Kindle, DjVu, CBR, spreadsheets). Both lists come from
+/// the one list of formats (`ImportFormat.typeIdentifiers`, `UnsupportedImportFormat` in
+/// ReaderCore). What a file really is is decided afterwards by `ImportFormatDetector`; these only
+/// decide what can be chosen or dropped.
 ///
 /// Types without a system declaration are declared in `project.yml`
-/// (`UTImportedTypeDeclarations`); the same list is in `CFBundleDocumentTypes` for "Open in",
-/// minus the unsupported formats.
+/// (`UTImportedTypeDeclarations`), and the importable ones are its `CFBundleDocumentTypes` for
+/// "Open in"; `ImportFormatCatalogTests` fails when `Info.plist` and the list disagree.
 nonisolated enum ImportContentTypes {
-    // Declared by the app (imported type declarations in project.yml).
-    static let comicArchive = UTType(importedAs: "software.tactile.marginal.cbz", conformingTo: .zip)
-    static let kindleBook = UTType(importedAs: "software.tactile.marginal.kindle-book", conformingTo: .data)
-    static let djvu = UTType(importedAs: "software.tactile.marginal.djvu", conformingTo: .data)
-    static let comicRar = UTType(importedAs: "software.tactile.marginal.cbr", conformingTo: .archive)
-    // System types the app also declares, in case a device lacks them (no Pages or Keynote).
-    static let markdown = UTType(importedAs: "net.daringfireball.markdown", conformingTo: .plainText)
-    static let pagesPackage = UTType(importedAs: "com.apple.iwork.pages.pages", conformingTo: .package)
-    static let keynotePackage = UTType(importedAs: "com.apple.iwork.keynote.key", conformingTo: .package)
-
-    /// System types looked up by identifier.
-    private static let systemTypes: [UTType] = [
-        "public.xhtml",
-        "org.openxmlformats.wordprocessingml.document",
-        "com.microsoft.word.doc",
-        "com.apple.iwork.pages.sffpages",
-        "org.openxmlformats.presentationml.presentation",
-        "com.microsoft.powerpoint.ppt",
-        "com.apple.iwork.keynote.sffkey",
-    ].compactMap { UTType($0) }
+    /// The type an identifier of the list names: the declared one, or, on a device that has no
+    /// declaration for it, a placeholder of that name.
+    private static func type(_ identifier: String) -> UTType {
+        UTType(identifier) ?? UTType(importedAs: identifier)
+    }
 
     /// Formats the app imports (as they are, or by converting).
-    static let importable: [UTType] = [
-        .pdf, .epub, comicArchive, .zip, .image, .plainText, markdown, .html, .webArchive, .rtf,
-        pagesPackage, keynotePackage,
-    ] + systemTypes
+    static let importable: [UTType] = ImportFormatCatalog.importableTypeIdentifiers.map(type)
 
     /// Formats the app recognises and turns down by name.
-    static let namedUnsupported: [UTType] = [kindleBook, djvu, comicRar, .spreadsheet]
+    static let namedUnsupported: [UTType] = ImportFormatCatalog.namedUnsupportedTypeIdentifiers.map(type)
 
     /// What the Files picker offers and a drop accepts.
     static let acceptable: [UTType] = importable + namedUnsupported

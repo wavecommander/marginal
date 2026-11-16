@@ -122,7 +122,6 @@ final class SearchModel {
                 break
             }
         }
-        session.pdf.addTapHandler(self)
         observeOutline()
     }
 
@@ -433,19 +432,9 @@ final class SearchModel {
         hasMark = false
         session?.pdf.clearMarks()
     }
-}
 
-// Tapping the page clears the search mark (and is never consumed: other handlers still get it).
-extension SearchModel: ReaderPageTapHandling {
-    func handleTap(_ tap: ReaderPageTap) -> Bool {
+    /// A page was tapped (and no highlight took the tap): the search mark goes.
+    func pageWasTapped() {
         clearMarks()
-        return false
-    }
-}
-
-extension ReaderSession {
-    /// This window's search (created on first use, kept for the session's lifetime).
-    var searchModel: SearchModel {
-        featureState { SearchModel(session: self) }
     }
 }

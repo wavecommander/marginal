@@ -46,8 +46,7 @@ extension LibraryStore {
         let storeURL = databaseDirectory.appendingPathComponent(ReaderStore.databaseFileName)
         let container = try SchemaFactory.makeContainer(storeURL: storeURL)
         let records = SwiftDataRecordStore(container: container)
-        return LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
+        return LibraryStore(records: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
     }
 
     /// A store for tests and previews: in-memory SwiftData and a unique directory in the temporary
@@ -59,8 +58,7 @@ extension LibraryStore {
             .appendingPathComponent("MarginalEphemeral-\(UUID().uuidString)", isDirectory: true)
         let container = try SchemaFactory.makeContainer(storeURL: nil)
         let records = SwiftDataRecordStore(container: container)
-        return LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
+        return LibraryStore(records: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
     }
 
     /// Removes `Books/<id>` directories under `rootDirectory` that have no `Book` record: the

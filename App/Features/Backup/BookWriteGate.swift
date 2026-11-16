@@ -3,7 +3,7 @@ import Foundation
 /// One editor's permission to save a book's data: revoked for good once the editor has seen
 /// `.bookDeleted` for its book.
 ///
-/// Why: a restore replaces a book under the **same ID** (`BookRepository.replaceBook`), posting
+/// Why: a restore replaces a book under the **same ID** (`RecordStore.replaceBook`), posting
 /// `.bookDeleted` then `.bookSaved`. Reader and Notebook windows on it close as for a delete, and
 /// closing flushes (`ReaderSession.suspend()`, `NotePageModel.flush()`). Without this token that
 /// late flush would find the book existing again and write what was on screen over the restored

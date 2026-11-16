@@ -42,18 +42,13 @@ actor FlakyInkStore: InkStore {
     }
 }
 
-/// A book repository whose mutations always fail.
+/// A record store whose book writes always fail.
 @MainActor
-final class BrokenBookRepository: BookRepository {
+final class BrokenBookStore: InMemoryRecordStore {
     struct Broken: Error {}
-    let inner = InMemoryRecordStore()
-    func allBooks() throws -> [Book] { try inner.allBooks() }
-    func book(id: UUID) throws -> Book? { try inner.book(id: id) }
-    func book(fingerprint: String) throws -> Book? { try inner.book(fingerprint: fingerprint) }
-    func save(_ book: Book) throws { throw Broken() }
-    func deleteBook(id: UUID) throws { throw Broken() }
-    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws { throw Broken() }
-    func recordCounts(bookID: UUID) throws -> BookRecordCounts { try inner.recordCounts(bookID: bookID) }
+    override func storeBook(_ book: Book) throws { throw Broken() }
+    override func removeBook(id: UUID) throws -> Bool { throw Broken() }
+    override func storeArchive(_ archive: BookArchive, removing ids: Set<UUID>) throws -> [UUID] { throw Broken() }
 }
 
 @MainActor
@@ -64,9 +59,8 @@ struct LibraryStoreTests {
 
     func makeStore(ink: FlakyInkStore = FlakyInkStore()) throws -> (LibraryStore, EventRecorder) {
         let records = InMemoryRecordStore()
-        let store = LibraryStore(books: records, notes: records, highlights: records, bookmarks: records, headings: records,
-                                 inkStore: ink, rootDirectory: URL(fileURLWithPath: "/tmp/root", isDirectory: true))
         try records.save(Book(id: bookID, title: "B", fingerprint: "fp", fileName: "book.pdf", pageCount: 50, fileSize: 1))
+        let store = LibraryStore(records: records, inkStore: ink, rootDirectory: URL(fileURLWithPath: "/tmp/root", isDirectory: true))
         return (store, EventRecorder(store.hub))
     }
 
@@ -168,12 +162,10 @@ struct LibraryStoreTests {
         await #expect(throws: FlakyInkStore.Failure.self) { try await inkStore.savePageInk(Data([1]), bookID: bookID, pageIndex: 0, origin: origin) }
         await #expect(throws: FlakyInkStore.Failure.self) { try await inkStore.deleteNoteInk(bookID: bookID, noteID: uuid(1), origin: origin) }
 
-        let records = InMemoryRecordStore()
-        let broken = LibraryStore(books: BrokenBookRepository(), notes: records, highlights: records, bookmarks: records,
-                                  headings: records, inkStore: InMemoryInkStore(), rootDirectory: URL(fileURLWithPath: "/tmp"))
+        let broken = LibraryStore(records: BrokenBookStore(), inkStore: InMemoryInkStore(), rootDirectory: URL(fileURLWithPath: "/tmp"))
         let brokenRecorder = EventRecorder(broken.hub)
-        #expect(throws: BrokenBookRepository.Broken.self) { try broken.books.save(Book(title: "x", fingerprint: "x", fileName: "x", pageCount: 1, fileSize: 1)) }
-        await #expect(throws: BrokenBookRepository.Broken.self) { try await broken.deleteBook(id: bookID, origin: origin) }
+        #expect(throws: BrokenBookStore.Broken.self) { try broken.books.save(Book(title: "x", fingerprint: "x", fileName: "x", pageCount: 1, fileSize: 1)) }
+        await #expect(throws: BrokenBookStore.Broken.self) { try await broken.deleteBook(id: bookID, origin: origin) }
 
         #expect(recorder.events.isEmpty)
         #expect(inkRecorder.events.isEmpty)
@@ -307,7 +299,7 @@ struct LibraryStoreTests {
         _ = (tokenA, tokenB)
     }
 
-    @Test func inMemoryStorePassesConformanceThroughTheWrappers() async throws {
+    @Test func inMemoryStorePassesConformanceThroughLibraryStore() async throws {
         let store = LibraryStore.inMemory()
         let recorder = EventRecorder(store.hub)
         try RepositoryConformance.verifyRecordStores(books: store.books, notes: store.notes, highlights: store.highlights,
@@ -348,11 +340,9 @@ struct LibraryStoreTests {
             try store.books.replaceBook(BookArchive(book: Book(id: newcomer, title: "Clash", fingerprint: "fp", fileName: "n.pdf",
                                                                pageCount: 1, fileSize: 1)), removing: [])
         }
-        let broken = LibraryStore(books: BrokenBookRepository(), notes: InMemoryRecordStore(), highlights: InMemoryRecordStore(),
-                                  bookmarks: InMemoryRecordStore(), headings: InMemoryRecordStore(), inkStore: InMemoryInkStore(),
-                                  rootDirectory: URL(fileURLWithPath: "/tmp"))
+        let broken = LibraryStore(records: BrokenBookStore(), inkStore: InMemoryInkStore(), rootDirectory: URL(fileURLWithPath: "/tmp"))
         let brokenRecorder = EventRecorder(broken.hub)
-        #expect(throws: BrokenBookRepository.Broken.self) { try broken.books.replaceBook(archive, removing: []) }
+        #expect(throws: BrokenBookStore.Broken.self) { try broken.books.replaceBook(archive, removing: []) }
         #expect(recorder.events.isEmpty)
         #expect(brokenRecorder.events.isEmpty)
     }

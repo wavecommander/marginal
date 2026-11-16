@@ -3,7 +3,7 @@ import ReaderCore
 import UIKit
 
 /// Page ink (WP6): one `PKCanvasView` per displayed PDF page, through the PDF bridge's overlay
-/// hook. Created once per reader window by `ReaderFeatureWiring`; holds the session weakly.
+/// hook. Created once per reader window (`ReaderSession.pageInk`); holds the session weakly.
 ///
 /// - PDFKit asks for an overlay when a page comes near the screen: the provider makes a
 ///   `PageInkOverlayView` and a `PageInkSurface` (canvas + load), registers the surface with the
@@ -36,7 +36,7 @@ import UIKit
 ///     drawing recogniser off the canvas (so fingers could miss the overlay) stops the Pencil
 ///     drawing. Text selection (and so making highlights) works in reading mode.
 @MainActor
-final class PageInkOverlayProvider: ReaderPageOverlayProviding {
+final class PageInkOverlayProvider {
     private weak var session: ReaderSession?
     private let context: PageInkContext
     private var surfaces: [Int: WeakSurface] = [:]
@@ -49,7 +49,6 @@ final class PageInkOverlayProvider: ReaderPageOverlayProviding {
         self.session = session
         context = PageInkContext(store: session.store, bookID: session.book.id, origin: session.origin,
                                  saveToken: session.saveToken)
-        session.pdf.pageOverlayProvider = self
         observation = session.observeBookChanges { [weak self] event in
             self?.handle(event)
         }
@@ -60,7 +59,7 @@ final class PageInkOverlayProvider: ReaderPageOverlayProviding {
         surfaces.compactMapValues(\.value).filter { !$0.value.isFinished }
     }
 
-    // MARK: ReaderPageOverlayProviding
+    // MARK: Page overlays (called by `ReaderPDFController`)
 
     func makeOverlayView(for page: PDFPage, pageIndex: Int) -> UIView? {
         guard let session else { return nil }

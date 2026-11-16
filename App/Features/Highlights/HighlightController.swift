@@ -5,8 +5,9 @@ import UIKit
 
 let highlightLog = Logger(subsystem: "software.tactile.marginal", category: "highlights")
 
-/// Text highlights for one reader window. Created once per window by
-/// `ReaderFeatureWiring`; holds the session weakly. Find it with `HighlightController.of(session)`.
+/// Text highlights for one reader window. Created once per window
+/// (`ReaderSession.highlights`); holds the session weakly. The PDF bridge calls
+/// `selectionMenuElements(for:)`, `handleTap(_:)` and `visiblePagesDidChange(_:)` directly.
 ///
 /// ## Making a highlight
 /// The selection edit menu gets the four colours (`selectionMenuElements(for:)`). Choosing one
@@ -39,7 +40,7 @@ let highlightLog = Logger(subsystem: "software.tactile.marginal", category: "hig
 /// The selection menu actions themselves assume no mode: they act only on the
 /// `ReaderTextSelection` they were built for.
 @MainActor
-final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHandling, ReaderVisiblePagesObserving {
+final class HighlightController {
     private weak var session: ReaderSession?
     private var observation: StoreChangeObservation?
     private let menuPresenter = HighlightMenuPresenter()
@@ -61,20 +62,11 @@ final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHand
 
     init(session: ReaderSession) {
         self.session = session
-        session.pdf.addSelectionMenuProvider(self)
-        session.pdf.addTapHandler(self)
-        session.pdf.addVisiblePagesObserver(self)
         menuPresenter.controller = self
         accessibilityView.controller = self
         observation = session.observeBookChanges(includeOwn: true) { [weak self] event in
             self?.handle(event)
         }
-        _ = session.featureState { self }
-    }
-
-    /// This window's controller (`nil` if features were not installed).
-    static func of(_ session: ReaderSession) -> HighlightController? {
-        session.existingFeatureState(HighlightController.self)
     }
 
     // MARK: Selection menu

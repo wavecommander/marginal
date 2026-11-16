@@ -25,15 +25,22 @@ public enum RepositoryConformance {
         throw Failure(description: "\(label): expected \(expected), but no error was thrown")
     }
 
-    /// Checks the record repositories together (pass the same object several times if one type
-    /// implements them all). Covers: book save/fetch/fingerprint, note upsert by target, the
+    /// Checks every rule of `verifyRecordStores` on one record store.
+    @MainActor
+    public static func verifyRecordStore(_ records: some RecordStore) throws {
+        try verifyRecordStores(books: records, notes: records, highlights: records, bookmarks: records, headings: records)
+    }
+
+    /// Checks a record store, read under each of the five names `LibraryStore` gives it (pass
+    /// the same store five times, or `store.books`, `store.notes`, … of a `LibraryStore`; see
+    /// `verifyRecordStore(_:)`). Covers: book save/fetch/fingerprint, note upsert by target, the
     /// empty-note rule, one note per target, retarget, page-note range queries, highlight order
     /// and range queries, idempotent bookmarks, user headings, counts, and cascade delete.
     @MainActor
-    public static func verifyRecordStores(books: some BookRepository, notes: some NoteRepository,
-                                          highlights: some HighlightRepository,
-                                          bookmarks: some BookmarkRepository,
-                                          headings: some HeadingRepository) throws {
+    public static func verifyRecordStores(books: some RecordStore, notes: some RecordStore,
+                                          highlights: some RecordStore,
+                                          bookmarks: some RecordStore,
+                                          headings: some RecordStore) throws {
         let bookID = UUID()
         let fingerprint = "conformance-\(bookID.uuidString)"
         defer { try? books.deleteBook(id: bookID) }
@@ -158,17 +165,17 @@ public enum RepositoryConformance {
         try verifyBookReplacement(books: books, notes: notes, highlights: highlights, bookmarks: bookmarks, headings: headings)
     }
 
-    /// Checks `BookRepository.replaceBook(_:removing:)` (also run by `verifyRecordStores`):
+    /// Checks `RecordStore.replaceBook(_:removing:)` (also run by `verifyRecordStores`):
     /// verbatim insert of a new book (every field, IDs and dates, and the lookups that depend on
     /// derived columns: note by target, page ranges, highlight order, bookmarked pages); replacing
     /// a book with the same ID, including reused record IDs, a freed note target and a freed
     /// bookmark page; removing other IDs (a book with the archive's fingerprint, an unknown ID);
     /// idempotence; every refusal leaving the store untouched; and other books never touched.
     @MainActor
-    public static func verifyBookReplacement(books: some BookRepository, notes: some NoteRepository,
-                                             highlights: some HighlightRepository,
-                                             bookmarks: some BookmarkRepository,
-                                             headings: some HeadingRepository) throws {
+    public static func verifyBookReplacement(books: some RecordStore, notes: some RecordStore,
+                                             highlights: some RecordStore,
+                                             bookmarks: some RecordStore,
+                                             headings: some RecordStore) throws {
         let fresh = UUID(), target = UUID(), other = UUID(), extra = UUID(), successor = UUID()
         let all = [fresh, target, other, extra, successor]
         defer { for id in all { try? books.deleteBook(id: id) } }
@@ -392,5 +399,198 @@ public enum RepositoryConformance {
             try? await store.removeBook(bookID: bookID)
             throw error
         }
+    }
+
+    // MARK: What posts what
+
+    /// Checks what every record write announces on `store.hub`, and with which origin: the
+    /// table on `LibraryStore` ("What posts what"), write by write, including the writes that
+    /// must announce nothing (no-ops and writes that throw). A changed or missing post would
+    /// leave other windows showing stale data with nothing else failing, so every store
+    /// implementation is run through this behind a `LibraryStore`.
+    ///
+    /// Creates two books with fresh IDs and removes everything it created, also when it fails.
+    @MainActor
+    public static func verifyChangePosting(_ store: LibraryStore) async throws {
+        let first = UUID(), second = UUID()
+        let window = ChangeOrigin(label: "conformance window")
+        var received: [StoreChangeEvent] = []
+        let observation = store.hub.observe { event in
+            if event.change.bookID == first || event.change.bookID == second { received.append(event) }
+        }
+        defer {
+            observation.cancel()
+            try? store.books.deleteBook(id: first)
+            try? store.books.deleteBook(id: second)
+        }
+
+        /// Runs `write` and checks that exactly `expected` was posted, in order, with `origin`.
+        func expect(_ label: String, _ expected: [StoreChange], origin: ChangeOrigin?, _ write: () throws -> Void) throws {
+            received.removeAll()
+            try store.perform(as: origin) { try write() }
+            try check(received.map(\.change) == expected,
+                      "\(label): expected \(expected), posted \(received.map(\.change))")
+            try check(received.allSatisfy { $0.origin == origin },
+                      "\(label): every post must carry the origin of the perform it was made in")
+        }
+        /// Runs a write that must throw and checks that nothing was posted.
+        func expectRefused(_ label: String, _ write: () throws -> Void) throws {
+            received.removeAll()
+            var threw = false
+            do { try store.perform(as: window) { try write() } } catch { threw = true }
+            try check(threw, "\(label): the write must throw")
+            try check(received.isEmpty, "\(label): a write that throws must post nothing, posted \(received.map(\.change))")
+        }
+
+        // Books
+        let book = Book(id: first, title: "Posting", fingerprint: "posting-\(first.uuidString)", fileName: "p.pdf",
+                        pageCount: 50, fileSize: 1)
+        let other = Book(id: second, title: "Other", fingerprint: "posting-\(second.uuidString)", fileName: "o.pdf",
+                         pageCount: 50, fileSize: 1)
+        try expect("insert a book", [.bookSaved(bookID: first)], origin: window) { try store.books.save(book) }
+        var renamed = book
+        renamed.title = "Renamed"
+        try expect("save a book again, unattributed", [.bookSaved(bookID: first)], origin: nil) { try store.books.save(renamed) }
+        try expect("insert a second book", [.bookSaved(bookID: second)], origin: window) { try store.books.save(other) }
+
+        // Notes
+        let note = Note(bookID: first, target: .page(3), text: "first")
+        try expect("insert a note", [.noteSaved(bookID: first, target: .page(3), noteID: note.id)], origin: window) {
+            _ = try store.notes.save(note)
+        }
+        var edited = note
+        edited.text = "second"
+        try expect("edit a note, unattributed", [.noteSaved(bookID: first, target: .page(3), noteID: note.id)], origin: nil) {
+            _ = try store.notes.save(edited)
+        }
+        try expectRefused("a second note for an occupied target") {
+            _ = try store.notes.save(Note(bookID: first, target: .page(3), text: "other"))
+        }
+        try expectRefused("a note for an unknown book") {
+            _ = try store.notes.save(Note(bookID: UUID(), target: .page(3), text: "x"))
+        }
+        try expect("retarget a note",
+                   [.noteRemoved(bookID: first, target: .page(3), noteID: note.id),
+                    .noteSaved(bookID: first, target: .page(4), noteID: note.id)], origin: window) {
+            try store.notes.retarget(noteID: note.id, to: .page(4))
+        }
+        try expect("retarget a note to where it is", [], origin: window) {
+            try store.notes.retarget(noteID: note.id, to: .page(4))
+        }
+        try expectRefused("retarget an unknown note") { try store.notes.retarget(noteID: UUID(), to: .page(9)) }
+        var emptied = edited
+        emptied.target = .page(4)
+        emptied.text = " \n "
+        try expect("save a note empty", [.noteRemoved(bookID: first, target: .page(4), noteID: note.id)], origin: window) {
+            _ = try store.notes.save(emptied)
+        }
+        try expect("save an empty note where there is none", [], origin: window) { _ = try store.notes.save(emptied) }
+        try expect("insert the note again", [.noteSaved(bookID: first, target: .page(3), noteID: note.id)], origin: window) {
+            _ = try store.notes.save(note)
+        }
+        try expect("delete a note", [.noteRemoved(bookID: first, target: .page(3), noteID: note.id)], origin: window) {
+            try store.notes.deleteNote(id: note.id)
+        }
+        try expect("delete an unknown note", [], origin: window) { try store.notes.deleteNote(id: note.id) }
+
+        // Highlights
+        var highlight = Highlight(bookID: first, pageIndex: 4, rects: [CGRect(x: 0, y: 0, width: 1, height: 1)],
+                                  color: .yellow, text: "h")
+        try expect("insert a highlight", [.highlightsChanged(bookID: first, pageIndex: 4)], origin: window) {
+            try store.highlights.save(highlight)
+        }
+        highlight.color = .blue
+        try expect("recolour a highlight, unattributed", [.highlightsChanged(bookID: first, pageIndex: 4)], origin: nil) {
+            try store.highlights.save(highlight)
+        }
+        highlight.pageIndex = 6
+        try expect("move a highlight to another page",
+                   [.highlightsChanged(bookID: first, pageIndex: 4), .highlightsChanged(bookID: first, pageIndex: 6)],
+                   origin: window) { try store.highlights.save(highlight) }
+        highlight.bookID = second
+        try expect("move a highlight to another book",
+                   [.highlightsChanged(bookID: first, pageIndex: 6), .highlightsChanged(bookID: second, pageIndex: 6)],
+                   origin: window) { try store.highlights.save(highlight) }
+        try expectRefused("a highlight for an unknown book") {
+            try store.highlights.save(Highlight(bookID: UUID(), pageIndex: 1, rects: [], color: .green, text: "x"))
+        }
+        try expect("delete a highlight", [.highlightsChanged(bookID: second, pageIndex: 6)], origin: window) {
+            try store.highlights.deleteHighlight(id: highlight.id)
+        }
+        try expect("delete an unknown highlight", [], origin: window) { try store.highlights.deleteHighlight(id: highlight.id) }
+
+        // Bookmarks
+        try expect("bookmark a page", [.bookmarksChanged(bookID: first, pageIndex: 2)], origin: window) {
+            try store.bookmarks.setBookmarked(true, bookID: first, pageIndex: 2)
+        }
+        try expect("bookmark a bookmarked page", [], origin: window) {
+            try store.bookmarks.setBookmarked(true, bookID: first, pageIndex: 2)
+        }
+        try expectRefused("bookmark a page of an unknown book") {
+            try store.bookmarks.setBookmarked(true, bookID: UUID(), pageIndex: 2)
+        }
+        try expect("remove a bookmark, unattributed", [.bookmarksChanged(bookID: first, pageIndex: 2)], origin: nil) {
+            try store.bookmarks.setBookmarked(false, bookID: first, pageIndex: 2)
+        }
+        try expect("remove a bookmark that is not there", [], origin: window) {
+            try store.bookmarks.setBookmarked(false, bookID: first, pageIndex: 2)
+        }
+
+        // User headings
+        var heading = UserHeading(bookID: first, title: "Mine", pageIndex: 7, parent: nil)
+        try expect("insert a heading", [.userHeadingsChanged(bookID: first)], origin: window) { try store.headings.save(heading) }
+        heading.title = "Renamed"
+        try expect("rename a heading, unattributed", [.userHeadingsChanged(bookID: first)], origin: nil) {
+            try store.headings.save(heading)
+        }
+        heading.bookID = second
+        try expect("move a heading to another book",
+                   [.userHeadingsChanged(bookID: first), .userHeadingsChanged(bookID: second)], origin: window) {
+            try store.headings.save(heading)
+        }
+        try expectRefused("a heading for an unknown book") {
+            try store.headings.save(UserHeading(bookID: UUID(), title: "x", pageIndex: 1, parent: nil))
+        }
+        try expect("delete a heading", [.userHeadingsChanged(bookID: second)], origin: window) {
+            try store.headings.deleteUserHeading(id: heading.id)
+        }
+        try expect("delete an unknown heading", [], origin: window) { try store.headings.deleteUserHeading(id: heading.id) }
+
+        // Whole books
+        _ = try store.notes.save(Note(bookID: first, target: .page(1), text: "kept until the book goes"))
+        try store.highlights.save(Highlight(bookID: first, pageIndex: 1, rects: [], color: .green, text: "h"))
+        let archive = BookArchive(book: renamed, notes: [Note(bookID: first, target: .page(2), text: "restored")],
+                                  highlights: [], bookmarks: [], userHeadings: [])
+        let bothAscending = [first, second].sorted { $0.uuidString < $1.uuidString }
+        try expect("replace a book, removing another",
+                   bothAscending.map { .bookDeleted(bookID: $0) } + [.bookSaved(bookID: first)], origin: window) {
+            try store.books.replaceBook(archive, removing: [second, UUID()])
+        }
+        try expect("replace a book again", [.bookDeleted(bookID: first), .bookSaved(bookID: first)], origin: nil) {
+            try store.books.replaceBook(archive, removing: [second])
+        }
+        var inconsistent = archive
+        inconsistent.notes = [Note(bookID: second, target: .page(2), text: "of another book")]
+        try expectRefused("replace a book with an inconsistent archive") {
+            try store.books.replaceBook(inconsistent, removing: [])
+        }
+        try expect("delete a book with records: one post, none for the records", [.bookDeleted(bookID: first)], origin: window) {
+            try store.books.deleteBook(id: first)
+        }
+        try expect("delete an unknown book", [], origin: window) { try store.books.deleteBook(id: first) }
+
+        // The compound operations.
+        try store.books.save(book)
+        let inked = Note(bookID: first, target: .page(5), text: "with ink", hasInk: true)
+        _ = try store.notes.save(inked)
+        received.removeAll()
+        try await store.deleteNote(id: inked.id, origin: window)
+        try check(received == [StoreChangeEvent(change: .noteRemoved(bookID: first, target: .page(5), noteID: inked.id), origin: window),
+                               StoreChangeEvent(change: .noteInkChanged(bookID: first, noteID: inked.id), origin: window)],
+                  "deleteNote(id:origin:) must post noteRemoved then noteInkChanged for a note with ink, posted \(received)")
+        received.removeAll()
+        try await store.deleteBook(id: first, origin: window)
+        try check(received == [StoreChangeEvent(change: .bookDeleted(bookID: first), origin: window)],
+                  "deleteBook(id:origin:) must post bookDeleted once, posted \(received)")
     }
 }

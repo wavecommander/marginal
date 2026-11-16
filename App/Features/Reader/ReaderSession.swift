@@ -196,7 +196,8 @@ final class ReaderSession: Identifiable {
     // MARK: Outline and Notebook
 
     /// The merged outline (PDF outline + user headings). `.empty` until loaded; rebuilt off the
-    /// main thread whenever user headings change. Never blocks the first page.
+    /// main thread whenever user headings change. Never blocks the first page. Built once for
+    /// every window on the book (`BookIndex`).
     private(set) var outline: Outline = .empty
     /// `true` once `outline` has been built at least once.
     private(set) var isOutlineLoaded = false
@@ -206,7 +207,8 @@ final class ReaderSession: Identifiable {
     var deepestHeading: OutlineNode? { headingPath.last }
     /// The Notebook tree for this book (note badges, section lists), rebuilt off the main thread
     /// after the outline loads and after any note, highlight, bookmark or heading change (debounced).
-    /// `nil` until first built.
+    /// `nil` until first built. Built once for every window on the book (`BookIndex`); it may
+    /// list pages with ink while a Notebook window is open, which nothing in the reader shows.
     private(set) var notebook: Notebook?
 
     // MARK: Mode and panels
@@ -284,13 +286,14 @@ final class ReaderSession: Identifiable {
     @ObservationIgnored private var hubToken: StoreChangeObservation?
     @ObservationIgnored private var lastReadSaveTask: Task<Void, Never>?
     @ObservationIgnored private var lastSavedPageIndex: Int?
-    @ObservationIgnored private var rawOutlineEntries: [RawOutlineEntry]?
-    @ObservationIgnored private var outlineGeneration = 0
-    @ObservationIgnored private var notebookTask: Task<Void, Never>?
-    @ObservationIgnored private var notebookGeneration = 0
+    /// The book's shared outline and Notebook tree, held from the moment this window's document
+    /// has opened.
+    @ObservationIgnored private var index: BookIndex?
+    @ObservationIgnored private var indexObservation: BookIndexObservation?
     @ObservationIgnored private var openTask: Task<Void, Never>?
-    @ObservationIgnored private var featureObjects: [AnyObject] = []
-    @ObservationIgnored private var featureStates: [ObjectIdentifier: AnyObject] = [:]
+    @ObservationIgnored private var notesPanelIfCreated: NotesPanelController?
+    @ObservationIgnored private var sidebarModelIfCreated: ContentsSidebarModel?
+    @ObservationIgnored private var markupProbe: MarkupProbeSurface?
 
     // MARK: Init
 
@@ -336,7 +339,7 @@ final class ReaderSession: Identifiable {
         }
         OpenEditorRegistry.shared.register(self)
         if configuration.installsFeatures {
-            ReaderFeatureWiring.install(on: self)
+            installFeatures()
         }
         if configuration.startInMarkup {
             setMode(.markup)
@@ -634,29 +637,58 @@ final class ReaderSession: Identifiable {
         }
     }
 
-    // MARK: Feature plug-in storage
+    // MARK: Features
+    //
+    // One of each per window, for the session's lifetime. The PDF bridge calls the ones that
+    // plug into it directly (`ReaderPDFController`: page overlays, the selection menu, taps,
+    // visible pages).
 
-    /// Per-session state for a feature, created on first use and kept for the session's
-    /// lifetime (e.g. a search model that should survive closing its popover). One instance per
-    /// type: `let model = session.featureState { SearchModel(session: session) }`.
-    func featureState<T: AnyObject>(_ make: () -> T) -> T {
-        let key = ObjectIdentifier(T.self)
-        if let existing = featureStates[key] as? T { return existing }
-        let made = make()
-        featureStates[key] = made
-        return made
+    /// Page ink (WP6): one canvas per displayed page. `nil` in a session made without features
+    /// (`Configuration.installsFeatures`).
+    @ObservationIgnored private(set) var pageInk: PageInkOverlayProvider?
+    /// Text highlights (WP7). `nil` in a session made without features.
+    @ObservationIgnored private(set) var highlights: HighlightController?
+    /// The notes panel's state (WP8): made with the window, or on first use in a session made
+    /// without features (unit tests).
+    var notesPanel: NotesPanelController {
+        if let notesPanelIfCreated { return notesPanelIfCreated }
+        let controller = NotesPanelController(session: self)
+        notesPanelIfCreated = controller
+        return controller
     }
-
-    /// The feature state of type `T` if it has been created, without creating it (e.g. menu
-    /// commands that are disabled while there is no search).
-    func existingFeatureState<T: AnyObject>(_ type: T.Type) -> T? {
-        featureStates[ObjectIdentifier(type)] as? T
+    /// The Contents sidebar's state (WP5), made on first use (`ContentsSidebarModel.shared(for:)`
+    /// also starts it).
+    var sidebarModel: ContentsSidebarModel {
+        if let sidebarModelIfCreated { return sidebarModelIfCreated }
+        let model = ContentsSidebarModel(session: self)
+        sidebarModelIfCreated = model
+        return model
     }
+    /// This window's search (WP10), made on first use and kept for the session's lifetime (it
+    /// survives closing its popover).
+    var searchModel: SearchModel {
+        if let searchModelIfCreated { return searchModelIfCreated }
+        let model = SearchModel(session: self)
+        searchModelIfCreated = model
+        return model
+    }
+    /// The search if it has been made, without making it (menu commands that are disabled while
+    /// there is no search; taps on the page).
+    @ObservationIgnored private(set) var searchModelIfCreated: SearchModel?
 
-    /// Keeps a feature controller alive for the session's lifetime (used by
-    /// `ReaderFeatureWiring`).
-    func retainFeature(_ object: AnyObject) {
-        featureObjects.append(object)
+    /// Makes the feature controllers that live with the window. They are made inside `init`,
+    /// before the document opens, so page ink is in place before PDFKit first asks for overlays.
+    private func installFeatures() {
+        pageInk = PageInkOverlayProvider(session: self)
+        highlights = HighlightController(session: self)
+        // With the window, not with the panel, so heading-anchor repair and section-pin tracking
+        // run in a window that never shows the notes panel. Safe this early: its init only reads
+        // the session's page and tab, subscribes to the store hub, makes (does not load) the page
+        // note's model, and defers anything else until the outline has loaded.
+        _ = notesPanel
+        if configuration.markupProbeSurface {
+            markupProbe = MarkupProbeSurface(session: self)   // UI tests only
+        }
     }
 
     // MARK: - Internal (bridge and tests)
@@ -797,60 +829,45 @@ final class ReaderSession: Identifiable {
             if !event.isFrom(origin), let stored = try? store.books.book(id: book.id) {
                 book = stored
             }
-        case .userHeadingsChanged:
-            Task { await rebuildOutline() }
-        case .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
-            scheduleNotebookRebuild()
+        case .userHeadingsChanged, .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
+            break  // The book's index rebuilds the outline and the Notebook tree (`indexDidChange`).
         case .pageInkChanged, .noteInkChanged:
             break
         }
     }
 
+    /// Joins the book's index (shared with every other window on the book), shows what it has
+    /// already built, and loads it if this is the first window.
     private func loadOutline() async {
-        if rawOutlineEntries == nil {
-            rawOutlineEntries = await ReaderDocumentLoader.outlineEntries(at: documentURL)
+        let index = BookIndex.shared(for: book, in: store, rebuildDelay: configuration.notebookRebuildDelay)
+        self.index = index
+        indexObservation = index.observe { [weak self] update in
+            self?.indexDidChange(update)
         }
-        await rebuildOutline()
+        adoptOutline()
+        adoptNotebook()
+        await index.load()
     }
 
-    private func rebuildOutline() async {
-        guard let entries = rawOutlineEntries else { return }
-        outlineGeneration += 1
-        let generation = outlineGeneration
-        let userHeadings = (try? store.headings.userHeadings(bookID: book.id)) ?? []
-        let built = await ReaderDocumentLoader.buildOutline(entries: entries, userHeadings: userHeadings,
-                                                             pageCount: pageCount)
-        guard generation == outlineGeneration else { return }
-        outline = built
+    private func indexDidChange(_ update: BookIndex.Update) {
+        switch update {
+        case .outline:
+            adoptOutline()
+        case .notebook(let recordsChanged):
+            // A tree that differs only in its pages with ink shows nothing new here.
+            if recordsChanged || notebook == nil { adoptNotebook() }
+        }
+    }
+
+    private func adoptOutline() {
+        guard let index, index.isOutlineLoaded else { return }
+        outline = index.outline
         isOutlineLoaded = true
         updateHeadingPath()
-        scheduleNotebookRebuild(immediately: true)
     }
 
-    private func scheduleNotebookRebuild(immediately: Bool = false) {
-        guard isOutlineLoaded else { return }
-        notebookTask?.cancel()
-        let delay = configuration.notebookRebuildDelay
-        notebookTask = Task { [weak self] in
-            if !immediately {
-                try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
-            }
-            await self?.rebuildNotebook()
-        }
-    }
-
-    private func rebuildNotebook() async {
-        guard closeReason == nil else { return }
-        notebookGeneration += 1
-        let generation = notebookGeneration
-        let bookID = book.id
-        let notes = (try? store.notes.notes(bookID: bookID)) ?? []
-        let highlights = (try? store.highlights.highlights(bookID: bookID)) ?? []
-        let bookmarks = (try? store.bookmarks.bookmarks(bookID: bookID)) ?? []
-        let built = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: notes,
-                                                             highlights: highlights, bookmarks: bookmarks)
-        guard generation == notebookGeneration else { return }
+    private func adoptNotebook() {
+        guard closeReason == nil, let built = index?.notebook else { return }
         notebook = built
     }
 }

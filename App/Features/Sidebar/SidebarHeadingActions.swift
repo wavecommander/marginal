@@ -9,38 +9,15 @@ import UIKit
 /// (switching the sidebar to the Contents tab).
 @MainActor
 enum SidebarHeadingActions {
-    /// Registers the window's "Add as Heading" text-selection menu item. Idempotent; called by
-    /// `ReaderFeatureWiring.install(on:)` when the window's session is made, and again by the
-    /// sidebar (for sessions made without features, as in unit tests).
-    static func install(on session: ReaderSession) {
-        let provider = session.featureState { HeadingSelectionMenuProvider(session: session) }
-        provider.registerIfNeeded()
-    }
-}
-
-/// "Add as Heading" in the PDF text-selection edit menu: the selection's text (cleaned up by
-/// `UserHeadingEditor.title(fromSelection:)`) becomes the suggested title and its first page the
-/// heading's page. Coexists with other providers (highlights add their own items).
-@MainActor
-final class HeadingSelectionMenuProvider: ReaderSelectionMenuProviding {
-    private weak var session: ReaderSession?
-    private var registered = false
-
-    init(session: ReaderSession) {
-        self.session = session
-    }
-
-    func registerIfNeeded() {
-        guard !registered, let session else { return }
-        registered = true
-        session.pdf.addSelectionMenuProvider(self)
-    }
-
-    func selectionMenuElements(for selection: ReaderTextSelection) -> [UIMenuElement] {
+    /// "Add as Heading" in the PDF text-selection edit menu (the PDF bridge adds it after the
+    /// highlight colours): the selection's text (cleaned up by
+    /// `UserHeadingEditor.title(fromSelection:)`) becomes the suggested title and its first page
+    /// the heading's page. Nothing for a selection with no usable title.
+    static func selectionMenuElements(for selection: ReaderTextSelection, in session: ReaderSession) -> [UIMenuElement] {
         let title = UserHeadingEditor.title(fromSelection: selection.string)
         guard let page = selection.parts.first?.pageIndex, !title.isEmpty else { return [] }
-        let action = UIAction(title: "Add as Heading", image: UIImage(systemName: "text.badge.plus")) { [weak self] _ in
-            guard let session = self?.session else { return }
+        let action = UIAction(title: "Add as Heading", image: UIImage(systemName: "text.badge.plus")) { [weak session] _ in
+            guard let session else { return }
             session.pdf.clearSelection()
             session.requestAddHeading(atPage: page, suggestedTitle: title)
         }

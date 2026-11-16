@@ -11,7 +11,7 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     /// Display title (initially the file name without extension; the reader can rename it).
     public var title: String
     /// Opaque content identity computed by the importer (WP3), e.g. a SHA-256 hex digest of the
-    /// file. Two imports with equal fingerprints are the same book (`BookRepository.book(fingerprint:)`).
+    /// file. Two imports with equal fingerprints are the same book (`RecordStore.book(fingerprint:)`).
     /// For a converted book this is the fingerprint of the original file, not of the generated PDF.
     public var fingerprint: String
     /// File name of the PDF inside the book's directory (`BookStorageLayout.documentPath`).

@@ -14,11 +14,11 @@ public enum LibraryStoreError: Error, Hashable, Sendable {
 
 /// The one object the app holds for stored data, shared by every window.
 ///
-/// - The five repositories it exposes are **change-posting wrappers** around the implementations
-///   passed to `init`: every successful mutation through them posts the `StoreChange`s listed on
-///   each wrapper method below on `hub`; a mutation that throws posts nothing; reads pass straight
-///   through. Mutate only through these (never through the raw implementations), or other
-///   windows will not hear about it.
+/// - Records live in one `RecordStore` (`records`). `books`, `notes`, `highlights`, `bookmarks`
+///   and `headings` are that same store under the five names the app reads and writes it by
+///   (`store.notes.save(note)`). Every successful write through it posts the `StoreChange`s
+///   listed below on `hub` (the store does the posting itself, from what the write replaced or
+///   removed: `RecordStore`); a write that throws posts nothing.
 /// - **Origin attribution:** posts made inside `perform(as:_:)` carry that origin; posts made
 ///   outside it carry `nil`. The async ink and compound methods take `origin:` explicitly.
 /// - Ink: read with `pageInk`/`noteInk`/`inkedPageIndices` (or `inkStore` directly); write only
@@ -26,7 +26,7 @@ public enum LibraryStoreError: Error, Hashable, Sendable {
 /// - Files: `rootDirectory` is the directory `BookStorageLayout` paths are relative to (the app's
 ///   `Application Support` directory in the live app).
 ///
-/// **What posts what** (wrappers; "existing" means read through the wrapped repository just before):
+/// **What posts what** (checked for every store by `RepositoryConformance.verifyChangePosting`):
 /// - `books.save(book)` → `.bookSaved(book.id)`.
 /// - `books.deleteBook(id)` → `.bookDeleted(id)` if the book existed; nothing otherwise.
 ///   (Records only; prefer `deleteBook(id:origin:)`, which also removes files.)
@@ -57,16 +57,19 @@ public final class LibraryStore {
     public let hub: StoreChangeHub
     /// Directory that `BookStorageLayout` relative paths resolve against.
     public let rootDirectory: URL
-    /// Books (change-posting wrapper).
-    public let books: any BookRepository
-    /// Notes (change-posting wrapper).
-    public let notes: any NoteRepository
-    /// Highlights (change-posting wrapper).
-    public let highlights: any HighlightRepository
-    /// Bookmarks (change-posting wrapper).
-    public let bookmarks: any BookmarkRepository
-    /// User headings (change-posting wrapper).
-    public let headings: any HeadingRepository
+    /// The record store: every book, note, highlight, bookmark and user heading. Its writes post
+    /// on `hub`.
+    public let records: any RecordStore
+    /// `records`, read as the books.
+    public var books: any RecordStore { records }
+    /// `records`, read as the notes.
+    public var notes: any RecordStore { records }
+    /// `records`, read as the highlights.
+    public var highlights: any RecordStore { records }
+    /// `records`, read as the bookmarks.
+    public var bookmarks: any RecordStore { records }
+    /// `records`, read as the user headings.
+    public var headings: any RecordStore { records }
     /// The raw ink store. **Read only**: writes through it post no change; use the `LibraryStore`
     /// ink methods instead.
     public let inkStore: any InkStore
@@ -74,24 +77,20 @@ public final class LibraryStore {
     /// (shared by every window; see `InkedPagesCache`).
     public let inkedPages: InkedPagesCache
 
-    private let context: PostingContext
+    private let context: StoreChangePoster
 
-    /// Builds the store from any repository implementations (they may be one object) and an ink
-    /// store. The implementations are wrapped; keep no other reference to them for mutation.
+    /// Builds the store from a record store and an ink store. The record store becomes this
+    /// store's: its writes post on this store's hub from now on (one `LibraryStore` per record
+    /// store).
     /// - Parameter hub: the hub to post on; a new one when `nil`.
-    public init(books: some BookRepository, notes: some NoteRepository, highlights: some HighlightRepository,
-                bookmarks: some BookmarkRepository, headings: some HeadingRepository, inkStore: some InkStore,
-                rootDirectory: URL, hub: StoreChangeHub? = nil) {
+    public init(records: some RecordStore, inkStore: some InkStore, rootDirectory: URL, hub: StoreChangeHub? = nil) {
         let hub = hub ?? StoreChangeHub()
-        let context = PostingContext(hub: hub)
+        let context = StoreChangePoster(hub: hub)
         self.hub = hub
         self.context = context
         self.rootDirectory = rootDirectory
-        self.books = PostingBookRepository(inner: books, context: context)
-        self.notes = PostingNoteRepository(inner: notes, context: context)
-        self.highlights = PostingHighlightRepository(inner: highlights, context: context)
-        self.bookmarks = PostingBookmarkRepository(inner: bookmarks, context: context)
-        self.headings = PostingHeadingRepository(inner: headings, context: context)
+        records.changePoster = context
+        self.records = records
         self.inkStore = inkStore
         self.inkedPages = InkedPagesCache(inkStore: inkStore, hub: hub)
     }
@@ -104,17 +103,16 @@ public final class LibraryStore {
         let records = InMemoryRecordStore()
         let root = rootDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("MarginalInMemory", isDirectory: true)
-        return LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                            headings: records, inkStore: InMemoryInkStore(), rootDirectory: root)
+        return LibraryStore(records: records, inkStore: InMemoryInkStore(), rootDirectory: root)
     }
 
     // MARK: Origin
 
-    /// The origin attached to repository posts right now: the innermost `perform(as:_:)` in
+    /// The origin attached to record-store posts right now: the innermost `perform(as:_:)` in
     /// progress, else `nil`.
     public var currentOrigin: ChangeOrigin? { context.origin }
 
-    /// Runs `body` with `origin` attached to every change the wrapped repositories post inside
+    /// Runs `body` with `origin` attached to every change the record store posts inside
     /// it. Nesting-safe: the previous origin is restored when `body` returns or throws; an inner
     /// `perform(as: nil)` makes posts unattributed for its duration.
     ///
@@ -222,9 +220,9 @@ public final class LibraryStore {
     // MARK: Archives
 
     /// Everything the record store holds for the book, as one value (the unit of backup), or
-    /// `nil` for an unknown book. Read in one synchronous main-actor pass through the wrapped
-    /// repositories, so it is a consistent snapshot: no mutation can land between the reads.
-    /// Records are in the order the repositories return them (highlights in reading order,
+    /// `nil` for an unknown book. Read in one synchronous main-actor pass through the record
+    /// store, so it is a consistent snapshot: no mutation can land between the reads.
+    /// Records are in the order the record store returns them (highlights in reading order,
     /// bookmarks by page; notes and user headings in no particular order).
     public func archive(bookID: UUID) throws -> BookArchive? {
         guard let book = try books.book(id: bookID) else { return nil }
@@ -273,160 +271,5 @@ public final class LibraryStore {
     /// `<root>/Books/<bookID>/notes`
     public func noteInkDirectoryURL(bookID: UUID) -> URL {
         rootDirectory.appendingPathComponent(BookStorageLayout.noteInkDirectory(bookID: bookID), isDirectory: true)
-    }
-}
-
-// MARK: - Change-posting wrappers
-
-/// Shared by a `LibraryStore` and its wrappers: the hub and the origin of the current `perform`.
-@MainActor
-final class PostingContext {
-    let hub: StoreChangeHub
-    var origin: ChangeOrigin?
-
-    init(hub: StoreChangeHub) { self.hub = hub }
-
-    func post(_ changes: StoreChange...) { hub.post(changes, origin: origin) }
-}
-
-@MainActor
-final class PostingBookRepository<Inner: BookRepository>: BookRepository {
-    let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
-
-    func allBooks() throws -> [Book] { try inner.allBooks() }
-    func book(id: UUID) throws -> Book? { try inner.book(id: id) }
-    func book(fingerprint: String) throws -> Book? { try inner.book(fingerprint: fingerprint) }
-    func recordCounts(bookID: UUID) throws -> BookRecordCounts { try inner.recordCounts(bookID: bookID) }
-
-    func save(_ book: Book) throws {
-        try inner.save(book)
-        context.post(.bookSaved(bookID: book.id))
-    }
-
-    func deleteBook(id: UUID) throws {
-        let existed = try inner.book(id: id) != nil
-        try inner.deleteBook(id: id)
-        if existed { context.post(.bookDeleted(bookID: id)) }
-    }
-
-    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
-        let candidates = ids.union([archive.book.id]).sorted { $0.uuidString < $1.uuidString }
-        let existing = try candidates.filter { try inner.book(id: $0) != nil }
-        try inner.replaceBook(archive, removing: ids)
-        context.hub.post(existing.map { .bookDeleted(bookID: $0) } + [.bookSaved(bookID: archive.book.id)],
-                         origin: context.origin)
-    }
-}
-
-@MainActor
-final class PostingNoteRepository<Inner: NoteRepository>: NoteRepository {
-    let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
-
-    func note(bookID: UUID, target: NoteTarget) throws -> Note? { try inner.note(bookID: bookID, target: target) }
-    func note(id: UUID) throws -> Note? { try inner.note(id: id) }
-    func notes(bookID: UUID) throws -> [Note] { try inner.notes(bookID: bookID) }
-    func pageNotes(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Note] { try inner.pageNotes(bookID: bookID, in: pages) }
-    func noteCount(bookID: UUID) throws -> Int { try inner.noteCount(bookID: bookID) }
-
-    @discardableResult
-    func save(_ note: Note) throws -> Note? {
-        let existing = try inner.note(bookID: note.bookID, target: note.target)
-        let saved = try inner.save(note)
-        if let saved {
-            context.post(.noteSaved(bookID: saved.bookID, target: saved.target, noteID: saved.id))
-        } else if let existing {
-            context.post(.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: existing.id))
-        }
-        return saved
-    }
-
-    func deleteNote(id: UUID) throws {
-        let existing = try inner.note(id: id)
-        try inner.deleteNote(id: id)
-        if let existing {
-            context.post(.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: id))
-        }
-    }
-
-    func retarget(noteID: UUID, to target: NoteTarget) throws {
-        let existing = try inner.note(id: noteID)
-        try inner.retarget(noteID: noteID, to: target)
-        if let existing, existing.target != target {
-            context.post(.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: noteID),
-                         .noteSaved(bookID: existing.bookID, target: target, noteID: noteID))
-        }
-    }
-}
-
-@MainActor
-final class PostingHighlightRepository<Inner: HighlightRepository>: HighlightRepository {
-    let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
-
-    func highlight(id: UUID) throws -> Highlight? { try inner.highlight(id: id) }
-    func highlights(bookID: UUID) throws -> [Highlight] { try inner.highlights(bookID: bookID) }
-    func highlights(bookID: UUID, pageIndex: Int) throws -> [Highlight] { try inner.highlights(bookID: bookID, pageIndex: pageIndex) }
-    func highlights(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Highlight] { try inner.highlights(bookID: bookID, in: pages) }
-    func highlightCount(bookID: UUID) throws -> Int { try inner.highlightCount(bookID: bookID) }
-
-    func save(_ highlight: Highlight) throws {
-        let existing = try inner.highlight(id: highlight.id)
-        try inner.save(highlight)
-        var changes: [StoreChange] = []
-        if let existing, existing.pageIndex != highlight.pageIndex || existing.bookID != highlight.bookID {
-            changes.append(.highlightsChanged(bookID: existing.bookID, pageIndex: existing.pageIndex))
-        }
-        changes.append(.highlightsChanged(bookID: highlight.bookID, pageIndex: highlight.pageIndex))
-        context.hub.post(changes, origin: context.origin)
-    }
-
-    func deleteHighlight(id: UUID) throws {
-        let existing = try inner.highlight(id: id)
-        try inner.deleteHighlight(id: id)
-        if let existing { context.post(.highlightsChanged(bookID: existing.bookID, pageIndex: existing.pageIndex)) }
-    }
-}
-
-@MainActor
-final class PostingBookmarkRepository<Inner: BookmarkRepository>: BookmarkRepository {
-    let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
-
-    func bookmarks(bookID: UUID) throws -> [Bookmark] { try inner.bookmarks(bookID: bookID) }
-    func isBookmarked(bookID: UUID, pageIndex: Int) throws -> Bool { try inner.isBookmarked(bookID: bookID, pageIndex: pageIndex) }
-
-    func setBookmarked(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws {
-        let before = try inner.isBookmarked(bookID: bookID, pageIndex: pageIndex)
-        try inner.setBookmarked(bookmarked, bookID: bookID, pageIndex: pageIndex)
-        if before != bookmarked { context.post(.bookmarksChanged(bookID: bookID, pageIndex: pageIndex)) }
-    }
-}
-
-@MainActor
-final class PostingHeadingRepository<Inner: HeadingRepository>: HeadingRepository {
-    let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
-
-    func userHeadings(bookID: UUID) throws -> [UserHeading] { try inner.userHeadings(bookID: bookID) }
-    func userHeading(id: UUID) throws -> UserHeading? { try inner.userHeading(id: id) }
-
-    func save(_ heading: UserHeading) throws {
-        let existing = try inner.userHeading(id: heading.id)
-        try inner.save(heading)
-        if let existing, existing.bookID != heading.bookID { context.post(.userHeadingsChanged(bookID: existing.bookID)) }
-        context.post(.userHeadingsChanged(bookID: heading.bookID))
-    }
-
-    func deleteUserHeading(id: UUID) throws {
-        let existing = try inner.userHeading(id: id)
-        try inner.deleteUserHeading(id: id)
-        if let existing { context.post(.userHeadingsChanged(bookID: existing.bookID)) }
     }
 }

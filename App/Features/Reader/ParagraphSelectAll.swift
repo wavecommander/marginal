@@ -1,10 +1,10 @@
 import Foundation
-import ObjectiveC
 import PDFKit
 import UIKit
 
 /// "Select All selects the paragraph" (design): the PDF's Select All grows a selection to the
-/// paragraphs it touches, page by page, and never runs PDFKit's whole-document Select All.
+/// paragraphs it touches, page by page, and never runs PDFKit's whole-document Select All
+/// (`PDFKitWorkarounds.routeSelectAll(from:)` sends every Select All aimed at the PDF here).
 @MainActor
 enum ParagraphSelection {
     /// One text line of a page: its character range on the page and its layout.
@@ -62,71 +62,5 @@ enum ParagraphSelection {
             if let result { result.add(part) } else { result = part }
         }
         return result
-    }
-}
-
-// MARK: - Responder plumbing
-
-/// Routes every Select All aimed at the PDF to `ReaderPDFView.selectParagraphs()`.
-///
-/// On this SDK the edit menu's Select All, the Edit menu's Select All and ⌘A are `selectAll:`
-/// sent to the first responder, which while the PDF has focus is PDFKit's private document view
-/// (a `UITextInput`), not the `PDFView`. That class's `selectAll:` and `canPerformAction:` are
-/// replaced once (for instances inside a `ReaderPDFView`; any other instance keeps PDFKit's);
-/// `ReaderPDFView` overrides both itself for the case where the action reaches it.
-@MainActor
-enum PDFSelectAllRouting {
-    private static var installedClasses: Set<ObjectIdentifier> = []
-
-    static func install(on documentView: UIView) {
-        let cls: AnyClass = type(of: documentView)
-        guard !installedClasses.contains(ObjectIdentifier(cls)) else { return }
-        installedClasses.insert(ObjectIdentifier(cls))
-        replaceSelectAll(in: cls)
-        replaceCanPerformAction(in: cls)
-    }
-
-    private static func readerView(containing view: UIView) -> ReaderPDFView? {
-        var current = view.superview
-        while let candidate = current {
-            if let reader = candidate as? ReaderPDFView { return reader }
-            current = candidate.superview
-        }
-        return nil
-    }
-
-    private typealias SelectAllIMP = @convention(c) (AnyObject, Selector, Any?) -> Void
-    private typealias CanPerformIMP = @convention(c) (AnyObject, Selector, Selector, Any?) -> Bool
-
-    private static func replaceSelectAll(in cls: AnyClass) {
-        let selector = #selector(UIResponderStandardEditActions.selectAll(_:))
-        let original: SelectAllIMP? = class_getInstanceMethod(cls, selector)
-            .map { unsafeBitCast(method_getImplementation($0), to: SelectAllIMP.self) }
-        let block: @convention(block) (AnyObject, Any?) -> Void = { object, sender in
-            MainActor.assumeIsolated {
-                if let view = object as? UIView, let reader = readerView(containing: view) {
-                    reader.selectParagraphs()
-                } else {
-                    original?(object, selector, sender)
-                }
-            }
-        }
-        class_replaceMethod(cls, selector, imp_implementationWithBlock(block), "v@:@")
-    }
-
-    private static func replaceCanPerformAction(in cls: AnyClass) {
-        let selector = #selector(UIResponder.canPerformAction(_:withSender:))
-        guard let method = class_getInstanceMethod(cls, selector) else { return }
-        let original = unsafeBitCast(method_getImplementation(method), to: CanPerformIMP.self)
-        let selectAll = #selector(UIResponderStandardEditActions.selectAll(_:))
-        let block: @convention(block) (AnyObject, Selector, Any?) -> Bool = { object, action, sender in
-            MainActor.assumeIsolated {
-                if action == selectAll, let view = object as? UIView, let reader = readerView(containing: view) {
-                    return reader.canSelectParagraphs
-                }
-                return original(object, selector, action, sender)
-            }
-        }
-        class_replaceMethod(cls, selector, imp_implementationWithBlock(block), method_getTypeEncoding(method))
     }
 }

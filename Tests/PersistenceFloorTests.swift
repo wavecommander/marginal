@@ -19,6 +19,7 @@ struct PersistenceFloorTests {
         try RepositoryConformance.verifyRecordStores(books: store.books, notes: store.notes, highlights: store.highlights,
                                                      bookmarks: store.bookmarks, headings: store.headings)
         try await RepositoryConformance.verifyInkStore(store.inkStore)
+        try await RepositoryConformance.verifyChangePosting(store)
     }
 
     @Test func uniquenessThrowsAndReopenRoundTrips() async throws {
