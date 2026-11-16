@@ -146,7 +146,8 @@ ones even where the mockup draws an approximation.
     note tab and its level picker, the Notebook, search grouping, section history and exports.
   - Headings are saved with the book, appear in every window showing it, and are marked as the
     reader's own wherever they are listed.
-- **Current page** is the page PDFKit reports as current while scrolling. The toolbar subtitle,
+- **Current page** is the page PDFKit calls current: the page under the middle of the view. It
+  follows a scroll while it is in progress, not only once the scroll settles. The toolbar subtitle,
   the Contents selection, and the inspector all follow it.
 - **Page note** tab always shows the note for the current page and changes as the reader scrolls.
   An empty note is a placeholder, not a stored record.

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import ReaderCore
 import UniformTypeIdentifiers
 
@@ -11,6 +12,14 @@ import UniformTypeIdentifiers
 /// Types without a system declaration are declared in `project.yml`
 /// (`UTImportedTypeDeclarations`), and the importable ones are its `CFBundleDocumentTypes` for
 /// "Open in"; `ImportFormatCatalogTests` fails when `Info.plist` and the list disagree.
+///
+/// **Other apps' types.** A type the app declares itself (Kindle, DjVu, CBR, CBZ…) has no system
+/// declaration, so any other installed app may declare the same extensions under a name of its
+/// own, and the system may then call a `.mobi` file by that name instead of ours. The picker
+/// would grey the file out. So `acceptable` also takes whatever types the system currently maps
+/// to the extensions of `ImportFormatCatalog.declaredTypes`, read again every few seconds (an
+/// app can be installed while this one runs). "Open in" cannot be widened this way: its types
+/// are fixed in `Info.plist`.
 nonisolated enum ImportContentTypes {
     /// The type an identifier of the list names: the declared one, or, on a device that has no
     /// declaration for it, a placeholder of that name.
@@ -24,8 +33,35 @@ nonisolated enum ImportContentTypes {
     /// Formats the app recognises and turns down by name.
     static let namedUnsupported: [UTType] = ImportFormatCatalog.namedUnsupportedTypeIdentifiers.map(type)
 
-    /// What the Files picker offers and a drop accepts.
-    static let acceptable: [UTType] = importable + namedUnsupported
+    /// What the Files picker offers and a drop accepts: the two lists, then the types other
+    /// apps have given the extensions of the app's own declared types.
+    static var acceptable: [UTType] {
+        othersTypes.withLock { cache in
+            let now = Date()
+            if let cached = cache, now.timeIntervalSince(cached.read) < othersTypesLifetime { return cached.types }
+            let types = acceptable { UTType.types(tag: $0, tagClass: .filenameExtension, conformingTo: nil) }
+            cache = (types, now)
+            return types
+        }
+    }
+
+    /// `acceptable`, with the system's answer to "which types have this extension" passed in.
+    /// A type is added when it is declared (not a placeholder the system made up for an unknown
+    /// extension) and nothing in the lists already takes it.
+    static func acceptable(typesForExtension: (String) -> [UTType]) -> [UTType] {
+        var types = importable + namedUnsupported
+        for fileExtension in ImportFormatCatalog.declaredTypes.flatMap(\.fileExtensions) {
+            for type in typesForExtension(fileExtension)
+            where !type.isDynamic && !types.contains(where: { type.conforms(to: $0) }) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
+    /// How long one reading of other apps' types is used for.
+    private static let othersTypesLifetime: TimeInterval = 5
+    private static let othersTypes = OSAllocatedUnfairLock<(types: [UTType], read: Date)?>(initialState: nil)
 
     /// The type identifier to load a dropped item as: the first one it offers that conforms to
     /// an acceptable type, or `nil` when it offers none.

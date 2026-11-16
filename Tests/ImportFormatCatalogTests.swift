@@ -84,6 +84,32 @@ struct ImportFormatCatalogTests {
         }
     }
 
+    /// Another app may declare an extension of one of the app's own types under its own name,
+    /// and the system may then call the file by that name: the picker and drops take that type
+    /// too. A placeholder type (an extension nothing declares) is not added, and neither is a
+    /// type the lists already take.
+    @Test func typesOtherAppsGiveADeclaredExtensionAreAccepted() throws {
+        let rival = UTType(importedAs: "com.example.rival.mobi-book")
+        let placeholder = try #require(UTType(filenameExtension: "nothing-declares-this"))
+        #expect(placeholder.isDynamic)
+        var asked: [String] = []
+        let accepted = ImportContentTypes.acceptable { ext in
+            asked.append(ext)
+            switch ext {
+            case "mobi": return [rival, placeholder]
+            case "cbz": return [.zip]  // already taken through the comic archive's zip type
+            default: return []
+            }
+        }
+        #expect(accepted.contains(rival))
+        #expect(!accepted.contains(placeholder))
+        #expect(accepted.count == ImportContentTypes.importable.count + ImportContentTypes.namedUnsupported.count + 1)
+        #expect(Array(accepted.prefix(ImportContentTypes.importable.count)) == ImportContentTypes.importable)
+        // Only the extensions of the app's own declared types are asked about.
+        #expect(Set(asked) == Set(ImportFormatCatalog.declaredTypes.flatMap(\.fileExtensions)))
+        #expect(!asked.contains("rar"))
+    }
+
     @Test func officeFilesGoToWebKitWithTheMIMETypeOfTheirForm() {
         let word = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         let slides = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
