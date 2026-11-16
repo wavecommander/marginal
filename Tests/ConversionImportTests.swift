@@ -346,7 +346,7 @@ struct ConversionImportTests {
     @Test func aFixtureWaitsInAnUnaddressedRequestUntilAWindowTakesIt() async throws {
         let store = try LibraryStore.ephemeral()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
-        let importer = FixtureImporter(store: store, converters: Self.stubs())
+        let importer = FixtureImporter(service: ImportService(store: store, converters: Self.stubs()))
         let result = await importer.importFixture(at: Self.epub, confirmConversions: false)
         let id = try #require(result.conversionRequestID)
         #expect(importer.service.conversionRequests.map(\.windowKey) == [nil])

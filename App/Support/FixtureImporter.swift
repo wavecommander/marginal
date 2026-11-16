@@ -1,22 +1,18 @@
 import Foundation
 import ReaderCore
 
-/// `-importFixture`'s importer. Since WP3 it is a thin wrapper: every import (launch arguments,
-/// Files picker, drops, "Open in") goes through the one `ImportService` it owns, so fixtures
-/// exercise the real pipeline (preflight, fingerprint, streamed copy, cover, dedupe, commit, and
-/// for other formats the Convert to PDF request).
-///
-/// The type name is kept for `AppEnvironment`; `service` is how the Library and the
-/// incoming-document handler reach the shared `ImportService`.
+/// `-importFixture`'s importer: test scaffolding over the app's one `ImportService`, which
+/// `AppEnvironment` owns and hands in. Every import (launch arguments, Files picker, drops,
+/// "Open in") goes through that service, so fixtures exercise the real pipeline (preflight,
+/// fingerprint, streamed copy, cover, dedupe, commit, and for other formats the Convert to PDF
+/// request).
 @MainActor
 struct FixtureImporter {
-    let store: LibraryStore
-    /// The app's one import pipeline.
+    /// The app's import pipeline (not owned here).
     let service: ImportService
 
-    init(store: LibraryStore, converters: ConverterRegistry = .standard) {
-        self.store = store
-        self.service = ImportService(store: store, converters: converters)
+    init(service: ImportService) {
+        self.service = service
     }
 
     /// The converters for these launch options: `standard`, or with `-stubConverters` (DEBUG)

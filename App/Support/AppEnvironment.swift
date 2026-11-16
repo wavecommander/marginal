@@ -21,7 +21,9 @@ final class AppEnvironment {
     /// imported or written into a store that vanishes when the app quits, and automatic backups
     /// stay off.
     let storeErrorMessage: String?
-    /// The fixture importer (`-importFixture`); WP3 owns the real import pipeline.
+    /// The app's one import pipeline, shared by every window.
+    @ObservationIgnored let importService: ImportService
+    /// The fixture importer (`-importFixture`), handed `importService`.
     @ObservationIgnored let fixtureImporter: FixtureImporter
     /// Backup and restore, one job at a time for the app (beside the import service).
     @ObservationIgnored let backupService: BackupService
@@ -68,7 +70,9 @@ final class AppEnvironment {
         self.store = store
         self.launchOptions = launchOptions
         self.storeErrorMessage = storeErrorMessage
-        self.fixtureImporter = FixtureImporter(store: store, converters: FixtureImporter.converters(for: launchOptions))
+        let importService = ImportService(store: store, converters: FixtureImporter.converters(for: launchOptions))
+        self.importService = importService
+        self.fixtureImporter = FixtureImporter(service: importService)
         self.onboarding = OnboardingCoordinator()
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
