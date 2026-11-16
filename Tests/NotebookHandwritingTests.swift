@@ -260,7 +260,7 @@ struct NotebookHandwritingTests {
         let (store, book, model) = try await Self.seededWithPageInk()
         defer { Support.cleanUp(store) }
         // Text only (and a page the ZIP could not draw): page ink is named, not pictured.
-        let (text, images) = NotebookExporter.markdown(for: try #require(model.notebook), bookTitle: book.title, images: true)
+        let (text, images, _) = NotebookExporter.markdown(for: try #require(model.notebook), bookTitle: book.title, images: true)
         for page in [2, 18, 25] { #expect(text.contains("_Handwriting on page \(page)_"), "page \(page)") }
         #expect(images.count == 1)   // the inked note
         #expect(text.contains("> The eigenvalues of a triangular matrix are the entries on its main diagonal. (p. 29)"))

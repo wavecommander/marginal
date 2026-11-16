@@ -22,7 +22,9 @@ nonisolated enum HighlightAccessibilityID {
 /// (`isUserInteractionEnabled = false`, so hit-testing passes through) and draws nothing.
 ///
 /// One element per highlight on the displayed pages, in reading order, after the page text:
-/// label "Yellow highlight, page 3", value the highlighted text, trait button, framed on the
+/// label "Yellow highlight, page 3" ("Yellow highlight on a scanned page, page 17" for a
+/// scanned-page highlight), value the highlighted text (a scanned-page highlight with none:
+/// "Highlight on a scanned page, page 17"), trait button, framed on the
 /// highlight wherever the page is now. Activating it opens the same menu a tap does; its custom
 /// actions recolour, copy and delete without the menu. In markup mode (display-only) the
 /// elements are read but offer no actions.
@@ -84,8 +86,10 @@ final class HighlightAccessibilityElement: UIAccessibilityElement {
         self.controller = controller
         let page = pageIndex + 1
         accessibilityIdentifier = HighlightAccessibilityID.highlight(page: page, index: index)
-        accessibilityLabel = "\(HighlightPalette.name(highlight.color)) highlight, page \(page)"
-        accessibilityValue = highlight.text
+        // A scanned-page highlight says so: its text is what Live Text read, and may be empty.
+        let kind = highlight.isOnScannedPage ? " highlight on a scanned page" : " highlight"
+        accessibilityLabel = "\(HighlightPalette.name(highlight.color))\(kind), page \(page)"
+        accessibilityValue = highlight.isOnScannedPage ? HighlightCropLabels.spokenText(highlight) : highlight.text
         guard controller.isInteractive else {
             // Markup mode: display-only.
             accessibilityHint = nil

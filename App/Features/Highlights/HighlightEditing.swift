@@ -19,12 +19,30 @@ import ReaderCore
 /// The merged text and line rects come from the page itself (a `PDFSelection` over the new
 /// lines and the absorbed highlights' lines), so they follow the page's reading order; if the
 /// page cannot be consulted the rects are unioned per line and the new selection's text kept.
+///
+/// ## The text source (S4)
+/// A highlight made, or merged, on a page that has no text of its own **in the file**
+/// (`textLayer` answers `.noText`) records `HighlightTextSource.liveText`. On a page with text
+/// the source is left as it was (`nil` for a new highlight, exactly as before scanned books).
+/// When `textLayer` does not know the page yet (`nil`), the source is left as it was too, and
+/// the caller corrects it once the file has been read (`HighlightController`).
 @MainActor
 struct HighlightEditing {
     let store: LibraryStore
     let bookID: UUID
     /// The on-screen page for a zero-based index (for merging text), or `nil`.
     let page: (Int) -> PDFPage?
+    /// Whether the page has text of its own in the file, or `nil` when not known yet. A cheap
+    /// lookup: never reads a file.
+    let textLayer: (Int) -> PageTextLayer?
+
+    init(store: LibraryStore, bookID: UUID, textLayer: @escaping (Int) -> PageTextLayer? = { _ in nil },
+         page: @escaping (Int) -> PDFPage?) {
+        self.store = store
+        self.bookID = bookID
+        self.textLayer = textLayer
+        self.page = page
+    }
 
     /// Applies `color` to the selection. Returns the highlights now covering it (one per page
     /// part, in page order). Call inside `session.perform` so the changes are attributed.
@@ -49,6 +67,9 @@ struct HighlightEditing {
             result.rects = lines
             result.color = color
             result.text = text
+            if textLayer(part.pageIndex) == .noText {
+                result.textSource = .liveText
+            }
             if result != keeper {
                 try store.highlights.save(result)
             }

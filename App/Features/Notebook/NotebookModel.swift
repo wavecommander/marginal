@@ -47,6 +47,9 @@ final class NotebookModel {
     private(set) var pageInkVersions: [Int: Int] = [:]
     /// Previews of inked pages for the handwriting rows (rendered off the main thread, cached).
     @ObservationIgnored let pagePreviews: NotebookPagePreviews
+    /// Crops of scanned-page highlights for their rows (rendered off the main thread, cached in
+    /// memory only; S4).
+    @ObservationIgnored let highlightCrops: HighlightCropCache
 
     @ObservationIgnored let store: LibraryStore
     /// Attributes the anchor repairs this model makes.
@@ -71,6 +74,8 @@ final class NotebookModel {
         self.bookID = bookID
         self.rebuildDelay = rebuildDelay
         self.pagePreviews = NotebookPagePreviews(store: store, bookID: bookID)
+        let documentURL = (try? store.books.book(id: bookID)).flatMap { $0 }.map { store.documentURL(for: $0) }
+        self.highlightCrops = HighlightCropCache(documentURL: documentURL ?? URL(fileURLWithPath: "/dev/null"))
         self.loadOutlineEntries = outlineEntries ?? { url in await ReaderDocumentLoader.outlineEntries(at: url) }
     }
 
@@ -87,6 +92,7 @@ final class NotebookModel {
         observation?.cancel()
         rebuildTask?.cancel()
         pagePreviews.purge()
+        highlightCrops.purge()
     }
 
     private func performStart() async {

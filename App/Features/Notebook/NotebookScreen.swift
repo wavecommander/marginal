@@ -178,7 +178,7 @@ private struct NotebookContent: View {
                 .accessibilityIdentifier(NotebookAccessibilityID.exportTextOnly)
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Markdown exports text only. To include handwritten notes and handwriting on pages as images, export as Markdown (ZIP).")
+            Text("Markdown exports text only. To include handwritten notes, handwriting on pages and highlights on scanned pages as images, export as Markdown (ZIP).")
         }
         .task(id: FeedInput(build: model.buildCount, filter: filter)) { await recomputeFeed() }
         .onDisappear { if export.isRunning { export.cancel() } }

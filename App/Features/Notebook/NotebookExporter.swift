@@ -71,12 +71,20 @@ nonisolated struct NotebookExportResult: Sendable, Equatable {
 ///   `NotePageRenderer.pngData` at 3x), numbered in output order;
 /// - one PNG per page with handwriting (the page of the book with its ink,
 ///   `NotebookPageRenderer`, `handwritingWidth` points wide at 2x), named by page number. A page
-///   that cannot be drawn (its ink is gone, or it is outside the book) keeps the text line.
+///   that cannot be drawn (its ink is gone, or it is outside the book) keeps the text line;
+/// - one PNG per scanned-page highlight (S4): the crop of the page under it
+///   (`HighlightCropRenderer`, the page at its own size at 3x, on white), numbered in output
+///   order and linked above its caption. A crop that cannot be drawn (the PDF is missing) leaves
+///   the caption alone.
 ///
 ///     <Title> Notebook/
 ///         <Title> Notebook.md
 ///         images/note-001.png …
 ///         handwriting/page-024.png …
+///         highlights/highlight-001.png …
+///
+/// The text-only `.markdown` shows a scanned-page highlight as its caption (or "Highlight on a
+/// scanned page") with its page; `hasImages` counts it, so the reader is offered the ZIP.
 ///
 /// It is shared as a `.zip` of that folder (`<Title> Notebook.zip`, made with
 /// `NSFileCoordinator`'s `.forUploading` zip), which Files expands with a tap. A zip rather than
@@ -87,7 +95,8 @@ nonisolated struct NotebookExportResult: Sendable, Equatable {
 /// ## PDF
 /// See `NotebookPDFWriter`: the faithful format, every note drawn with `NotePageRenderer.draw`,
 /// and every page with page ink drawn from the book with its ink (`PageInkRenderer`). The
-/// Markdown names those pages ("_Handwriting on page N_") without an image.
+/// Markdown names those pages ("_Handwriting on page N_") without an image. A scanned-page
+/// highlight is drawn as its crop, with its caption.
 ///
 /// ## Threading, progress, cancellation, cleanup
 /// The Markdown text, file writes and the zip run off the main thread; ink files are read through
@@ -128,10 +137,23 @@ enum NotebookExporter {
     /// Width in points (rendered at 2x) of a page-with-handwriting image in the ZIP.
     nonisolated static let handwritingWidth: CGFloat = 768
 
+    /// Image file name for the `ordinal`-th (1-based, output order) scanned-page highlight.
+    nonisolated static func highlightImageName(ordinal: Int) -> String {
+        String(format: "highlight-%03d.png", ordinal)
+    }
+
+    /// Zoom (pixels per page point, before `highlightImageScale`) of a highlight crop in the ZIP:
+    /// the page at its own size.
+    nonisolated static let highlightImageZoom: CGFloat = 1
+    /// Pixels per point of a highlight crop in the ZIP and the PDF (about 216 dpi of the page).
+    nonisolated static let highlightImageScale: CGFloat = 3
+
     /// Whether `notebook` has anything a text-only Markdown export leaves out: a note with ink,
-    /// or a page with handwriting.
+    /// a page with handwriting, or a scanned-page highlight (shown as a crop of the page).
     nonisolated static func hasImages(_ notebook: Notebook) -> Bool {
-        notebook.totalCounts.inkedPages > 0 || !markdown(for: notebook, bookTitle: "", images: true).images.isEmpty
+        if notebook.totalCounts.inkedPages > 0 { return true }
+        let rendered = markdown(for: notebook, bookTitle: "", images: true)
+        return !rendered.images.isEmpty || !rendered.highlightImages.isEmpty
     }
 
     static func export(_ format: NotebookExportFormat, notebook: Notebook, book: Book, store: LibraryStore,
@@ -181,12 +203,17 @@ enum NotebookExporter {
     // MARK: Markdown
 
     /// The Markdown text. With `images`, also the inked notes to render, in output order with
-    /// their paths relative to the Markdown file (`images/note-001.png` …), and an image link
-    /// (`handwriting/page-024.png`) for each page in `handwritingPages`; without, text only.
+    /// their paths relative to the Markdown file (`images/note-001.png` …), an image link
+    /// (`handwriting/page-024.png`) for each page in `handwritingPages`, and the scanned-page
+    /// highlights in output order with their crop's path (`highlights/highlight-001.png` …),
+    /// linked only when `drawnHighlights` (when given) contains the highlight; without, text
+    /// only (a scanned-page highlight then reads as its caption, S1's form).
     nonisolated static func markdown(for notebook: Notebook, bookTitle: String, images withImages: Bool,
-                                     handwritingPages: Set<Int> = [])
-        -> (text: String, images: [(note: Note, path: String)]) {
+                                     handwritingPages: Set<Int> = [], drawnHighlights: Set<UUID>? = nil)
+        -> (text: String, images: [(note: Note, path: String)], highlightImages: [(highlight: Highlight, path: String)]) {
         var images: [(note: Note, path: String)] = []
+        var highlightImages: [(highlight: Highlight, path: String)] = []
+        var highlightOrdinal = 0
         let text = MarkdownExporter.export(notebook, bookTitle: bookTitle, imagePath: { note in
             guard withImages, note.hasInk else { return nil }
             let path = "images/" + imageName(ordinal: images.count + 1)
@@ -194,15 +221,22 @@ enum NotebookExporter {
             return path
         }, handwritingPath: { page in
             withImages && handwritingPages.contains(page) ? "handwriting/" + handwritingName(pageIndex: page) : nil
+        }, highlightImagePath: { highlight in
+            guard withImages else { return nil }
+            highlightOrdinal += 1
+            let path = "highlights/" + highlightImageName(ordinal: highlightOrdinal)
+            highlightImages.append((highlight, path))
+            return drawnHighlights.map { $0.contains(highlight.id) } ?? true ? path : nil
         })
-        return (text, images)
+        return (text, images, highlightImages)
     }
 
     @concurrent
     private nonisolated static func buildMarkdown(_ notebook: Notebook, bookTitle: String, images: Bool,
-                                                  handwritingPages: Set<Int> = []) async
-        -> (text: String, images: [(note: Note, path: String)]) {
-        markdown(for: notebook, bookTitle: bookTitle, images: images, handwritingPages: handwritingPages)
+                                                  handwritingPages: Set<Int> = [], drawnHighlights: Set<UUID>? = nil) async
+        -> (text: String, images: [(note: Note, path: String)], highlightImages: [(highlight: Highlight, path: String)]) {
+        markdown(for: notebook, bookTitle: bookTitle, images: images, handwritingPages: handwritingPages,
+                 drawnHighlights: drawnHighlights)
     }
 
     /// `.markdown`: the text alone, as `<Title> Notebook.md`.
@@ -223,10 +257,13 @@ enum NotebookExporter {
         let folder = work.appendingPathComponent(base, isDirectory: true)
         try await createDirectory(folder)
         let inkedPages = notebook.inkedPageIndices
-        // The notes to render do not depend on which pages can be drawn: known up front.
-        let images = await buildMarkdown(notebook, bookTitle: book.title, images: true).images
+        // The notes and scanned-page highlights to render do not depend on which pages can be
+        // drawn: known up front.
+        let planned = await buildMarkdown(notebook, bookTitle: book.title, images: true)
+        let images = planned.images
+        let highlightImages = planned.highlightImages
         try Task.checkCancellation()
-        let steps = Double(inkedPages.count + images.count + 2)
+        let steps = Double(inkedPages.count + images.count + highlightImages.count + 2)
         var done = 0.0
         func step() async {
             done += 1
@@ -251,8 +288,26 @@ enum NotebookExporter {
             }
         }
 
+        // Crops of scanned-page highlights: the Markdown links only the ones that were drawn (a
+        // book whose PDF is missing keeps the caption alone).
+        var drawnHighlights = Set<UUID>()
+        if !highlightImages.isEmpty {
+            try await createDirectory(folder.appendingPathComponent("highlights", isDirectory: true))
+            let renderer = HighlightCropRenderer(url: store.documentURL(for: book))
+            for image in highlightImages {
+                try Task.checkCancellation()
+                if let png = await cropPNG(renderer, highlight: image.highlight) {
+                    try Task.checkCancellation()
+                    try await write(png, to: folder.appendingPathComponent(image.path))
+                    drawnHighlights.insert(image.highlight.id)
+                }
+                await step()
+            }
+        }
+
         try Task.checkCancellation()
-        let text = await buildMarkdown(notebook, bookTitle: book.title, images: true, handwritingPages: drawnPages).text
+        let text = await buildMarkdown(notebook, bookTitle: book.title, images: true, handwritingPages: drawnPages,
+                                       drawnHighlights: drawnHighlights).text
         try await write(Data(text.utf8), to: folder.appendingPathComponent(base + ".md"))
         await step()
 
@@ -280,16 +335,29 @@ enum NotebookExporter {
         await renderer.preview(pageIndex: pageIndex, inkData: inkData, width: handwritingWidth, scale: 2)?.image.pngData()
     }
 
+    /// A scanned-page highlight's crop as PNG data (`nil`: the page cannot be drawn).
+    @concurrent
+    private nonisolated static func cropPNG(_ renderer: HighlightCropRenderer, highlight: Highlight) async -> Data? {
+        await renderer.crop(pageIndex: highlight.pageIndex, rects: highlight.rects, zoom: highlightImageZoom,
+                            scale: highlightImageScale)?.image.pngData()
+    }
+
     // MARK: PDF
 
     private static func exportPDF(notebook: Notebook, book: Book, store: LibraryStore, into work: URL,
                                   progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
         let url = work.appendingPathComponent(baseName(forBookTitle: book.title) + ".pdf")
         let writer = try NotebookPDFWriter(url: url, bookTitle: book.title)
-        // Pages with handwriting: drawn from a private instance of the book.
+        // Pages with handwriting: drawn from a private instance of the book. Crops of scanned-page
+        // highlights: rendered off the main thread from another.
+        let cropRenderer = HighlightCropRenderer(url: store.documentURL(for: book))
         let bookPages = NotebookPDFWriter.BookPages(
             document: notebook.totalCounts.inkedPages > 0 ? PDFDocument(url: store.documentURL(for: book)) : nil,
-            loadInk: { page in try? await store.pageInk(bookID: book.id, pageIndex: page) })
+            loadInk: { page in try? await store.pageInk(bookID: book.id, pageIndex: page) },
+            loadCrop: { highlight in
+                await cropRenderer.crop(pageIndex: highlight.pageIndex, rects: highlight.rects, zoom: 1,
+                                        scale: highlightImageScale)?.image
+            })
         do {
             try await writer.write(notebook, loadInk: { note in
                 try? await store.noteInk(bookID: book.id, noteID: note.id)

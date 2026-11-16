@@ -14,6 +14,13 @@ let highlightLog = Logger(subsystem: "software.tactile.marginal", category: "hig
 /// rule is in `HighlightEditing`), then clears the selection. The menu acts only on the
 /// `ReaderTextSelection` it was built for, whichever gesture or mode produced it.
 ///
+/// ## Scanned pages (S4)
+/// On a scanned page the selection is PDFKit's Live Text and reaches this controller like any
+/// other. The highlight records `HighlightTextSource.liveText` when its page has no text of its
+/// own **in the file** (`textSources`, read from a private document and prefetched for the pages
+/// near the screen; never the on-screen document, which gains the Live Text). It is drawn from
+/// its rects like every highlight. Lists show it as a crop of the page (`crops`).
+///
 /// ## Showing highlights
 /// In-memory `HighlightAnnotation`s on the on-screen document's pages, only for the displayed
 /// pages and one page either side (`visiblePagesDidChange`): a page coming near the screen
@@ -59,8 +66,22 @@ final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHand
     private var applied: [Int: AppliedPage] = [:]
     private var visiblePages: [Int] = []
 
+    /// Whether pages have text of their own in the file, for a new highlight's source (S4).
+    /// Prefetched for the pages near the screen, so making a highlight never reads a file on the
+    /// main thread.
+    let textSources: HighlightTextSourceProbe
+    /// Crops of scanned-page highlights for this window's lists ("Highlights on this page").
+    let crops: HighlightCropCache
+    /// The last correction of highlights saved before their page's source was known (tests).
+    private(set) var pendingSourceCorrection: Task<Void, Never>?
+
     init(session: ReaderSession) {
         self.session = session
+        textSources = HighlightTextSourceProbe(documentURL: session.documentURL)
+        crops = HighlightCropCache(documentURL: session.documentURL)
+        #if DEBUG
+        ScannedHighlightDebugSeed.seedIfRequested(store: session.store, book: session.book)
+        #endif
         session.pdf.addSelectionMenuProvider(self)
         session.pdf.addTapHandler(self)
         session.pdf.addVisiblePagesObserver(self)
@@ -89,10 +110,17 @@ final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHand
     /// Highlights `selection` in `color` (overlap rule: `HighlightEditing`), clears the
     /// selection, and returns the highlights now covering it. The page updates through the
     /// store's change event.
+    ///
+    /// The source of each highlight (S4) is decided from the page **in the file**: on a page with
+    /// no text of its own it is `.liveText`. The answer is normally already cached (prefetched as
+    /// the page came into view); if not, the highlight is saved at once and its source corrected
+    /// as soon as the file has been read, off the main thread (`pendingSourceCorrection`).
     @discardableResult
     func highlight(_ selection: ReaderTextSelection, color: HighlightColor) -> [Highlight] {
         guard let session else { return [] }
-        let editing = HighlightEditing(store: session.store, bookID: session.book.id) { [weak session] in
+        let sources = textSources
+        let editing = HighlightEditing(store: session.store, bookID: session.book.id,
+                                       textLayer: { sources.cachedLayer(forPage: $0) }) { [weak session] in
             session?.pdf.page(at: $0)
         }
         var result: [Highlight] = []
@@ -102,7 +130,33 @@ final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHand
             highlightLog.error("Saving a highlight failed: \(String(describing: error), privacy: .public)")
         }
         session.pdf.clearSelection()
+        let undecided = result.filter { sources.cachedLayer(forPage: $0.pageIndex) == nil }
+        if !undecided.isEmpty { correctSources(of: undecided.map(\.id)) }
         return result
+    }
+
+    /// Reads the file's pages of highlights saved before their source was known and marks the
+    /// ones on pages without text of their own as Live Text.
+    private func correctSources(of ids: [UUID]) {
+        let previous = pendingSourceCorrection
+        pendingSourceCorrection = Task { [weak self] in
+            await previous?.value
+            for id in ids {
+                guard let self, let session = self.session,
+                      let stored = try? session.store.highlights.highlight(id: id),
+                      stored.textSource != .liveText,
+                      await self.textSources.layer(forPage: stored.pageIndex) == .noText,
+                      // Read again: it may have changed while the file was read.
+                      var current = try? session.store.highlights.highlight(id: id),
+                      current.textSource != .liveText else { continue }
+                current.textSource = .liveText
+                do {
+                    try session.perform { try $0.highlights.save(current) }
+                } catch {
+                    highlightLog.error("Recording a highlight's source failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
     }
 
     /// Recolours a stored highlight.
@@ -183,6 +237,9 @@ final class HighlightController: ReaderSelectionMenuProviding, ReaderPageTapHand
     func visiblePagesDidChange(_ pageIndices: [Int]) {
         visiblePages = pageIndices
         sync()
+        // A selection can exist only on a page in view (on a scanned page, seconds after it
+        // appeared): know by then whether the page has text of its own in the file.
+        textSources.prefetch(targetPages)
     }
 
     /// Pages that should carry highlights now: the visible ones and `pageMargin` either side.

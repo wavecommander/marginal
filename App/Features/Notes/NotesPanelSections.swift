@@ -115,7 +115,8 @@ struct NotesLevelPicker: View {
 
 // MARK: - Highlights on this page
 
-/// "Highlights on this page": the page's highlights in reading order, coloured and quoted.
+/// "Highlights on this page": the page's highlights in reading order, coloured and quoted; a
+/// scanned-page highlight as a crop of the page under it, captioned with its stored text (S4).
 /// Tapping one jumps to it (a jump, so it goes through the session). The panel loads them and
 /// shows this only while there are any.
 struct NotesHighlightsSection: View {
@@ -141,10 +142,7 @@ struct NotesHighlightsSection: View {
                     .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.25)))
                     .frame(width: 14, height: 14)
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                Text("\u{201C}\(highlight.text)\u{201D}")
-                    .font(.subheadline)
-                    .lineLimit(4)
-                    .multilineTextAlignment(.leading)
+                content(highlight)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // The row is one element with its own label; never a bare title element.
                     .accessibilityHidden(true)
@@ -156,11 +154,36 @@ struct NotesHighlightsSection: View {
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(highlight.color.name) highlight")
-        .accessibilityValue(highlight.text)
+        .accessibilityLabel(highlight.isOnScannedPage ? "\(highlight.color.name) highlight on a scanned page"
+                                                      : "\(highlight.color.name) highlight")
+        .accessibilityValue(highlight.isOnScannedPage ? HighlightCropLabels.spokenText(highlight) : highlight.text)
         .accessibilityHint("Goes to the highlight")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(NotesPanelAccessibilityID.highlight)
+    }
+
+    /// The quoted text; for a scanned-page highlight (S4), a crop of the page under it with the
+    /// stored text as a caption when there is any.
+    @ViewBuilder
+    private func content(_ highlight: Highlight) -> some View {
+        switch highlight.presentation {
+        case .text:
+            Text("\u{201C}\(highlight.text)\u{201D}")
+                .font(.subheadline)
+                .lineLimit(4)
+                .multilineTextAlignment(.leading)
+        case .crop(let caption):
+            VStack(alignment: .leading, spacing: 4) {
+                HighlightCropView(highlight: highlight, crops: HighlightController.of(session)?.crops, maxWidth: 260)
+                if let caption {
+                    Text("\u{201C}\(caption)\u{201D}")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+        }
     }
 }
 

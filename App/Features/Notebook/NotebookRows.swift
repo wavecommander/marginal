@@ -222,20 +222,44 @@ struct NotebookRowView: View {
         }
     }
 
+    @ViewBuilder
     private func highlightBody(_ highlight: Highlight) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(NotebookHighlightStyle.color(highlight.color))
-                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(NotebookHighlightStyle.border(highlight.color), lineWidth: 1))
-                .frame(width: 14, height: 14)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-            Text(OutlineText.normalizedTitle(highlight.text))
-                .font(.system(.body, design: .serif))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
+        switch highlight.presentation {
+        case .text(let text):
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                highlightSwatch(highlight)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                Text(text)
+                    .font(.system(.body, design: .serif))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .crop(let caption):
+            // S4: a scanned-page highlight is shown as the page itself, its stored text (what
+            // Live Text read) as a caption when there is any.
+            HStack(alignment: .top, spacing: 10) {
+                highlightSwatch(highlight)
+                    .padding(.top, 3)
+                VStack(alignment: .leading, spacing: 5) {
+                    HighlightCropView(highlight: highlight, crops: model.highlightCrops, maxWidth: 380)
+                    Text(caption ?? HighlightPresentation.uncaptionedCropLabel)
+                        .font(caption == nil ? .footnote : .system(.footnote, design: .serif))
+                        .italic(caption == nil)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
+    }
+
+    private func highlightSwatch(_ highlight: Highlight) -> some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(NotebookHighlightStyle.color(highlight.color))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .strokeBorder(NotebookHighlightStyle.border(highlight.color), lineWidth: 1))
+            .frame(width: 14, height: 14)
     }
 
     // MARK: Accessibility
@@ -270,6 +294,13 @@ struct NotebookRowView: View {
         case .pageNote(let note, let page):
             return "Page \(PageNumbering.displayNumber(forPageIndex: page)) note. " + Self.noteSpeech(note)
         case .highlight(let highlight, _):
+            if highlight.isOnScannedPage {
+                // "Yellow highlight on a scanned page, page 17. <caption>", or without a caption
+                // "Yellow highlight on a scanned page, page 17."
+                let label = "\(NotebookHighlightStyle.name(highlight.color)) highlight on a scanned page, page "
+                    + "\(PageNumbering.displayNumber(forPageIndex: highlight.pageIndex))."
+                return HighlightCropLabels.caption(highlight).map { "\(label) \($0)" } ?? label
+            }
             return "\(NotebookHighlightStyle.name(highlight.color)) highlight, page "
                 + "\(PageNumbering.displayNumber(forPageIndex: highlight.pageIndex)). "
                 + OutlineText.normalizedTitle(highlight.text)

@@ -11,7 +11,8 @@ import UIKit
 /// every heading with content, depth first (title, page range and a rule; level 1 large with a
 /// heavy rule); under a heading its own note (labelled "Chapter"/"Section"), then its pages, each
 /// item labelled with its page ("p. 312"): the page note, then the page's highlights (colour
-/// swatch and the quoted text in a serif face), then, for a page with page ink, "Handwriting" and
+/// swatch and the quoted text in a serif face; a scanned-page highlight as the crop of the page
+/// under it with its caption, `drawScannedHighlight`), then, for a page with page ink, "Handwriting" and
 /// the book page with its ink (`drawInkedPage`); finally "Unfiled notes". A running footer carries
 /// the book title and the PDF page number. Page size: US Letter where the locale measures in
 /// US units, A4 elsewhere; 54 pt margins.
@@ -80,6 +81,9 @@ final class NotebookPDFWriter {
         let document: PDFDocument?
         /// The page's stored ink (`nil`: none any more, the page is skipped).
         let loadInk: @MainActor (Int) async -> Data?
+        /// The crop of the page under a scanned-page highlight (`nil`: it cannot be drawn, and
+        /// the caption is drawn alone). S4.
+        var loadCrop: @MainActor (Highlight) async -> UIImage? = { _ in nil }
     }
 
     /// Writes the whole notebook and closes the file.
@@ -160,7 +164,13 @@ final class NotebookPDFWriter {
             try await step()
         }
         for highlight in page.highlights {
-            drawHighlight(highlight, label: label)
+            if highlight.isOnScannedPage {
+                let crop = await bookPages?.loadCrop(highlight)
+                try Task.checkCancellation()
+                drawScannedHighlight(highlight, crop: crop, label: label)
+            } else {
+                drawHighlight(highlight, label: label)
+            }
             try await step()
         }
         if page.hasInk {
@@ -383,6 +393,74 @@ final class NotebookPDFWriter {
                 first = false
             }
             draw(line.line, x: textX, baseline: y + line.ascent)
+            y += line.height
+        }
+        y += 8
+    }
+
+    /// A scanned-page highlight (S4): the colour swatch, the crop of the page under it (on white,
+    /// at the page's own size, scaled down to the body's width; never split), then its caption
+    /// in the serif face, or "Highlight on a scanned page" when it has none. Without a crop (the
+    /// PDF is missing) the caption is drawn alone.
+    private func drawScannedHighlight(_ highlight: Highlight, crop: UIImage?, label: String) {
+        let swatch: CGFloat = 9
+        let contentX = bodyX + swatch + 8
+        let contentWidth = bodyWidth - swatch - 8
+        let caption: NSAttributedString
+        if let text = highlight.presentation.caption {
+            let font = UIFont(name: "Georgia", size: 10.5) ?? UIFont.systemFont(ofSize: 10.5)
+            caption = NSAttributedString(string: "\u{201C}\(text)\u{201D}", attributes: [
+                .font: font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): Self.cgColor(.secondaryLabel),
+            ])
+        } else {
+            let font = UIFont.italicSystemFont(ofSize: 10)
+            caption = NSAttributedString(string: HighlightPresentation.uncaptionedCropLabel, attributes: [
+                .font: font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): Self.cgColor(.secondaryLabel),
+            ])
+        }
+        let captionLines = lines(caption, width: contentWidth)
+        var cropSize = CGSize.zero
+        if let crop, crop.size.width > 0, crop.size.height > 0 {
+            let width = min(contentWidth, crop.size.width)
+            cropSize = CGSize(width: width, height: crop.size.height * width / crop.size.width)
+            let room = contentBottom - contentTop - (captionLines.first?.height ?? 0) - 4
+            if cropSize.height > room {
+                cropSize = CGSize(width: cropSize.width * room / cropSize.height, height: room)
+            }
+        }
+        ensureRoom(cropSize.height + 4 + (captionLines.first?.height ?? 14))
+        drawLabel(label, top: y + 1)
+        let box = CGRect(x: bodyX, y: y + 1, width: swatch, height: swatch)
+        context.saveGState()
+        context.setFillColor(Self.highlightColor(highlight.color).cgColor)
+        context.fill(box)
+        context.setStrokeColor(UIColor(white: 0, alpha: 0.35).cgColor)
+        context.setLineWidth(0.5)
+        context.stroke(box)
+        context.restoreGState()
+        if let cgImage = crop?.cgImage, cropSize.width > 0 {
+            let rect = CGRect(x: contentX, y: y, width: cropSize.width, height: cropSize.height)
+            context.saveGState()
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(rect)
+            // `CGContext.draw` is y-up: flip around the rect.
+            context.translateBy(x: rect.minX, y: rect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.interpolationQuality = .high
+            context.draw(cgImage, in: CGRect(origin: .zero, size: rect.size))
+            context.restoreGState()
+            context.saveGState()
+            context.setStrokeColor(UIColor(white: 0.82, alpha: 1).cgColor)
+            context.setLineWidth(0.5)
+            context.stroke(rect.insetBy(dx: 0.25, dy: 0.25))
+            context.restoreGState()
+            y = rect.maxY + 4
+        }
+        for line in captionLines {
+            if y + line.height > contentBottom, !atPageTop { newPage() }
+            draw(line.line, x: contentX, baseline: y + line.ascent)
             y += line.height
         }
         y += 8
