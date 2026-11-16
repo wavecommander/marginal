@@ -202,18 +202,71 @@ enum MarginalSchemaV2: VersionedSchema {
     }
 }
 
+/// Version 3: `HighlightModel` gains one optional column, where its text came from (scanned
+/// books). The other models are unchanged and shared with versions 1 and 2. Frozen once shipped,
+/// like the versions before it.
+enum MarginalSchemaV3: VersionedSchema {
+    static let versionIdentifier = Schema.Version(3, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [MarginalSchemaV2.BookModel.self, MarginalSchemaV1.NoteModel.self, HighlightModel.self,
+         MarginalSchemaV1.BookmarkModel.self, MarginalSchemaV1.UserHeadingModel.self]
+    }
+
+    @Model
+    final class HighlightModel {
+        @Attribute(.unique) var id: UUID
+        var bookID: UUID
+        var pageIndex: Int
+        /// JSON of `[CGRect]`.
+        var rectsData: Data
+        /// `HighlightColor.rawValue`.
+        var colorRaw: String
+        var text: String
+        var createdAt: Date
+        // Denormalised `Highlight.readingOrder` keys so the database can sort: `sortRank` is 0
+        // when the highlight has rects (sorts first) and 1 when it has none.
+        var sortRank: Int
+        var sortMaxY: Double
+        var sortMinX: Double
+        var idString: String
+        /// `HighlightTextSource.rawValue`, `nil` for the text layer (every highlight stored
+        /// before version 3).
+        var textSourceRaw: String?
+
+        init(id: UUID, bookID: UUID, pageIndex: Int, rectsData: Data, colorRaw: String, text: String,
+             createdAt: Date, sortRank: Int, sortMaxY: Double, sortMinX: Double, textSourceRaw: String? = nil) {
+            self.id = id
+            self.bookID = bookID
+            self.pageIndex = pageIndex
+            self.rectsData = rectsData
+            self.colorRaw = colorRaw
+            self.text = text
+            self.createdAt = createdAt
+            self.sortRank = sortRank
+            self.sortMaxY = sortMaxY
+            self.sortMinX = sortMinX
+            self.idString = id.uuidString
+            self.textSourceRaw = textSourceRaw
+        }
+    }
+}
+
 typealias BookModel = MarginalSchemaV2.BookModel
 typealias NoteModel = MarginalSchemaV1.NoteModel
-typealias HighlightModel = MarginalSchemaV1.HighlightModel
+typealias HighlightModel = MarginalSchemaV3.HighlightModel
 typealias BookmarkModel = MarginalSchemaV1.BookmarkModel
 typealias UserHeadingModel = MarginalSchemaV1.UserHeadingModel
 
 /// Migration plan. Add a `VersionedSchema` and a stage here for the next change.
 enum MarginalMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [MarginalSchemaV1.self, MarginalSchemaV2.self] }
+    static var schemas: [any VersionedSchema.Type] {
+        [MarginalSchemaV1.self, MarginalSchemaV2.self, MarginalSchemaV3.self]
+    }
     static var stages: [MigrationStage] {
-        // V1 → V2 only adds optional columns, which start out `nil`.
-        [.lightweight(fromVersion: MarginalSchemaV1.self, toVersion: MarginalSchemaV2.self)]
+        // Each step only adds optional columns, which start out `nil`.
+        [.lightweight(fromVersion: MarginalSchemaV1.self, toVersion: MarginalSchemaV2.self),
+         .lightweight(fromVersion: MarginalSchemaV2.self, toVersion: MarginalSchemaV3.self)]
     }
 }
 
@@ -226,7 +279,7 @@ public enum ReaderStoreError: Error, Hashable, Sendable {
 }
 
 enum SchemaFactory {
-    static var schema: Schema { Schema(versionedSchema: MarginalSchemaV2.self) }
+    static var schema: Schema { Schema(versionedSchema: MarginalSchemaV3.self) }
 
     /// A container for the store file at `storeURL`, or in memory when `nil`.
     static func makeContainer(storeURL: URL?) throws -> ModelContainer {

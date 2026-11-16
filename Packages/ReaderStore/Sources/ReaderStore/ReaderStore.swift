@@ -17,7 +17,8 @@ extension LibraryStore {
     ///
     /// On disk, everything lives under `rootDirectory`:
     /// - `Database/Marginal.store` (+ `-wal`, `-shm`): the SwiftData store.
-    /// - `Books/<bookID>/...`: per `BookStorageLayout` (PDF copy, `ink/`, `notes/`).
+    /// - `Books/<bookID>/...`: per `BookStorageLayout` (PDF copy, `ink/`, `notes/`, and for a
+    ///   scanned book `text/` and `recognition.json`, through `FileRecognisedTextStore`).
     ///
     /// Creates one `ModelContainer` per call; the app calls this once and shares the result across
     /// all windows. **Durability:** every record mutation saves before it returns and every ink
@@ -47,7 +48,8 @@ extension LibraryStore {
         let container = try SchemaFactory.makeContainer(storeURL: storeURL)
         let records = SwiftDataRecordStore(container: container)
         return LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
+                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root,
+                            recognisedText: FileRecognisedTextStore(rootDirectory: root))
     }
 
     /// A store for tests and previews: in-memory SwiftData and a unique directory in the temporary
@@ -60,7 +62,8 @@ extension LibraryStore {
         let container = try SchemaFactory.makeContainer(storeURL: nil)
         let records = SwiftDataRecordStore(container: container)
         return LibraryStore(books: records, notes: records, highlights: records, bookmarks: records,
-                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
+                            headings: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root,
+                            recognisedText: FileRecognisedTextStore(rootDirectory: root))
     }
 
     /// Removes `Books/<id>` directories under `rootDirectory` that have no `Book` record: the

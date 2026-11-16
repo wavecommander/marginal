@@ -209,6 +209,8 @@ final class NotebookModel {
             // Ink added or erased on a page, in any window: its row appears, changes or goes.
             pageInkVersions[page, default: 0] += 1
             scheduleRebuild()
+        case .recognisedTextChanged, .recognitionStateChanged:
+            break
         }
     }
 

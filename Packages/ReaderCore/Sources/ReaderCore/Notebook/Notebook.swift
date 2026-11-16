@@ -47,7 +47,9 @@ public struct NotebookPage: Hashable, Sendable, Identifiable {
     /// Zero-based page index (also the `id`).
     public let pageIndex: Int
     public let note: Note?
-    /// Sorted by `Highlight.readingOrder`.
+    /// Sorted by `Highlight.readingOrder`. Scanned-page highlights are among them and count
+    /// and badge like any other; show each as its `Highlight.presentation` says (a crop of the
+    /// page with an optional caption for those).
     public let highlights: [Highlight]
     public let isBookmarked: Bool
     /// The page has ink (`InkStore.inkedPageIndices`): the Notebook lists it as its own entry.

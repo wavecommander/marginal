@@ -49,6 +49,9 @@ public enum LibraryStoreError: Error, Hashable, Sendable {
 /// - `savePageInk`/`deletePageInk` → `.pageInkChanged(bookID, page)`;
 ///   `saveNoteInk`/`deleteNoteInk` → `.noteInkChanged(bookID, noteID)` (deletes post even if no
 ///   file existed, since the ink store cannot tell).
+/// - `saveRecognisedPage` → `.recognisedTextChanged(bookID, page.pageIndex)`;
+///   `removeRecognisedText` → `.recognisedTextChanged(bookID, nil)`;
+///   `saveRecognitionState` → `.recognitionStateChanged(bookID)` (also when removing it).
 /// - `deleteBook(id:origin:)` → `.bookDeleted(id)` (once, after the records are gone).
 /// - `deleteNote(id:origin:)` → `.noteRemoved(…)`, then `.noteInkChanged(…)` if the note had ink.
 @MainActor
@@ -73,15 +76,22 @@ public final class LibraryStore {
     /// The pages with page ink of each book, cached and kept current from this store's hub
     /// (shared by every window; see `InkedPagesCache`).
     public let inkedPages: InkedPagesCache
+    /// The raw recognised-text store of scanned books. **Read only** (and only off the main
+    /// thread: it is synchronous file I/O): writes through it post no change; use the
+    /// `LibraryStore` recognised-text methods instead.
+    public let recognisedText: any RecognisedTextStore
 
     private let context: PostingContext
 
-    /// Builds the store from any repository implementations (they may be one object) and an ink
-    /// store. The implementations are wrapped; keep no other reference to them for mutation.
+    /// Builds the store from any repository implementations (they may be one object), an ink
+    /// store and a recognised-text store. The implementations are wrapped; keep no other
+    /// reference to them for mutation.
+    /// - Parameter recognisedText: scanned books' recognised text and state; an
+    ///   `InMemoryRecognisedTextStore` when `nil`.
     /// - Parameter hub: the hub to post on; a new one when `nil`.
     public init(books: some BookRepository, notes: some NoteRepository, highlights: some HighlightRepository,
                 bookmarks: some BookmarkRepository, headings: some HeadingRepository, inkStore: some InkStore,
-                rootDirectory: URL, hub: StoreChangeHub? = nil) {
+                rootDirectory: URL, recognisedText: (any RecognisedTextStore)? = nil, hub: StoreChangeHub? = nil) {
         let hub = hub ?? StoreChangeHub()
         let context = PostingContext(hub: hub)
         self.hub = hub
@@ -94,6 +104,7 @@ public final class LibraryStore {
         self.headings = PostingHeadingRepository(inner: headings, context: context)
         self.inkStore = inkStore
         self.inkedPages = InkedPagesCache(inkStore: inkStore, hub: hub)
+        self.recognisedText = recognisedText ?? InMemoryRecognisedTextStore()
     }
 
     /// A store backed by `InMemoryRecordStore` and `InMemoryInkStore`, for previews, unit tests,
@@ -169,6 +180,50 @@ public final class LibraryStore {
         hub.post(.noteInkChanged(bookID: bookID, noteID: noteID), origin: origin)
     }
 
+    // MARK: Recognised text (scanned books)
+
+    /// The recognised page, or `nil`. Read off the main actor.
+    public func recognisedPage(bookID: UUID, pageIndex: Int) async throws -> RecognisedPage? {
+        let store = recognisedText
+        return try await Task.detached { try store.recognisedPage(bookID: bookID, pageIndex: pageIndex) }.value
+    }
+
+    /// Pages of the book that have been recognised, ascending. Read off the main actor.
+    public func recognisedPageIndices(bookID: UUID) async throws -> [Int] {
+        let store = recognisedText
+        return try await Task.detached { try store.recognisedPageIndices(bookID: bookID) }.value
+    }
+
+    /// The book's recognition state, or `nil` when it has none. Read off the main actor.
+    public func recognitionState(bookID: UUID) async throws -> RecognitionState? {
+        let store = recognisedText
+        return try await Task.detached { try store.recognitionState(bookID: bookID) }.value
+    }
+
+    /// Writes a recognised page (off the main actor), then posts
+    /// `.recognisedTextChanged(bookID, page.pageIndex)`.
+    public func saveRecognisedPage(_ page: RecognisedPage, bookID: UUID, origin: ChangeOrigin?) async throws {
+        let store = recognisedText
+        try await Task.detached { try store.saveRecognisedPage(page, bookID: bookID) }.value
+        hub.post(.recognisedTextChanged(bookID: bookID, pageIndex: page.pageIndex), origin: origin)
+    }
+
+    /// Removes all of the book's recognised pages (not its state), then posts
+    /// `.recognisedTextChanged(bookID, nil)`.
+    public func removeRecognisedText(bookID: UUID, origin: ChangeOrigin?) async throws {
+        let store = recognisedText
+        try await Task.detached { try store.removeRecognisedText(bookID: bookID) }.value
+        hub.post(.recognisedTextChanged(bookID: bookID, pageIndex: nil), origin: origin)
+    }
+
+    /// Writes the book's recognition state (`nil` removes it), then posts
+    /// `.recognitionStateChanged(bookID)`.
+    public func saveRecognitionState(_ state: RecognitionState?, bookID: UUID, origin: ChangeOrigin?) async throws {
+        let store = recognisedText
+        try await Task.detached { try store.saveRecognitionState(state, bookID: bookID) }.value
+        hub.post(.recognitionStateChanged(bookID: bookID), origin: origin)
+    }
+
     // MARK: Compound operations
 
     /// Counts for the delete-book confirmation: records from `books.recordCounts` and the number
@@ -180,9 +235,10 @@ public final class LibraryStore {
     }
 
     /// Deletes a book completely: first its records (cascade, posting `.bookDeleted` once if the
-    /// book existed), then its directory (`inkStore.removeBook`: ink, note ink, and the PDF and
-    /// cover if stored there). Records go first so a failure never leaves a visible book whose
-    /// files are missing.
+    /// book existed), then its directory (`inkStore.removeBook`: ink, note ink, recognised text
+    /// and its state, and the PDF and cover if stored there; then `recognisedText.removeBook`
+    /// for a store that keeps them elsewhere). Records go first so a failure never leaves a
+    /// visible book whose files are missing.
     /// - Throws: a repository error (nothing deleted, nothing posted), or
     ///   `LibraryStoreError.bookFilesNotRemoved` when the records are already gone and posted but
     ///   the directory could not be removed.
@@ -191,12 +247,15 @@ public final class LibraryStore {
         try await removeBookFiles(bookID: id)
     }
 
-    /// Removes the book's directory through the ink store. Posts nothing. Use to retry after
-    /// `bookFilesNotRemoved`.
-    /// - Throws: `LibraryStoreError.bookFilesNotRemoved` wrapping the ink store's error.
+    /// Removes the book's directory through the ink store, and its recognised text and state
+    /// through the recognised-text store (already gone with the directory for the file-backed
+    /// store; idempotent). Posts nothing. Use to retry after `bookFilesNotRemoved`.
+    /// - Throws: `LibraryStoreError.bookFilesNotRemoved` wrapping the stores' error.
     public func removeBookFiles(bookID: UUID) async throws {
         do {
             try await inkStore.removeBook(bookID: bookID)
+            let store = recognisedText
+            try await Task.detached { try store.removeBook(bookID: bookID) }.value
         } catch {
             throw LibraryStoreError.bookFilesNotRemoved(bookID: bookID, reason: String(describing: error))
         }

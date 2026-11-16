@@ -304,8 +304,11 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
             throw ReaderStoreError.corruptRecord("highlight \(m.id) has colour \"\(m.colorRaw)\"")
         }
         let rects = try Self.decode([CGRect].self, from: m.rectsData, what: "highlight \(m.id) rects")
+        // A source this build does not know (written by a newer build) reads as the text layer
+        // instead of failing the whole book.
         return Highlight(id: m.id, bookID: m.bookID, pageIndex: m.pageIndex, rects: rects, color: color,
-                         text: m.text, createdAt: m.createdAt)
+                         text: m.text, createdAt: m.createdAt,
+                         textSource: m.textSourceRaw.flatMap(HighlightTextSource.init(rawValue:)))
     }
 
     /// `Highlight.readingOrder` as database sort keys.
@@ -378,7 +381,8 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         return HighlightModel(id: highlight.id, bookID: highlight.bookID, pageIndex: highlight.pageIndex,
                               rectsData: columns.rectsData, colorRaw: highlight.color.rawValue,
                               text: highlight.text, createdAt: highlight.createdAt,
-                              sortRank: columns.sortRank, sortMaxY: columns.sortMaxY, sortMinX: columns.sortMinX)
+                              sortRank: columns.sortRank, sortMaxY: columns.sortMaxY, sortMinX: columns.sortMinX,
+                              textSourceRaw: highlight.textSource?.rawValue)
     }
 
     func save(_ highlight: Highlight) throws {
@@ -395,6 +399,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 m.sortRank = columns.sortRank
                 m.sortMaxY = columns.sortMaxY
                 m.sortMinX = columns.sortMinX
+                m.textSourceRaw = highlight.textSource?.rawValue
             } else {
                 context.insert(try Self.newModel(highlight))
             }

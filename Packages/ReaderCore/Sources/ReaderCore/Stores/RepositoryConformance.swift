@@ -122,6 +122,18 @@ public enum RepositoryConformance {
         try check(try highlights.highlights(bookID: bookID).first { $0.id == low.id }?.color == .blue, "save(highlight) must replace by id")
         try highlights.deleteHighlight(id: other.id)
         try check(try highlights.highlightCount(bookID: bookID) == 2, "deleteHighlight must delete")
+        // The text source: absent reads as absent, and every value round-trips and can change.
+        try check(try highlights.highlight(id: high.id)?.textSource == nil, "a highlight saved without a text source must read without one")
+        var scanned = Highlight(bookID: bookID, pageIndex: 8, rects: [CGRect(x: 72, y: 693, width: 159, height: 12)],
+                                color: .yellow, text: "", textSource: .liveText)
+        try highlights.save(scanned)
+        try check(try highlights.highlight(id: scanned.id) == scanned, "a Live Text highlight must round-trip")
+        for source in [HighlightTextSource.textLayer, nil, .liveText] {
+            scanned.textSource = source
+            try highlights.save(scanned)
+            try check(try highlights.highlight(id: scanned.id)?.textSource == source, "save(highlight) must replace the text source")
+        }
+        try highlights.deleteHighlight(id: scanned.id)
 
         // Bookmarks
         try bookmarks.setBookmarked(true, bookID: bookID, pageIndex: 12)
@@ -229,7 +241,7 @@ public enum RepositoryConformance {
                          Highlight(bookID: fresh, pageIndex: 9, rects: [CGRect(x: 10.5, y: 600.75, width: 50, height: 12)],
                                    color: .blue, text: "high", createdAt: date(3)),
                          Highlight(bookID: fresh, pageIndex: 2, rects: [CGRect(x: 0, y: 0, width: 1, height: 1)],
-                                   color: .green, text: "early", createdAt: date(4))],
+                                   color: .green, text: "early", createdAt: date(4), textSource: .liveText)],
             bookmarks: [Bookmark(bookID: fresh, pageIndex: 30, createdAt: date(10.5)),
                         Bookmark(bookID: fresh, pageIndex: 3, createdAt: date(11))],
             userHeadings: [parentHeading,
@@ -390,6 +402,69 @@ public enum RepositoryConformance {
             try await store.removeBook(bookID: bookID)
         } catch {
             try? await store.removeBook(bookID: bookID)
+            throw error
+        }
+    }
+
+    /// Checks a `RecognisedTextStore`: missing page and state read as `nil`; a page round-trips
+    /// and is replaced by a later save; pages are listed ascending and per book; removing the
+    /// text keeps the state; the state round-trips in every form and `nil` removes it; removing
+    /// the book removes both; every removal is idempotent.
+    public static func verifyRecognisedTextStore(_ store: some RecognisedTextStore) throws {
+        let bookID = UUID(), otherID = UUID()
+        func page(_ index: Int, _ words: [String]) -> RecognisedPage {
+            RecognisedPage(pageIndex: index, lines: [words.enumerated().map { i, word in
+                RecognisedPage.Token(text: word, bounds: CGRect(x: 72 + 40 * Double(i), y: 693.25, width: 30.5, height: 12))
+            }])
+        }
+        do {
+            try check(try store.recognisedPage(bookID: bookID, pageIndex: 0) == nil, "a missing page must read as nil")
+            try check(try store.recognisedPageIndices(bookID: bookID).isEmpty, "a book with no pages must list none")
+            try check(try store.recognitionState(bookID: bookID) == nil, "a missing state must read as nil")
+
+            let first = page(16, ["The", "quiet", "heron"])
+            try store.saveRecognisedPage(first, bookID: bookID)
+            try check(try store.recognisedPage(bookID: bookID, pageIndex: 16) == first, "a recognised page must round-trip")
+            let replaced = page(16, ["The", "quiet", "heron", "measures", "tidewater."])
+            try store.saveRecognisedPage(replaced, bookID: bookID)
+            try check(try store.recognisedPage(bookID: bookID, pageIndex: 16) == replaced, "saveRecognisedPage must replace")
+            try store.saveRecognisedPage(page(2, ["two"]), bookID: bookID)
+            try store.saveRecognisedPage(page(110, ["hundred"]), bookID: bookID)
+            try store.saveRecognisedPage(page(0, []), bookID: bookID)
+            try store.saveRecognisedPage(page(5, ["elsewhere"]), bookID: otherID)
+            try check(try store.recognisedPageIndices(bookID: bookID) == [0, 2, 16, 110], "recognisedPageIndices must be sorted and per book")
+            try check(try store.recognisedPage(bookID: bookID, pageIndex: 0)?.text == "", "a page with no words must round-trip")
+
+            let states: [RecognitionState] = [
+                .notDecided, .declined, .inProgress(RecognitionProgress(pagesDone: 3, totalPages: 30)),
+                .paused(RecognitionProgress(pagesDone: 4, totalPages: 30), reasons: [.thermal, .reader]), .complete,
+            ]
+            for state in states {
+                try store.saveRecognitionState(state, bookID: bookID)
+                try check(try store.recognitionState(bookID: bookID) == state, "the state \(state) must round-trip")
+            }
+
+            try store.removeRecognisedText(bookID: bookID)
+            try store.removeRecognisedText(bookID: bookID)
+            try check(try store.recognisedPageIndices(bookID: bookID).isEmpty, "removeRecognisedText must remove every page, idempotently")
+            try check(try store.recognisedPage(bookID: bookID, pageIndex: 16) == nil, "removeRecognisedText must remove the pages")
+            try check(try store.recognitionState(bookID: bookID) == .complete, "removeRecognisedText must keep the state")
+            try check(try store.recognisedPageIndices(bookID: otherID) == [5], "removeRecognisedText must not touch other books")
+
+            try store.saveRecognitionState(nil, bookID: bookID)
+            try store.saveRecognitionState(nil, bookID: bookID)
+            try check(try store.recognitionState(bookID: bookID) == nil, "saving a nil state must remove it, idempotently")
+
+            try store.saveRecognisedPage(first, bookID: bookID)
+            try store.saveRecognitionState(.declined, bookID: bookID)
+            try store.removeBook(bookID: bookID)
+            try store.removeBook(bookID: bookID)
+            try check(try store.recognisedPageIndices(bookID: bookID).isEmpty, "removeBook must remove the pages")
+            try check(try store.recognitionState(bookID: bookID) == nil, "removeBook must remove the state")
+            try store.removeBook(bookID: otherID)
+        } catch {
+            try? store.removeBook(bookID: bookID)
+            try? store.removeBook(bookID: otherID)
             throw error
         }
     }

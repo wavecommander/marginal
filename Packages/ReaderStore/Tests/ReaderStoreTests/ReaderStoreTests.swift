@@ -56,6 +56,123 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         try RepositoryConformance.verifyRecordStores(books: store.books, notes: store.notes, highlights: store.highlights,
                                                      bookmarks: store.bookmarks, headings: store.headings)
     }
+
+    @Test func fileRecognisedTextStoreConformance() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        try RepositoryConformance.verifyRecognisedTextStore(FileRecognisedTextStore(rootDirectory: root.url))
+    }
+
+    @Test func recognisedTextThroughLiveStore() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let store = try LibraryStore.live(rootDirectory: root.url)
+        #expect(store.recognisedText is FileRecognisedTextStore)
+        try RepositoryConformance.verifyRecognisedTextStore(store.recognisedText)
+    }
+}
+
+// MARK: - File recognised-text store
+
+@Suite struct FileRecognisedTextStoreTests {
+    static func page(_ index: Int, _ text: String) -> RecognisedPage {
+        RecognisedPage(pageIndex: index, lines: [text.split(separator: " ").enumerated().map { i, word in
+            RecognisedPage.Token(text: String(word), bounds: CGRect(x: 72 + 40 * Double(i), y: 693, width: 30, height: 12))
+        }])
+    }
+
+    @Test func layoutOnDisk() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let store = FileRecognisedTextStore(rootDirectory: root.url)
+        let book = UUID()
+        let heron = Self.page(16, "The quiet heron measures tidewater.")
+        try store.saveRecognisedPage(heron, bookID: book)
+        try store.saveRecognitionState(.inProgress(RecognitionProgress(pagesDone: 1, totalPages: 30)), bookID: book)
+        let pageFile = root.url.appendingPathComponent(BookStorageLayout.recognisedPagePath(bookID: book, pageIndex: 16))
+        let sidecar = root.url.appendingPathComponent(BookStorageLayout.recognitionStatePath(bookID: book))
+        #expect(pageFile.path.hasSuffix("Books/\(book.uuidString)/text/16.json"))
+        #expect(sidecar.path.hasSuffix("Books/\(book.uuidString)/recognition.json"))
+        #expect(try JSONDecoder().decode(RecognisedPage.self, from: Data(contentsOf: pageFile)) == heron)
+        #expect(String(decoding: try Data(contentsOf: sidecar), as: UTF8.self) == #"{"pagesDone":1,"state":"inProgress","totalPages":30}"#)
+        // Only the page file is in text/: atomic writes leave no temporary files behind.
+        let textDirectory = pageFile.deletingLastPathComponent()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: textDirectory.path) == ["16.json"])
+        // Foreign and temporary files in text/ are not pages.
+        for junk in ["notes.txt", ".16.json.sb-1234", "17.json.tmp", "x.json"] {
+            try Data([1]).write(to: textDirectory.appendingPathComponent(junk))
+        }
+        #expect(try store.recognisedPageIndices(bookID: book) == [16])
+        // Removing the text keeps the sidecar; removing the book removes both, idempotently.
+        try store.removeRecognisedText(bookID: book)
+        #expect(!FileManager.default.fileExists(atPath: textDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
+        try store.saveRecognisedPage(heron, bookID: book)
+        try store.removeBook(bookID: book)
+        try store.removeBook(bookID: book)
+        #expect(!FileManager.default.fileExists(atPath: textDirectory.path) && !FileManager.default.fileExists(atPath: sidecar.path))
+    }
+
+    @Test func damagedFiles() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let store = FileRecognisedTextStore(rootDirectory: root.url)
+        let book = UUID()
+        let pageFile = root.url.appendingPathComponent(BookStorageLayout.recognisedPagePath(bookID: book, pageIndex: 3))
+        let sidecar = root.url.appendingPathComponent(BookStorageLayout.recognitionStatePath(bookID: book))
+        try FileManager.default.createDirectory(at: pageFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // A zero-length file reads as absent.
+        try Data().write(to: pageFile)
+        try Data().write(to: sidecar)
+        #expect(try store.recognisedPage(bookID: book, pageIndex: 3) == nil)
+        #expect(try store.recognitionState(bookID: book) == nil)
+        // Undecodable files throw instead of passing for something else.
+        try Data("{not json".utf8).write(to: pageFile)
+        try Data(#"{"state":"sideways"}"#.utf8).write(to: sidecar)
+        #expect(throws: ReaderStoreError.self) { try store.recognisedPage(bookID: book, pageIndex: 3) }
+        #expect(throws: ReaderStoreError.self) { try store.recognitionState(bookID: book) }
+        // A page file holding another page is damage too.
+        try JSONEncoder().encode(Self.page(4, "four")).write(to: pageFile)
+        #expect(throws: ReaderStoreError.self) { try store.recognisedPage(bookID: book, pageIndex: 3) }
+        // Writing over a damaged file repairs it.
+        try store.saveRecognisedPage(Self.page(3, "three"), bookID: book)
+        #expect(try store.recognisedPage(bookID: book, pageIndex: 3)?.text == "three")
+    }
+
+    @Test func concurrentReadsSeeWholeFiles() async throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let store = FileRecognisedTextStore(rootDirectory: root.url)
+        let book = UUID()
+        let short = Self.page(0, "short")
+        let long = Self.page(0, Array(repeating: "tidewater", count: 2_000).joined(separator: " "))
+        try store.saveRecognisedPage(short, bookID: book)
+        try await withThrowingTaskGroup(of: RecognisedPage?.self) { group in
+            group.addTask { try store.saveRecognisedPage(long, bookID: book); return nil }
+            for _ in 0..<20 { group.addTask { try store.recognisedPage(bookID: book, pageIndex: 0) } }
+            for try await result in group {
+                if let result { #expect(result == short || result == long) }
+            }
+        }
+        #expect(try store.recognisedPage(bookID: book, pageIndex: 0) == long)
+    }
+
+    /// Deleting a book through the live store removes its recognised text and state with its
+    /// directory, and leaves other books' alone.
+    @MainActor
+    @Test func removedWithTheBook() async throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let store = try LibraryStore.live(rootDirectory: root.url)
+        let doomed = try makeBook(in: store, pageCount: 30, title: "Doomed")
+        let kept = try makeBook(in: store, pageCount: 30, title: "Kept")
+        for book in [doomed, kept] {
+            try await store.saveRecognisedPage(Self.page(16, "heron"), bookID: book.id, origin: nil)
+            try await store.saveRecognitionState(.paused(RecognitionProgress(pagesDone: 1, totalPages: 30), reasons: [.lowPowerMode]),
+                                                 bookID: book.id, origin: nil)
+        }
+        #expect(try await store.recognisedPageIndices(bookID: doomed.id) == [16])
+        try await store.deleteBook(id: doomed.id, origin: nil)
+        #expect(!FileManager.default.fileExists(atPath: store.bookDirectoryURL(bookID: doomed.id).path))
+        #expect(try await store.recognisedPageIndices(bookID: doomed.id).isEmpty)
+        #expect(try await store.recognitionState(bookID: doomed.id) == nil)
+        #expect(try await store.recognisedPage(bookID: kept.id, pageIndex: 16)?.text == "heron")
+        #expect(try await store.recognitionState(bookID: kept.id)?.pauseReasons == [.lowPowerMode])
+    }
 }
 
 // MARK: - Records
@@ -570,6 +687,90 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         try store.save(converted)
         #expect(try store.book(fingerprint: "fp-new") == converted)
         #expect(try store.allBooks().count == 2)
+    }
+
+    /// A store written by version 2, holding highlights, opens as version 3: every highlight is
+    /// kept field for field and reads with no text source (the text layer). Then a Live Text
+    /// highlight can be saved into the migrated store, and both survive reopening.
+    @Test func versionTwoStoreWithHighlightsOpensAsVersionThree() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let storeURL = root.url.appendingPathComponent("Marginal.store")
+        let book = Book(title: "Has highlights", fingerprint: "fp-v2", fileName: "v2.pdf", pageCount: 40, fileSize: 123,
+                        addedAt: Date(timeIntervalSince1970: 1_700_000_000), sourceFormat: .epub, originalFileName: "v2.epub",
+                        converterVersion: 2)
+        let rects = [CGRect(x: 72, y: 600.5, width: 300, height: 14), CGRect(x: 72, y: 585.25, width: 120.125, height: 14)]
+        let old = [
+            Highlight(bookID: book.id, pageIndex: 2, rects: rects, color: .green, text: "an eigenvalue of T",
+                      createdAt: Date(timeIntervalSince1970: 1_700_000_100.25)),
+            Highlight(bookID: book.id, pageIndex: 2, rects: [], color: .pink, text: "no rects", createdAt: Date(timeIntervalSince1970: 1_700_000_200)),
+            Highlight(bookID: book.id, pageIndex: 9, rects: [rects[0]], color: .yellow, text: "", createdAt: Date(timeIntervalSince1970: 1_700_000_300)),
+        ]
+        do {
+            let schema = Schema(versionedSchema: MarginalSchemaV2.self)
+            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
+            let context = ModelContext(container)
+            context.insert(MarginalSchemaV2.BookModel(book))
+            for h in old {
+                let bounds = h.bounds
+                context.insert(MarginalSchemaV1.HighlightModel(id: h.id, bookID: h.bookID, pageIndex: h.pageIndex,
+                                                               rectsData: try JSONEncoder().encode(h.rects), colorRaw: h.color.rawValue,
+                                                               text: h.text, createdAt: h.createdAt, sortRank: bounds.isNull ? 1 : 0,
+                                                               sortMaxY: bounds.isNull ? 0 : bounds.maxY, sortMinX: bounds.isNull ? 0 : bounds.minX))
+            }
+            try context.save()
+        }
+
+        let scanned = Highlight(bookID: book.id, pageIndex: 16, rects: [CGRect(x: 72, y: 693, width: 159, height: 12)], color: .green,
+                                text: "The quiet heron measures tidewater.", createdAt: Date(timeIntervalSince1970: 1_700_000_400),
+                                textSource: .liveText)
+        do {
+            let store = SwiftDataRecordStore(container: try SchemaFactory.makeContainer(storeURL: storeURL))
+            #expect(try store.book(id: book.id) == book)
+            let migrated = try store.highlights(bookID: book.id)
+            #expect(migrated == old.sorted(by: Highlight.readingOrder))
+            #expect(migrated.allSatisfy { $0.textSource == nil })
+            #expect(try store.highlights(bookID: book.id, pageIndex: 2).map(\.text) == ["an eigenvalue of T", "no rects"])
+            try store.save(scanned)
+            var recoloured = old[0]
+            recoloured.color = .blue
+            try store.save(recoloured)
+            #expect(try store.highlight(id: old[0].id)?.textSource == nil)
+        }
+        let reopened = SwiftDataRecordStore(container: try SchemaFactory.makeContainer(storeURL: storeURL))
+        #expect(try reopened.highlight(id: scanned.id) == scanned)
+        #expect(try reopened.highlight(id: old[0].id)?.color == .blue)
+        #expect(try reopened.highlightCount(bookID: book.id) == 4)
+    }
+
+    /// Every text source round-trips through an in-memory container, and an unknown one (from a
+    /// newer build) reads as the text layer instead of failing the book.
+    @Test func highlightTextSourceRoundTrip() throws {
+        let container = try SchemaFactory.makeContainer(storeURL: nil)
+        let store = SwiftDataRecordStore(container: container)
+        let book = Book(title: "B", fingerprint: "f", fileName: "b.pdf", pageCount: 30, fileSize: 1)
+        try store.save(book)
+        var highlight = Highlight(bookID: book.id, pageIndex: 16, rects: [CGRect(x: 72, y: 693, width: 159, height: 12)],
+                                  color: .yellow, text: "", createdAt: Date(timeIntervalSince1970: 5))
+        for source in [nil, HighlightTextSource.liveText, .textLayer, nil, .liveText] {
+            highlight.textSource = source
+            try store.save(highlight)
+            #expect(try store.highlight(id: highlight.id) == highlight)
+            #expect(try store.highlights(bookID: book.id, pageIndex: 16) == [highlight])
+        }
+        var archive = BookArchive(book: book, highlights: [highlight,
+                                                           Highlight(bookID: book.id, pageIndex: 3, rects: [], color: .blue, text: "typed",
+                                                                     createdAt: Date(timeIntervalSince1970: 6), textSource: .textLayer)])
+        try store.replaceBook(archive, removing: [])
+        archive.highlights.sort(by: Highlight.readingOrder)
+        #expect(try store.highlights(bookID: book.id) == archive.highlights)
+
+        let row = try #require(try ModelContext(container).fetch(FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.pageIndex == 16 })).first)
+        #expect(row.textSourceRaw == "liveText")
+        let context = container.mainContext
+        let stored = try #require(try context.fetch(FetchDescriptor<HighlightModel>(predicate: #Predicate { $0.pageIndex == 16 })).first)
+        stored.textSourceRaw = "hologram"
+        try context.save()
+        #expect(try store.highlight(id: highlight.id)?.textSource == nil)
     }
 
     /// A format name this build does not know (written by a newer build) reads as "not converted"

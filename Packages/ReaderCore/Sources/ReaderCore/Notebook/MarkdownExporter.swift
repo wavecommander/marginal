@@ -23,6 +23,12 @@ import Foundation
 /// `![Handwriting on page N](path)` if `handwritingPath` returns a path (an image of the page
 /// with its ink, made by the caller), else the line `_Handwriting on page N_`.
 ///
+/// A **scanned-page highlight** (`Highlight.isOnScannedPage`) is shown as a crop of the page
+/// with an optional caption (`HighlightPresentation.crop`): first the image line
+/// `![Highlight on page N](path)` if `highlightImagePath` returns a path (the crop, made by the
+/// caller), then the quote block `> <caption> (p. N)`, or `> _Highlight on a scanned page_
+/// (p. N)` when its text is empty.
+///
 /// A **note block** is the note's text with line endings normalised to `"\n"`, trailing
 /// whitespace removed from each line, and leading and trailing blank lines removed; then, if
 /// `imagePath` returns a path, an image line `![Handwritten note](path)` (the path wrapped in
@@ -39,9 +45,14 @@ public enum MarkdownExporter {
     ///   - handwritingPath: called exactly once per exported page with ink (zero-based page
     ///     index), in output order; returns the path, relative to the Markdown file, of an image
     ///     of the page with its ink, or `nil` for no image.
+    ///   - highlightImagePath: called exactly once per exported scanned-page highlight, in
+    ///     output order (never for other highlights); returns the path, relative to the Markdown
+    ///     file, of the crop of the page under it (e.g. `"highlights/<name>.png"` in the ZIP), or
+    ///     `nil` for no image (the text-only Markdown).
     public static func export(_ notebook: Notebook, bookTitle: String,
                               imagePath: (Note) -> String? = { _ in nil },
-                              handwritingPath: (Int) -> String? = { _ in nil }) -> String {
+                              handwritingPath: (Int) -> String? = { _ in nil },
+                              highlightImagePath: (Highlight) -> String? = { _ in nil }) -> String {
         var blocks: [String] = ["# \(OutlineText.normalizedTitle(bookTitle))"]
 
         func noteBlocks(_ note: Note) -> [String] {
@@ -60,8 +71,17 @@ public enum MarkdownExporter {
             var result = ["**Page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))**"]
             if let note = page.note { result += noteBlocks(note) }
             for highlight in page.highlights {
-                let text = OutlineText.normalizedTitle(highlight.text)
-                result.append("> \(text) (\(PageNumbering.label(forPageIndex: highlight.pageIndex)))")
+                let label = PageNumbering.label(forPageIndex: highlight.pageIndex)
+                switch highlight.presentation {
+                case .text(let text):
+                    result.append("> \(text) (\(label))")
+                case .crop(let caption):
+                    if let path = highlightImagePath(highlight) {
+                        let alt = "Highlight on page \(PageNumbering.displayNumber(forPageIndex: highlight.pageIndex))"
+                        result.append("![\(alt)](\(markdownDestination(path)))")
+                    }
+                    result.append("> \(caption ?? "_\(HighlightPresentation.uncaptionedCropLabel)_") (\(label))")
+                }
             }
             if page.hasInk {
                 let label = "Handwriting on page \(PageNumbering.displayNumber(forPageIndex: page.pageIndex))"

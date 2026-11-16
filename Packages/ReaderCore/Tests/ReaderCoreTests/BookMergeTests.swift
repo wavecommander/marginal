@@ -332,6 +332,29 @@ struct BookMergeTests {
         }
     }
 
+    /// Scanned-page highlights merge like any other: an added one keeps its text source, and
+    /// where both sides hold the same highlight this iPad's is kept, source and all.
+    @Test func highlightTextSourceTravelsAndTheLocalOneWins() {
+        var scanned = highlight(1, page: 16, text: "", book: backupBookID)
+        scanned.textSource = .liveText
+        let added = BookMerge.merge(local: local(), incoming: backup([], [scanned]))
+        #expect(added.archive.highlights.map(\.textSource) == [.liveText])
+        #expect(added.archive.highlights.first?.bookID == localBookID)
+        #expect(added.report.highlightsAdded == 1)
+        // Same ID on both sides with different sources: the local record is kept whole.
+        var mine = highlight(1, page: 16, text: "")
+        mine.textSource = .textLayer
+        #expect(BookMerge.merge(local: local([], [mine]), incoming: backup([], [scanned])).archive.highlights == [mine])
+        mine.textSource = nil
+        #expect(BookMerge.merge(local: local([], [mine]), incoming: backup([], [scanned])).archive.highlights == [mine])
+        // A duplicate by place keeps the local one too, and merging again adds nothing.
+        var again = scanned
+        again.id = uuid(9)
+        let twice = BookMerge.merge(local: added.archive, incoming: backup([], [scanned, again]))
+        #expect(twice.archive == added.archive)
+        #expect(twice.report.addsNothing && twice.report.duplicatesSkipped == 1)
+    }
+
     // MARK: Bookmarks
 
     @Test func bookmarksUnionByPageWithTheEarlierDate() throws {

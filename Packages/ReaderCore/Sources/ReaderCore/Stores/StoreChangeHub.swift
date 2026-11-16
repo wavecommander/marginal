@@ -31,6 +31,12 @@ public enum StoreChange: Hashable, Sendable {
     case pageInkChanged(bookID: UUID, pageIndex: Int)
     /// The note's ink file was written or deleted: reload that note's ink (unless mid-stroke).
     case noteInkChanged(bookID: UUID, noteID: UUID)
+    /// A scanned book's page was recognised and saved (`pageIndex`), or all of the book's
+    /// recognised text was removed (`nil`): a running search can read the page now.
+    case recognisedTextChanged(bookID: UUID, pageIndex: Int?)
+    /// A scanned book's `RecognitionState` was written or removed: windows showing the search
+    /// status re-read it.
+    case recognitionStateChanged(bookID: UUID)
 
     /// The book the change concerns.
     public var bookID: UUID {
@@ -39,16 +45,28 @@ public enum StoreChange: Hashable, Sendable {
         case .noteSaved(let id, _, _), .noteRemoved(let id, _, _): id
         case .highlightsChanged(let id, _), .bookmarksChanged(let id, _), .pageInkChanged(let id, _): id
         case .noteInkChanged(let id, _): id
+        case .recognisedTextChanged(let id, _), .recognitionStateChanged(let id): id
         }
     }
 
-    /// The PDF page the change is about (highlights, bookmarks, page ink, and page notes), or
-    /// `nil` for changes not tied to one page.
+    /// The PDF page the change is about (highlights, bookmarks, page ink, page notes and a
+    /// recognised page), or `nil` for changes not tied to one page.
     public var pageIndex: Int? {
         switch self {
         case .highlightsChanged(_, let page), .bookmarksChanged(_, let page), .pageInkChanged(_, let page): page
         case .noteSaved(_, let target, _), .noteRemoved(_, let target, _): target.pageIndex
+        case .recognisedTextChanged(_, let page): page
         default: nil
+        }
+    }
+
+    /// Whether the change can alter what a backup holds. `false` for recognised text and the
+    /// recognition state, which are derived from the PDF and never backed up, so they should
+    /// not make an automatic backup due.
+    public var affectsBackup: Bool {
+        switch self {
+        case .recognisedTextChanged, .recognitionStateChanged: false
+        default: true
         }
     }
 }

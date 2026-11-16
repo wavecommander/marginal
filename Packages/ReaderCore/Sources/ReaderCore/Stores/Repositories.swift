@@ -293,8 +293,40 @@ public enum BookStorageLayout {
     }
     /// The page index encoded in a page-ink file name (`"311.drawing"` → `311`), or `nil`.
     public static func pageIndex(fromPageInkFileName name: String) -> Int? {
-        guard name.hasSuffix(".drawing") else { return nil }
-        let stem = name.dropLast(".drawing".count)
+        pageIndex(fromFileName: name, suffix: ".drawing")
+    }
+
+    // MARK: Scanned books
+
+    /// Name of the directory, inside a book's directory, that holds its recognised text.
+    public static let recognisedTextDirectoryName = "text"
+    /// `Books/<bookID>/text`: one file per recognised page of a scanned book
+    /// (`RecognisedTextStore`). Derived from the PDF and made again on demand, so it is never in
+    /// a backup.
+    public static func recognisedTextDirectory(bookID: UUID) -> String {
+        "\(bookDirectory(bookID: bookID))/\(recognisedTextDirectoryName)"
+    }
+    /// `Books/<bookID>/text/<pageIndex>.json`: one recognised page (`RecognisedPage`'s `Codable`
+    /// form).
+    public static func recognisedPagePath(bookID: UUID, pageIndex: Int) -> String {
+        "\(recognisedTextDirectory(bookID: bookID))/\(pageIndex).json"
+    }
+    /// The page index encoded in a recognised-page file name (`"16.json"` → `16`), or `nil`.
+    public static func pageIndex(fromRecognisedPageFileName name: String) -> Int? {
+        pageIndex(fromFileName: name, suffix: ".json")
+    }
+    /// File name of the recognition-state sidecar inside a book's directory.
+    public static let recognitionStateFileName = "recognition.json"
+    /// `Books/<bookID>/recognition.json`: the book's `RecognitionState` as JSON, beside the book
+    /// like `document.sha256`. Absent means the book has no state: it has a text layer, or was
+    /// never checked. Not in a backup (a book restored onto another iPad starts as not decided).
+    public static func recognitionStatePath(bookID: UUID) -> String {
+        "\(bookDirectory(bookID: bookID))/\(recognitionStateFileName)"
+    }
+
+    private static func pageIndex(fromFileName name: String, suffix: String) -> Int? {
+        guard name.hasSuffix(suffix) else { return nil }
+        let stem = name.dropLast(suffix.count)
         guard !stem.isEmpty, stem.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         return Int(stem)
     }

@@ -143,8 +143,9 @@ public struct BookMergeResult: Hashable, Sendable {
 ///   local note's when the text is unchanged and becomes `nil` when the text changed (see
 ///   `NoteMergeDecision.needsBandLayout`). An added note whose ID a local note already uses gets
 ///   a fresh ID (see `freshID`).
-/// - *Highlights.* Same ID: the local one. Another ID but the same page, the same text and the
-///   same rects within `rectTolerance`: a duplicate, the local one kept. Otherwise added.
+/// - *Highlights.* Same ID: the local one, every field of it (colour, text, text source).
+///   Another ID but the same page, the same text and the same rects within `rectTolerance`: a
+///   duplicate, the local one kept. Otherwise added as it is, its `textSource` included.
 ///   Duplicates are looked for among local highlights only, so the outcome for one incoming
 ///   highlight never depends on the others.
 /// - *Bookmarks.* Union by page: on a page both have, the local record's ID with the earlier

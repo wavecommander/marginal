@@ -69,6 +69,17 @@ public enum HighlightColor: String, CaseIterable, Hashable, Codable, Sendable {
     case yellow, green, blue, pink
 }
 
+/// Where a highlight's `text` came from. `rawValue` is the stored form.
+public enum HighlightTextSource: String, CaseIterable, Hashable, Codable, Sendable {
+    /// The page's own text layer in the PDF file.
+    case textLayer
+    /// PDFKit's own reading of a scanned page (Live Text): the page has no text of its own in
+    /// the file, so the text is whatever PDFKit recognised when the highlight was made and may
+    /// be misread or empty. The rects are what is trusted (a *scanned-page highlight*; see
+    /// "Scanned books" in `docs/DESIGN.md`).
+    case liveText
+}
+
 /// A coloured text range on one PDF page.
 public struct Highlight: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
@@ -83,9 +94,14 @@ public struct Highlight: Identifiable, Hashable, Codable, Sendable {
     /// The highlighted text (`PDFSelection.string`), for lists, search and export.
     public var text: String
     public var createdAt: Date
+    /// Where `text` came from; `nil` means the page's text layer (every highlight made before
+    /// scanned books existed). Decided from the page in the file, never the on-screen document,
+    /// which gains Live Text the file lacks. Optional so that stored highlights and version 1
+    /// backups, which have no such field, still decode; encoded only when set.
+    public var textSource: HighlightTextSource?
 
     public init(id: UUID = UUID(), bookID: UUID, pageIndex: Int, rects: [CGRect], color: HighlightColor,
-                text: String, createdAt: Date = Date()) {
+                text: String, createdAt: Date = Date(), textSource: HighlightTextSource? = nil) {
         self.id = id
         self.bookID = bookID
         self.pageIndex = pageIndex
@@ -93,7 +109,13 @@ public struct Highlight: Identifiable, Hashable, Codable, Sendable {
         self.color = color
         self.text = text
         self.createdAt = createdAt
+        self.textSource = textSource
     }
+
+    /// `true` for a scanned-page highlight (`textSource == .liveText`): lists and exports show a
+    /// crop of the page under its rects, with `text` as an optional caption
+    /// (`HighlightPresentation`).
+    public var isOnScannedPage: Bool { textSource == .liveText }
 
     /// Union of `rects` (`.null` when there are none).
     public var bounds: CGRect {

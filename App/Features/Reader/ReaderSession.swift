@@ -133,6 +133,7 @@ final class ReaderSession: Identifiable {
             case .userHeadingsChanged: userHeadings += 1
             case .pageInkChanged: pageInk += 1
             case .noteInkChanged: noteInk += 1
+            case .recognisedTextChanged, .recognitionStateChanged: break
             }
         }
     }
@@ -801,7 +802,7 @@ final class ReaderSession: Identifiable {
             Task { await rebuildOutline() }
         case .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
             scheduleNotebookRebuild()
-        case .pageInkChanged, .noteInkChanged:
+        case .pageInkChanged, .noteInkChanged, .recognisedTextChanged, .recognitionStateChanged:
             break
         }
     }
