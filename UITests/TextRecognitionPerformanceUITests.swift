@@ -61,16 +61,15 @@ final class TextRecognitionPerformanceUITests: XCTestCase {
         for round in 1...2 {
             for running in [false, true] {
                 let value = measure(recognising: running)
+                NSLog("%@", "PERF-STEP round \(round) recognising \(running): \(value)")
                 let figures = PerformanceUITests.parse(value)
                 XCTAssertTrue(value.contains("phase done"), value)
                 let label = running ? "with recognition" : "without recognition"
-                lines.append(String(format: "round %d %@: slow frames %.0f maxGap %.0f ms long %.0f dropped %.0f | fast frames %.0f maxGap %.0f ms long %.0f dropped %.0f pages %.0f | footprint max %.0f MB",
-                                    round, label,
-                                    figures["slowFrames"] ?? -1, figures["slowMaxGapMS"] ?? -1, figures["slowLong"] ?? -1,
-                                    figures["slowDropped"] ?? -1,
-                                    figures["fastFrames"] ?? -1, figures["fastMaxGapMS"] ?? -1, figures["fastLong"] ?? -1,
-                                    figures["fastDropped"] ?? -1, figures["fastPages"] ?? -1,
-                                    figures["fastFootprintMB"] ?? -1))
+                func f(_ key: String) -> String { "\(Int((figures[key] ?? -1).rounded()))" }
+                lines.append("round \(round) \(label): slow frames \(f("slowFrames")) maxGap \(f("slowMaxGapMS")) ms "
+                             + "long \(f("slowLong")) dropped \(f("slowDropped")) | fast frames \(f("fastFrames")) "
+                             + "maxGap \(f("fastMaxGapMS")) ms long \(f("fastLong")) dropped \(f("fastDropped")) "
+                             + "pages \(f("fastPages")) | footprint max \(f("fastFootprintMB")) MB")
                 if running {
                     recognising.append(figures)
                     // Recognition ran through the scroll window: first page shown + 3 s to + 20 s.
@@ -94,9 +93,15 @@ final class TextRecognitionPerformanceUITests: XCTestCase {
             return values.isEmpty ? -1 : values.reduce(0, +) / Double(values.count)
         }
         for key in ["slowMaxGapMS", "slowDropped", "slowLong", "fastMaxGapMS", "fastDropped", "fastLong"] {
-            lines.append(String(format: "mean %@: without %.1f, with %.1f", key, mean(baseline, key), mean(recognising, key)))
+            lines.append("mean \(key): without \(mean(baseline, key)), with \(mean(recognising, key))")
         }
         record(lines)
+        // The bound (WORK_PACKAGES S2: "stays within the bound it has without it"), on the slow
+        // phase, where the view scrolls throughout (the 30-page book runs out early in the fast
+        // phase): no more frames over 50 ms, and at most two more dropped frames per run on
+        // average, than without recognition.
+        XCTAssertLessThanOrEqual(mean(recognising, "slowLong"), mean(baseline, "slowLong"))
+        XCTAssertLessThanOrEqual(mean(recognising, "slowDropped"), mean(baseline, "slowDropped") + 2)
     }
 
     private func record(_ lines: [String]) {

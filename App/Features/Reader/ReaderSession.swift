@@ -785,6 +785,11 @@ final class ReaderSession: Identifiable {
     private func handle(_ event: StoreChangeEvent) {
         let change = event.change
         guard change.bookID == book.id else { return }
+        // Recognition progress (S2) changes no counter. Recording it would still go through
+        // `revisions`' observed setter and re-render every view reading a counter (toolbar,
+        // sidebar, commands) twice per recognised page, while the reader scrolls.
+        if case .recognisedTextChanged = change { return }
+        if case .recognitionStateChanged = change { return }
         revisions.record(change)
         if !event.isFrom(origin) { externalRevisions.record(change) }
 

@@ -361,9 +361,7 @@ final class TextRecognitionEngine {
             }
             recognisedPages.append((bookID, pageIndex))
             // `-perfProbe` measurements: when recognition ran, relative to the scroll.
-            if [1, 5, 10, 15, 20, 25, 29].contains(recognisedPages.count) {
-                PerfMarks.mark("recognised\(recognisedPages.count)")
-            }
+            PerfMarks.mark("recognised\(recognisedPages.count)")
             jobs[bookID]?.remaining.removeAll { $0 == pageIndex }
             await transition(bookID) { $0.finishingPage() }
         case .hasOwnText:
