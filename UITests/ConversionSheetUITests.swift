@@ -1,8 +1,10 @@
 import XCTest
 
 /// The Convert to PDF sheet (F3), driven through `-importFixture` with the stub converter
-/// (`-stubConverters`): the sheet appears for an EPUB, Cancel leaves the Library empty, Convert
-/// imports the book, and `-confirmConversions` skips the sheet.
+/// (`-stubConverters`): the sheet appears for an EPUB, Cancel leaves the Library empty, and
+/// Convert imports the book. (`-confirmConversions` skipping the sheet at launch is
+/// `ConversionImportTests.confirmConversionsAtLaunchImportsWithoutARequest`; the journey test
+/// launches with it.)
 @MainActor
 final class ConversionSheetUITests: XCTestCase {
     /// `Tests/Fixtures/f3-small.epub` (a two-chapter EPUB 3) and `f3-notes.md`.
@@ -87,12 +89,6 @@ final class ConversionSheetUITests: XCTestCase {
         XCTAssertTrue(element(app, "conversion.textSize").exists)
         app.buttons["conversion.cancel"].tap()
         XCTAssertTrue(app.staticTexts["No Books Yet"].waitForExistence(timeout: 10))
-    }
-
-    func testConfirmConversionsImportsWithoutTheSheet() {
-        let app = launch(["f3-small.epub"], extra: ["-confirmConversions"])
-        XCTAssertTrue(book(app, "Stub Title").waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertFalse(app.buttons["conversion.convert"].exists)
     }
 
     func testTheSheetWorksAtTheLargestTextSize() {

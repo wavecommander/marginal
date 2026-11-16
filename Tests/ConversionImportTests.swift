@@ -343,6 +343,33 @@ struct ConversionImportTests {
         #expect(record.textSize == .medium)
     }
 
+    /// The launch path the UI tests use: `-importFixture` with `-confirmConversions` converts and
+    /// imports at launch and leaves no request for a window to show; without it the same launch
+    /// imports nothing and hands the first window one request.
+    @Test func confirmConversionsAtLaunchImportsWithoutARequest() async throws {
+        func launch(confirm: Bool) async throws -> (plan: AppEnvironment.LaunchPlan, titles: [String], requests: Int) {
+            let store = try LibraryStore.ephemeral()
+            defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+            var options = LaunchOptions()
+            options.stubConverters = true
+            options.confirmConversions = confirm
+            options.importFixtures = [Self.epub]
+            let environment = AppEnvironment(store: store, launchOptions: options)
+            let plan = await environment.launchPlan()
+            let service = await environment.readyImportService()
+            return (plan, try store.books.allBooks().map(\.title), service.conversionRequests.count)
+        }
+        let confirmed = try await launch(confirm: true)
+        #expect(confirmed.plan.conversionRequestIDs.isEmpty && confirmed.plan.errors.isEmpty)
+        #expect(confirmed.titles == ["Stub Title"])
+        #expect(confirmed.requests == 0)
+
+        let asked = try await launch(confirm: false)
+        #expect(asked.plan.conversionRequestIDs.count == 1 && asked.plan.errors.isEmpty)
+        #expect(asked.titles.isEmpty)
+        #expect(asked.requests == 1)
+    }
+
     @Test func aFixtureWaitsInAnUnaddressedRequestUntilAWindowTakesIt() async throws {
         let store = try LibraryStore.ephemeral()
         defer { try? FileManager.default.removeItem(at: store.rootDirectory) }

@@ -87,6 +87,47 @@ struct NotebookFeedTests {
         #expect(!rows.contains { $0.targetPage == 19 })
     }
 
+    /// The Notebook screen's rows, top to bottom, for the whole book and for one chapter's scope:
+    /// what the screen lists is exactly this array. (This order used to be read off the screen
+    /// by a UI test, `NotebookUITests.testSectionsGroupItemsUnderTheRightHeadings`.)
+    @Test func rowsComeInTheOrderTheScreenListsThem() throws {
+        let notebook = Support.seeded()
+        func describe(_ row: NotebookFeedRow) -> String {
+            switch row.kind {
+            case .header(let header): "header \(header.title)"
+            case .headingNote(_, let heading): "heading note \(heading.title)"
+            case .unfiledHeadingNote(_, let title): "unfiled note \(title)"
+            case .pageNote(_, let page): "note p\(page + 1)"
+            case .highlight(let highlight, let index): "highlight p\(highlight.pageIndex + 1) #\(index)"
+            case .handwriting(let page): "ink p\(page + 1)"
+            }
+        }
+        // Front matter first, then chapter 3 with its highlight and note.
+        let whole = NotebookFeed.rows(for: notebook, filter: NotebookFilter()).map(describe)
+        #expect(Array(whole.prefix(5)) == ["header Front matter", "note p1", "header 3 Matrices and Linear Maps",
+                                           "highlight p4 #0", "note p5"])
+
+        // A chapter's scope: the chapter, its note, then each subsection with its note and pages.
+        // Other chapters are not listed.
+        let entries = NotebookFeed.scopeEntries(for: notebook)
+        let chapter = try #require(entries.first { $0.title == "5 Eigenvalues and Eigenvectors" })
+        let rows = NotebookFeed.rows(for: notebook, filter: NotebookFilter(scope: chapter.scope))
+        #expect(rows.map(describe) == [
+            "header 5 Eigenvalues and Eigenvectors", "heading note 5 Eigenvalues and Eigenvectors",
+            "header 5.1 Invariant Directions", "heading note 5.1 Invariant Directions", "note p17", "highlight p19 #0",
+            "header 5.2 The Characteristic Equation", "heading note 5.2 The Characteristic Equation", "note p23",
+            "note p25", "highlight p25 #0", "highlight p25 #1", "note p28", "highlight p29 #0",
+        ])
+        // The chapter's header carries its pages, 15 to 30.
+        guard case .header(let header) = try #require(rows.first).kind else {
+            Issue.record("the scope's first row is its header")
+            return
+        }
+        #expect(header.pageRange == 14...29)
+        #expect(header.pageRangeLabel == "pp. 15\u{2013}30")
+        #expect(header.startPage == 14)
+    }
+
     @Test func headerCheckboxesStandForEverythingShownUnderThem() throws {
         let notebook = Support.seeded()
         let rows = NotebookFeed.rows(for: notebook, filter: NotebookFilter())
