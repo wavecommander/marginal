@@ -106,18 +106,31 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     /// PDFKit posts `PDFViewPageChanged` only now and then during a scroll (often not until it
     /// settles), so the pill, subtitle and page note lagged behind the page. Each reading offset
-    /// change asks PDFKit for its current page as well. The page report is taken only when the page
-    /// differs, so PDFKit's own later notification about the same page changes nothing. Most
-    /// frames stop at the identity check (no page lookup).
+    /// change reports the page under the middle of the visible area as well (the page PDFKit
+    /// calls current once it has caught up), when it differs.
+    ///
+    /// The page comes from the view's geometry, not `PDFView.currentPage`: while the offset is
+    /// changing, `currentPage` still names the page of the previous offset (PDFKit updates it
+    /// afterwards, then posts its notification), so reporting it put the reader on the wrong page
+    /// (a link followed from page 7 was recorded as leaving page 8's section).
+    ///
+    /// It does not use up the movement behind it (`takePageReport`): PDFKit's own notification
+    /// for the same movement still has the last word. After a navigation that is the page PDFKit
+    /// went to (a link's destination), which the middle of the view need not be in; after a
+    /// scroll it is the same page, so it changes nothing.
     private func reportCurrentPageIfChanged() {
-        guard let session, let page = view.currentPage, page !== lastSeenCurrentPage else { return }
-        lastSeenCurrentPage = page
-        guard let index = pageIndex(of: page), index != session.currentPageIndex,
-              position.takePageReport() else { return }
+        guard let session, let page = pageAtMiddleOfView(),
+              let index = pageIndex(of: page), index != session.currentPageIndex else { return }
         session.pdfReportedCurrentPage(index)
     }
-    /// The page `reportCurrentPageIfChanged` last saw PDFKit call current.
-    private weak var lastSeenCurrentPage: PDFPage?
+
+    /// The page under the middle of the visible area (nearest, between pages).
+    private func pageAtMiddleOfView() -> PDFPage? {
+        guard let scrollView, view.document != nil else { return nil }
+        let visible = scrollView.bounds.inset(by: scrollView.adjustedContentInset)
+        let middle = view.convert(CGPoint(x: visible.midX, y: visible.midY), from: scrollView)
+        return view.page(for: middle, nearest: true)
+    }
 
     /// `clock` times the position keeper's two windows (tests inject their own).
     init(session: ReaderSession, clock: ReadingPositionClock = .system) {
