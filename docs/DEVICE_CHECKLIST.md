@@ -109,6 +109,13 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       expands in Files to a folder whose Markdown shows the images from `images/` and
       `handwriting/` (open it in a Markdown app such as Obsidian).
 - [ ] **Export a selection.** Select, tick a few rows and a heading, export: only those appear.
+- [ ] **The toolbar arrives in one motion** (TSOFT-230). In landscape, right after launching the
+      app, open a book's Notebook from the Library's context menu, then again from the Continue
+      Reading card, from the reader's More › Notebook, and with Open Notebook in New Window. Each
+      time, "Notebook" and the book's title slide in together, and Open Book, Select, Export and the
+      search field morph once into their final shape and stay that way: no second morph, and no
+      buttons that start dimmed and then brighten. Repeat in a narrow window, where the heading
+      menu joins the group.
 - [ ] **Sleeping readers.** With Xcode's memory gauge (Debug Navigator) on a large image-heavy PDF
       (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
       Memory falls back about five seconds after each new reader opens; going back through every

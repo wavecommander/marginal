@@ -77,7 +77,11 @@ final class NotebookModel {
         self.bookID = bookID
         self.rebuildDelay = rebuildDelay
         self.pagePreviews = NotebookPagePreviews(store: store, bookID: bookID)
-        let documentURL = (try? store.books.book(id: bookID)).flatMap { $0 }.map { store.documentURL(for: $0) }
+        let book = (try? store.books.book(id: bookID)).flatMap { $0 }
+        // Known from the start, so the screen's first frame already has the book's title (its
+        // subtitle) and the title does not change shape after the push.
+        self.book = book
+        let documentURL = book.map { store.documentURL(for: $0) }
         self.highlightCrops = HighlightCropCache(documentURL: documentURL ?? URL(fileURLWithPath: "/dev/null"))
         self.loadOutlineEntries = outlineEntries
     }
