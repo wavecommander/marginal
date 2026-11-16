@@ -394,6 +394,25 @@ struct ReaderSessionTests {
         await settle()
     }
 
+    /// The current page (and so the page pill) follows a scroll while it is in progress: each
+    /// scroll step that moves the place on screen is reported at once, without waiting for
+    /// PDFKit's page notification at the end of the scroll.
+    @Test func currentPageFollowsAScrollInProgress() async throws {
+        let host = try await makeLinkedHost()
+        let session = host.session
+        let scrollView = try #require(session.pdf.scrollView)
+        #expect(session.currentPageIndex == 0)
+        var seen: [Int] = []
+        // Small steps on the same run-loop turn, as a drag's frames are: no notification can land.
+        for _ in 0..<400 {
+            scrollView.contentOffset.y += 20
+            if seen.last != session.currentPageIndex { seen.append(session.currentPageIndex) }
+            if session.currentPageIndex >= 3 { break }
+        }
+        #expect(seen.count >= 3, "pages seen mid-scroll: \(seen)")
+        #expect(session.currentPageIndex >= 3)
+    }
+
     /// Follows the link whose box starts at page-space `y` on zero-based `page` as PDFKit does
     /// on a tap: it performs the link's action on the view (a plain destination as a go-to).
     private func followLink(_ session: ReaderSession, onPage page: Int, y: CGFloat) async throws {

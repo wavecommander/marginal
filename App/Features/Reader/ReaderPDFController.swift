@@ -98,10 +98,26 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             if let anchor = captureAnchor() {
                 position.recordReading(anchor: anchor, scale: view.scaleFactor)
                 session?.pdfReportedPlaceChange()
+                reportCurrentPageIfChanged()
             }
         }
         updateAnchorProbe()
     }
+
+    /// PDFKit posts `PDFViewPageChanged` only now and then during a scroll (often not until it
+    /// settles), so the pill, subtitle and page note lagged behind the page. Each reading offset
+    /// change asks PDFKit for its current page as well. The page report is taken only when the page
+    /// differs, so PDFKit's own later notification about the same page changes nothing. Most
+    /// frames stop at the identity check (no page lookup).
+    private func reportCurrentPageIfChanged() {
+        guard let session, let page = view.currentPage, page !== lastSeenCurrentPage else { return }
+        lastSeenCurrentPage = page
+        guard let index = pageIndex(of: page), index != session.currentPageIndex,
+              position.takePageReport() else { return }
+        session.pdfReportedCurrentPage(index)
+    }
+    /// The page `reportCurrentPageIfChanged` last saw PDFKit call current.
+    private weak var lastSeenCurrentPage: PDFPage?
 
     /// `clock` times the position keeper's two windows (tests inject their own).
     init(session: ReaderSession, clock: ReadingPositionClock = .system) {
