@@ -200,7 +200,8 @@ struct NotesSectionEmptyState: View {
     var body: some View {
         let number = PageNumbering.displayNumber(forPageIndex: session.currentPageIndex)
         VStack(spacing: 12) {
-            if !session.isOutlineLoaded {
+            // The controller's decision, not `session.isOutlineLoaded` (see `sectionPlaceholder`).
+            if controller.sectionPlaceholder == .loading {
                 ProgressView()
                 Text("Loading contents…").font(.subheadline).foregroundStyle(.secondary)
             } else {
