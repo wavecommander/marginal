@@ -17,6 +17,7 @@ extension LibraryStore {
     ///
     /// On disk, everything lives under `rootDirectory`:
     /// - `Database/Marginal.store` (+ `-wal`, `-shm`): the SwiftData store.
+    /// - `Database Copies/<stamp>-<reason>/`: copies of the store (`LibraryDatabase`).
     /// - `Books/<bookID>/...`: per `BookStorageLayout` (PDF copy, `ink/`, `notes/`).
     ///
     /// Creates one `ModelContainer` per call; the app calls this once and shares the result across
@@ -24,29 +25,52 @@ extension LibraryStore {
     /// write is an atomic file write that completes before its `await` returns, so nothing is
     /// pending when the app is backgrounded and no save call is needed there.
     ///
-    /// - Parameter reset: deletes the `Database` directory and the `Books` tree first (the
-    ///   `-resetState` launch argument). Throws `ReaderStoreError.resetFailed` if anything is left.
+    /// Before opening, the store's version is checked (`LibraryDatabase`): a store from a newer
+    /// version is left untouched and this throws `ReaderStoreError.libraryFromNewerVersion`; a
+    /// store from an earlier version is copied (`Database Copies/`) before it is migrated, and if
+    /// that copy cannot be made this throws `ReaderStoreError.copyFailed` without migrating.
+    ///
+    /// - Parameter reset: deletes the `Database` directory, its copies and the `Books` tree first
+    ///   (the `-resetState` launch argument). Throws `ReaderStoreError.resetFailed` if anything is left.
     @MainActor
     public static func live(rootDirectory: URL? = nil, reset: Bool = false) throws -> LibraryStore {
         let fileManager = FileManager.default
-        let root = try rootDirectory ?? fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                         appropriateFor: nil, create: true)
+        let root = try rootDirectory ?? defaultRootDirectory()
+        if reset { try removeAllData(rootDirectory: root) }
         let databaseDirectory = root.appendingPathComponent(ReaderStore.databaseDirectoryName, isDirectory: true)
-        if reset {
-            for name in [ReaderStore.databaseDirectoryName, "Books"] {
-                let url = root.appendingPathComponent(name, isDirectory: true)
-                do {
-                    try removeIfPresent(url, fileManager: fileManager)
-                } catch {
-                    throw ReaderStoreError.resetFailed("\(url.path): \(error)")
-                }
-            }
-        }
         try fileManager.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)
         let storeURL = databaseDirectory.appendingPathComponent(ReaderStore.databaseFileName)
+        switch LibraryDatabase.state(ofStoreAt: storeURL) {
+        case .newer:
+            throw ReaderStoreError.libraryFromNewerVersion
+        case .earlier:
+            try LibraryDatabase.makeCopy(rootDirectory: root, reason: .beforeUpdate)
+        case .empty, .current, .unreadable:
+            // An unreadable file is left for SwiftData to open or report.
+            break
+        }
         let container = try SchemaFactory.makeContainer(storeURL: storeURL)
         let records = SwiftDataRecordStore(container: container)
         return LibraryStore(records: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root)
+    }
+
+    /// The app's root directory: Application Support, created if missing.
+    public static func defaultRootDirectory() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                    appropriateFor: nil, create: true)
+    }
+
+    /// Deletes the `Database` directory, its copies and the `Books` tree under `rootDirectory`
+    /// (what `live(reset: true)` does first). Throws `ReaderStoreError.resetFailed` if anything is left.
+    public static func removeAllData(rootDirectory root: URL) throws {
+        for name in [ReaderStore.databaseDirectoryName, LibraryDatabase.copiesDirectoryName, "Books"] {
+            let url = root.appendingPathComponent(name, isDirectory: true)
+            do {
+                try removeIfPresent(url, fileManager: FileManager.default)
+            } catch {
+                throw ReaderStoreError.resetFailed("\(url.path): \(error)")
+            }
+        }
     }
 
     /// A store for tests and previews: in-memory SwiftData and a unique directory in the temporary

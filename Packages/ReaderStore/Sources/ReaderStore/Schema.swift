@@ -208,7 +208,10 @@ typealias HighlightModel = MarginalSchemaV1.HighlightModel
 typealias BookmarkModel = MarginalSchemaV1.BookmarkModel
 typealias UserHeadingModel = MarginalSchemaV1.UserHeadingModel
 
-/// Migration plan. Add a `VersionedSchema` and a stage here for the next change.
+/// Migration plan. Add a `VersionedSchema` and a stage here for the next change, and make it
+/// `SchemaFactory.currentVersion`. Each version only adds optional columns or new entities, so an
+/// older build can open a newer store by inferred migration (`LibraryDatabase.openInThisVersion`);
+/// `LibraryDatabaseTests` checks every version converts down to the one before it.
 enum MarginalMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] { [MarginalSchemaV1.self, MarginalSchemaV2.self] }
     static var stages: [MigrationStage] {
@@ -223,10 +226,21 @@ public enum ReaderStoreError: Error, Hashable, Sendable {
     case corruptRecord(String)
     /// The store files could not be reset or the directory prepared.
     case resetFailed(String)
+    /// The store was written by a newer version of the app (`LibraryDatabase.State.newer`); it
+    /// is left as it is.
+    case libraryFromNewerVersion
+    /// A copy of the store could not be made or put in place; nothing was changed.
+    case copyFailed(String)
+    /// A newer store could not be converted to this version; nothing was changed.
+    case cannotOpenInThisVersion(String)
+    /// The copy is not one this version can open.
+    case copyCannotBeUsed
 }
 
 enum SchemaFactory {
-    static var schema: Schema { Schema(versionedSchema: MarginalSchemaV2.self) }
+    /// This build's schema version: the last of `MarginalMigrationPlan.schemas`.
+    static var currentVersion: any VersionedSchema.Type { MarginalSchemaV2.self }
+    static var schema: Schema { Schema(versionedSchema: currentVersion) }
 
     /// A container for the store file at `storeURL`, or in memory when `nil`.
     static func makeContainer(storeURL: URL?) throws -> ModelContainer {

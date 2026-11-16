@@ -67,7 +67,7 @@ scripts/shot.sh <name> [launch args...]            # screenshot to build/shots/<
 - Deployment target is iPadOS 17.0 and stays there. Newer API goes behind an availability check with a working fallback, in one small place per feature. Check availability against the installed SDK, not from memory. Only the iOS 27 simulator is tested routinely.
 - The imported PDF is never modified. Ink is stored only as `PKDrawing` data in files, not in the database.
 - All navigation in a reader goes through `ReaderSession.jump(...)` so section history records it. Never move the `PDFView` directly.
-- SwiftData schema (`Packages/ReaderStore/.../Schema.swift`): released `VersionedSchema`s are frozen. A model change means a new version plus a stage in `MarginalMigrationPlan`.
+- SwiftData schema (`Packages/ReaderStore/.../Schema.swift`): released `VersionedSchema`s are frozen. A model change means a new version plus a stage in `MarginalMigrationPlan`. A new version only adds optional attributes or new models (no renames, removals or type changes), so an older build can open the store with Open in This Version (`LibraryDatabase`); set `SchemaFactory.currentVersion` to it, and `LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore` covers it.
 - `Packages/ReaderBackup/Tests/.../Fixtures/*.ttbackup` pin the backup format. Never regenerate one; add a new fixture when the format version rises.
 - `CFBundleDocumentTypes` in `project.yml` and `ImportContentTypes.importable` list the same formats; change them together.
 

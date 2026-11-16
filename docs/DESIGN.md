@@ -699,6 +699,39 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
   of it is in a release build.
 
+## A library from a newer version
+
+The library's database has a schema version. An update migrates an older library forward, but
+an older build cannot open a library a newer build has already migrated: this happens when a
+newer build is installed and then an older one (a TestFlight tester going back a build, or
+switching between development branches).
+
+- **Said plainly, nothing changed** (owner decision, 16 November 2026). At launch the app checks
+  the database's version before opening it. A library from a newer version is left exactly as it
+  is, and every window shows **Library From a Newer Version** instead of the Library: the newer
+  version opens it as it is.
+- **Open in This Version…** converts it to this version after a confirmation (owner decision,
+  16 November 2026: it is never automatic, because it leaves something out). Books, notes, ink,
+  highlights, bookmarks and headings are kept. What only the newer version has a place for is
+  left out (for the scanned-books version, which highlights came from recognised text: they
+  become ordinary highlights). The conversion runs on a copy and replaces the library only when
+  it succeeded; if this version cannot convert it, the screen says so and nothing changes.
+- **Copies are kept.** Before the database changes version (an update's migration, Open in This
+  Version) the app copies it beside the library, and keeps the newest three. If the copy cannot
+  be made, the library is not changed (for an update: it does not open, and says so). Copies hold
+  the database only: ink, notes' ink and PDFs are files the database change does not touch.
+- **Use an Earlier Copy.** Whenever the library cannot be opened (from a newer version, or
+  damaged), the screen also lists the copies this version can open. Choosing one, after a
+  confirmation that changes since then will not be in it, makes it the library; the library as
+  it was is kept as another copy.
+- **It takes effect at the next launch.** The app is running on its empty stand-in library, so
+  after either change the screen says **Library Ready** and asks the reader to close the app and
+  open it again.
+- **The schema rule that makes this work.** Each new schema version only adds optional
+  attributes or new models (no renames, no removals, no type changes), so Core Data can infer the
+  conversion down to the version before it from the model it keeps inside every store. A test
+  (`LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore`) checks every pair.
+
 ## Technical decisions
 
 | Area | Decision | Why |
