@@ -10,7 +10,8 @@ import Testing
 struct StoreFailureTests {
     @Test func automaticBackupsAreNeverArmedOnTheStandInStore() {
         let environment = AppEnvironment(store: .inMemory(), launchOptions: LaunchOptions(arguments: ["app"]),
-                                         storeErrorMessage: "the store could not be opened")
+                                         libraryRecovery: LibraryRecovery(error: ReaderStoreError.libraryFromNewerVersion,
+                                                                          rootDirectory: FileManager.default.temporaryDirectory))
         #expect(!environment.backupScheduler.isArmed)
     }
 

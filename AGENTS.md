@@ -21,6 +21,7 @@ These apply to every change, alongside the build, test and convention rules belo
 - Windows: every view reads and commands its own window's `ReaderSession`, never a shared one, and shows changes made in another window on the same book. Ink surfaces reload when the change hub reports a write from another window, unless a stroke or edit is in progress.
 - Pencil: the system `PKToolPicker` with its standard tools and the default drawing policy; nothing overrides Pencil double-tap, squeeze or hover.
 - PDF exports draw ink as vector paths where the ink allows it; read-only note views render from the strokes at display scale.
+- Data stays openable across versions (`docs/DESIGN.md` "Keeping data openable across versions"). It is a standing feature, not finished work: every change to the database schema, the backup format or the files beside a book keeps it working in the same change: updates never strand a library, an older version can open a newer library and a newer backup, and the tests that pin this (`LibraryDatabaseTests`, `NewerAppBackupTests`, the `.ttbackup` fixtures) pass and grow with it. A change that cannot keep that goes to the owner first.
 
 ## Layout
 
@@ -67,7 +68,7 @@ scripts/shot.sh <name> [launch args...]            # screenshot to build/shots/<
 - Deployment target is iPadOS 17.0 and stays there. Newer API goes behind an availability check with a working fallback, in one small place per feature. Check availability against the installed SDK, not from memory. Only the iOS 27 simulator is tested routinely.
 - The imported PDF is never modified. Ink is stored only as `PKDrawing` data in files, not in the database.
 - All navigation in a reader goes through `ReaderSession.jump(...)` so section history records it. Never move the `PDFView` directly.
-- SwiftData schema (`Packages/ReaderStore/.../Schema.swift`): released `VersionedSchema`s are frozen. A model change means a new version plus a stage in `MarginalMigrationPlan`.
+- SwiftData schema (`Packages/ReaderStore/.../Schema.swift`): released `VersionedSchema`s are frozen. A model change means a new version plus a stage in `MarginalMigrationPlan`. A new version only adds optional attributes or new models (no renames, removals or type changes), so an older build can open the store with Open in This Version (`LibraryDatabase`); set `SchemaFactory.currentVersion` to it, and `LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore` covers it.
 - `Packages/ReaderBackup/Tests/.../Fixtures/*.ttbackup` pin the backup format. Never regenerate one; add a new fixture when the format version rises.
 - `CFBundleDocumentTypes` in `project.yml` and `ImportContentTypes.importable` list the same formats; change them together.
 

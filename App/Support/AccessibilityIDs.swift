@@ -23,8 +23,14 @@ nonisolated enum AccessibilityID {
         static let backupProgress = "library.backupProgress"
         /// The "PDF missing" badge on a book's cover: `library.book.<title>.pdfMissing`.
         static func pdfMissing(_ title: String) -> String { "library.book.\(title).pdfMissing" }
-        /// The screen shown instead of the Library when the store could not be opened.
+        /// The title of the screen shown instead of the Library when the store could not be opened.
         static let unavailable = "library.unavailable"
+        /// Its "Open in This Version…" (a library from a newer version).
+        static let openInThisVersion = "library.unavailable.openInThisVersion"
+        /// Its "Use an Earlier Copy" menu.
+        static let useEarlierCopy = "library.unavailable.useEarlierCopy"
+        /// Shown once the library was changed and opens at the next launch.
+        static let recoveryReady = "library.unavailable.ready"
     }
 
     /// Settings ▸ Backup & Restore and a destination's screen.

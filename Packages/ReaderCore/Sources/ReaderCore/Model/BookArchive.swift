@@ -7,6 +7,12 @@ import Foundation
 /// change to any of these value types' coding is a backup format change.
 ///
 /// Invariant a well-formed archive keeps: every record's `bookID` is `book.id`.
+///
+/// Decoding keeps a newer version's backup restorable here (docs/DESIGN.md "Keeping data
+/// openable across versions"): keys this version does not know are ignored, unknown colours,
+/// import formats and heading parents read as defaults (see those types), and a note on a kind of
+/// target this version cannot represent is left out, rather than the whole book failing as
+/// damaged. Anything else that does not decode is still damage.
 public struct BookArchive: Hashable, Codable, Sendable {
     public var book: Book
     public var notes: [Note]
@@ -21,6 +27,28 @@ public struct BookArchive: Hashable, Codable, Sendable {
         self.highlights = highlights
         self.bookmarks = bookmarks
         self.userHeadings = userHeadings
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        book = try c.decode(Book.self, forKey: .book)
+        notes = try c.decode([NoteThisVersionCanRead].self, forKey: .notes).compactMap(\.note)
+        highlights = try c.decode([Highlight].self, forKey: .highlights)
+        bookmarks = try c.decode([Bookmark].self, forKey: .bookmarks)
+        userHeadings = try c.decode([UserHeading].self, forKey: .userHeadings)
+    }
+
+    /// A note, or `nil` when its target is a kind this version does not know (its other fields
+    /// are then not decoded).
+    private struct NoteThisVersionCanRead: Decodable {
+        let note: Note?
+
+        private enum Keys: String, CodingKey { case target }
+
+        init(from decoder: any Decoder) throws {
+            let target = try decoder.container(keyedBy: Keys.self).decode(String.self, forKey: .target)
+            note = NoteTarget(storageKey: target) == nil ? nil : try Note(from: decoder)
+        }
     }
 
     /// `true` when every record belongs to `book`.

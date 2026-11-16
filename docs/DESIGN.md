@@ -699,6 +699,87 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
   of it is in a release build.
 
+## Keeping data openable across versions
+
+**A standing feature, kept in step with every data change** (owner decision, 16 November 2026).
+A reader's books and notes must never become unopenable because of an update, a bad update, or
+opening the library or a backup in an older version of the app. This is not finished work: every
+change to the database schema, the backup format, or the files beside a book must keep each of
+the guarantees below true, with tests, in the same change. A change that cannot keep one of them
+stops and goes to the owner.
+
+The guarantees:
+
+1. **Updating never strands a library.** An update migrates the library forward and keeps a copy
+   of it first; if the copy cannot be made, the library is not migrated.
+2. **An older version can open a newer library.** It says so first, and converts it on
+   confirmation, keeping every record (below).
+3. **A damaged or unwanted library can be swapped for a kept copy** from the same screen.
+4. **A backup from an older version restores in a newer one**, pinned by the checked-in
+   `.ttbackup` fixtures.
+5. **A backup from a newer version restores in an older one** when its format version is the
+   same: what the older version has no place for is ignored. When the format version is higher,
+   the older version says the backup was made by a newer version and changes nothing; the
+   backup itself is untouched.
+
+### A library from a newer version
+
+The library's database has a schema version. An update migrates an older library forward, but
+an older build cannot open a library a newer build has already migrated: this happens when a
+newer build is installed and then an older one (a TestFlight tester going back a build, or
+switching between development branches).
+
+- **Said plainly, nothing changed** (owner decision, 16 November 2026). At launch the app checks
+  the database's version before opening it. A library from a newer version is left exactly as it
+  is, and every window shows **Library From a Newer Version** instead of the Library: the newer
+  version opens it as it is.
+- **Open in This Version…** converts it to this version after a confirmation (owner decision,
+  16 November 2026: it is never automatic, because it leaves something out). Books, notes, ink,
+  highlights, bookmarks and headings are kept. What only the newer version has a place for is
+  left out (for the scanned-books version, which highlights came from recognised text: they
+  become ordinary highlights). The conversion runs on a copy and replaces the library only when
+  it succeeded; if this version cannot convert it, the screen says so and nothing changes.
+- **Copies are kept.** Before the database changes version (an update's migration, Open in This
+  Version) the app copies it beside the library, and keeps the newest three. If the copy cannot
+  be made, the library is not changed (for an update: it does not open, and says so). Copies hold
+  the database only: ink, notes' ink and PDFs are files the database change does not touch.
+- **Use an Earlier Copy.** Whenever the library cannot be opened (from a newer version, or
+  damaged), the screen also lists the copies this version can open. Choosing one, after a
+  confirmation that changes since then will not be in it, makes it the library; the library as
+  it was is kept as another copy.
+- **It takes effect at the next launch.** The app is running on its empty stand-in library, so
+  after either change the screen says **Library Ready** and asks the reader to close the app and
+  open it again.
+
+### What every data change must do
+
+- **Database schema.** A new `VersionedSchema` only adds optional attributes or new models (no
+  renames, no removals, no type changes), so Core Data can infer the conversion down to the
+  version before it from the model it keeps inside every store. Add a lightweight stage, set
+  `SchemaFactory.currentVersion`, and keep
+  `LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore` passing (it walks every pair). A
+  change that needs more than that (a custom stage, a rename, removing data) is an owner decision
+  first, with its own way back for older versions.
+- **Backup records and manifest.** A new field is an optional key that older versions ignore,
+  at the same format version (`NewerAppBackupTests` checks unknown keys are ignored). A new case
+  in a stored enumeration must be read by older versions as absent or a default, never as damage.
+  Raise the format version only when an older version would misread the backup, and add a
+  fixture for the new version; never regenerate an old one.
+- **Values a newer version may add** (16 November 2026). In backups and in the database alike,
+  an import format this version does not know reads as none (the book reads as imported as a
+  PDF), a highlight colour as yellow, and a user heading's parent of an unknown kind as top
+  level. A note on a kind of target this version cannot represent is left out of a restore, and
+  in the database is skipped when reading but left in place for the newer version (until that
+  book is restored over or deleted on this iPad, which replaces all its rows). Editing a
+  highlight saves its colour as yellow.
+  Anything else that does not decode is still damage. A new stored enumeration is decoded this way
+  from the start (`HighlightColor(storedValue:)` is the pattern), and its tests sit beside
+  `NewerAppBackupTests.unknownValuesFromANewerAppReadAsDefaults` and `NewerVersionRowTests`.
+- **Files beside a book** (ink, recognised text, sidecars): an older version ignores files it
+  does not know, and a newer version reads the files an older one wrote.
+- **A real upgrade before release.** Before a build that changes any of these ships, install the
+  last released build, use it, then install the new build over it, and the reverse.
+
 ## Technical decisions
 
 | Area | Decision | Why |

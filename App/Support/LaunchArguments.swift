@@ -22,7 +22,7 @@ import SwiftUI
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
 /// (`-resetState` clears it first); `-stubConverters` and `-confirmConversions` are the import
 /// flow's test switches (`FixtureImporter`); `-onboarding` is applied by
-/// `OnboardingState.applyLaunch`.
+/// `OnboardingState.applyLaunch`; `-plantLibraryStore` is applied by `AppEnvironment.makeLive`.
 nonisolated struct LaunchOptions: Equatable, Sendable {
     /// The screens `-screen` can name.
     enum Screen: String, Sendable {
@@ -44,6 +44,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// Also switches first-run onboarding off, and keeps it off for later launches, unless
     /// `-onboarding reset` is passed too.
     var resetState = false
+
+    /// `-plantLibraryStore <absolute path>`: test-only. Copies that store file in as the
+    /// library's store before it opens (after `-resetState`'s wipe), for the newer-library and
+    /// copy screens (`Tests/Fixtures/NewerVersionLibrary.store`).
+    var plantLibraryStore: URL?
 
     /// `-importFixture <absolute path>`, repeatable: import the PDF at that host path at launch
     /// through the normal import pipeline. Order is preserved.
@@ -231,6 +236,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 inkAnyInput = true
             case "-markup":
                 markup = true
+            case "-plantLibraryStore":
+                if let path = value(after: index) {
+                    if path.hasPrefix("/") { plantLibraryStore = URL(fileURLWithPath: path) }
+                    index += 1
+                }
             case "-importFixture":
                 if let path = value(after: index) {
                     importFixtures.append(URL(fileURLWithPath: path))
