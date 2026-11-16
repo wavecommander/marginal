@@ -2,10 +2,17 @@ import SwiftUI
 
 /// Launch-argument contract shared by every UI test and screenshot script.
 ///
-/// This is the single place that parses `ProcessInfo.arguments`. It is read once at startup
-/// (`LaunchOptions.current`) and placed in the SwiftUI environment (`\.launchOptions`).
+/// This is the only place that reads the process's arguments and environment. They are parsed
+/// once at startup (`LaunchOptions.current`) and placed in the SwiftUI environment
+/// (`\.launchOptions`); debug hooks that live outside SwiftUI read `LaunchOptions.current`.
 /// Unknown arguments are ignored. A flag that needs a value is ignored if the value is missing
 /// or malformed.
+///
+/// **Debug builds only.** Every option here exists for UI tests, screenshots and measurements,
+/// which all run the Debug configuration (`scripts/test.sh`, `scripts/build.sh`,
+/// `scripts/shot.sh`). A release build has no parser and no stored options: `current` is the
+/// defaults, the options release code still reads are constants (see the `#else` list below),
+/// and the rest do not exist, so no launch argument can wipe the library or switch a probe on.
 ///
 /// What each option does now (WP4 implements all of them; see `AppEnvironment.runLaunchTasks`
 /// and `WindowRootView`): `-resetState` passes `reset: true` to `LibraryStore.live`;
@@ -32,6 +39,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
         case skip, reset
     }
 
+    #if DEBUG
     /// `-resetState`: wipe the app's store and files at launch (WP2/WP3 implement the wipe).
     /// Also switches first-run onboarding off, and keeps it off for later launches, unless
     /// `-onboarding reset` is passed too.
@@ -147,9 +155,59 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// stub page (so a test can see or cancel a conversion in progress).
     var stubConverterPageDelay: Int?
 
+    /// `-perfProbe`: add the reader's performance probe (`ReaderPerfProbe`, `PerfMarks`).
+    var perfProbe = false
+
+    /// `-perfAutoScroll` (with `-perfProbe`): the probe scrolls the PDF itself and measures frames.
+    var perfAutoScroll = false
+
+    /// `-sidebarDebugStats`: show the Pages grid's counters and frame figures (`SidebarDebugStats`).
+    var sidebarDebugStats = false
+
+    /// `-sidebarAutoScroll` (with `-sidebarDebugStats`): the Pages grid scrolls itself through
+    /// the whole book and back.
+    var sidebarAutoScroll = false
+
+    /// `-seedSidebar`: seed the opened book with notes, highlights and bookmarks
+    /// (`SidebarDebugSeed`).
+    var seedSidebar = false
+
+    /// `-seedSidebarHeadings`: seed the opened book with a reader's outline (`SidebarDebugSeed`).
+    var seedSidebarHeadings = false
+
+    /// `-searchPageDelayMs <ms>`: pause this long after each page of a text search, so a test can
+    /// act while the search runs (`SearchModel`). Negative or malformed values are ignored.
+    var searchPageDelayMs: Int?
+
+    /// `-pageInkDebug`, or `PAGE_INK_DEBUG` set to anything in the environment: log the page ink
+    /// overlay's work (`PageInkOverlayProvider.debugLog`).
+    var pageInkDebug = false
+    #else
+    // Release: the options that code outside `#if DEBUG` reads, as constants at their defaults.
+    // The optimiser drops the branches behind them. The other options do not exist here; the
+    // compiler points at any release code that reads one.
+    var resetState: Bool { false }
+    var importFixtures: [URL] { [] }
+    var openBook: String? { nil }
+    var openPage: Int? { nil }
+    var screen: Screen? { nil }
+    var markup: Bool { false }
+    var notesPanel: NotesTab? { nil }
+    var alsoOpenWindow: String? { nil }
+    var alsoOpenWindowPage: Int? { nil }
+    var accent: AccentChoice? { nil }
+    var backupFolder: URL? { nil }
+    var onboarding: Onboarding? { nil }
+    var pagePillStaysVisible: Bool { false }
+    var confirmConversions: Bool { false }
+    #endif
+
     init() {}
 
-    init(arguments: [String]) {
+    #if DEBUG
+    /// Parses a process's arguments (`arguments[0]` is the executable path) and environment.
+    init(arguments: [String], environment: [String: String] = [:]) {
+        pageInkDebug = environment["PAGE_INK_DEBUG"] != nil
         var index = 1  // arguments[0] is the executable path
         func value(after i: Int) -> String? {
             i + 1 < arguments.count ? arguments[i + 1] : nil
@@ -235,6 +293,25 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
             #endif
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }
+            case "-perfProbe":
+                perfProbe = true
+            case "-perfAutoScroll":
+                perfAutoScroll = true
+            case "-sidebarDebugStats":
+                sidebarDebugStats = true
+            case "-sidebarAutoScroll":
+                sidebarAutoScroll = true
+            case "-seedSidebar":
+                seedSidebar = true
+            case "-seedSidebarHeadings":
+                seedSidebarHeadings = true
+            case "-searchPageDelayMs":
+                if let text = value(after: index) {
+                    index += 1
+                    if let ms = Int(text), ms >= 0 { searchPageDelayMs = ms }
+                }
+            case "-pageInkDebug":
+                pageInkDebug = true
             default:
                 break
             }
@@ -242,8 +319,13 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
         }
     }
 
-    /// Parsed once from the process arguments.
-    static let current = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+    /// Parsed once from the process's arguments and environment.
+    static let current = LaunchOptions(arguments: ProcessInfo.processInfo.arguments,
+                                       environment: ProcessInfo.processInfo.environment)
+    #else
+    /// A release build reads no launch arguments.
+    static let current = LaunchOptions()
+    #endif
 }
 
 extension EnvironmentValues {

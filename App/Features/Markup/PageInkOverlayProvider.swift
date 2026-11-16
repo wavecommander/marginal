@@ -113,8 +113,12 @@ final class PageInkOverlayProvider: ReaderPageOverlayProviding {
 
     // MARK: Debug
 
-    nonisolated static let isDebugLogging = ProcessInfo.processInfo.environment["PAGE_INK_DEBUG"] != nil
-        || ProcessInfo.processInfo.arguments.contains("-pageInkDebug")
+    /// `-pageInkDebug` or `PAGE_INK_DEBUG` (`LaunchOptions.pageInkDebug`); never in a release build.
+    #if DEBUG
+    nonisolated static let isDebugLogging = LaunchOptions.current.pageInkDebug
+    #else
+    nonisolated static let isDebugLogging = false
+    #endif
 
     static func debugLog(_ message: @autoclosure () -> String) {
         guard isDebugLogging else { return }

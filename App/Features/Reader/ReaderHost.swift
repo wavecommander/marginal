@@ -75,6 +75,8 @@ struct ReaderHost: View {
             return
         }
         var configuration = ReaderSession.Configuration()
+        #if DEBUG
+        // Test switches from the launch arguments; a release build has none (`LaunchOptions`).
         configuration.inkAnyInput = environment.launchOptions.inkAnyInput
         configuration.selectionMenuProbe = environment.launchOptions.selectionMenuProbe
         configuration.markupProbeSurface = environment.launchOptions.markupProbeSurface
@@ -82,6 +84,7 @@ struct ReaderHost: View {
         configuration.exposesSelection = environment.launchOptions.exposeSelection
         configuration.exposesMarkupState = environment.launchOptions.exposeMarkupState
         configuration.scrollDirection = environment.launchOptions.scrollDirection
+        #endif
         if let storedState {
             configuration.restoredState = try? JSONDecoder().decode(ReaderSession.RestorableState.self, from: storedState)
         }
