@@ -4,9 +4,11 @@ import ReaderCore
 
 /// One reader screen in a window's navigation stack (design: "Sleeping readers"). Owns the
 /// screen's `ReaderSession` while it is awake. Asleep, it holds no session, so no document, PDF
-/// view, ink canvases, outline or Notebook: waking makes a new session, which opens at the book's
-/// latest position (`ReaderPositionStore`) with the window's state for the book
-/// (`WindowContext.readerState(for:)`), exactly as a reader opened on the book now would.
+/// view, ink canvases, outline or Notebook, only what the reader left: its exact place and zoom,
+/// panels and section history. Waking makes a new session that resumes exactly there, whatever
+/// other readers on the book have done since. The first session opens like any new reader: at
+/// the book's latest position (`ReaderPositionStore`) with the window's state for the book
+/// (`WindowContext.readerState(for:)`).
 ///
 /// `WindowContext` decides when: the top screen and the one directly under it are awake; a reader
 /// further down falls asleep after `WindowContext.readerSleepDelay`, and wakes as soon as it is
@@ -32,6 +34,9 @@ final class ReaderSlot {
 
     @ObservationIgnored private let environment: AppEnvironment
     @ObservationIgnored private weak var window: WindowContext?
+    /// What the reader left when it last fell asleep (`nil` before then).
+    @ObservationIgnored private(set) var leftState: ReaderSession.RestorableState?
+    @ObservationIgnored private(set) var leftPosition: ReaderPosition?
     @ObservationIgnored private var sleepTask: Task<Void, Never>?
     /// Increases whenever a pending sleep is called off, so one already saving does not finish.
     @ObservationIgnored private var sleepGeneration = 0
@@ -65,7 +70,8 @@ final class ReaderSlot {
         configuration.exposesMarkupState = options.exposeMarkupState
         configuration.hardwareKeyboard = options.hardwareKeyboard
         configuration.scrollDirection = options.scrollDirection
-        configuration.restoredState = window.readerState(for: bookID)
+        configuration.restoredState = leftState ?? window.readerState(for: bookID)
+        configuration.resumePosition = leftPosition
         let overrides = takingOverrides ? window.takeReaderOverrides(for: bookID) : nil
         if let overrides {
             configuration.initialPageIndex = overrides.pageIndex
@@ -106,7 +112,9 @@ final class ReaderSlot {
         // Woken (or shown) while saving: stay awake.
         guard generation == sleepGeneration, self.session === session else { return }
         sleepTask = nil
-        window?.setReaderState(session.restorableState, for: bookID)
+        leftState = session.restorableState
+        // A session woken under the top screen and never shown keeps the place it was woken for.
+        if let position = session.currentPosition { leftPosition = position }
         self.session = nil
         session.close()
     }

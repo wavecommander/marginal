@@ -124,6 +124,19 @@ struct ReaderSessionTests {
         _ = token
     }
 
+    /// A reader woken under the top screen and never shown (its PDF view never positioned) has
+    /// not been read: it saves no position.
+    @Test func aReaderNeverShownSavesNoPosition() async throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.initialPageIndex = 5 }
+        session.open()
+        #expect(await waitUntil { session.loadState == .ready })
+        #expect(session.pdf.isAwaitingFirstPosition)
+        await session.suspend()
+        #expect(try fixture.store.books.book(id: fixture.book.id)?.lastReadPageIndex == fixture.book.lastReadPageIndex)
+    }
+
     @Test func notesPanelComesBackAsItWasLeft() throws {
         let fixture = try makeFixture()
         defer { cleanUp(fixture) }
@@ -181,6 +194,17 @@ struct ReaderSessionTests {
         moved.lastReadPageIndex = 3  // e.g. a restore or a merge moved the stored page
         let stale = ReaderSession(book: moved, store: fixture.store, configuration: configuration)
         #expect(stale.currentPageIndex == 3 && stale.startPosition == nil)
+
+        // A waking reader resumes its own place and zoom, whatever the book's latest position.
+        let own = ReaderPosition(pageIndex: 4, anchor: ReadingAnchor(pageIndex: 4, point: CGPoint(x: 0, y: 120)),
+                                 scale: 1, isFitWidth: true)
+        configuration.resumePosition = own
+        let resumed = ReaderSession(book: stored, store: fixture.store, configuration: configuration)
+        #expect(resumed.currentPageIndex == 4 && resumed.startPosition == own)
+        configuration.resumePosition = ReaderPosition(pageIndex: 40, anchor: own.anchor, scale: 1, isFitWidth: true)
+        #expect(ReaderSession(book: stored, store: fixture.store, configuration: configuration).startPosition == exact,
+                "a place outside the book is ignored")
+        configuration.resumePosition = own
 
         configuration.initialPageIndex = 11
         configuration.startInMarkup = true
@@ -325,15 +349,16 @@ struct ReaderSessionTests {
         #expect(session.jump(toDisplayNumber: 12))  // 3.2
         #expect(!session.canGoForward)
 
-        // Restoration carries the trail, and opens at the book's latest position.
-        await session.suspend()
+        // Restoration carries the trail, and opens at the book's latest position (here the
+        // stored last-read page: this session has no on-screen view, so it saved none).
         var configuration = ReaderSession.Configuration()
         configuration.restoredState = session.restorableState
         configuration.installsFeatures = false
-        let book = try #require(try fixture.store.books.book(id: fixture.book.id))
+        var book = try #require(try fixture.store.books.book(id: fixture.book.id))
+        book.lastReadPageIndex = 7
         let restored = ReaderSession(book: book, store: fixture.store, configuration: configuration)
         #expect(restored.history == session.history)
-        #expect(restored.currentPageIndex == 11)
+        #expect(restored.currentPageIndex == 7)
     }
 
     // MARK: Section history in a real PDF view

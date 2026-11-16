@@ -265,18 +265,20 @@ Added by the owner after the first plan. These rules apply to every screen and e
   book without a relaunch. A surface that is mid-stroke or mid-edit is never overwritten by a
   change arriving from another window; it reconciles when the stroke or edit ends. The book's
   stored last-read page follows the most recently active window.
-- **One latest position per book** (owner decision, 15 November 2026). Readers of the same book
-  are treated identically: every reader that loads a book (opened, woken from sleep, in another
-  window, restored after a relaunch) opens at the book's latest position, the exact place and zoom
-  any reader on it last left, unless it was opened at a particular page (a Notebook row, a link,
-  "Open in New Window" at a page). The position is saved a moment after the reader stops moving,
-  and at once when the reader is covered, popped or backgrounded.
-- **Sleeping readers** (owner decision, 15 November 2026). A window keeps awake only the top
-  screen of its stack and the one directly under it (so the back swipe shows a live reader). A
-  reader further down falls asleep after a short delay (five seconds): it saves everything, then
+- **The book's latest position** (owner decision, 15 November 2026). A newly opened reader (from
+  the Library, in another window, or restored after a relaunch) opens at the book's latest
+  position, the exact place and zoom any reader on it last left, unless it was opened at a
+  particular page (a Notebook row, a link, "Open in New Window" at a page). The position is saved
+  a moment after the reader stops moving, and at once when the reader is covered, popped or
+  backgrounded; a reader that was never on screen saves none.
+- **Sleeping readers** (owner decisions, 15 and 16 November 2026). A window keeps awake only the
+  top screen of its stack and the one directly under it (so the back swipe shows a live reader).
+  A reader further down falls asleep after a short delay (five seconds): it saves everything, then
   lets go of its document, views, ink canvases, notes, search and outline, keeping only what it
-  needs to come back. It wakes as soon as it is the top screen or the one under it again, at the
-  book's latest position with the window's panels and section history for the book; search
+  needs to come back. It wakes as soon as it is the top screen or the one under it again, and
+  resumes exactly as it was left: its own place, zoom, panels and section history, whatever other
+  readers on the same book did meanwhile (each reader in a stack keeps its own position while the
+  app runs; after a relaunch a restored reader opens at the book's latest position). Search
   results, a text selection and markup mode are not kept. A popped reader lets go the same way.
 - **Closing and deleting.** A window that goes to the background or is closed saves pending text
   and ink first. Deleting a book closes every reader and Notebook window showing it.

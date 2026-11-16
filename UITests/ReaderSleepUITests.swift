@@ -2,9 +2,9 @@ import XCTest
 
 /// Design: "Sleeping readers". A reader two screens below the top of the window's stack falls
 /// asleep (its session is released) after `-readerSleepDelay`, wakes when the screens above it
-/// are popped, and opens at the book's latest position, wherever another reader on the book left
-/// it. Reads `reader.markupState` (`sessions=N`: live reader sessions) and
-/// `reader.viewportAnchor` ("page N x X y Y scale S"). Seeded with `-seedNotebook` on
+/// are popped, and resumes exactly where it was left (place and zoom), whatever another reader on
+/// the same book did meanwhile. Reads `reader.markupState` (`sessions=N`: live reader sessions)
+/// and `reader.viewportAnchor` ("page N x X y Y scale S"). Seeded with `-seedNotebook` on
 /// `no-outline.pdf` (see `NotebookUITests`).
 @MainActor
 final class ReaderSleepUITests: XCTestCase {
@@ -34,7 +34,7 @@ final class ReaderSleepUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
     }
 
-    func testABuriedReaderSleepsAndWakesAtTheLatestPosition() {
+    func testABuriedReaderSleepsAndResumesItsOwnPosition() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.noOutline)
             + ["-screen", "notebook", "-seedNotebook", "-exposeMarkupState", "-exposeViewportAnchor",
                "-pagePillStaysVisible", "-readerSleepDelay", "1"])
@@ -44,16 +44,23 @@ final class ReaderSleepUITests: XCTestCase {
         XCTAssertTrue(scope.waitForExistence(timeout: 5))
         scope.tap()
 
-        // Notebook → reader A (page 17) → its Notebook → reader B on the same book (page 16).
+        // Notebook → reader A (page 17): zoom in and read on a little.
         let note = row(app, ID.pageNote(17))
         XCTAssertTrue(note.waitForExistence(timeout: 5))
         note.tap()
         let pill = app.buttons[ID.pagePill].firstMatch
         XCTAssertTrue(pill.waitForExistence(timeout: 30))
         XCTAssertTrue(wait(pill, "label == %@", ["Page 17 of 40"]), pill.label)
+        sleep(1)  // hardware-key events need the window to have become key
+        app.typeKey("+", modifierFlags: .command)
+        app.typeKey("+", modifierFlags: .command)
+        sleep(1)
+        drag(app)
+        let leftInA = settledAnchor(app)
+
+        // Its Notebook → reader B on the same book (page 16, fit width).
         let more = app.buttons[ID.more].firstMatch
         XCTAssertTrue(more.waitForExistence(timeout: 10))
-        sleep(1)  // the push has finished
         // The More menu's item, not the back button (which reads "Notebook" here).
         let notebookItem = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@",
                                                             "Notebook", "BackButton")).firstMatch
@@ -73,24 +80,22 @@ final class ReaderSleepUITests: XCTestCase {
         XCTAssertTrue(state.waitForExistence(timeout: 10))
         XCTAssertTrue(wait(state, "value CONTAINS %@", ["sessions=1"]), "the buried reader sleeps: \(state.value ?? "")")
 
-        // Read on in reader B, then go back to reader A: it opens where B was left.
-        sleep(1)  // hardware-key events need the window to have become key
+        // Read on in reader B, then go back to reader A: it resumes where A was left.
         goToPage(app, 20)
         XCTAssertTrue(wait(pill, "label == %@", ["Page 20 of 40"]), pill.label)
-        let window = app.windows.firstMatch
-        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7))
-        start.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5)))
-        let left = settledAnchor(app)
+        drag(app)
+        let leftInB = settledAnchor(app)
+        XCTAssertNotEqual(leftInB.page, leftInA.page)
 
         back(app)
         XCTAssertTrue(header.waitForExistence(timeout: 10), "back in the Notebook")
         back(app)
         XCTAssertTrue(pill.waitForExistence(timeout: 30))
         let woken = settledAnchor(app)
-        print("READER-SLEEP left \(left), woken \(woken)")
-        XCTAssertEqual(woken.page, left.page, "woken at the latest page: \(left) -> \(woken)")
-        XCTAssertLessThanOrEqual(abs(woken.y - left.y), 1, "woken at the exact place: \(left) -> \(woken)")
-        XCTAssertEqual(woken.scale, left.scale, accuracy: 0.001)
+        print("READER-SLEEP A left \(leftInA), B left \(leftInB), A woken \(woken)")
+        XCTAssertEqual(woken.page, leftInA.page, "A resumes its own page: \(leftInA) -> \(woken)")
+        XCTAssertLessThanOrEqual(abs(woken.y - leftInA.y), 1, "A resumes its own place: \(leftInA) -> \(woken)")
+        XCTAssertEqual(woken.scale, leftInA.scale, accuracy: 0.001, "A resumes its own zoom")
         XCTAssertTrue(wait(state, "value CONTAINS %@", ["sessions=1"]), "reader B went with its screen: \(state.value ?? "")")
 
         // The menu bar commands act on the woken reader.
@@ -102,6 +107,13 @@ final class ReaderSleepUITests: XCTestCase {
 
     private func row(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
         app.buttons[identifier].firstMatch
+    }
+
+    /// Scrolls the page down a little by dragging (not a jump).
+    private func drag(_ app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.7))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5)))
     }
 
     private func back(_ app: XCUIApplication) {

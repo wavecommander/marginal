@@ -91,7 +91,8 @@ final class WindowContext {
     /// The reader screens shown in this window so far (weak: a popped screen's slot goes with it).
     @ObservationIgnored private var readerSlots: [WeakBox<ReaderSlot>] = []
     /// The window's latest reader state per book (panels, section history), as also kept in
-    /// scene storage: every reader on a book in this window starts from it.
+    /// scene storage: a new reader on a book in this window starts from it (a woken reader
+    /// resumes its own, `ReaderSlot`).
     @ObservationIgnored private var readerStates: [UUID: ReaderSession.RestorableState] = [:]
 
     init(kind: Kind, path: [WindowRoute] = [], store: LibraryStore? = nil) {

@@ -8,7 +8,7 @@ import UIKit
 ///
 /// Restoration: the path is kept in `@SceneStorage("window.path")` per window; the window's
 /// reader state for each book (panels, section history) is in scene storage too (`ReaderHost`),
-/// and every reader opens at its book's latest position (`ReaderPositionStore`). Routes to books
+/// and a restored reader opens at its book's latest position (`ReaderPositionStore`). Routes to books
 /// that no longer exist are dropped on restore. Readers deep in the path sleep (`ReaderSlot`).
 struct WindowRootView: View {
     let kind: WindowContext.Kind

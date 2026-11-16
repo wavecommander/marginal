@@ -59,10 +59,9 @@ final class ReaderSession: Identifiable {
         case bookMissing
     }
 
-    /// Per-window state saved for state restoration (scene storage, one value per book in a
-    /// window). Markup mode is deliberately not part of it (the design does not restore markup
-    /// mode), and neither is the position: every reader opens at the book's latest position
-    /// (`ReaderPositionStore`).
+    /// A reader's state apart from its position: saved for state restoration (scene storage, one
+    /// value per book in a window), and kept by a sleeping reader for itself (`ReaderSlot`).
+    /// Markup mode is deliberately not part of it (the design does not restore markup mode).
     struct RestorableState: Codable, Equatable, Sendable {
         var isContentsVisible = true
         var isNotesVisible = false
@@ -73,11 +72,14 @@ final class ReaderSession: Identifiable {
     }
 
     /// How a session starts. Values from launch arguments win over restored state. The start
-    /// page is `initialPageIndex` when given, else the book's latest position: its stored
-    /// `lastReadPageIndex`, at the exact place and zoom from `positionStore` when that is current.
+    /// place is `initialPageIndex` when given (top of the page), else `resumePosition` (a waking
+    /// reader's own), else the book's latest position: its stored `lastReadPageIndex`, at the exact
+    /// place and zoom from `positionStore` when that is current.
     struct Configuration {
-        /// Explicit start page (e.g. `-openPage`, a Notebook row); wins over the latest position.
+        /// Explicit start page (e.g. `-openPage`, a Notebook row); wins over every position.
         var initialPageIndex: Int?
+        /// The place and zoom a sleeping reader left (`ReaderSlot`): it resumes there.
+        var resumePosition: ReaderPosition?
         /// Restored window state, if any.
         var restoredState: RestorableState?
         /// Start in markup mode (`-markup`).
@@ -184,8 +186,8 @@ final class ReaderSession: Identifiable {
     /// The page PDFKit reports as current while scrolling (zero-based). The toolbar subtitle,
     /// the Contents selection and the notes panel follow it.
     private(set) var currentPageIndex: Int
-    /// The exact place and zoom the session opens at (the book's latest position), or `nil` to
-    /// open at the top of `currentPageIndex`.
+    /// The exact place and zoom the session opens at (where it resumes, or the book's latest
+    /// position), or `nil` to open at the top of `currentPageIndex`.
     let startPosition: ReaderPosition?
     /// Pages currently on screen, ascending (from `PDFViewVisiblePagesChanged`).
     private(set) var visiblePageIndices: [Int] = []
@@ -315,10 +317,14 @@ final class ReaderSession: Identifiable {
         self.saveToken = BookSaveToken(bookID: book.id)
 
         let restored = configuration.restoredState
-        let startPage = configuration.initialPageIndex ?? book.lastReadPageIndex
+        let resume = configuration.resumePosition.flatMap { position in
+            PageNumbering.isValid(position.pageIndex, pageCount: book.pageCount)
+                && PageNumbering.isValid(position.anchor.pageIndex, pageCount: book.pageCount) ? position : nil
+        }
+        let startPage = configuration.initialPageIndex ?? resume?.pageIndex ?? book.lastReadPageIndex
         self.currentPageIndex = PageNumbering.isValid(startPage, pageCount: book.pageCount) ? startPage : 0
         self.startPosition = configuration.initialPageIndex == nil
-            ? configuration.positionStore.position(for: book) : nil
+            ? resume ?? configuration.positionStore.position(for: book) : nil
         self.lastSavedPageIndex = book.lastReadPageIndex
         self.scrollDirection = configuration.scrollDirection
             ?? configuration.scrollDirectionStore.direction(for: book.id)
@@ -764,7 +770,9 @@ final class ReaderSession: Identifiable {
         lastReadSaveTask = nil
         placeSaveTask?.cancel()
         placeSaveTask = nil
-        guard closeReason == nil, !saveToken.isRevoked, !isClosed else { return }
+        // Not before the PDF view has shown the start place: a reader woken under the top screen
+        // and never shown has not been read.
+        guard closeReason == nil, !saveToken.isRevoked, !isClosed, !pdf.isAwaitingFirstPosition else { return }
         if lastSavedPageIndex != currentPageIndex {
             do {
                 guard var stored = try store.books.book(id: book.id) else { return }
@@ -778,10 +786,14 @@ final class ReaderSession: Identifiable {
                 return
             }
         }
-        guard let anchor = pdf.readingAnchor else { return }
-        configuration.positionStore.setPosition(
-            ReaderPosition(pageIndex: currentPageIndex, anchor: anchor, scale: Double(pdf.scale), isFitWidth: isFitWidth),
-            for: book.id)
+        guard let position = currentPosition else { return }
+        configuration.positionStore.setPosition(position, for: book.id)
+    }
+
+    /// The exact place and zoom on screen now, once the PDF view has positioned (`nil` before).
+    var currentPosition: ReaderPosition? {
+        guard let anchor = pdf.readingAnchor else { return nil }
+        return ReaderPosition(pageIndex: currentPageIndex, anchor: anchor, scale: Double(pdf.scale), isFitWidth: isFitWidth)
     }
 
     /// Called by the PDF bridge whenever the reading anchor moves (scrolling, zooming, jumps):

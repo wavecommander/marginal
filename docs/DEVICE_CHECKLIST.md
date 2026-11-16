@@ -112,7 +112,7 @@ Scribble **on**, double-tap and squeeze set to their defaults.
 - [ ] **Sleeping readers.** With Xcode's memory gauge (Debug Navigator) on a large image-heavy PDF
       (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
       Memory falls back about five seconds after each new reader opens; going back through every
-      screen, each reader shows briefly loading and then the place the last reader left, at its zoom.
+      screen, each reader shows briefly loading and then the place and zoom it was itself left at.
 
 ## Importing other formats
 

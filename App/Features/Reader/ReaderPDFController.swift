@@ -91,6 +91,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         return probe
     }()
 
+    /// A document is attached and has not been positioned yet (the view has had no size).
+    var isAwaitingFirstPosition: Bool { isViewLoaded && view.document != nil && !hasPositionedInitially }
+
     /// The PDF view's scale (1 before the view exists).
     var scale: CGFloat { isViewLoaded ? view.scaleFactor : 1 }
 
@@ -160,7 +163,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     // MARK: Document
 
     /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size: at
-    /// `position`'s exact place and zoom when given (the book's latest position), else at the top
+    /// `position`'s exact place and zoom when given (a resumed or the book's latest), else at the top
     /// of the page.
     func attach(_ document: PDFDocument, initialPageIndex: Int, position: ReaderPosition? = nil) {
         pendingPageIndex = initialPageIndex
