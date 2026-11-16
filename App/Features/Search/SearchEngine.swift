@@ -2,7 +2,7 @@ import Foundation
 import os
 import PDFKit
 
-// The search engine (WP10): in-book text search that streams results, can be cancelled, never
+// The search engine: in-book text search that streams results, can be cancelled, never
 // touches the on-screen document and never holds more than a few dozen pages' text.
 //
 // ## Why not `PDFDocument.beginFindString`

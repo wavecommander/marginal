@@ -137,7 +137,7 @@ struct NotesHighlightsSection: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(highlight.color.swatch)
+                    .fill(HighlightPalette.swatchColor(highlight.color))
                     .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.25)))
                     .frame(width: 14, height: 14)
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
@@ -156,33 +156,11 @@ struct NotesHighlightsSection: View {
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(highlight.color.name) highlight")
+        .accessibilityLabel("\(HighlightPalette.name(highlight.color)) highlight")
         .accessibilityValue(highlight.text)
         .accessibilityHint("Goes to the highlight")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(NotesPanelAccessibilityID.highlight)
-    }
-}
-
-extension HighlightColor {
-    /// The swatch colour in lists.
-    var swatch: Color {
-        switch self {
-        case .yellow: Color(red: 1, green: 0.84, blue: 0.04)
-        case .green: Color(red: 0.2, green: 0.78, blue: 0.35)
-        case .blue: Color(red: 0.35, green: 0.68, blue: 0.98)
-        case .pink: Color(red: 1, green: 0.45, blue: 0.68)
-        }
-    }
-
-    /// Spoken name.
-    var name: String {
-        switch self {
-        case .yellow: "Yellow"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .pink: "Pink"
-        }
     }
 }
 

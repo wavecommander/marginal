@@ -5,7 +5,7 @@ import UIKit
 
 let highlightLog = Logger(subsystem: "software.tactile.marginal", category: "highlights")
 
-/// Text highlights (WP7) for one reader window. Created once per window by
+/// Text highlights for one reader window. Created once per window by
 /// `ReaderFeatureWiring`; holds the session weakly. Find it with `HighlightController.of(session)`.
 ///
 /// ## Making a highlight

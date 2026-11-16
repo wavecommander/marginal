@@ -1,3 +1,4 @@
+import ReaderCore
 import SwiftUI
 import UIKit
 
@@ -43,9 +44,9 @@ enum Palette {
 
     // MARK: Highlighters
 
-    /// Pigment of each highlighter. Highlights are painted on the PDF with `multiply` at
-    /// `Highlighter.fillOpacity`, so the text underneath stays dark and legible.
-    static func highlight(_ colour: Highlighter) -> Color { colour.pigment }
+    /// Swatch colour of each highlight colour. The values, and the page fill's opacity, are
+    /// defined once in `HighlightPalette`; this only forwards there.
+    static func highlight(_ colour: HighlightColor) -> Color { HighlightPalette.swatchColor(colour) }
 
     // MARK: Cloth (book covers)
 
@@ -77,27 +78,6 @@ enum Palette {
                 : UIColor(hex: light, alpha: lightAlpha)
         }
     }
-}
-
-/// The four stored highlight colours (`ReaderCore.HighlightColor` maps 1:1 by raw value).
-enum Highlighter: String, CaseIterable, Identifiable, Sendable {
-    case yellow, green, blue, pink
-    var id: String { rawValue }
-
-    var pigment: Color { Color(hex: pigmentHex) }
-    var pigmentHex: UInt32 {
-        switch self {
-        case .yellow: 0xFFD93D
-        case .green: 0x7FD66B
-        case .blue: 0x6CBBFF
-        case .pink: 0xFF8FBF
-        }
-    }
-
-    /// Opacity when painted over a page with `multiply`.
-    static let fillOpacity = 0.55
-
-    var label: String { rawValue.capitalized }
 }
 
 extension Color {

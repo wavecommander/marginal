@@ -25,7 +25,7 @@ struct SidebarActions {
     var delete: (_ node: OutlineNode) -> Void
 }
 
-/// The reader's sidebar (WP5): **Contents** (the merged outline with note badges and
+/// The reader's sidebar: **Contents** (the merged outline with note badges and
 /// current-section tracking, plus the reader's own headings), **Pages** (a lazy thumbnail grid)
 /// and **Bookmarks**. The shell hosts it as the left pane at wide widths and as an overlay at
 /// narrow widths, and owns the container, its width and visibility; this view lays itself out
