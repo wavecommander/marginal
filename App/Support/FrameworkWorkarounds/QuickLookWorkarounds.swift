@@ -25,22 +25,19 @@ nonisolated enum QuickLookWorkarounds {
     /// iOS 27 simulator: `text/rtf` shows the RTF source as text and
     /// `application/vnd.apple.pages`/`…keynote` fail the load, so these are the ones that work.
     static func mimeType(forFileExtension ext: String, format: ImportFormat) -> String {
-        switch ext.lowercased() {
-        case "docx", "docm", "dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        case "doc", "dot": "application/msword"
-        case "pptx", "pptm", "ppsx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        case "ppt", "pps", "pot": "application/vnd.ms-powerpoint"
-        case "pages": "application/x-iwork-pages-sffpages"
-        case "key": "application/x-iwork-keynote-sffkey"
-        case "rtf": "application/rtf"
-        default:
-            switch format {
-            case .word: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            case .powerPoint: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            case .pages: "application/x-iwork-pages-sffpages"
-            case .keynote: "application/x-iwork-keynote-sffkey"
-            default: "application/octet-stream"
-            }
+        let ext = ext.lowercased()
+        // The extension decides when it names one of these formats (`ImportFormat`'s one list of
+        // extensions); a file with any other name goes by the format it was detected as.
+        let named = ImportFormat.format(forFileExtension: ext, among: [.word, .powerPoint, .pages, .keynote, .rtf])
+        let isBinary = named?.binaryOfficeFileExtensions.contains(ext) ?? false
+        switch named ?? format {
+        case .word: return isBinary ? "application/msword" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case .powerPoint:
+            return isBinary ? "application/vnd.ms-powerpoint" : "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        case .pages: return "application/x-iwork-pages-sffpages"
+        case .keynote: return "application/x-iwork-keynote-sffkey"
+        case .rtf where named != nil: return "application/rtf"
+        default: return "application/octet-stream"
         }
     }
 }
