@@ -191,7 +191,8 @@ final class ReaderSession: Identifiable {
     // MARK: Outline and Notebook
 
     /// The merged outline (PDF outline + user headings). `.empty` until loaded; rebuilt off the
-    /// main thread whenever user headings change. Never blocks the first page.
+    /// main thread whenever user headings change. Never blocks the first page. Built once for
+    /// every window on the book (`BookIndex`).
     private(set) var outline: Outline = .empty
     /// `true` once `outline` has been built at least once.
     private(set) var isOutlineLoaded = false
@@ -201,7 +202,8 @@ final class ReaderSession: Identifiable {
     var deepestHeading: OutlineNode? { headingPath.last }
     /// The Notebook tree for this book (note badges, section lists), rebuilt off the main thread
     /// after the outline loads and after any note, highlight, bookmark or heading change (debounced).
-    /// `nil` until first built.
+    /// `nil` until first built. Built once for every window on the book (`BookIndex`); it may
+    /// list pages with ink while a Notebook window is open, which nothing in the reader shows.
     private(set) var notebook: Notebook?
 
     // MARK: Mode and panels
@@ -279,10 +281,10 @@ final class ReaderSession: Identifiable {
     @ObservationIgnored private var hubToken: StoreChangeObservation?
     @ObservationIgnored private var lastReadSaveTask: Task<Void, Never>?
     @ObservationIgnored private var lastSavedPageIndex: Int?
-    @ObservationIgnored private var rawOutlineEntries: [RawOutlineEntry]?
-    @ObservationIgnored private var outlineGeneration = 0
-    @ObservationIgnored private var notebookTask: Task<Void, Never>?
-    @ObservationIgnored private var notebookGeneration = 0
+    /// The book's shared outline and Notebook tree, held from the moment this window's document
+    /// has opened.
+    @ObservationIgnored private var index: BookIndex?
+    @ObservationIgnored private var indexObservation: BookIndexObservation?
     @ObservationIgnored private var openTask: Task<Void, Never>?
     @ObservationIgnored private var notesPanelIfCreated: NotesPanelController?
     @ObservationIgnored private var sidebarModelIfCreated: ContentsSidebarModel?
@@ -810,60 +812,45 @@ final class ReaderSession: Identifiable {
             if !event.isFrom(origin), let stored = try? store.books.book(id: book.id) {
                 book = stored
             }
-        case .userHeadingsChanged:
-            Task { await rebuildOutline() }
-        case .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
-            scheduleNotebookRebuild()
+        case .userHeadingsChanged, .noteSaved, .noteRemoved, .highlightsChanged, .bookmarksChanged:
+            break  // The book's index rebuilds the outline and the Notebook tree (`indexDidChange`).
         case .pageInkChanged, .noteInkChanged:
             break
         }
     }
 
+    /// Joins the book's index (shared with every other window on the book), shows what it has
+    /// already built, and loads it if this is the first window.
     private func loadOutline() async {
-        if rawOutlineEntries == nil {
-            rawOutlineEntries = await ReaderDocumentLoader.outlineEntries(at: documentURL)
+        let index = BookIndex.shared(for: book, in: store, rebuildDelay: configuration.notebookRebuildDelay)
+        self.index = index
+        indexObservation = index.observe { [weak self] update in
+            self?.indexDidChange(update)
         }
-        await rebuildOutline()
+        adoptOutline()
+        adoptNotebook()
+        await index.load()
     }
 
-    private func rebuildOutline() async {
-        guard let entries = rawOutlineEntries else { return }
-        outlineGeneration += 1
-        let generation = outlineGeneration
-        let userHeadings = (try? store.headings.userHeadings(bookID: book.id)) ?? []
-        let built = await ReaderDocumentLoader.buildOutline(entries: entries, userHeadings: userHeadings,
-                                                             pageCount: pageCount)
-        guard generation == outlineGeneration else { return }
-        outline = built
+    private func indexDidChange(_ update: BookIndex.Update) {
+        switch update {
+        case .outline:
+            adoptOutline()
+        case .notebook(let recordsChanged):
+            // A tree that differs only in its pages with ink shows nothing new here.
+            if recordsChanged || notebook == nil { adoptNotebook() }
+        }
+    }
+
+    private func adoptOutline() {
+        guard let index, index.isOutlineLoaded else { return }
+        outline = index.outline
         isOutlineLoaded = true
         updateHeadingPath()
-        scheduleNotebookRebuild(immediately: true)
     }
 
-    private func scheduleNotebookRebuild(immediately: Bool = false) {
-        guard isOutlineLoaded else { return }
-        notebookTask?.cancel()
-        let delay = configuration.notebookRebuildDelay
-        notebookTask = Task { [weak self] in
-            if !immediately {
-                try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
-            }
-            await self?.rebuildNotebook()
-        }
-    }
-
-    private func rebuildNotebook() async {
-        guard closeReason == nil else { return }
-        notebookGeneration += 1
-        let generation = notebookGeneration
-        let bookID = book.id
-        let notes = (try? store.notes.notes(bookID: bookID)) ?? []
-        let highlights = (try? store.highlights.highlights(bookID: bookID)) ?? []
-        let bookmarks = (try? store.bookmarks.bookmarks(bookID: bookID)) ?? []
-        let built = await ReaderDocumentLoader.buildNotebook(outline: outline, notes: notes,
-                                                             highlights: highlights, bookmarks: bookmarks)
-        guard generation == notebookGeneration else { return }
+    private func adoptNotebook() {
+        guard closeReason == nil, let built = index?.notebook else { return }
         notebook = built
     }
 }
