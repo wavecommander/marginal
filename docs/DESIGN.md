@@ -699,7 +699,30 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
   of it is in a release build.
 
-## A library from a newer version
+## Keeping data openable across versions
+
+**A standing feature, kept in step with every data change** (owner decision, 16 November 2026).
+A reader's books and notes must never become unopenable because of an update, a bad update, or
+opening the library or a backup in an older version of the app. This is not finished work: every
+change to the database schema, the backup format, or the files beside a book must keep each of
+the guarantees below true, with tests, in the same change. A change that cannot keep one of them
+stops and goes to the owner.
+
+The guarantees:
+
+1. **Updating never strands a library.** An update migrates the library forward and keeps a copy
+   of it first; if the copy cannot be made, the library is not migrated.
+2. **An older version can open a newer library.** It says so first, and converts it on
+   confirmation, keeping every record (below).
+3. **A damaged or unwanted library can be swapped for a kept copy** from the same screen.
+4. **A backup from an older version restores in a newer one**, pinned by the checked-in
+   `.ttbackup` fixtures.
+5. **A backup from a newer version restores in an older one** when its format version is the
+   same: what the older version has no place for is ignored. When the format version is higher,
+   the older version says the backup was made by a newer version and changes nothing; the
+   backup itself is untouched.
+
+### A library from a newer version
 
 The library's database has a schema version. An update migrates an older library forward, but
 an older build cannot open a library a newer build has already migrated: this happens when a
@@ -727,10 +750,30 @@ switching between development branches).
 - **It takes effect at the next launch.** The app is running on its empty stand-in library, so
   after either change the screen says **Library Ready** and asks the reader to close the app and
   open it again.
-- **The schema rule that makes this work.** Each new schema version only adds optional
-  attributes or new models (no renames, no removals, no type changes), so Core Data can infer the
-  conversion down to the version before it from the model it keeps inside every store. A test
-  (`LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore`) checks every pair.
+
+### What every data change must do
+
+- **Database schema.** A new `VersionedSchema` only adds optional attributes or new models (no
+  renames, no removals, no type changes), so Core Data can infer the conversion down to the
+  version before it from the model it keeps inside every store. Add a lightweight stage, set
+  `SchemaFactory.currentVersion`, and keep
+  `LibraryDatabaseTests.everyVersionConvertsDownToTheOneBefore` passing (it walks every pair). A
+  change that needs more than that (a custom stage, a rename, removing data) is an owner decision
+  first, with its own way back for older versions.
+- **Backup records and manifest.** A new field is an optional key that older versions ignore,
+  at the same format version (`NewerAppBackupTests` checks unknown keys are ignored). A new case
+  in a stored enumeration must be read by older versions as absent or a default, never as damage.
+  Raise the format version only when an older version would misread the backup, and add a
+  fixture for the new version; never regenerate an old one.
+- **Known gap (16 November 2026).** The database already reads an unknown `sourceFormat` as
+  absent, but backup records decode enumerations strictly: a backup from a newer version that
+  uses a new import format, highlight colour or note target kind fails that book's restore here
+  as damaged. Until older versions tolerate unknown cases, a new case in any of these raises the
+  backup format version.
+- **Files beside a book** (ink, recognised text, sidecars): an older version ignores files it
+  does not know, and a newer version reads the files an older one wrote.
+- **A real upgrade before release.** Before a build that changes any of these ships, install the
+  last released build, use it, then install the new build over it, and the reverse.
 
 ## Technical decisions
 

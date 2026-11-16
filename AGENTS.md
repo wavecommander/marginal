@@ -21,6 +21,7 @@ These apply to every change, alongside the build, test and convention rules belo
 - Windows: every view reads and commands its own window's `ReaderSession`, never a shared one, and shows changes made in another window on the same book. Ink surfaces reload when the change hub reports a write from another window, unless a stroke or edit is in progress.
 - Pencil: the system `PKToolPicker` with its standard tools and the default drawing policy; nothing overrides Pencil double-tap, squeeze or hover.
 - PDF exports draw ink as vector paths where the ink allows it; read-only note views render from the strokes at display scale.
+- Data stays openable across versions (`docs/DESIGN.md` "Keeping data openable across versions"). It is a standing feature, not finished work: every change to the database schema, the backup format or the files beside a book keeps it working in the same change: updates never strand a library, an older version can open a newer library and a newer backup, and the tests that pin this (`LibraryDatabaseTests`, `NewerAppBackupTests`, the `.ttbackup` fixtures) pass and grow with it. A change that cannot keep that goes to the owner first.
 
 ## Layout
 
