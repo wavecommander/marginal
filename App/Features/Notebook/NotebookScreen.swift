@@ -416,6 +416,10 @@ private struct NotebookContent: View {
 
     // MARK: Toolbar
 
+    /// While the Notebook loads, Open Book, Select and the Export menu are already enabled (only
+    /// the formats inside Export wait for it). Dimming them until the load finished changed the
+    /// toolbar a second time just after the push's morph (TSOFT-230). Once loaded, the rules are
+    /// as before: Select needs something to select.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -443,10 +447,10 @@ private struct NotebookContent: View {
                 } label: {
                     Label("Open Book", systemImage: "book")
                 }
-                .disabled(model.phase != .ready)
+                .disabled(model.phase == .missing)
                 .accessibilityIdentifier(NotebookAccessibilityID.openBook)
                 Button("Select") { setSelecting(true) }
-                    .disabled(model.notebook.map { NotebookFeed.itemCount($0) == 0 } ?? true)
+                    .disabled(model.notebook.map { NotebookFeed.itemCount($0) == 0 } ?? (model.phase == .missing))
                     .accessibilityHint("Choose which notes to export")
                     .accessibilityIdentifier(NotebookAccessibilityID.select)
             }
@@ -462,6 +466,7 @@ private struct NotebookContent: View {
                         .accessibilityIdentifier(format.accessibilityID)
                     }
                 }
+                .disabled(model.notebook == nil)
             } label: {
                 if isWide {
                     Label("Export", systemImage: "square.and.arrow.up").labelStyle(.titleAndIcon)
@@ -469,7 +474,7 @@ private struct NotebookContent: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
             }
-            .disabled(model.notebook == nil || export.state != .idle || (isSelecting && selection.isEmpty))
+            .disabled(model.phase == .missing || export.state != .idle || (isSelecting && selection.isEmpty))
             .accessibilityIdentifier(NotebookAccessibilityID.exportMenu)
             if isSelecting {
                 Button("Done") { setSelecting(false) }
