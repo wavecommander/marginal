@@ -39,6 +39,17 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
                                                      bookmarks: store.bookmarks, headings: store.headings)
     }
 
+    @Test func swiftDataStorePostsWhatTheContractSays() async throws {
+        let store = try LibraryStore.ephemeral()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        try await RepositoryConformance.verifyChangePosting(store)
+    }
+
+    @Test func onDiskStorePostsWhatTheContractSays() async throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        try await RepositoryConformance.verifyChangePosting(try LibraryStore.live(rootDirectory: root.url))
+    }
+
     @Test func fileInkStoreConformance() async throws {
         let root = TempRoot(); defer { root.cleanup() }
         try await RepositoryConformance.verifyInkStore(FileInkStore(rootDirectory: root.url))

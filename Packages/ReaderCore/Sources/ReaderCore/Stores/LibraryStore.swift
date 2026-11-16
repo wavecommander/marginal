@@ -74,7 +74,7 @@ public final class LibraryStore {
     /// (shared by every window; see `InkedPagesCache`).
     public let inkedPages: InkedPagesCache
 
-    private let context: PostingContext
+    private let context: StoreChangePoster
 
     /// Builds the store from any repository implementations (they may be one object) and an ink
     /// store. The implementations are wrapped; keep no other reference to them for mutation.
@@ -83,7 +83,7 @@ public final class LibraryStore {
                 bookmarks: some BookmarkRepository, headings: some HeadingRepository, inkStore: some InkStore,
                 rootDirectory: URL, hub: StoreChangeHub? = nil) {
         let hub = hub ?? StoreChangeHub()
-        let context = PostingContext(hub: hub)
+        let context = StoreChangePoster(hub: hub)
         self.hub = hub
         self.context = context
         self.rootDirectory = rootDirectory
@@ -278,22 +278,11 @@ public final class LibraryStore {
 
 // MARK: - Change-posting wrappers
 
-/// Shared by a `LibraryStore` and its wrappers: the hub and the origin of the current `perform`.
-@MainActor
-final class PostingContext {
-    let hub: StoreChangeHub
-    var origin: ChangeOrigin?
-
-    init(hub: StoreChangeHub) { self.hub = hub }
-
-    func post(_ changes: StoreChange...) { hub.post(changes, origin: origin) }
-}
-
 @MainActor
 final class PostingBookRepository<Inner: BookRepository>: BookRepository {
     let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
+    let context: StoreChangePoster
+    init(inner: Inner, context: StoreChangePoster) { self.inner = inner; self.context = context }
 
     func allBooks() throws -> [Book] { try inner.allBooks() }
     func book(id: UUID) throws -> Book? { try inner.book(id: id) }
@@ -323,8 +312,8 @@ final class PostingBookRepository<Inner: BookRepository>: BookRepository {
 @MainActor
 final class PostingNoteRepository<Inner: NoteRepository>: NoteRepository {
     let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
+    let context: StoreChangePoster
+    init(inner: Inner, context: StoreChangePoster) { self.inner = inner; self.context = context }
 
     func note(bookID: UUID, target: NoteTarget) throws -> Note? { try inner.note(bookID: bookID, target: target) }
     func note(id: UUID) throws -> Note? { try inner.note(id: id) }
@@ -365,8 +354,8 @@ final class PostingNoteRepository<Inner: NoteRepository>: NoteRepository {
 @MainActor
 final class PostingHighlightRepository<Inner: HighlightRepository>: HighlightRepository {
     let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
+    let context: StoreChangePoster
+    init(inner: Inner, context: StoreChangePoster) { self.inner = inner; self.context = context }
 
     func highlight(id: UUID) throws -> Highlight? { try inner.highlight(id: id) }
     func highlights(bookID: UUID) throws -> [Highlight] { try inner.highlights(bookID: bookID) }
@@ -395,8 +384,8 @@ final class PostingHighlightRepository<Inner: HighlightRepository>: HighlightRep
 @MainActor
 final class PostingBookmarkRepository<Inner: BookmarkRepository>: BookmarkRepository {
     let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
+    let context: StoreChangePoster
+    init(inner: Inner, context: StoreChangePoster) { self.inner = inner; self.context = context }
 
     func bookmarks(bookID: UUID) throws -> [Bookmark] { try inner.bookmarks(bookID: bookID) }
     func isBookmarked(bookID: UUID, pageIndex: Int) throws -> Bool { try inner.isBookmarked(bookID: bookID, pageIndex: pageIndex) }
@@ -411,8 +400,8 @@ final class PostingBookmarkRepository<Inner: BookmarkRepository>: BookmarkReposi
 @MainActor
 final class PostingHeadingRepository<Inner: HeadingRepository>: HeadingRepository {
     let inner: Inner
-    let context: PostingContext
-    init(inner: Inner, context: PostingContext) { self.inner = inner; self.context = context }
+    let context: StoreChangePoster
+    init(inner: Inner, context: StoreChangePoster) { self.inner = inner; self.context = context }
 
     func userHeadings(bookID: UUID) throws -> [UserHeading] { try inner.userHeadings(bookID: bookID) }
     func userHeading(id: UUID) throws -> UserHeading? { try inner.userHeading(id: id) }

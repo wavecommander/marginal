@@ -5,8 +5,9 @@ import Foundation
 /// It defines the contract's semantics executable-ly (the persistent store in WP2 must behave
 /// the same; `RepositoryConformance` checks that) and serves tests and SwiftUI previews.
 @MainActor
-public final class InMemoryRecordStore: BookRepository, NoteRepository, HighlightRepository,
+public final class InMemoryRecordStore: RecordStore, BookRepository, NoteRepository, HighlightRepository,
     BookmarkRepository, HeadingRepository {
+    public var changePoster: StoreChangePoster?
     private var books: [UUID: Book] = [:]
     private var notesByID: [UUID: Note] = [:]
     private var highlightsByID: [UUID: Highlight] = [:]
@@ -24,9 +25,15 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
     public func allBooks() throws -> [Book] { Array(books.values) }
     public func book(id: UUID) throws -> Book? { books[id] }
     public func book(fingerprint: String) throws -> Book? { books.values.first { $0.fingerprint == fingerprint } }
-    public func save(_ book: Book) throws { books[book.id] = book }
+    public func storeBook(_ book: Book) throws { books[book.id] = book }
 
-    public func deleteBook(id: UUID) throws {
+    public func removeBook(id: UUID) throws -> Bool {
+        let existed = books[id] != nil
+        deleteRecords(ofBook: id)
+        return existed
+    }
+
+    private func deleteRecords(ofBook id: UUID) {
         books[id] = nil
         notesByID = notesByID.filter { $0.value.bookID != id }
         highlightsByID = highlightsByID.filter { $0.value.bookID != id }
@@ -34,7 +41,7 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
         headingsByID = headingsByID.filter { $0.value.bookID != id }
     }
 
-    public func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
+    public func storeArchive(_ archive: BookArchive, removing ids: Set<UUID>) throws -> [UUID] {
         try archive.validateForReplacement()
         let removed = ids.union([archive.book.id])
         if let other = books.values.filter({ $0.fingerprint == archive.book.fingerprint && !removed.contains($0.id) })
@@ -49,12 +56,14 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
             throw RepositoryError.recordOwnedByOtherBook(recordID: recordID, bookID: owner)
         }
         // Nothing below throws, so the replacement is all or nothing.
-        for id in removed { try deleteBook(id: id) }
+        let existed = removed.filter { books[$0] != nil }
+        for id in removed { deleteRecords(ofBook: id) }
         books[archive.book.id] = archive.book
         for note in archive.notes { notesByID[note.id] = note }
         for highlight in archive.highlights { highlightsByID[highlight.id] = highlight }
         for bookmark in archive.bookmarks { bookmarksByID[bookmark.id] = bookmark }
         for heading in archive.userHeadings { headingsByID[heading.id] = heading }
+        return Array(existed)
     }
 
     public func recordCounts(bookID: UUID) throws -> BookRecordCounts {
@@ -84,34 +93,36 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
             .sorted { $0.target.pageIndex! < $1.target.pageIndex! }
     }
 
-    @discardableResult
-    public func save(_ note: Note) throws -> Note? {
+    public func storeNote(_ note: Note) throws -> NoteStoreOutcome {
         try requireBook(note.bookID)
         if let stored = notesByID[note.id], stored.target != note.target || stored.bookID != note.bookID {
             throw RepositoryError.noteTargetMismatch(noteID: note.id)
         }
         let existing = try self.note(bookID: note.bookID, target: note.target)
         if note.isEmpty {
-            if let existing { notesByID[existing.id] = nil }
-            return nil
+            guard let existing else { return .unchanged }
+            notesByID[existing.id] = nil
+            return .removed(existing)
         }
         if let existing, existing.id != note.id {
             throw RepositoryError.noteTargetOccupied(existingNoteID: existing.id)
         }
         notesByID[note.id] = note
-        return note
+        return .stored(note)
     }
 
-    public func deleteNote(id: UUID) throws { notesByID[id] = nil }
+    public func removeNote(id: UUID) throws -> Note? { notesByID.removeValue(forKey: id) }
 
-    public func retarget(noteID: UUID, to target: NoteTarget) throws {
-        guard var note = notesByID[noteID] else { throw RepositoryError.notFound(noteID) }
-        guard note.target != target else { return }
-        if let other = try self.note(bookID: note.bookID, target: target) {
+    public func moveNote(id noteID: UUID, to target: NoteTarget) throws -> Note? {
+        guard let existing = notesByID[noteID] else { throw RepositoryError.notFound(noteID) }
+        guard existing.target != target else { return nil }
+        if let other = try self.note(bookID: existing.bookID, target: target) {
             throw RepositoryError.noteTargetOccupied(existingNoteID: other.id)
         }
-        note.target = target
-        notesByID[noteID] = note
+        var moved = existing
+        moved.target = target
+        notesByID[noteID] = moved
+        return existing
     }
 
     public func noteCount(bookID: UUID) throws -> Int {
@@ -136,12 +147,12 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
             .sorted(by: Highlight.readingOrder)
     }
 
-    public func save(_ highlight: Highlight) throws {
+    public func storeHighlight(_ highlight: Highlight) throws -> Highlight? {
         try requireBook(highlight.bookID)
-        highlightsByID[highlight.id] = highlight
+        return highlightsByID.updateValue(highlight, forKey: highlight.id)
     }
 
-    public func deleteHighlight(id: UUID) throws { highlightsByID[id] = nil }
+    public func removeHighlight(id: UUID) throws -> Highlight? { highlightsByID.removeValue(forKey: id) }
 
     public func highlightCount(bookID: UUID) throws -> Int {
         highlightsByID.values.count { $0.bookID == bookID }
@@ -157,15 +168,17 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
         bookmarksByID.values.contains { $0.bookID == bookID && $0.pageIndex == pageIndex }
     }
 
-    public func setBookmarked(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws {
+    public func storeBookmark(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws -> Bool {
         let existing = bookmarksByID.values.filter { $0.bookID == bookID && $0.pageIndex == pageIndex }
         if bookmarked {
-            guard existing.isEmpty else { return }
+            guard existing.isEmpty else { return false }
             try requireBook(bookID)
             let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex)
             bookmarksByID[bookmark.id] = bookmark
+            return true
         } else {
             for bookmark in existing { bookmarksByID[bookmark.id] = nil }
+            return !existing.isEmpty
         }
     }
 
@@ -177,12 +190,12 @@ public final class InMemoryRecordStore: BookRepository, NoteRepository, Highligh
 
     public func userHeading(id: UUID) throws -> UserHeading? { headingsByID[id] }
 
-    public func save(_ heading: UserHeading) throws {
+    public func storeUserHeading(_ heading: UserHeading) throws -> UserHeading? {
         try requireBook(heading.bookID)
-        headingsByID[heading.id] = heading
+        return headingsByID.updateValue(heading, forKey: heading.id)
     }
 
-    public func deleteUserHeading(id: UUID) throws { headingsByID[id] = nil }
+    public func removeUserHeading(id: UUID) throws -> UserHeading? { headingsByID.removeValue(forKey: id) }
 }
 
 /// Reference `InkStore` held in memory. Same semantics as the file-backed store.

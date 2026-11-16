@@ -87,6 +87,12 @@ struct StoreContractTests {
         #expect(try store.allBooks().isEmpty)   // the check cleans up after itself
     }
 
+    @Test @MainActor func inMemoryStorePostsWhatTheContractSays() async throws {
+        let store = LibraryStore.inMemory()
+        try await RepositoryConformance.verifyChangePosting(store)
+        #expect(try store.books.allBooks().isEmpty)   // the check cleans up after itself
+    }
+
     @Test func inMemoryInkStoreConforms() async throws {
         try await RepositoryConformance.verifyInkStore(InMemoryInkStore())
     }

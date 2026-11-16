@@ -212,6 +212,283 @@ public protocol HeadingRepository {
     func deleteUserHeading(id: UUID) throws
 }
 
+// MARK: - The record store
+
+/// Where a record store announces its writes: a `LibraryStore`'s hub, and the origin of the
+/// `LibraryStore.perform(as:_:)` in progress. One per `LibraryStore`, shared with its record
+/// store.
+@MainActor
+public final class StoreChangePoster {
+    /// The hub the changes are posted on.
+    public let hub: StoreChangeHub
+    /// Who is making the writes right now (`nil`: unattributed).
+    public internal(set) var origin: ChangeOrigin?
+
+    public init(hub: StoreChangeHub) { self.hub = hub }
+
+    /// Posts `changes` in order, as separate events with the current origin.
+    func post(_ changes: [StoreChange]) { hub.post(changes, origin: origin) }
+    func post(_ changes: StoreChange...) { hub.post(changes, origin: origin) }
+}
+
+/// What `RecordStore.storeNote(_:)` did.
+public enum NoteStoreOutcome: Hashable, Sendable {
+    /// The note is stored as given (inserted, or replaced in place).
+    case stored(Note)
+    /// The note given was empty, so the note stored for its target (this one) was deleted.
+    case removed(Note)
+    /// The note given was empty and nothing was stored for its target.
+    case unchanged
+}
+
+/// One store for every kind of record: books, notes, highlights, bookmarks and user headings.
+/// Main-actor, synchronous, value types in and out (see "Concurrency" above).
+///
+/// **Two layers.** An implementation supplies the reads and the *primitive* writes
+/// (`storeBook`, `removeNote`, …), each of which returns what it replaced or removed. The writes
+/// the app calls (`save`, `deleteNote`, `retarget`, `setBookmarked`, `replaceBook`, …) are
+/// defined once, in the extension below: each runs its primitive and then announces what
+/// changed on `changePoster`, from what the primitive returned. So change posting is part of
+/// the store, it is the same for every implementation, and no write reads a record a second
+/// time to find out what to announce.
+///
+/// **What posts what** is listed on `LibraryStore` and checked for every implementation by
+/// `RepositoryConformance.verifyChangePosting`. A write that throws posts nothing.
+///
+/// **Refusals.** A primitive reads the record it replaces or removes *before* changing anything,
+/// and throws if that record cannot be read (a persistent store may report a corrupt row), so
+/// such a record is never silently overwritten or deleted.
+///
+/// Implementations never touch files (see `InkStore`, and the compound operations on
+/// `LibraryStore`).
+@MainActor
+public protocol RecordStore: AnyObject {
+    /// Where the writes announce what they changed; `nil` announces nothing. Set by the
+    /// `LibraryStore` that owns the store (one `LibraryStore` per store).
+    var changePoster: StoreChangePoster? { get set }
+
+    // MARK: Books
+
+    /// All books, in no particular order (the Library sorts).
+    func allBooks() throws -> [Book]
+    /// The book with this ID, or `nil`.
+    func book(id: UUID) throws -> Book?
+    /// The book with this content fingerprint, or `nil` (import de-duplication).
+    func book(fingerprint: String) throws -> Book?
+    /// Counts of the records `deleteBook` would remove (all zero for an unknown book).
+    func recordCounts(bookID: UUID) throws -> BookRecordCounts
+    /// Inserts or replaces the book with `book.id`.
+    func storeBook(_ book: Book) throws
+    /// Deletes the book and, in the same transaction, all of its notes, highlights, bookmarks
+    /// and user headings. Returns whether the book existed (an unknown ID is a no-op).
+    func removeBook(id: UUID) throws -> Bool
+    /// `replaceBook(_:removing:)`'s work (see there for the rules and refusals). Returns the IDs
+    /// among `ids ∪ {archive.book.id}` whose book existed before, in no particular order.
+    func storeArchive(_ archive: BookArchive, removing ids: Set<UUID>) throws -> [UUID]
+
+    // MARK: Notes (at most one note per (book, target); an empty note is never stored)
+
+    /// The note for this target, or `nil` (show an empty placeholder; do not create a record).
+    func note(bookID: UUID, target: NoteTarget) throws -> Note?
+    /// The note with this ID, or `nil`.
+    func note(id: UUID) throws -> Note?
+    /// Every note of the book (page and heading notes), in no particular order.
+    func notes(bookID: UUID) throws -> [Note]
+    /// Page notes whose page index lies in `pages`, ascending by page index.
+    func pageNotes(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Note]
+    /// Number of notes of the book.
+    func noteCount(bookID: UUID) throws -> Int
+    /// `save(_:)`'s work for a note (see there for the upsert rules and errors).
+    func storeNote(_ note: Note) throws -> NoteStoreOutcome
+    /// Deletes the note with this ID and returns it as it was stored (`nil` if unknown).
+    func removeNote(id: UUID) throws -> Note?
+    /// `retarget(noteID:to:)`'s work. Returns the note as it was before the move, or `nil` when
+    /// it was already at `target`.
+    func moveNote(id: UUID, to target: NoteTarget) throws -> Note?
+
+    // MARK: Highlights
+
+    /// The highlight with this ID, or `nil`.
+    func highlight(id: UUID) throws -> Highlight?
+    /// All highlights of the book, sorted by `Highlight.readingOrder`.
+    func highlights(bookID: UUID) throws -> [Highlight]
+    /// Highlights on one page, sorted by `Highlight.readingOrder`.
+    func highlights(bookID: UUID, pageIndex: Int) throws -> [Highlight]
+    /// Highlights on pages in `pages`, sorted by `Highlight.readingOrder`.
+    func highlights(bookID: UUID, in pages: ClosedRange<Int>) throws -> [Highlight]
+    /// Number of highlights of the book.
+    func highlightCount(bookID: UUID) throws -> Int
+    /// Inserts or replaces the highlight with `highlight.id` and returns the one it replaced.
+    /// Throws `.bookNotFound` for an unknown book.
+    func storeHighlight(_ highlight: Highlight) throws -> Highlight?
+    /// Deletes the highlight and returns it as it was stored (`nil` if unknown).
+    func removeHighlight(id: UUID) throws -> Highlight?
+
+    // MARK: Bookmarks (at most one per (book, page))
+
+    /// The book's bookmarks, ascending by page index.
+    func bookmarks(bookID: UUID) throws -> [Bookmark]
+    /// Whether the page is bookmarked.
+    func isBookmarked(bookID: UUID, pageIndex: Int) throws -> Bool
+    /// Adds (`true`) or removes (`false`) the page's bookmark and returns whether the page's
+    /// bookmark state changed. Idempotent: adding an existing bookmark keeps the existing
+    /// record. Throws `.bookNotFound` for an unknown book when adding.
+    func storeBookmark(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws -> Bool
+
+    // MARK: User headings (the PDF's own headings are never stored)
+
+    /// The book's user headings, in no particular order (`Outline` orders them).
+    func userHeadings(bookID: UUID) throws -> [UserHeading]
+    /// The user heading with this ID, or `nil`.
+    func userHeading(id: UUID) throws -> UserHeading?
+    /// Inserts or replaces the user heading with `heading.id` and returns the one it replaced.
+    /// Throws `.bookNotFound` for an unknown book.
+    func storeUserHeading(_ heading: UserHeading) throws -> UserHeading?
+    /// Deletes the user heading and returns it as it was stored (`nil` if unknown).
+    func removeUserHeading(id: UUID) throws -> UserHeading?
+}
+
+// MARK: The writes the app calls (each announces what it changed)
+
+extension RecordStore {
+    private func post(_ changes: [StoreChange]) {
+        guard !changes.isEmpty else { return }
+        changePoster?.post(changes)
+    }
+
+    /// Inserts or replaces the book with `book.id`. Posts `.bookSaved`.
+    public func save(_ book: Book) throws {
+        try storeBook(book)
+        post([.bookSaved(bookID: book.id)])
+    }
+
+    /// Deletes the book and, in the same transaction, all of its notes, highlights, bookmarks
+    /// and user headings. Does not touch files (call `InkStore.removeBook` and remove the PDF,
+    /// or use `LibraryStore.deleteBook(id:origin:)`). Deleting an unknown ID is a no-op. Posts
+    /// `.bookDeleted` if the book existed.
+    public func deleteBook(id: UUID) throws {
+        if try removeBook(id: id) { post([.bookDeleted(bookID: id)]) }
+    }
+
+    /// Replaces whole books with one archive, in one transaction (all or nothing; the restore of
+    /// a backup).
+    ///
+    /// Deletes the book and every record (notes, highlights, bookmarks, user headings) of each ID
+    /// in `ids` and of `archive.book.id` (unknown IDs are skipped), then inserts `archive.book`
+    /// and all of the archive's records verbatim: IDs, dates and every other field unchanged.
+    /// Idempotent: a second call with the same arguments leaves the same state. Does not touch
+    /// files (the caller moves the books' directories).
+    ///
+    /// Refuses, changing nothing, with:
+    /// - the archive's own errors, in this order (`BookArchive.validateForReplacement()`):
+    ///   `.archiveInconsistent`, `.archiveDuplicateRecordID`, `.archiveDuplicateNoteTarget`,
+    ///   `.archiveDuplicateBookmarkPage`, `.archiveEmptyNote`;
+    /// - `.fingerprintInUse` when a book outside `ids ∪ {archive.book.id}` has
+    ///   `archive.book.fingerprint`;
+    /// - `.recordOwnedByOtherBook` when a record ID in the archive is stored for a book outside
+    ///   `ids ∪ {archive.book.id}`.
+    ///
+    /// Posts `.bookDeleted` for each ID of `ids ∪ {archive.book.id}` whose book existed
+    /// (ascending by `uuidString`), then `.bookSaved(archive.book.id)`.
+    public func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
+        let existed = try storeArchive(archive, removing: ids).sorted { $0.uuidString < $1.uuidString }
+        post(existed.map { .bookDeleted(bookID: $0) } + [.bookSaved(bookID: archive.book.id)])
+    }
+
+    /// Upsert by target.
+    /// - If `note.isEmpty`: deletes the stored note for `(note.bookID, note.target)` if any and
+    ///   returns `nil`.
+    /// - Else if no note exists for the target: inserts `note` (keeping `note.id`) and returns it.
+    /// - Else if the stored note for the target has `note.id`: replaces all its fields; returns it.
+    /// - Else throws `.noteTargetOccupied(existingNoteID:)`.
+    /// Throws `.noteTargetMismatch` if `note.id` is stored under another target, and
+    /// `.bookNotFound` if the book does not exist. Fields are stored verbatim (the caller sets
+    /// `modifiedAt`). Posts `.noteSaved` for a stored note, `.noteRemoved` for a deleted one.
+    @discardableResult
+    public func save(_ note: Note) throws -> Note? {
+        switch try storeNote(note) {
+        case .stored(let saved):
+            post([.noteSaved(bookID: saved.bookID, target: saved.target, noteID: saved.id)])
+            return saved
+        case .removed(let existing):
+            post([.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: existing.id)])
+            return nil
+        case .unchanged:
+            return nil
+        }
+    }
+
+    /// Deletes the note with this ID (no-op if unknown). The caller deletes its ink file (or
+    /// uses `LibraryStore.deleteNote(id:origin:)`). Posts `.noteRemoved` if it existed.
+    public func deleteNote(id: UUID) throws {
+        if let existing = try removeNote(id: id) {
+            post([.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: id)])
+        }
+    }
+
+    /// Moves a note to another target of the same book (used to repair stale heading anchors
+    /// after `Outline.resolveAll`). No-op if already there; throws `.noteTargetOccupied` if
+    /// another note has that target, `.notFound` for an unknown ID. Posts `.noteRemoved` for the
+    /// old target, then `.noteSaved` for the new one, when the note moved.
+    public func retarget(noteID: UUID, to target: NoteTarget) throws {
+        if let existing = try moveNote(id: noteID, to: target), existing.target != target {
+            post([.noteRemoved(bookID: existing.bookID, target: existing.target, noteID: noteID),
+                  .noteSaved(bookID: existing.bookID, target: target, noteID: noteID)])
+        }
+    }
+
+    /// Inserts or replaces the highlight with `highlight.id` (recolour = save with a new
+    /// colour). Throws `.bookNotFound` for an unknown book. Posts `.highlightsChanged` for its
+    /// page, after one for the previous page if an existing highlight moved pages.
+    public func save(_ highlight: Highlight) throws {
+        let existing = try storeHighlight(highlight)
+        var changes: [StoreChange] = []
+        if let existing, existing.pageIndex != highlight.pageIndex || existing.bookID != highlight.bookID {
+            changes.append(.highlightsChanged(bookID: existing.bookID, pageIndex: existing.pageIndex))
+        }
+        changes.append(.highlightsChanged(bookID: highlight.bookID, pageIndex: highlight.pageIndex))
+        post(changes)
+    }
+
+    /// Deletes the highlight (no-op if unknown). Posts `.highlightsChanged` if it existed.
+    public func deleteHighlight(id: UUID) throws {
+        if let existing = try removeHighlight(id: id) {
+            post([.highlightsChanged(bookID: existing.bookID, pageIndex: existing.pageIndex)])
+        }
+    }
+
+    /// Adds (`true`) or removes (`false`) the page's bookmark. Idempotent: adding an existing
+    /// bookmark keeps the existing record. Throws `.bookNotFound` for an unknown book when
+    /// adding. Posts `.bookmarksChanged` only if the page's bookmark state changed.
+    public func setBookmarked(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws {
+        if try storeBookmark(bookmarked, bookID: bookID, pageIndex: pageIndex) {
+            post([.bookmarksChanged(bookID: bookID, pageIndex: pageIndex)])
+        }
+    }
+
+    /// Inserts or replaces the user heading with `heading.id` (rename, move).
+    /// Throws `.bookNotFound` for an unknown book. Posts `.userHeadingsChanged` for its book,
+    /// after one for the previous book if an existing heading changed books.
+    public func save(_ heading: UserHeading) throws {
+        let existing = try storeUserHeading(heading)
+        var changes: [StoreChange] = []
+        if let existing, existing.bookID != heading.bookID { changes.append(.userHeadingsChanged(bookID: existing.bookID)) }
+        changes.append(.userHeadingsChanged(bookID: heading.bookID))
+        post(changes)
+    }
+
+    /// Deletes the user heading (no-op if unknown). Does not touch its notes or its child
+    /// headings: before deleting, the caller should re-parent children to the deleted heading's
+    /// `parent` (otherwise they become top level), and should delete or keep its heading note
+    /// (a kept note becomes an orphan in the Notebook). Posts `.userHeadingsChanged` if it
+    /// existed.
+    public func deleteUserHeading(id: UUID) throws {
+        if let existing = try removeUserHeading(id: id) {
+            post([.userHeadingsChanged(bookID: existing.bookID)])
+        }
+    }
+}
+
 /// File storage for ink drawings: one blob per page and one per note.
 ///
 /// Data is opaque here (WP6/WP13 store `PKDrawing.dataRepresentation()` or their own container).

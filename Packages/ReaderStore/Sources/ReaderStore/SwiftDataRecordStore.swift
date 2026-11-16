@@ -12,13 +12,17 @@ import ReaderCore
 /// backgrounding. If the save fails the context is rolled back and the error is thrown, so a
 /// failed mutation leaves neither a stored nor a pending change.
 ///
-/// **Not posting:** this type posts no changes; wrap it in `LibraryStore`.
+/// **Posting:** the writes the app calls are `RecordStore`'s (in ReaderCore); this type supplies
+/// the primitives they run, each returning what it replaced or removed. A record that is
+/// replaced or removed is read first, so a row that cannot be decoded
+/// (`ReaderStoreError.corruptRecord`) refuses the write, as it always has.
 ///
 /// Fetches always use predicates (and sort descriptors) on the database; per-book queries never
 /// load other books' rows.
 @MainActor
-final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepository,
+final class SwiftDataRecordStore: RecordStore, BookRepository, NoteRepository, HighlightRepository,
     BookmarkRepository, HeadingRepository {
+    var changePoster: StoreChangePoster?
     /// Held so the container (and its store) outlives every context use.
     let container: ModelContainer
     private var context: ModelContext { container.mainContext }
@@ -89,7 +93,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         return try context.fetch(d).first.map(value)
     }
 
-    func save(_ book: Book) throws {
+    func storeBook(_ book: Book) throws {
         try transaction {
             if let m = try bookModel(book.id) {
                 m.title = book.title
@@ -109,8 +113,10 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         }
     }
 
-    func deleteBook(id: UUID) throws {
+    func removeBook(id: UUID) throws -> Bool {
+        let existed = try bookModel(id) != nil
         try transaction { try deleteRecords(ofBook: id) }
+        return existed
     }
 
     /// The deletes of `deleteBook`, for use inside a `transaction`.
@@ -128,9 +134,10 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
     /// same save; the checks guarantee every such row belongs to a removed book, so the unique
     /// constraint's upsert never reaches a row that stays. After the save the rows are exactly the
     /// archive's (`replaceBookSurvivesReopen` checks this on disk, after reopening).
-    func replaceBook(_ archive: BookArchive, removing ids: Set<UUID>) throws {
-        try archive.validateForReplacement()
+    func storeArchive(_ archive: BookArchive, removing ids: Set<UUID>) throws -> [UUID] {
         let removed = ids.union([archive.book.id])
+        let existed = try removed.sorted { $0.uuidString < $1.uuidString }.filter { try bookModel($0) != nil }
+        try archive.validateForReplacement()
         let fingerprint = archive.book.fingerprint
         let sameFingerprint = FetchDescriptor<BookModel>(predicate: #Predicate { $0.fingerprint == fingerprint },
                                                          sortBy: [SortDescriptor(\.addedAt)])
@@ -162,6 +169,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
             for row in bookmarkRows { context.insert(row) }
             for row in headingRows { context.insert(row) }
         }
+        return existed
     }
 
     /// Throws `.recordOwnedByOtherBook` if any of `ids` is stored for a book outside `removed`.
@@ -244,18 +252,17 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         try note.bandLayout.map { try encode($0) }
     }
 
-    @discardableResult
-    func save(_ note: Note) throws -> Note? {
+    func storeNote(_ note: Note) throws -> NoteStoreOutcome {
+        let existing = try noteModel(bookID: note.bookID, target: note.target)
+        let previous = try existing.map(value)
         try requireBook(note.bookID)
         if let stored = try noteModel(id: note.id), stored.compositeKey != NoteModel.compositeKey(bookID: note.bookID, targetKey: note.target.storageKey) {
             throw RepositoryError.noteTargetMismatch(noteID: note.id)
         }
-        let existing = try noteModel(bookID: note.bookID, target: note.target)
         if note.isEmpty {
-            if let existing {
-                try transaction { context.delete(existing) }
-            }
-            return nil
+            guard let existing, let previous else { return .unchanged }
+            try transaction { context.delete(existing) }
+            return .removed(previous)
         }
         if let existing, existing.id != note.id {
             throw RepositoryError.noteTargetOccupied(existingNoteID: existing.id)
@@ -272,17 +279,20 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 context.insert(try Self.newModel(note))
             }
         }
-        return note
+        return .stored(note)
     }
 
-    func deleteNote(id: UUID) throws {
-        guard let m = try noteModel(id: id) else { return }
+    func removeNote(id: UUID) throws -> Note? {
+        guard let m = try noteModel(id: id) else { return nil }
+        let previous = try value(m)
         try transaction { context.delete(m) }
+        return previous
     }
 
-    func retarget(noteID: UUID, to target: NoteTarget) throws {
+    func moveNote(id noteID: UUID, to target: NoteTarget) throws -> Note? {
         guard let m = try noteModel(id: noteID) else { throw RepositoryError.notFound(noteID) }
-        guard m.targetKey != target.storageKey else { return }
+        let previous = try value(m)
+        guard m.targetKey != target.storageKey else { return nil }
         if let other = try noteModel(bookID: m.bookID, target: target) {
             throw RepositoryError.noteTargetOccupied(existingNoteID: other.id)
         }
@@ -291,6 +301,7 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
             m.pageIndex = target.pageIndex
             m.compositeKey = NoteModel.compositeKey(bookID: m.bookID, targetKey: target.storageKey)
         }
+        return previous
     }
 
     func noteCount(bookID: UUID) throws -> Int {
@@ -381,11 +392,13 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                               sortRank: columns.sortRank, sortMaxY: columns.sortMaxY, sortMinX: columns.sortMinX)
     }
 
-    func save(_ highlight: Highlight) throws {
+    func storeHighlight(_ highlight: Highlight) throws -> Highlight? {
+        let existing = try highlightModel(id: highlight.id)
+        let previous = try existing.map(value)
         try requireBook(highlight.bookID)
         let columns = try HighlightColumns(highlight)
         try transaction {
-            if let m = try highlightModel(id: highlight.id) {
+            if let m = existing {
                 m.bookID = highlight.bookID
                 m.pageIndex = highlight.pageIndex
                 m.rectsData = columns.rectsData
@@ -399,11 +412,14 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 context.insert(try Self.newModel(highlight))
             }
         }
+        return previous
     }
 
-    func deleteHighlight(id: UUID) throws {
-        guard let m = try highlightModel(id: id) else { return }
+    func removeHighlight(id: UUID) throws -> Highlight? {
+        guard let m = try highlightModel(id: id) else { return nil }
+        let previous = try value(m)
         try transaction { context.delete(m) }
+        return previous
     }
 
     func highlightCount(bookID: UUID) throws -> Int {
@@ -437,17 +453,20 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         return try context.fetchCount(FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.compositeKey == key })) > 0
     }
 
-    func setBookmarked(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws {
+    func storeBookmark(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws -> Bool {
         let existing = try bookmarkModels(bookID: bookID, pageIndex: pageIndex)
         if bookmarked {
-            guard existing.isEmpty else { return }
+            guard existing.isEmpty else { return false }
             try requireBook(bookID)
             try transaction {
                 context.insert(Self.newModel(Bookmark(bookID: bookID, pageIndex: pageIndex)))
             }
+            return true
         } else if !existing.isEmpty {
             try transaction { for m in existing { context.delete(m) } }
+            return true
         }
+        return false
     }
 
     // MARK: User headings
@@ -484,10 +503,12 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
         try headingModel(id: id).map(value)
     }
 
-    func save(_ heading: UserHeading) throws {
+    func storeUserHeading(_ heading: UserHeading) throws -> UserHeading? {
+        let existing = try headingModel(id: heading.id)
+        let previous = try existing.map(value)
         try requireBook(heading.bookID)
         try transaction {
-            if let m = try headingModel(id: heading.id) {
+            if let m = existing {
                 m.bookID = heading.bookID
                 m.title = heading.title
                 m.pageIndex = heading.pageIndex
@@ -497,10 +518,13 @@ final class SwiftDataRecordStore: BookRepository, NoteRepository, HighlightRepos
                 context.insert(Self.newModel(heading))
             }
         }
+        return previous
     }
 
-    func deleteUserHeading(id: UUID) throws {
-        guard let m = try headingModel(id: id) else { return }
+    func removeUserHeading(id: UUID) throws -> UserHeading? {
+        guard let m = try headingModel(id: id) else { return nil }
+        let previous = try value(m)
         try transaction { context.delete(m) }
+        return previous
     }
 }
