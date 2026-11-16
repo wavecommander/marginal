@@ -211,6 +211,12 @@ nonisolated enum AccessibilityID {
         static func accent(_ rawValue: String) -> String { "settings.accent.\(rawValue)" }
         static let reset = "settings.accent.reset"
         static let preview = "settings.accent.preview"
+        /// Settings ▸ About: the build's version, branch, commit and time (`BuildInfo`).
+        static let aboutVersion = "settings.about.version"
+        static let aboutBranch = "settings.about.branch"
+        static let aboutCommit = "settings.about.commit"
+        static let aboutBuilt = "settings.about.built"
+        static let aboutCopy = "settings.about.copy"
     }
 
     /// Placeholders the next packages replace (keep the identifiers if convenient).
