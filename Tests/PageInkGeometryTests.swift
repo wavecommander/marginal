@@ -82,6 +82,10 @@ struct PageInkGeometryTests {
             for scale in [1.0, 2.5, 4.0] as [CGFloat] {
                 for pageIndex in 0..<5 {
                     let page = try #require(host.pdfView.document?.page(at: pageIndex))
+                    // The reader's own zoom, as a zoom command reports it. A scale change the
+                    // controller was not told about counts as PDFKit refitting, and it puts the
+                    // reading anchor back over `showTop(of:)` below (TSOFT-223).
+                    host.session.pdf.readerDidZoom()
                     host.pdfView.autoScales = false
                     host.pdfView.scaleFactor = scale
                     var shown = false
