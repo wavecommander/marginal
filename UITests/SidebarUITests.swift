@@ -542,7 +542,7 @@ final class SidebarUITests: XCTestCase {
     /// A heading gains a badge when a page note is typed in the notes panel (seeded through the
     /// UI; the store-level mapping is `SidebarModelTests.badgesComeFromNotesAndHighlightsButNotBookmarks`).
     func testHeadingGainsBadgeWhenAPageNoteIsWritten() {
-        let app = Self.open(Fixtures.small, "small", ["-openPage", "7"])
+        let app = Self.open(Fixtures.small, "small", ["-openPage", "7", "-notesPanel", "page"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 7 of 12", timeout: 40))
         Self.selectTab(app, "Contents")
         let section = Self.heading(app, "2.1 Foundations")
@@ -561,7 +561,8 @@ final class SidebarUITests: XCTestCase {
 
     // MARK: Stability
 
-    /// Switching sidebar tabs, and hiding and showing the sidebar, never moves the page.
+    /// Switching sidebar tabs never moves the page. (Hiding and showing the sidebar is
+    /// `ReadingPositionUITests.testPanelTogglesKeepPositionDeepInLarge`, on the same book.)
     func testSwitchingTabsKeepsTheReadingPosition() {
         let app = Self.open(Fixtures.large, "large", ["-openPage", "312", "-exposeViewportAnchor"])
         XCTAssertTrue(Self.waitForLabel(Self.pill(app), "Page 312 of 1500", timeout: 40))
@@ -578,12 +579,6 @@ final class SidebarUITests: XCTestCase {
             XCTAssertTrue(tab.wait(until: "selected == true"), "tab \(name)")
             XCTAssertEqual(settledAnchor(), before, "after switching to \(name)")
         }
-        let toggle = app.buttons[ReaderID.contentsToggle].firstMatch
-        toggle.tap()
-        sleep(1)
-        toggle.tap()
-        sleep(2)
-        XCTAssertEqual(anchor.value as? String, before, "after hiding and showing the sidebar")
         XCTAssertEqual(Self.pill(app).label, "Page 312 of 1500")
     }
 

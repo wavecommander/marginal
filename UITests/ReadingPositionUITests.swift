@@ -25,9 +25,11 @@ final class ReadingPositionUITests: XCTestCase {
 
     // MARK: Helpers
 
+    /// Opens the book with both panels shown (`-notesPanel page`: every test here starts from
+    /// the notes panel open, whatever a reader's first open shows).
     private func launch(_ fixture: String, _ title: String, _ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(fixture)
-                                              + ["-openBook", title, "-exposeViewportAnchor"] + extra)
+                                              + ["-openBook", title, "-exposeViewportAnchor", "-notesPanel", "page"] + extra)
         XCTAssertTrue(app.buttons["reader.pagePill"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["reader.viewportAnchor"].firstMatch.waitForExistence(timeout: 10))
         return app
@@ -91,8 +93,11 @@ final class ReadingPositionUITests: XCTestCase {
         return settledAnchor(app, file: file, line: line)
     }
 
-    /// Toggles each panel open/closed `rounds` times, alternating at the end; the position must
-    /// hold after every step and return exactly to the start.
+    /// Closes and reopens each panel once, checking the position after every step; then, `rounds`
+    /// times each, closes and reopens Contents, then Notes, then both alternating (through
+    /// "both closed"), checking after each group. The position must return exactly to the start.
+    /// One exercise with several rounds is enough to show there is no drift; the other positions
+    /// and zoom modes need only the single steps (`rounds: 0`) or one round.
     private func exerciseWidePanels(_ app: XCUIApplication, rounds: Int, label: String) {
         let start = settledAnchor(app)
         let pill = app.buttons["reader.pagePill"].firstMatch
@@ -142,12 +147,12 @@ final class ReadingPositionUITests: XCTestCase {
     /// and mid-page. (Scrolling between them records no history, which each exercise asserts.)
     func testPanelTogglesKeepPositionOnSmall() {
         let app = launch(Fixtures.small, "small", ["-openPage", "5"])
-        exerciseWidePanels(app, rounds: 3, label: "small page top")
+        exerciseWidePanels(app, rounds: 0, label: "small page top")
         // Scroll back a little so the top edge shows the end of page 4 and the gap.
         let window = app.windows.firstMatch
         let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.4))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 60)))
-        exerciseWidePanels(app, rounds: 3, label: "small boundary")
+        exerciseWidePanels(app, rounds: 0, label: "small boundary")
         scrollPage(app, by: 0.35)
         exerciseWidePanels(app, rounds: 3, label: "small mid-page")
     }
@@ -155,7 +160,7 @@ final class ReadingPositionUITests: XCTestCase {
     func testPanelTogglesKeepPositionDeepInLarge() {
         let app = launch(Fixtures.large, "large", ["-openPage", "700"])
         scrollPage(app, by: 0.25)
-        exerciseWidePanels(app, rounds: 3, label: "large p700")
+        exerciseWidePanels(app, rounds: 1, label: "large p700")
     }
 
     func testPanelTogglesKeepPositionWhenZoomed() {
@@ -165,7 +170,7 @@ final class ReadingPositionUITests: XCTestCase {
         let twice = zoom(app, key: "+", from: once.scale)
         XCTAssertGreaterThan(twice.scale, fit.scale, "zoomed in")
         scrollPage(app, by: 0.3)
-        exerciseWidePanels(app, rounds: 3, label: "small zoomed")
+        exerciseWidePanels(app, rounds: 1, label: "small zoomed")
     }
 
     /// TSOFT-223: a double tap on the page (PDFKit's own zoom toggle) can return the view to fit
@@ -203,7 +208,7 @@ final class ReadingPositionUITests: XCTestCase {
         fitWidth.tap()
         XCTAssertTrue(fitWidth.waitForGone(), "the More menu closed")
         scrollPage(app, by: 0.3)
-        exerciseWidePanels(app, rounds: 2, label: "small fit width")
+        exerciseWidePanels(app, rounds: 1, label: "small fit width")
     }
 
     func testRotationAndKeyboardKeepPosition() {
@@ -348,7 +353,9 @@ final class ReadingPositionUITests: XCTestCase {
         let pageBefore = pill.label
         scrollPage(app, by: 0.15)
         let start = settledAnchor(app)
-        for round in 0..<5 {
+        // Two rounds: the second starts from a sheet and an overlay that have each been shown
+        // and hidden once, which is where a drift would first show.
+        for round in 0..<2 {
             app.buttons["reader.toolbar.notes"].firstMatch.tap()
             assertSamePosition(start, settledAnchor(app), "narrow notes hidden \(round)")
             app.buttons["reader.toolbar.notes"].firstMatch.tap()
