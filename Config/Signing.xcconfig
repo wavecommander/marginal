@@ -1,0 +1,46 @@
+// Signing defaults for every target. Simulator builds need no signing, so it is off by default
+// and a fresh clone builds without an Apple developer team.
+//
+// To run on a device, or to build from the Xcode window with signing, copy
+// Config/Local.xcconfig.example to Config/Local.xcconfig (git-ignored) and put your team ID in it.
+// scripts/device.sh passes the same settings on the command line and needs no local file.
+CODE_SIGNING_ALLOWED = NO
+CODE_SIGNING_REQUIRED = NO
+
+// Backup integrations that need an account are off unless Config/Local.xcconfig turns them on
+// (see Config/Local.xcconfig.example). Empty means off: the app shows the destination as not
+// available in this build.
+// - TACTILE_ENTITLEMENTS: the app target's entitlements file. Empty: none, which is what an
+//   unsigned simulator build and a free Personal Team need.
+// - GOOGLE_DRIVE_CLIENT_ID: the iOS OAuth client ID for the direct Google Drive integration.
+// - S3_BACKUP_*: an S3-compatible bucket (Amazon S3, Cloudflare R2, MinIO) as a backup
+//   destination. Host, region, bucket and both keys must all be set for it to appear.
+//   The keys end up in the built app's Info.plist, where anyone holding the app can read them:
+//   use a token limited to object read and write on this one bucket, and never distribute a
+//   build configured this way. Never put these values in this file; it is committed.
+// - BACKUP_SERVICE_HOST and BACKUP_PRODUCT_IDS: the Tactile Texts cloud backup service (the
+//   Worker's host, without a scheme) and its App Store subscription product IDs, comma-separated.
+//   Not secrets. Both must be set for the service to appear; empty leaves it out of the app.
+// - BACKUP_SERVICE_ATTEST_BYPASS: development only, optional. The `dev` Worker's
+//   APP_ATTEST_BYPASS_SECRET, which lets the simulator (no App Attest) use the service. Debug
+//   builds only read it, and it is readable in the built app: never set it for a build that
+//   talks to the production Worker or leaves the developer's hands. Empty: no bypass.
+// - BACKUP_TERMS_URL and BACKUP_PRIVACY_URL: the Terms of Use and Privacy Policy pages the
+//   Tactile Texts Cloud offer links to, written without "https://" ("//" starts a comment in
+//   this file; the app adds https). Not secrets. Empty: that link is not shown.
+TACTILE_ENTITLEMENTS =
+GOOGLE_DRIVE_CLIENT_ID =
+S3_BACKUP_HOST =
+S3_BACKUP_REGION =
+S3_BACKUP_BUCKET =
+S3_BACKUP_ACCESS_KEY_ID =
+S3_BACKUP_SECRET_ACCESS_KEY =
+S3_BACKUP_PREFIX =
+S3_BACKUP_NAME =
+BACKUP_SERVICE_HOST =
+BACKUP_PRODUCT_IDS =
+BACKUP_SERVICE_ATTEST_BYPASS =
+BACKUP_TERMS_URL =
+BACKUP_PRIVACY_URL =
+
+#include? "Local.xcconfig"

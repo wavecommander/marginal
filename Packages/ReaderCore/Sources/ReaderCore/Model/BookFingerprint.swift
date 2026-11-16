@@ -1,0 +1,88 @@
+import CryptoKit
+import Foundation
+
+/// The content fingerprint stored in `Book.fingerprint`.
+///
+/// **Scheme (`sha256-v1`)**: SHA-256 over
+///
+///     "marginal-fingerprint-v1\0" ‖ file size (8 bytes, big endian) ‖ sampled chunks
+///
+/// where the sampled chunks are 64 KiB each. A file of at most 2 MiB (32 chunks) is hashed whole.
+/// A larger file contributes 32 chunks at offsets `i * (size - 64 KiB) / 31` for `i` in `0...31`,
+/// so the first and last 64 KiB are always included. The cost is a fixed 2 MiB of reads and 32
+/// seeks however large the file is (a 600 MB textbook fingerprints in a few milliseconds).
+/// The digest is written as `"sha256-v1:"` followed by 64 lower-case hex digits.
+///
+/// Two files with the same size and the same bytes in every sampled chunk get the same
+/// fingerprint even if they differ elsewhere. For textbook PDFs, which carry a cross-reference
+/// table and trailer at the end and change size when edited, that does not happen in practice;
+/// the cost of a false match is that the second import opens the first book.
+///
+/// **Frozen:** stored `Book.fingerprint` values and backups depend on this exact output; a test
+/// pins known digests. A different scheme needs a new prefix, never a change to this one.
+public enum BookFingerprint {
+    /// Prefix of every fingerprint this scheme produces.
+    public static let prefix = "sha256-v1:"
+    /// Size of one sampled chunk in bytes.
+    public static let chunkSize = 64 * 1024
+    /// Number of sampled chunks of a large file.
+    public static let sampleCount = 32
+
+    /// `true` when the whole file is read (size at most `chunkSize * sampleCount`).
+    public static func hashesWholeFile(size: Int64) -> Bool {
+        size <= Int64(chunkSize * sampleCount)
+    }
+
+    /// Start offsets of the sampled chunks for a file of `size` bytes (empty when the whole file
+    /// is hashed).
+    public static func sampleOffsets(forSize size: Int64) -> [Int64] {
+        guard !hashesWholeFile(size: size) else { return [] }
+        let span = size - Int64(chunkSize)
+        return (0..<sampleCount).map { span * Int64($0) / Int64(sampleCount - 1) }
+    }
+
+    /// Fingerprint of the file at `url`. Reads at most 2 MiB. Throws if it cannot be read.
+    public static func fingerprint(ofFileAt url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let size = Int64(try handle.seekToEnd())
+        var hasher = SHA256()
+        // The salt keeps the app's working title on purpose: changing it changes every book's ID.
+        hasher.update(data: Data("marginal-fingerprint-v1\0".utf8))
+        withUnsafeBytes(of: UInt64(size).bigEndian) { hasher.update(bufferPointer: $0) }
+        if hashesWholeFile(size: size) {
+            try handle.seek(toOffset: 0)
+            if let data = try handle.read(upToCount: Int(size)) { hasher.update(data: data) }
+        } else {
+            for offset in sampleOffsets(forSize: size) {
+                try handle.seek(toOffset: UInt64(offset))
+                if let data = try handle.read(upToCount: chunkSize) { hasher.update(data: data) }
+            }
+        }
+        return prefix + hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Fingerprint of a package directory (an iWork `.pages` or `.key` document saved as a
+    /// folder): SHA-256 over `"marginal-package-v1\0"` and, for each regular file in path order,
+    /// its relative path, a NUL, its own `fingerprint(ofFileAt:)` and a NUL. Same prefix and
+    /// format as a file's fingerprint.
+    public static func fingerprint(ofPackageAt url: URL) throws -> String {
+        let root = url.standardizedFileURL.resolvingSymlinksInPath()
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        var files: [(path: String, url: URL)] = []
+        for case let file as URL in enumerator where try file.resourceValues(forKeys: Set(keys)).isRegularFile == true {
+            let full = file.standardizedFileURL.resolvingSymlinksInPath().path
+            let relative = full.hasPrefix(root.path + "/") ? String(full.dropFirst(root.path.count + 1)) : file.lastPathComponent
+            files.append((relative, file))
+        }
+        var hasher = SHA256()
+        hasher.update(data: Data("marginal-package-v1\0".utf8))
+        for file in files.sorted(by: { $0.path < $1.path }) {
+            hasher.update(data: Data("\(file.path)\0\(try fingerprint(ofFileAt: file.url))\0".utf8))
+        }
+        return prefix + hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}

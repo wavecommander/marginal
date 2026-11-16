@@ -1,0 +1,554 @@
+import Foundation
+import Observation
+import ReaderCore
+
+/// One reader window's search: query, streamed results, progress and the chosen result.
+///
+/// Created on first use through `ReaderSession.searchModel` and kept for the session's lifetime,
+/// so closing and reopening the panel shows the same results. Two windows have two sessions and
+/// so two models, each with its own engine runs and private documents: they never share or
+/// cancel each other's work.
+///
+/// ## Lifecycle (nothing outlives the window)
+/// - Editing the query cancels the running search at once and, after `debounce`, starts a new
+///   one (Return starts it immediately). A query shorter than `minimumQueryLength` clears.
+/// - Closing the panel cancels a running search (the results so far stay; "Continue" resumes).
+/// - When the window's session goes away the model goes with it, and its `deinit` cancels every
+///   task it started, which ends the engine's stream and stops its worker before the next page.
+///
+/// ## Search marks on the page
+/// Choosing a text result jumps to it and marks the match (`session.jump(toPage:revealing:mark:)`).
+/// The mark stays while the reader looks at it, and is cleared when: another result is chosen;
+/// a new search starts or the query is cleared; the panel is dismissed without choosing a result
+/// (Done, or tapping outside it); or the reader taps the page.
+///
+/// ## Notes and highlights
+/// Matched alongside the text (`AnnotationSearch`), re-read whenever this book's notes or
+/// highlights change in any window (store change hub), and regrouped whenever the outline
+/// changes (user headings added in any window).
+///
+/// ## Scanned books (S2)
+/// Pages with no text of their own are searched in their recognised text (`PDFTextSearch`,
+/// `RecognisedTextSource`). A page recognised after the scan has passed it (the hub's
+/// `.recognisedTextChanged`) is searched again on its own, once (`RecognisedPageLedger`), and
+/// its hits join the results without restarting the search. `recognitionState` and
+/// `isPageSearchPartial` tell the search panel's status (S3) where recognition stands.
+@Observable
+@MainActor
+final class SearchModel {
+    /// Where the search is.
+    enum Phase: Equatable {
+        /// Nothing searched (empty or too-short query).
+        case idle
+        case searching
+        /// Every page was searched.
+        case finished
+        /// The hit cap was reached; `nextPage` is where "Show More Results" resumes.
+        case capped(nextPage: Int)
+        /// Cancelled by the reader (Cancel) or by closing the panel; `nextPage` is where
+        /// Continue resumes.
+        case cancelled(nextPage: Int)
+        /// The book's file could not be opened.
+        case failed
+    }
+
+    /// Shortest query that searches.
+    nonisolated static let minimumQueryLength = 2
+
+    // MARK: State
+
+    /// The search field's text. Setting it cancels the running search and, after `debounce`,
+    /// starts a new one.
+    var query = "" {
+        didSet { if query != oldValue { queryDidChange() } }
+    }
+
+    private(set) var phase: Phase = .idle
+    /// Pages scanned so far (absolute: a continued search counts from the start of the book).
+    private(set) var pagesSearched = 0
+    private(set) var totalPages = 0
+    /// Results in display order, grouped by heading (see `SearchGrouping`).
+    private(set) var groups: [SearchGroup] = []
+    /// The result last chosen (shown selected; Next/Previous step from it).
+    private(set) var selectedResultID: String?
+    /// Text hits so far (the cap applies to these).
+    private(set) var textHitCount = 0
+    /// Notes plus highlights that match.
+    private(set) var annotationResultCount = 0
+    /// The query that produced the current results.
+    private(set) var searchedQuery = ""
+
+    var resultCount: Int { textHitCount + annotationResultCount }
+    var isSearching: Bool { phase == .searching }
+
+    /// The book's text-recognition state (`nil` for a book with a text layer), kept current
+    /// from the store in every window (`.recognitionStateChanged`).
+    private(set) var recognitionState: RecognitionState?
+    /// Page search covers only the pages recognised so far: the book is scanned and its
+    /// recognition is not complete (not decided, declined, in progress or paused). Results
+    /// arrive as more pages are recognised. The search panel says so (S3).
+    var isPageSearchPartial: Bool {
+        guard let recognitionState else { return false }
+        return recognitionState != .complete
+    }
+
+    /// Main-thread cost of applying streamed hits (regrouping), in thread CPU time, since the
+    /// current search started. For diagnostics and the responsiveness test.
+    struct UpdateCost: Equatable {
+        var updates = 0
+        var longest: Duration = .zero
+        var total: Duration = .zero
+    }
+
+    @ObservationIgnored private(set) var updateCost = UpdateCost()
+
+    /// Wait after the last keystroke before searching.
+    @ObservationIgnored var debounce: Duration = .milliseconds(300)
+
+    // MARK: Private
+
+    @ObservationIgnored private weak var session: ReaderSession?
+    @ObservationIgnored private var textHits: [SearchHit] = []
+    @ObservationIgnored private var annotationResults: [SearchResult] = []
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var annotationRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var changeObservation: StoreChangeObservation?
+    @ObservationIgnored private var runID = 0
+    @ObservationIgnored private var hasMark = false
+    /// A result chosen in the panel whose navigation waits until the panel has gone (opening the
+    /// notes sheet while the popover is still dismissing would fail).
+    @ObservationIgnored private var pendingSelection: SearchResult?
+    @ObservationIgnored private var closingAfterChoice = false
+    @ObservationIgnored private let pageDelay: Duration
+    @ObservationIgnored private let hitCap: Int
+    /// The current query's pages searched without recognised text (see the type's comment).
+    @ObservationIgnored private(set) var ledger = RecognisedPageLedger()
+    /// Pages waiting to be searched again now that they are recognised.
+    @ObservationIgnored private var catchUpPages: Set<Int> = []
+    @ObservationIgnored private var catchUpTask: Task<Void, Never>?
+    @ObservationIgnored private var catchUpID = 0
+    @ObservationIgnored private var recognitionStateTask: Task<Void, Never>?
+    /// Pages searched again after being recognised (tests and diagnostics).
+    @ObservationIgnored private(set) var caughtUpPages: [Int] = []
+
+    init(session: ReaderSession, hitCap: Int = PDFTextSearch.defaultHitCap, pageDelay: Duration? = nil) {
+        self.session = session
+        self.hitCap = hitCap
+        // Test hook: the UI tests' `-searchPageDelayMs <n>` launch argument (`LaunchOptions`)
+        // slows the scan so a test can act mid-search. Debug builds only.
+        #if DEBUG
+        let ms = LaunchOptions.current.searchPageDelayMs ?? 0
+        #else
+        let ms = 0
+        #endif
+        self.pageDelay = pageDelay ?? .milliseconds(ms)
+        totalPages = session.pageCount
+
+        changeObservation = session.observeBookChanges(includeOwn: true) { [weak self] event in
+            switch event.change {
+            case .noteSaved, .noteRemoved, .highlightsChanged:
+                self?.scheduleAnnotationRefresh()
+            case .recognisedTextChanged(_, let page?):
+                self?.pageWasRecognised(page)
+            case .recognitionStateChanged:
+                self?.reloadRecognitionState()
+            default:
+                break
+            }
+        }
+        observeOutline()
+        reloadRecognitionState()
+    }
+
+    deinit {
+        // Nonisolated (an isolated deinit needs a newer runtime than iPadOS 17); `Task` handles
+        // are Sendable and cancelling is thread-safe. Ending `searchTask` ends the engine's stream,
+        // which stops its worker.
+        debounceTask?.cancel()
+        searchTask?.cancel()
+        annotationRefreshTask?.cancel()
+        catchUpTask?.cancel()
+        recognitionStateTask?.cancel()
+    }
+
+    // MARK: Query
+
+    var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isQueryTooShort: Bool { !trimmedQuery.isEmpty && trimmedQuery.count < Self.minimumQueryLength }
+
+    /// A keystroke: the old search stops and its results go at once (the list shows the search
+    /// as pending rather than stale matches); the new one starts after the debounce.
+    private func queryDidChange() {
+        debounceTask?.cancel()
+        cancelRun()
+        guard trimmedQuery.count >= Self.minimumQueryLength else {
+            reset()
+            return
+        }
+        prepareNewSearch()
+        debounceTask = Task { [weak self, debounce] in
+            if debounce > .zero {
+                try? await Task.sleep(for: debounce)
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.debounceTask = nil
+            self.refreshAnnotations(regroup: false)
+            self.regroup()
+            self.run(from: 0)
+        }
+    }
+
+    /// Return on the keyboard: search now instead of waiting for the debounce.
+    func submit() {
+        guard trimmedQuery.count >= Self.minimumQueryLength else { return }
+        startSearch()
+    }
+
+    /// Clears the previous query's results and shows the new query as searching.
+    private func prepareNewSearch() {
+        resetRecognisedPageTracking()
+        textHits = []
+        annotationResults = []
+        selectedResultID = nil
+        searchedQuery = trimmedQuery
+        pagesSearched = 0
+        updateCost = UpdateCost()
+        if let session { totalPages = session.pageCount }
+        clearMarks()
+        regroup()
+        phase = .searching
+    }
+
+    /// Empties the field and the results (the field's clear button).
+    func clear() {
+        query = ""
+    }
+
+    private func reset() {
+        resetRecognisedPageTracking()
+        textHits = []
+        annotationResults = []
+        searchedQuery = ""
+        phase = .idle
+        pagesSearched = 0
+        selectedResultID = nil
+        regroup()
+        clearMarks()
+    }
+
+    // MARK: Running
+
+    /// Cancels any running search and searches for the current query from the first page.
+    func startSearch() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        cancelRun()
+        guard trimmedQuery.count >= Self.minimumQueryLength else { return }
+        prepareNewSearch()
+        refreshAnnotations(regroup: false)
+        regroup()
+        run(from: 0)
+    }
+
+    /// Resumes a capped or cancelled search where it left off.
+    func continueSearch() {
+        switch phase {
+        case .capped(let next), .cancelled(let next):
+            guard !searchedQuery.isEmpty else { return }
+            if next == 0 {
+                startSearch()
+            } else {
+                cancelRun()
+                run(from: next)
+            }
+        default:
+            break
+        }
+    }
+
+    /// Cancels the running (or about-to-start) search, keeping the results found so far.
+    func cancel() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        guard phase == .searching else { return }
+        cancelRun()
+        phase = .cancelled(nextPage: pagesSearched)
+    }
+
+    private func run(from startPage: Int) {
+        guard let session else { return }
+        runID += 1
+        let id = runID
+        phase = .searching
+        let stream = PDFTextSearch.stream(url: session.documentURL, query: searchedQuery, startPage: startPage,
+                                          hitCap: hitCap, pageDelay: pageDelay,
+                                          recognised: recognisedTextSource(session))
+        searchTask = Task { [weak self] in
+            for await event in stream {
+                guard let self, self.runID == id else { return }
+                self.apply(event)
+            }
+        }
+    }
+
+    private func recognisedTextSource(_ session: ReaderSession) -> RecognisedTextSource {
+        RecognisedTextSource(store: session.store.recognisedText, bookID: session.book.id, ledger: ledger)
+    }
+
+    // MARK: Recognised pages (scanned books)
+
+    /// A new query (or none): pages missed by the previous one no longer matter.
+    private func resetRecognisedPageTracking() {
+        ledger = RecognisedPageLedger()
+        catchUpID += 1
+        catchUpTask?.cancel()
+        catchUpTask = nil
+        catchUpPages = []
+        caughtUpPages = []
+    }
+
+    /// The hub announced a recognised page. If the current search passed it without recognised
+    /// text, it is searched again now; if the search has not reached it, the scan finds it.
+    private func pageWasRecognised(_ page: Int) {
+        guard !searchedQuery.isEmpty, ledger.pageRecognised(page) else { return }
+        catchUpPages.insert(page)
+        startCatchUpIfNeeded()
+    }
+
+    /// Searches the pages waiting in `catchUpPages` (one engine run at a time, any pages that
+    /// arrive meanwhile in the next). Their earlier hits, if any (a page's few characters of
+    /// its own), are replaced by the recognised text's.
+    private func startCatchUpIfNeeded() {
+        guard catchUpTask == nil, !catchUpPages.isEmpty, let session, !searchedQuery.isEmpty else { return }
+        let pages = catchUpPages.sorted()
+        catchUpPages = []
+        caughtUpPages += pages
+        let replaced = Set(pages)
+        if textHits.contains(where: { replaced.contains($0.pageIndex) }) {
+            textHits.removeAll { replaced.contains($0.pageIndex) }
+            regroup()
+        }
+        catchUpID += 1
+        let id = catchUpID
+        let stream = PDFTextSearch.stream(url: session.documentURL, query: searchedQuery, hitCap: .max,
+                                          recognised: recognisedTextSource(session), onlyPages: pages)
+        catchUpTask = Task { [weak self] in
+            for await event in stream {
+                guard let self, self.catchUpID == id else { return }
+                // Only the hits: the catch-up's page count says nothing about the scan's place.
+                if case .hits(let hits, _) = event { self.append(hits) }
+            }
+            guard let self, self.catchUpID == id else { return }
+            self.catchUpTask = nil
+            self.startCatchUpIfNeeded()
+        }
+    }
+
+    /// Re-reads the book's recognition state (off the main actor).
+    private func reloadRecognitionState() {
+        guard let session else { return }
+        recognitionStateTask?.cancel()
+        let store = session.store
+        let bookID = session.book.id
+        recognitionStateTask = Task { [weak self] in
+            let state = (try? await store.recognitionState(bookID: bookID)) ?? nil
+            guard !Task.isCancelled, let self else { return }
+            if self.recognitionState != state { self.recognitionState = state }
+        }
+    }
+
+    /// Ends the current run: the stream's consumer task is cancelled, which terminates the
+    /// stream and so cancels the engine's worker.
+    private func cancelRun() {
+        runID += 1
+        searchTask?.cancel()
+        searchTask = nil
+    }
+
+    private func apply(_ event: SearchEvent) {
+        switch event {
+        case .hits(let hits, let searched):
+            append(hits)
+            // With the hits, not with the `progress` event after them: a cancel between the two
+            // must resume after these pages, or Continue finds the same hits again.
+            pagesSearched = searched
+        case .progress(let searched, let total):
+            pagesSearched = searched
+            totalPages = total
+        case .finished(let completion):
+            switch completion.reason {
+            case .completed: phase = .finished
+            case .capped: phase = .capped(nextPage: completion.nextPage)
+            case .failed: phase = .failed
+            }
+            searchTask = nil
+        }
+    }
+
+    private func append(_ hits: [SearchHit]) {
+        let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        textHits.append(contentsOf: hits)
+        regroup()
+        let spent = Duration.nanoseconds(Int64(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start))
+        updateCost.updates += 1
+        updateCost.total += spent
+        updateCost.longest = max(updateCost.longest, spent)
+    }
+
+    // MARK: Notes, highlights and outline
+
+    /// Re-reads matching notes and highlights from the store.
+    func refreshAnnotations(regroup shouldRegroup: Bool = true) {
+        annotationRefreshTask?.cancel()
+        annotationRefreshTask = nil
+        guard let session, !searchedQuery.isEmpty else { return }
+        annotationResults = AnnotationSearch.results(query: searchedQuery, bookID: session.book.id,
+                                                     store: session.store, outline: session.outline)
+        if shouldRegroup { regroup() }
+    }
+
+    /// Coalesces bursts of store changes (typing in a note saves repeatedly).
+    private func scheduleAnnotationRefresh() {
+        guard !searchedQuery.isEmpty else { return }
+        annotationRefreshTask?.cancel()
+        annotationRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            self?.refreshAnnotations()
+        }
+    }
+
+    /// Regroups (and re-resolves heading notes) whenever the session's outline is replaced: when
+    /// it first loads, and when user headings change in any window.
+    private func observeOutline() {
+        withObservationTracking {
+            _ = session?.outline
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshAnnotations(regroup: false)
+                self.regroup()
+                self.observeOutline()
+            }
+        }
+    }
+
+    private func regroup() {
+        guard let session else { return }
+        let all = textHits.map(SearchResult.init(hit:)) + annotationResults
+        groups = SearchGrouping.group(all, outline: session.outline, pageCount: session.pageCount)
+        textHitCount = textHits.count
+        annotationResultCount = annotationResults.count
+    }
+
+    // MARK: Choosing a result
+
+    /// Results in display order (the order of the groups).
+    var orderedResults: [SearchResult] { groups.flatMap(\.results) }
+
+    func result(withID id: String) -> SearchResult? {
+        for group in groups {
+            if let found = group.results.first(where: { $0.id == id }) { return found }
+        }
+        return nil
+    }
+
+    /// Goes to a result through the session's jump API, so section history records it.
+    /// A text hit is marked on the page; a highlight goes to its page and text (it is already
+    /// drawn there); a note opens the notes panel on its target (a page note on the Page note
+    /// tab, a heading note on the Section note tab at the heading's first page).
+    func select(_ result: SearchResult) {
+        guard let session else { return }
+        selectedResultID = result.id
+        switch result.kind {
+        case .text:
+            session.pdf.clearMarks()
+            hasMark = session.jump(toPage: result.pageIndex, revealing: result.rects, mark: true)
+        case .highlight:
+            clearMarks()
+            session.jump(toPage: result.pageIndex, revealing: result.rects, mark: false)
+        case .note:
+            clearMarks()
+            switch result.noteTarget {
+            case .heading(let anchor):
+                if !session.jump(toHeading: anchor) { session.jump(toPage: result.pageIndex) }
+                session.showNotes(.section)
+            default:
+                session.jump(toPage: result.pageIndex)
+                session.showNotes(.page)
+            }
+        }
+    }
+
+    /// The panel's row action: navigate and close the panel. A note's navigation (which opens
+    /// the notes panel, a sheet at narrow widths) waits until the search panel has gone.
+    func choose(_ result: SearchResult) {
+        guard let session else { return }
+        closingAfterChoice = true
+        if result.kind == .note {
+            selectedResultID = result.id
+            pendingSelection = result
+        } else {
+            select(result)
+        }
+        session.isSearchVisible = false
+    }
+
+    var canStep: Bool { !orderedResults.isEmpty }
+
+    /// Next result after the selected one (the first when nothing is selected), wrapping. The
+    /// panel stays open.
+    func selectNext() { step(by: 1) }
+    func selectPrevious() { step(by: -1) }
+
+    private func step(by delta: Int) {
+        let results = orderedResults
+        guard !results.isEmpty else { return }
+        let current = selectedResultID.flatMap { id in results.firstIndex { $0.id == id } }
+        let next: Int
+        if let current {
+            next = (current + delta + results.count) % results.count
+        } else {
+            next = delta > 0 ? 0 : results.count - 1
+        }
+        select(results[next])
+    }
+
+    // MARK: Panel
+
+    /// The panel appeared.
+    func panelDidAppear() {
+        pendingSelection = nil
+        closingAfterChoice = false
+    }
+
+    /// The panel has gone. A running search is cancelled (it can be continued on reopening). If
+    /// the panel closed because a result was chosen, a waiting note navigation runs now;
+    /// otherwise (Done, tapping outside) the search marks are cleared.
+    func panelDidDisappear() {
+        cancel()
+        if closingAfterChoice {
+            closingAfterChoice = false
+            if let pending = pendingSelection {
+                pendingSelection = nil
+                select(pending)
+            }
+        } else {
+            clearMarks()
+        }
+    }
+
+    // MARK: Marks
+
+    private func clearMarks() {
+        guard hasMark else { return }
+        hasMark = false
+        session?.pdf.clearMarks()
+    }
+
+    /// A page was tapped (and no highlight took the tap): the search mark goes.
+    func pageWasTapped() {
+        clearMarks()
+    }
+}
