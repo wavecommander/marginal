@@ -15,12 +15,12 @@ struct NotesPanelControllerTests {
         let book: Book
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture(file: String = "small.pdf", pageCount: Int = 12) throws -> Fixture {
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/out/small.pdf")
+            .appendingPathComponent("Fixtures/out/\(file)")
         let store = try LibraryStore.ephemeral()
-        let book = Book(title: "Small", fingerprint: "panel-\(UUID().uuidString)", fileName: "small.pdf",
-                        pageCount: 12, fileSize: 1)
+        let book = Book(title: "Small", fingerprint: "panel-\(UUID().uuidString)", fileName: file,
+                        pageCount: pageCount, fileSize: 1)
         try store.books.save(book)
         let url = store.documentURL(for: book)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -256,6 +256,49 @@ struct NotesPanelControllerTests {
         let controller = makeController(session)
         #expect(controller.model == nil)
         #expect(!controller.didRepairAnchors, "the repair waits for the outline")
+    }
+
+    // MARK: Section placeholder
+
+    /// The Section tab's empty state reads `sectionPlaceholder`. The outline lands one turn before
+    /// the controller re-decides; in that gap the placeholder must still say loading, never "no
+    /// heading" (which drew the accent-filled Add Heading button for a frame before the note).
+    @Test func sectionPlaceholderStaysLoadingUntilTheHeadingNoteIsShown() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
+        var configuration = ReaderSession.Configuration()
+        configuration.installsFeatures = false
+        configuration.openNotesTab = .section
+        let session = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        let controller = makeController(session)
+        #expect(controller.model == nil)
+        #expect(controller.sectionPlaceholder == .loading)
+
+        session.open()
+        // Checked on every main-actor turn until the note is shown, the gap included.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while controller.model == nil, ContinuousClock.now < deadline {
+            #expect(controller.sectionPlaceholder == .loading, "outline loaded: \(session.isOutlineLoaded)")
+            await Task.yield()
+        }
+        #expect(controller.shownHeading?.title == "1 Linear Systems")
+    }
+
+    @Test func sectionPlaceholderSaysNoHeadingOnceDecidedForABookWithoutContents() async throws {
+        let fixture = try makeFixture(file: "no-outline.pdf", pageCount: 40)
+        defer { try? FileManager.default.removeItem(at: fixture.store.rootDirectory) }
+        var configuration = ReaderSession.Configuration()
+        configuration.installsFeatures = false
+        configuration.openNotesTab = .section
+        let session = ReaderSession(book: fixture.book, store: fixture.store, configuration: configuration)
+        let controller = makeController(session)
+        #expect(controller.sectionPlaceholder == .loading)
+
+        session.open()
+        #expect(await waitUntil { controller.sectionPlaceholder == .noHeading })
+        #expect(session.isOutlineLoaded)
+        #expect(session.outline.isEmpty)
+        #expect(controller.model == nil)
     }
 
     // MARK: Heading anchors

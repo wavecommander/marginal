@@ -47,6 +47,18 @@ final class NotesPanelController {
 
     /// The note the editor shows; `nil` on the Section tab when there is no heading.
     private(set) var model: NotePageModel?
+    /// What the Section tab shows while `model` is `nil`, as of the last decision.
+    enum SectionPlaceholder: Equatable {
+        /// The outline is loading, or has loaded and the controller has not caught up with it yet.
+        case loading
+        /// The outline has loaded and no heading contains the page (or the book has no outline).
+        case noHeading
+    }
+    /// Set only when the controller decides, never ahead of it. The panel reads this rather than
+    /// `session.isOutlineLoaded`: the outline lands one turn before the controller re-decides
+    /// (`track()` refreshes in a `Task`), and an empty state read straight from the session
+    /// flashed "before the first heading" and its accent-filled Add Heading button in that gap.
+    private(set) var sectionPlaceholder = SectionPlaceholder.loading
     /// A page-following switch is waiting for the reader to stop typing.
     private(set) var isSwitchDeferred = false
     /// The Section tab's level choice.
@@ -174,6 +186,10 @@ final class NotesPanelController {
         selection.pageDidChange(to: page, outline: session.outline)
         let honoured = honoursRequests && takeHeadingRequest(session)
         let desired = desiredTarget(session)
+        if desired == nil {
+            let placeholder: SectionPlaceholder = session.isOutlineLoaded ? .noHeading : .loading
+            if sectionPlaceholder != placeholder { sectionPlaceholder = placeholder }
+        }
         switch NotesTargetSwitch.decide(displayed: model?.target, desired: desired,
                                         isEditingText: model?.isEditingText ?? false, explicit: explicit || honoured) {
         case .keep:
