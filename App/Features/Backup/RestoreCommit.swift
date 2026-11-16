@@ -103,6 +103,11 @@ nonisolated struct RestoreJournal: Codable, Equatable, Sendable {
     /// (backups never hold it) and a replaced local book made from the same file still has it:
     /// that entry (`original.<ext>`, a file or a package directory) moves across like the PDF.
     var localOriginal: LocalPDF?
+    /// Set when a replaced local book has recognised text or a recognition state
+    /// (`BackupDerivedFiles`) for **the same PDF** (the restored book's full SHA-256): they are
+    /// derived from that PDF and never in a backup, so they move across like the PDF (S4).
+    /// Optional, so journals written before it existed still decode.
+    var localRecognitionBookID: UUID?
 
     /// Every `Books/<id>` the commit moves aside: the replaced books and the restored ID itself
     /// (a local book with that ID is replaced too), ascending by `uuidString`.
@@ -123,6 +128,7 @@ nonisolated struct RestoreJournal: Codable, Equatable, Sendable {
                 BookStorageLayout.isOriginalFileName($0.fileName) && $0.fileName != pdfFileName
                     && replacedBookIDs.contains($0.bookID)
             } ?? true)
+            && (localRecognitionBookID.map { replacedBookIDs.contains($0) } ?? true)
     }
 }
 
@@ -206,7 +212,8 @@ nonisolated enum RestoreDurability {
 /// 1. Write `journal.json` (synced) naming the book, the replaced IDs and the staged directory.
 /// 2. Move each existing `Books/<id>` of `journal.setAsideIDs` to `aside/<id>`.
 /// 3. With a reused local PDF: move `aside/<localID>/<fileName>` into the staged directory under
-///    the restored book's file name.
+///    the restored book's file name. Likewise a carried-over kept original, and a replaced
+///    book's recognised text and recognition state when its PDF is the restored one (S4).
 /// 4. Move the staged directory to `Books/<bookID>`.
 /// 5. `replaceBook(archive, removing: replacedIDs)` (one SwiftData transaction; posts
 ///    `.bookDeleted` for each replaced book that existed, then `.bookSaved`).
@@ -250,6 +257,9 @@ enum RestoreCommit {
         var localPDF: RestoreJournal.LocalPDF?
         /// A replaced local book whose kept original is carried over (`keptOriginal`).
         var localOriginal: RestoreJournal.LocalPDF?
+        /// A replaced local book whose recognised text and recognition state are carried over
+        /// (`keptRecognition`).
+        var localRecognitionBookID: UUID? = nil
 
         var bookID: UUID { archive.book.id }
 
@@ -257,8 +267,36 @@ enum RestoreCommit {
             RestoreJournal(bookID: bookID, replacedBookIDs: replacedBookIDs.sorted { $0.uuidString < $1.uuidString },
                            stagedPath: RestoreLayout.stagedRelativePath(bookID: bookID),
                            archivePath: RestoreLayout.archiveRelativePath(bookID: bookID),
-                           pdfFileName: archive.book.fileName, localPDF: localPDF, localOriginal: localOriginal)
+                           pdfFileName: archive.book.fileName, localPDF: localPDF, localOriginal: localOriginal,
+                           localRecognitionBookID: localRecognitionBookID)
         }
+    }
+
+    /// The replaced local book whose recognised text and recognition state the restored book
+    /// keeps (S4; design: "a restore that ... replaces a book on this iPad keeps that book's
+    /// recognised text, because the PDF is the same one"): the first of `replaced` (the book with
+    /// the restored ID first) that has either, and whose recorded full SHA-256
+    /// (`document.sha256`) is `expected`, the restored book's. `nil` when none qualifies, or the
+    /// staged directory already has its own. Reads one small sidecar per candidate; never
+    /// hashes (`BackupService` makes sure the sidecars exist before the commit).
+    static func keptRecognition(for restored: Book, expected: ContentDigest, sessionDirectory: URL,
+                                replacing replaced: [UUID], store: LibraryStore) -> UUID? {
+        let manager = FileManager.default
+        let staged = RestoreLayout.stagedDirectory(session: sessionDirectory, bookID: restored.id)
+        guard !BackupDerivedFiles.topLevelNames.contains(where: {
+            manager.fileExists(atPath: staged.appendingPathComponent($0).path)
+        }) else { return nil }
+        let ordered = replaced.sorted { ($0 == restored.id ? 0 : 1, $0.uuidString) < ($1 == restored.id ? 0 : 1, $1.uuidString) }
+        for id in ordered {
+            let directory = store.bookDirectoryURL(bookID: id)
+            guard BackupDerivedFiles.topLevelNames.contains(where: {
+                manager.fileExists(atPath: directory.appendingPathComponent($0).path)
+            }) else { continue }
+            guard let local = store.storedContentDigest(bookID: id),
+                  local.sha256 == expected.sha256.lowercased(), local.size == expected.size else { continue }
+            return id
+        }
+        return nil
     }
 
     /// The kept original to carry into a restored converted book: the `original.<ext>` of a
@@ -325,6 +363,7 @@ enum RestoreCommit {
             // 3. A reused local PDF joins the staged directory.
             try RestoreRecovery.moveLocalPDFIfNeeded(journal, session: session)
             try RestoreRecovery.moveLocalOriginalIfNeeded(journal, session: session)
+            try RestoreRecovery.moveLocalRecognitionIfNeeded(journal, session: session)
             if stopAfter == .pdfMoved { return .stopped(after: .pdfMoved) }
 
             // 4. The staged directory becomes the book's directory.
@@ -466,6 +505,7 @@ enum RestoreRecovery {
                 }
                 try moveLocalPDFIfNeeded(journal, session: session)
                 try moveLocalOriginalIfNeeded(journal, session: session)
+                try moveLocalRecognitionIfNeeded(journal, session: session)
                 try RestoreCommit.moveStagedIn(journal, session: session, store: store)
             } else if !manager.fileExists(atPath: store.bookDirectoryURL(bookID: journal.bookID).path) {
                 // Neither staged nor swapped in: nothing to commit the records to.
@@ -515,6 +555,22 @@ enum RestoreRecovery {
         try manager.moveItem(at: source, to: target)
     }
 
+    /// Step 3, third part (idempotent): moves the carried-over recognised text (`text/`) and
+    /// recognition state (`recognition.json`) of a replaced local book from its set-aside
+    /// directory into the staged directory, each when it is still aside and its target is absent.
+    static func moveLocalRecognitionIfNeeded(_ journal: RestoreJournal, session: URL) throws {
+        guard let localID = journal.localRecognitionBookID else { return }
+        let manager = FileManager.default
+        let aside = RestoreLayout.asideDirectory(session: session, bookID: journal.bookID, replacedID: localID)
+        let staged = RestoreLayout.stagedDirectory(session: session, bookID: journal.bookID)
+        for name in BackupDerivedFiles.topLevelNames.sorted() {
+            let source = aside.appendingPathComponent(name)
+            let target = staged.appendingPathComponent(name)
+            guard manager.fileExists(atPath: source.path), !manager.fileExists(atPath: target.path) else { continue }
+            try manager.moveItem(at: source, to: target)
+        }
+    }
+
     /// Undoes steps 4, 3 and 2 (each only if done), leaving `Books/` as before the commit.
     /// The records are never touched: `replaceBook` either committed (then this is not called)
     /// or changed nothing.
@@ -542,6 +598,17 @@ enum RestoreRecovery {
             if manager.fileExists(atPath: aside.path), !manager.fileExists(atPath: kept.path),
                manager.fileExists(atPath: carried.path) {
                 try manager.moveItem(at: carried, to: kept)
+            }
+        }
+        if let localID = journal.localRecognitionBookID {
+            let aside = RestoreLayout.asideDirectory(session: session, bookID: journal.bookID, replacedID: localID)
+            for name in BackupDerivedFiles.topLevelNames.sorted() {
+                let kept = aside.appendingPathComponent(name)
+                let carried = staged.appendingPathComponent(name)
+                if manager.fileExists(atPath: aside.path), !manager.fileExists(atPath: kept.path),
+                   manager.fileExists(atPath: carried.path) {
+                    try manager.moveItem(at: carried, to: kept)
+                }
             }
         }
         for id in journal.setAsideIDs {

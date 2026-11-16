@@ -55,7 +55,8 @@ public struct BackupBookSource: Sendable {
 /// recursively, except the PDF itself, the `document.sha256` sidecar (restore rewrites it from
 /// the manifest), a converted book's kept original (`BookStorageLayout.isOriginalFileName`: the
 /// reader's own file, which can be as large as the PDF and would be repeated in every snapshot;
-/// the generated PDF is the book), and hidden or temporary files (names starting with `.`, or
+/// the generated PDF is the book), files derived from the PDF (`BackupDerivedFiles`: a scanned
+/// book's recognised text and recognition state), and hidden or temporary files (names starting with `.`, or
 /// ending in `~`, `.tmp`, `.temp` or `.partial`), which are leftovers of atomic writes in
 /// progress. Each file's
 /// SHA-256 and size are computed in the same pass that archives it. With `includePDFs`, each
@@ -198,7 +199,9 @@ public enum BackupArchiveWriter {
             pdfURL = source.directory.appendingPathComponent(source.pdfFileName, isDirectory: false)
             pdfFileSize = FileOps.regularFileSize(pdfURL)
             var files: [PlannedFile] = []
-            try Self.collect(source.directory, prefix: "", excludingTopLevel: [source.pdfFileName, BookStorageLayout.contentHashFileName],
+            try Self.collect(source.directory, prefix: "",
+                             excludingTopLevel: BackupDerivedFiles.topLevelNames.union([source.pdfFileName,
+                                                                                        BookStorageLayout.contentHashFileName]),
                              excludingOriginal: source.archive.book.isConverted, into: &files)
             self.files = files.sorted { $0.path < $1.path }
             if let reserved = self.files.first(where: { $0.path == BackupArchiveLayout.recordsFileName }) {

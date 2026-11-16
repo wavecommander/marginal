@@ -15,7 +15,8 @@ nonisolated enum RestoreStagingError: Error {
 /// the commit. Nothing here touches `Books/` or the database.
 ///
 /// Into `Restores/<session>/staged/<bookID>/`: every file of the book, verified against the
-/// manifest's size and SHA-256 as it streams (`BackupArchiveReader.extractFiles`); the PDF when it
+/// manifest's size and SHA-256 as it streams (`BackupArchiveReader.extractFiles`), except
+/// recognised text and recognition state (`BackupDerivedFiles`), which are dropped; the PDF when it
 /// comes from the archive, the destination or a local book that is not being replaced (each
 /// verified against the manifest's SHA-256); `document.sha256` from the manifest; `cover.jpg`
 /// rendered from the PDF when the backup has none. Into `commit-<bookID>/archive.json`: the
@@ -94,6 +95,14 @@ nonisolated enum RestoreStaging {
             do {
                 try manager.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try reader.extractFiles(ofBook: bookID, into: staged, progress: filesProgress)
+                // Recognised text is derived from the PDF and never restored from a backup (an
+                // archive written before it was left out may hold it): a book restored fresh
+                // starts with no recognition state; a replaced local book's is carried across
+                // at commit time (`RestoreCommit.keptRecognition`).
+                for name in BackupDerivedFiles.topLevelNames {
+                    let url = staged.appendingPathComponent(name)
+                    if manager.fileExists(atPath: url.path) { try manager.removeItem(at: url) }
+                }
                 archive = try input.records ?? reader.bookArchive(for: bookID)
             } catch is CancellationError {
                 throw CancellationError()

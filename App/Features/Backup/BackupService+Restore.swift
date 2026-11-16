@@ -170,7 +170,9 @@ extension BackupService {
     /// the manifest; notes' `hasInk` follow the ink files present (empty notes dropped); a missing
     /// cover is rendered from the PDF. Then open editors save, and each book is committed
     /// (`RestoreCommit`). One book failing does not undo the others and never leaves that book
-    /// half-applied.
+    /// half-applied. Recognised text is never restored from a backup; a replaced book's own is
+    /// kept when its PDF is the restored book's (same full SHA-256), and a merged book keeps its
+    /// own (S4).
     /// - Throws: `BackupServiceError.backupDamaged` when any chosen book's data in the backup is
     ///   damaged (nothing is restored then), `.busy`, `.sessionClosed`, `.notEnoughSpace`,
     ///   `CancellationError` before anything was committed.
@@ -241,6 +243,12 @@ extension BackupService {
                 }
             } else {
                 inputs.append((item, try await pdfSource(for: item, session: session, restorePDFs: restorePDFs), nil))
+                // A replaced book keeps its recognised text when its PDF is the restored one
+                // (`RestoreCommit.keptRecognition`): its hash must be recorded before the commit,
+                // which never hashes.
+                for id in currentMatches(for: item.entry.book) where Self.hasRecognisedText(store, bookID: id) {
+                    if let local = try store.books.book(id: id) { _ = try? await store.contentDigest(of: local) }
+                }
             }
         }
 
@@ -376,8 +384,13 @@ extension BackupService {
                 }
                 let localOriginal = RestoreCommit.keptOriginal(for: book.output.archive.book, sessionDirectory: sessionDirectory,
                                                                replacing: current, store: store)
+                let localRecognition = RestoreCommit.keptRecognition(for: book.output.archive.book,
+                                                                     expected: book.item.entry.pdf.digest,
+                                                                     sessionDirectory: sessionDirectory,
+                                                                     replacing: current, store: store)
                 let plan = RestoreCommit.Plan(sessionDirectory: sessionDirectory, archive: book.output.archive,
-                                              replacedBookIDs: Set(current), localPDF: localPDF, localOriginal: localOriginal)
+                                              replacedBookIDs: Set(current), localPDF: localPDF, localOriginal: localOriginal,
+                                              localRecognitionBookID: localRecognition)
                 safetyCopy?.willCommit(entryBook, replacing: current)
                 do {
                     let outcome = try RestoreCommit.perform(plan, store: store, origin: origin, stopAfter: stopCommitAfter)
@@ -407,6 +420,15 @@ extension BackupService {
         job.set(phase: .cleaningUp)
         if !keepSessionFiles { await BackupWork.remove(sessionDirectory) }
         return summary
+    }
+
+    /// Whether a local book's directory holds recognised text or a recognition state
+    /// (`BackupDerivedFiles`). Two `stat`s.
+    static func hasRecognisedText(_ store: LibraryStore, bookID: UUID) -> Bool {
+        let directory = store.bookDirectoryURL(bookID: bookID)
+        return BackupDerivedFiles.topLevelNames.contains {
+            FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
+        }
     }
 
     /// Local books a restore of `book` replaces now: the one with its ID and the one with its

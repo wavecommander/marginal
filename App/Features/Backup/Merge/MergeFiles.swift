@@ -11,7 +11,8 @@ import ReaderCore
 ///     Restores/<session>/staged/<localBookID>/            the merged directory the commit moves in
 ///
 /// The merged directory starts as a copy of the local book's directory without its PDF (cover,
-/// hash sidecar, page ink, note ink and anything else stay as they are); then page ink and note
+/// hash sidecar, page ink, note ink, a scanned book's recognised text and recognition state, and
+/// anything else stay as they are; the backup holds no recognised text); then page ink and note
 /// ink are combined as `BookMergeEngine` describes. The local PDF is moved across by the commit's
 /// local-PDF step; when the local book has no PDF the backup's, if it was extracted, is moved in.
 nonisolated enum MergeFiles {

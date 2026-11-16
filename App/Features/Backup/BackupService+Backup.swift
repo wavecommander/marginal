@@ -238,7 +238,10 @@ nonisolated enum BackupWork {
         for item in snapshot.items {
             try Task.checkCancellation()
             let book = item.archive.book
-            let files = bookFiles(in: item.directory, excluding: [book.fileName, BookStorageLayout.contentHashFileName],
+            // As the archive writer collects them: recognised text is derived and never backed up.
+            let files = bookFiles(in: item.directory,
+                                  excluding: BackupDerivedFiles.topLevelNames.union([book.fileName,
+                                                                                     BookStorageLayout.contentHashFileName]),
                                   excludingOriginal: book.isConverted)
             notesAndInk += files.reduce(0) { $0 + $1.size + entryOverhead + Int64($1.path.utf8.count) }
             notesAndInk += Int64((try? encoder.encode(item.archive).count) ?? 0) + entryOverhead + bookManifestOverhead
