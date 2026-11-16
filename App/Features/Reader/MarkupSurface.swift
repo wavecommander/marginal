@@ -4,8 +4,8 @@ import Observation
 import PencilKit
 import UIKit
 
-/// An ink canvas that takes part in the reader window's markup mode: a page canvas (WP6, one per
-/// visible page) or the note canvas (WP13).
+/// An ink canvas that takes part in the reader window's markup mode: a page canvas (page ink, one per
+/// visible page) or the note canvas (the note page).
 ///
 /// ## The sequence a surface must follow
 /// 1. **Create** your `PKCanvasView` (a subclass is fine). Set `canvasView.delegate` yourself.
@@ -19,7 +19,7 @@ import UIKit
 ///    `markupModeDidChange(_:)` with the current mode.
 /// 3. **Mode.** In `markupModeDidChange(_:)` make the canvas editable (`true`) or read-only
 ///    (`false`): e.g. `canvasView.isUserInteractionEnabled = isMarkup` for a page canvas;
-///    WP13 routes touches itself. Ink stays visible in both modes.
+///    The note page routes touches itself. Ink stays visible in both modes.
 /// 4. **Activity.** When a stroke begins (`canvasViewDidBeginUsingTool`) call
 ///    `session.markup.surfaceDidBeginStroke(self)`; when it ends (`canvasViewDidEndUsingTool`)
 ///    call `session.markup.surfaceDidEndStroke(self)`. Undo/Redo (the tool picker's buttons,
@@ -67,7 +67,7 @@ protocol MarkupSurface: AnyObject {
 /// becomes active and when its own text fields end editing.
 /// A responder that is *not* registered (the go-to-page field, search field) hides the picker
 /// while it is first responder; when it resigns, call `reassertToolPicker()` (the shell does
-/// this for its own fields). A note's text view (WP13) is registered with
+/// this for its own fields). A note's text view is registered with
 /// `registerAuxiliaryResponder(_:)`: with a hardware keyboard attached, typing in markup mode
 /// keeps the picker. Without one the picker steps aside while the text view is first responder,
 /// so the on-screen keyboard has the bottom of the screen (the docked picker and the keyboard
@@ -184,7 +184,7 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
     }
 
     /// Registers a non-canvas responder that may become first responder during markup mode
-    /// (WP13's note text view). With a hardware keyboard the tool picker stays visible while it
+    /// (the note page's text view). With a hardware keyboard the tool picker stays visible while it
     /// is first responder; without one the picker steps aside for the on-screen keyboard
     /// (`keepsPickerWhileTyping`), and `reassertToolPicker()` brings it back when typing ends.
     func registerAuxiliaryResponder(_ responder: UIResponder) {

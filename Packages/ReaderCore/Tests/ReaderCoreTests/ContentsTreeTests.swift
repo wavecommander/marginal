@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ReaderCore
 
-/// WP5: the pure Contents tree rules (`ContentsTree`, `ContentsExpansion`).
+/// Contents sidebar: the pure Contents tree rules (`ContentsTree`, `ContentsExpansion`).
 struct ContentsTreeTests {
     // MARK: Builders
 

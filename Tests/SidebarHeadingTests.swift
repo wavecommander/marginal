@@ -4,7 +4,7 @@ import ReaderStore
 import Testing
 @testable import Marginal
 
-/// WP5: "Add heading at page N", rename and delete of user headings.
+/// Contents sidebar: "Add heading at page N", rename and delete of user headings.
 @MainActor
 struct SidebarHeadingTests {
     typealias Support = SidebarTestSupport

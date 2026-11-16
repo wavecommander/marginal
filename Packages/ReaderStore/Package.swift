@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Persistence layer (SwiftData models, ink files). WP2 fills this in.
+// Persistence layer (SwiftData models, ink files).
 let package = Package(
     name: "ReaderStore",
     platforms: [.iOS(.v17), .macOS(.v14)],

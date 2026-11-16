@@ -26,7 +26,7 @@ protocol NotePageEditing: AnyObject {
 /// The note for one `(bookID, target)`: loads it, takes edits from an editor, autosaves text and
 /// ink together, flushes on demand, and reconciles with changes made in other windows.
 ///
-/// ## Lifecycle (WP8)
+/// ## Lifecycle (in the notes panel)
 /// 1. `let model = NotePageModel(session: session, target: .page(i))` (or the store initialiser).
 /// 2. `await model.load()` — or just show it in a `NotePageView`, which loads it.
 /// 3. Show it: `NotePageView(model: model, session: session, zoom: $zoom)`.
@@ -319,7 +319,7 @@ final class NotePageModel {
     /// (`LibraryStore.deleteNote`, attributed to `origin`) and resets this model to the empty
     /// placeholder of the same target, discarding unsaved text and strokes. The editor showing it
     /// is told to show the empty page and stays ready for a new note. A note never saved is simply
-    /// cleared. Added by WP8.
+    /// cleared. Added for the notes panel.
     /// - Throws: the store's error; the model then keeps its content and shows "Not saved".
     func deleteNote() async throws {
         debounceTask?.cancel()

@@ -227,7 +227,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         applyPendingPageIfPossible()
     }
 
-    // MARK: Selection (WP7)
+    // MARK: Selection (highlights)
 
     /// The current text selection split per page and line, or `nil` when nothing is selected.
     var currentSelection: ReaderTextSelection? {
@@ -316,7 +316,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         selectionProbe.accessibilityValue = "pages \(pages); ms \(ms)"
     }
 
-    // MARK: Annotations (WP7). The file on disk is never written; these live in memory only.
+    // MARK: Annotations (highlights). The file on disk is never written; these live in memory only.
 
     /// Adds an annotation to a page of the on-screen document (shown immediately).
     func addAnnotation(_ annotation: PDFAnnotation, toPageAt pageIndex: Int) {
@@ -332,7 +332,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         page(at: pageIndex)?.annotations ?? []
     }
 
-    // MARK: Search marking (WP10)
+    // MARK: Search marking
 
     /// **Not for features** (use `session.jump(toPage:revealing:mark:)`, which records history).
     /// Scrolls `rects` (page space) on `pageIndex` into view and, with `mark`, marks the text
@@ -428,7 +428,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     }
 
     /// The actions the features add to the edit menu of a text selection, in this order: the
-    /// highlight colours (WP7), then "Add as Heading" (WP5).
+    /// highlight colours, then "Add as Heading" (Contents sidebar).
     func selectionMenuElements() -> [UIMenuElement] {
         guard let selection = currentSelection, let session else { return [] }
         var elements = session.highlights?.selectionMenuElements(for: selection) ?? []
@@ -589,8 +589,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         updateAnchorProbe()
     }
 
-    /// A single tap on a page goes to highlights first (WP7: a tap on a highlight opens its menu
-    /// and is consumed), then to the search if there is one (WP10: it clears its mark).
+    /// A single tap on a page goes to highlights first (a tap on a highlight opens its menu
+    /// and is consumed), then to the search if there is one (it clears its mark).
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, let session,
               session.highlights != nil || session.searchModelIfCreated != nil else { return }

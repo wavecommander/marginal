@@ -6,7 +6,7 @@ import SwiftUI
 import Testing
 @testable import Marginal
 
-/// The notes panel's pure rules (WP8): the Section tab's heading choice and level picker, the
+/// The notes panel's pure rules: the Section tab's heading choice and level picker, the
 /// switch decision while typing, zoom/width arithmetic, and the heading-anchor repair.
 @MainActor
 struct NotesPanelRulesTests {

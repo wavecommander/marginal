@@ -1,6 +1,6 @@
 import XCTest
 
-/// Notebook (WP9): grouping along the outline, type filter and search, the inked note, opening
+/// Notebook: grouping along the outline, type filter and search, the inked note, opening
 /// the reader from a row, export through the share sheet, live updates, and screenshots
 /// (`build/shots/notebook-*.png`, suffix `-ios17` on iOS 17).
 ///

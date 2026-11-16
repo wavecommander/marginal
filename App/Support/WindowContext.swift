@@ -68,7 +68,7 @@ final class WindowContext {
     /// readers"). `-readerSleepDelay` shortens it for UI tests.
     @ObservationIgnored var readerSleepDelay: Duration = WindowContext.defaultReaderSleepDelay
     nonisolated static let defaultReaderSleepDelay: Duration = .seconds(5)
-    /// Increases when "Import PDF…" is chosen for this window. WP3's Library screen watches it
+    /// Increases when "Import PDF…" is chosen for this window. The Library screen watches it
     /// (`.onChange(of: window.importRequestCount)`) and presents its importer.
     private(set) var importRequestCount = 0
     /// Whether this window shows the Settings sheet (Library gear button, "Settings…" ⌘,).

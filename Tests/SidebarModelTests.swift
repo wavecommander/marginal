@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// Helpers for the WP5 sidebar tests that need a real session.
+/// Helpers for the sidebar tests that need a real session.
 @MainActor
 enum SidebarTestSupport {
     static let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -96,7 +96,7 @@ enum SidebarTestSupport {
     }
 }
 
-/// WP5: the sidebar model against a real session: rows, current-section tracking and the follow
+/// The sidebar model against a real session: rows, current-section tracking and the follow
 /// rule, badges, bookmarks, changes from another window.
 @MainActor
 struct SidebarModelTests {

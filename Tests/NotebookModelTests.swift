@@ -4,7 +4,7 @@ import ReaderStore
 import Testing
 @testable import Marginal
 
-/// Helpers for the WP9 Notebook tests.
+/// Helpers for the Notebook tests.
 @MainActor
 enum NotebookTestSupport {
     static let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

@@ -2,7 +2,7 @@ import PDFKit
 import ReaderCore
 import UIKit
 
-/// Page ink (WP6): one `PKCanvasView` per displayed PDF page, through the PDF bridge's overlay
+/// Page ink: one `PKCanvasView` per displayed PDF page, through the PDF bridge's overlay
 /// hook. Created once per reader window (`ReaderSession.pageInk`); holds the session weakly.
 ///
 /// - PDFKit asks for an overlay when a page comes near the screen: the provider makes a

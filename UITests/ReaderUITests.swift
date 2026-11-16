@@ -1,6 +1,6 @@
 import XCTest
 
-/// Reader shell (WP4): first page, go to page, relaunch restore, subtitle, panes, narrow
+/// Reader shell: first page, go to page, relaunch restore, subtitle, panes, narrow
 /// layout, two windows, the selection-menu hook.
 @MainActor
 final class ReaderUITests: XCTestCase {

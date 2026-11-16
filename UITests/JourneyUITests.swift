@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// The main journey end to end (WP12), on `small.pdf` (page 3 is in "1 Linear Systems" ›
+/// The main journey end to end, on `small.pdf` (page 3 is in "1 Linear Systems" ›
 /// "1.1 Foundations"; its first body line reads "Remember that the quick amber fox annotates
 /// margins."):
 ///

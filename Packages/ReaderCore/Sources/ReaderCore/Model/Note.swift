@@ -2,7 +2,7 @@ import Foundation
 
 /// What a note is attached to: a page or a heading. A book has at most one note per target.
 ///
-/// `Codable` as a single string, `storageKey`, which is also what WP2 should put in the unique
+/// `Codable` as a single string, `storageKey`, which is also what ReaderStore puts in the unique
 /// constraint together with the book ID.
 public enum NoteTarget: Hashable, Sendable, Codable, CustomStringConvertible {
     /// A page note, by zero-based page index.
@@ -72,7 +72,7 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     public var target: NoteTarget
     /// Plain text (no attributes); paragraphs are separated by newlines.
     public var text: String
-    /// `true` when the note's ink drawing has at least one stroke. Maintained by the editor (WP13).
+    /// `true` when the note's ink drawing has at least one stroke. Maintained by the note page editor.
     public var hasInk: Bool
     /// Band layout at the time the ink was last saved; `nil` when there is no ink.
     public var bandLayout: NoteBandLayout?

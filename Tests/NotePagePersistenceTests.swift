@@ -6,7 +6,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// Saving, loading, relocation on load, emptying, undo, and two windows on one note (WP13).
+/// Saving, loading, relocation on load, emptying, undo, and two windows on one note.
 @MainActor
 struct NotePagePersistenceTests {
     typealias Support = NotePageTestSupport

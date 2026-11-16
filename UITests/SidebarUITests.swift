@@ -17,7 +17,7 @@ enum SidebarID {
     static let viewportAnchor = "reader.viewportAnchor"
 }
 
-/// WP5 Contents sidebar: jump from a heading, current-section tracking, user headings on a book
+/// Contents sidebar: jump from a heading, current-section tracking, user headings on a book
 /// with no outline, bookmarks round trip, Pages tab, note badges, reading-position stability and
 /// thumbnail memory. Typed, scoped queries only (`descendants(matching: .any)` is very slow over
 /// PDFKit's element tree on `large.pdf`).

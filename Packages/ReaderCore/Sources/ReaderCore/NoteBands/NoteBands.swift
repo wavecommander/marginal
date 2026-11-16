@@ -49,7 +49,7 @@ public struct NoteParagraphBand: Hashable, Sendable, Codable {
 /// blank band. Saved with the note (`Note.bandLayout`) whenever its ink is saved, so stored ink
 /// can be placed against the current text later.
 ///
-/// **Construction rule (WP13):** `paragraphs[i]` describes the i-th element of
+/// **Construction rule (the note page):** `paragraphs[i]` describes the i-th element of
 /// `paragraphs(of: text)`, in order, with `top`/`height` from the text layout (TextKit's
 /// paragraph rects). Bands should be ordered and non-overlapping. `trailingTop` is where the
 /// blank space after the text begins, normally `paragraphs.last!.bottom` (or the text
@@ -198,7 +198,7 @@ public struct NoteBandRelocation: Hashable, Sendable {
 
 /// Pure geometry behind "ink follows the text it annotates".
 ///
-/// WP13's loop: keep each stroke as (band ref, band-local stroke) against the last layout.
+/// The note page's loop: keep each stroke as (band ref, band-local stroke) against the last layout.
 /// After every text change compute the new layout, call `relocate(from: last, to: new)`, move
 /// every stroke to `move.destination` translated by `(0, move.localOffset)`, and draw it at
 /// `new.pageRect(local, in: destination)`. New or edited strokes get `band(for:)` of the current

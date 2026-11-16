@@ -237,7 +237,7 @@ final class AppEnvironment {
         return plan
     }
 
-    // MARK: Incoming documents (WP3 hook)
+    // MARK: Incoming documents (Library import hook)
 
     /// "A document URL arrived from outside" (Files "Open in", a document opened from another
     /// app): a PDF or any format the app converts. Every window root forwards `.onOpenURL` here.

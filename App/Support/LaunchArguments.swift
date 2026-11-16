@@ -14,7 +14,7 @@ import SwiftUI
 /// defaults, the options release code still reads are constants (see the `#else` list below),
 /// and the rest do not exist, so no launch argument can wipe the library or switch a probe on.
 ///
-/// What each option does now (WP4 implements all of them; see `AppEnvironment.runLaunchTasks`
+/// What each option does (all are implemented; see `AppEnvironment.runLaunchTasks`
 /// and `WindowRootView`): `-resetState` passes `reset: true` to `LibraryStore.live`;
 /// `-importFixture` imports through `FixtureImporter`; `-openBook` opens that book in place in
 /// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
@@ -40,7 +40,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     }
 
     #if DEBUG
-    /// `-resetState`: wipe the app's store and files at launch (WP2/WP3 implement the wipe).
+    /// `-resetState`: wipe the app's store and files at launch (the store and the Library implement the wipe).
     /// Also switches first-run onboarding off, and keeps it off for later launches, unless
     /// `-onboarding reset` is passed too.
     var resetState = false
@@ -89,12 +89,12 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     var notebookDebugWidth: Double?
 
     /// `-selectionMenuProbe`: test-only. Adds a "Probe" action to the PDF text-selection edit
-    /// menu through the same hook WP7 uses, so a UI test can prove the hook works on this OS.
+    /// menu through the same hook highlights use, so a UI test can prove the hook works on this OS.
     var selectionMenuProbe = false
 
     /// `-markupProbeSurface`: test-only. Registers a minimal `MarkupSurface` (a real
     /// `PKCanvasView` that becomes first responder) so UI tests can check the tool picker with a
-    /// registered surface before WP6 exists.
+    /// registered surface without page ink.
     var markupProbeSurface = false
 
     /// `-exposeViewportAnchor`: test-only. Publishes the reading anchor (page point at the top of

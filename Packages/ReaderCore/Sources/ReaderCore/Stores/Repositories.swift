@@ -372,7 +372,7 @@ extension RecordStore {
 
 /// File storage for ink drawings: one blob per page and one per note.
 ///
-/// Data is opaque here (WP6/WP13 store `PKDrawing.dataRepresentation()` or their own container).
+/// Data is opaque here (page ink and the note page store `PKDrawing.dataRepresentation()` or their own container).
 /// **Presence means ink:** callers delete rather than save an empty drawing, so
 /// `inkedPageIndices` is the set of pages with ink. Writes are atomic (a reader sees the old or
 /// the new blob, never a partial one). All deletes are idempotent: deleting something missing
@@ -393,12 +393,12 @@ public protocol InkStore: Sendable {
     /// Removes the note's ink.
     func deleteNoteInk(bookID: UUID, noteID: UUID) async throws
     /// Removes the book's whole directory (`BookStorageLayout.bookDirectory`): page ink, note
-    /// ink, and anything else stored there (the PDF copy and cover if WP3 puts them there).
+    /// ink, and anything else stored there (the PDF copy and cover if the importer puts them there).
     func removeBook(bookID: UUID) async throws
 }
 
 /// Relative paths of a book's files under the app's `Application Support` directory, so the
-/// importer (WP3) and the ink store (WP2) agree. UUIDs are written with `uuidString`
+/// importer and the ink store (ReaderStore) agree. UUIDs are written with `uuidString`
 /// (upper case); page files use the zero-based page index.
 public enum BookStorageLayout {
     /// `Books/<bookID>`

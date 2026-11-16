@@ -6,7 +6,7 @@ import ReaderStore
 import UIKit
 @testable import Marginal
 
-/// Helpers for the WP6 page-ink tests: an ephemeral store with a book, a reader session hosted
+/// Helpers for the page-ink tests: an ephemeral store with a book, a reader session hosted
 /// in a real window of the test host (so PDFKit creates overlays), strokes, and waiting.
 @MainActor
 enum PageInkTestSupport {

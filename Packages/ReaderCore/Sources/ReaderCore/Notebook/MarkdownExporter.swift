@@ -35,7 +35,7 @@ public enum MarkdownExporter {
     ///   - bookTitle: the book's display title.
     ///   - imagePath: called exactly once per exported note, in output order; returns the image's
     ///     path relative to the Markdown file (e.g. `"images/<noteID>.png"`) or `nil` for no image.
-    ///     WP9 returns a path for notes with `hasInk` and renders those images.
+    ///     The Notebook export returns a path for notes with `hasInk` and renders those images.
     ///   - handwritingPath: called exactly once per exported page with ink (zero-based page
     ///     index), in output order; returns the path, relative to the Markdown file, of an image
     ///     of the page with its ink, or `nil` for no image.

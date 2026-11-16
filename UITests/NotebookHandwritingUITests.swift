@@ -1,6 +1,6 @@
 import XCTest
 
-/// Ink navigation (WP14): a page drawn on in a reader appears in the Notebook as a handwriting
+/// Ink navigation: a page drawn on in a reader appears in the Notebook as a handwriting
 /// row, live, in another window; undoing the ink removes the row and redoing brings it back;
 /// tapping the row opens the reader at that page. Also the Handwriting type filter, VoiceOver
 /// labels, and screenshots (`build/shots/notebook-handwriting-*.png`, light and dark).
@@ -68,7 +68,7 @@ final class NotebookHandwritingUITests: XCTestCase {
         return app
     }
 
-    // MARK: The WP14 "done when"
+    // MARK: Draw, find in the Notebook, jump, erase
 
     /// Window 1 shows the Notebook of `small.pdf` (empty), window 2 a reader on page 3. A stroke
     /// drawn in the reader appears in the Notebook as "Handwriting, page 3" without a relaunch;

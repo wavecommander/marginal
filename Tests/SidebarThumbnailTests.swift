@@ -3,7 +3,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// WP5: the thumbnail cache (bounded by count and cost), cancellation and purge.
+/// Contents sidebar: the thumbnail cache (bounded by count and cost), cancellation and purge.
 @MainActor
 struct SidebarThumbnailTests {
     /// Counts renders; each returns a `side`×`side` 1x bitmap (cost side² × 4 bytes).

@@ -521,7 +521,7 @@ private struct SectionHistoryButton: View {
     }
 }
 
-/// The toolbar's bookmark toggle (state from WP5's `BookmarkActions`).
+/// The toolbar's bookmark toggle (state from the sidebar's `BookmarkActions`).
 private struct BookmarkButton: View {
     let session: ReaderSession
 
@@ -728,7 +728,7 @@ private struct PagePill: View {
 
 private extension View {
     /// Wraps a pane in its own accessibility container with a fixed identifier, so the
-    /// identifiers inside the pane (owned by later packages) never replace the pane's.
+    /// identifiers inside the pane (owned by the features in it) never replace the pane's.
     func paneContainer(_ identifier: String) -> some View {
         ZStack { self }
             .accessibilityElement(children: .contain)

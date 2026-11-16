@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import ReaderCore
 
-/// The notes panel's per-window state (WP8): which note the editor shows, the Section tab's
+/// The notes panel's per-window state: which note the editor shows, the Section tab's
 /// level choice, the reader's zoom, and the note models kept alive. One per reader window,
 /// stored in the session (`ReaderSession.notesPanel`), so it survives the panel being closed, reopened, or
 /// moved between the pane and the narrow sheet, and dies with the window.
