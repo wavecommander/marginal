@@ -35,7 +35,7 @@ extension SearchTests {
         private func collect(_ url: URL, _ query: String, recognised: RecognisedTextSource?) async -> [SearchHit] {
             var hits: [SearchHit] = []
             for await event in PDFTextSearch.stream(url: url, query: query, recognised: recognised) {
-                if case .hits(let batch) = event { hits += batch }
+                if case .hits(let batch, _) = event { hits += batch }
             }
             return hits
         }

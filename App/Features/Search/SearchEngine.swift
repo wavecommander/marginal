@@ -62,8 +62,12 @@ nonisolated struct SearchHit: Hashable, Sendable, Identifiable {
 
 /// What the engine reports, in order. `hits` always precede the `progress` that covers them.
 nonisolated enum SearchEvent: Sendable, Equatable {
-    /// Hits found since the previous event, ascending by page.
-    case hits([SearchHit])
+    /// Hits found since the previous event, ascending by page, and how many pages had been
+    /// scanned from the start of the book when they were sent (the index of the next page to
+    /// scan). The two travel together: a consumer that stops between this event and the
+    /// `progress` that follows it would otherwise hold these hits with an older resume point,
+    /// and resuming there would find them again.
+    case hits([SearchHit], pagesSearched: Int)
     /// `pagesSearched` is the number of pages scanned from the start of the book, i.e. the index
     /// of the next page to scan (so a search can resume there).
     case progress(pagesSearched: Int, totalPages: Int)
@@ -423,7 +427,7 @@ nonisolated enum PDFTextSearch {
             let firstHitWaiting = !sentFirst && !pending.isEmpty
             guard force || firstHitWaiting || now - lastEmit >= batchInterval else { return }
             if !pending.isEmpty {
-                emit(.hits(pending))
+                emit(.hits(pending, pagesSearched: pagesSearched))
                 sentFirst = true
                 pending = []
             }

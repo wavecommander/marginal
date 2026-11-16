@@ -20,7 +20,7 @@ extension SearchTests {
             for await event in PDFTextSearch.stream(url: url, query: query, startPage: startPage, hitCap: hitCap) {
                 events += 1
                 switch event {
-                case .hits(let batch): hits += batch
+                case .hits(let batch, _): hits += batch
                 case .progress: break
                 case .finished(let c): completion = c
                 }
@@ -145,7 +145,7 @@ extension SearchTests {
             var finishedAt: Duration?
             for await event in PDFTextSearch.stream(url: fixture.url, query: "Fixture page", hitCap: 5_000) {
                 switch event {
-                case .hits(let batch):
+                case .hits(let batch, _):
                     if firstHitAt == nil {
                         firstHitAt = ContinuousClock.now - start
                         pagesAtFirstHit = pagesSearched
@@ -166,6 +166,31 @@ extension SearchTests {
             #expect(first < total / 4, "first \(first) of \(total)")
             print("SEARCH-TIMING common 'Fixture page' uncapped: first \(first), total \(total), "
                   + "batches \(hitBatches), load \(Support.loadAverage())")
+        }
+
+        /// A consumer may stop right after a batch of hits, before the progress report that
+        /// follows it (the model does, when Cancel lands between the two). The batch says where
+        /// to resume: from there, no page's hits come twice and none are missed.
+        @Test func aBatchOfHitsSaysWhereToResume() async throws {
+            let fixture = try Support.makeFixture("large.pdf", pages: 1500)
+            defer { fixture.cleanUp() }
+            var pages: [Int] = []
+            var resumeAt: Int?
+            var batches = 0
+            for await event in PDFTextSearch.stream(url: fixture.url, query: "Fixture page", hitCap: 5_000,
+                                                    pageDelay: .milliseconds(1)) {
+                guard case .hits(let batch, let searched) = event else { continue }
+                pages += batch.map(\.pageIndex)
+                resumeAt = searched
+                batches += 1
+                if batches == 2 { break }  // stop before the second batch's progress report
+            }
+            let next = try #require(resumeAt)
+            #expect(next == (pages.last ?? -1) + 1)  // every page of this fixture has one hit
+            #expect(next < 1500)
+            let rest = await collect(fixture.url, "Fixture page", startPage: next, hitCap: 5_000)
+            pages += rest.hits.map(\.pageIndex)
+            #expect(pages == Array(0..<1500))
         }
 
         @Test func capStopsAtAPageBoundaryAndContinuationResumes() async throws {
@@ -225,7 +250,7 @@ extension SearchTests {
                 var hits = 0
                 var finished = false
                 for await event in stream {
-                    if case .hits(let batch) = event { hits += batch.count }
+                    if case .hits(let batch, _) = event { hits += batch.count }
                     if case .finished = event { finished = true }
                 }
                 return (hits, finished)

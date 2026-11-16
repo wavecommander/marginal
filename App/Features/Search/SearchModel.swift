@@ -336,7 +336,8 @@ final class SearchModel {
         catchUpTask = Task { [weak self] in
             for await event in stream {
                 guard let self, self.catchUpID == id else { return }
-                if case .hits = event { self.apply(event) }
+                // Only the hits: the catch-up's page count says nothing about the scan's place.
+                if case .hits(let hits, _) = event { self.append(hits) }
             }
             guard let self, self.catchUpID == id else { return }
             self.catchUpTask = nil
@@ -367,14 +368,11 @@ final class SearchModel {
 
     private func apply(_ event: SearchEvent) {
         switch event {
-        case .hits(let hits):
-            let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
-            textHits.append(contentsOf: hits)
-            regroup()
-            let spent = Duration.nanoseconds(Int64(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start))
-            updateCost.updates += 1
-            updateCost.total += spent
-            updateCost.longest = max(updateCost.longest, spent)
+        case .hits(let hits, let searched):
+            append(hits)
+            // With the hits, not with the `progress` event after them: a cancel between the two
+            // must resume after these pages, or Continue finds the same hits again.
+            pagesSearched = searched
         case .progress(let searched, let total):
             pagesSearched = searched
             totalPages = total
@@ -386,6 +384,16 @@ final class SearchModel {
             }
             searchTask = nil
         }
+    }
+
+    private func append(_ hits: [SearchHit]) {
+        let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        textHits.append(contentsOf: hits)
+        regroup()
+        let spent = Duration.nanoseconds(Int64(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start))
+        updateCost.updates += 1
+        updateCost.total += spent
+        updateCost.longest = max(updateCost.longest, spent)
     }
 
     // MARK: Notes, highlights and outline
