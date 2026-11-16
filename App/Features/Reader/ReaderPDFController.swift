@@ -35,6 +35,8 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// The reader's place: the page point at the top-left of the view (`ReadingPositionKeeper.anchor`).
     var readingAnchor: ReadingAnchor? { position.anchor }
 
+    /// The exact place and zoom to show with the keeper's pending page (first positioning only).
+    private var pendingPosition: ReaderPosition?
     private let tapDelegate = SimultaneousGestureDelegate()
     private var offsetObservation: NSKeyValueObservation?
 
@@ -50,6 +52,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         probe.accessibilityIdentifier = AccessibilityID.Reader.viewportAnchor
         return probe
     }()
+
+    /// A document is attached and has not been positioned yet (the view has had no size).
+    var isAwaitingFirstPosition: Bool { isViewLoaded && view.document != nil && !hasPositionedInitially }
+
+    /// The PDF view's scale (1 before the view exists).
+    var scale: CGFloat { isViewLoaded ? view.scaleFactor : 1 }
 
     /// The scroll view PDFKit scrolls the document in.
     var scrollView: UIScrollView? { isViewLoaded ? PDFKitWorkarounds.scrollView(of: view) : nil }
@@ -89,6 +97,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
             session?.revealPagePill()
             if let anchor = captureAnchor() {
                 position.recordReading(anchor: anchor, scale: view.scaleFactor)
+                session?.pdfReportedPlaceChange()
             }
         }
         updateAnchorProbe()
@@ -103,13 +112,30 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: Document
 
-    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size.
-    func attach(_ document: PDFDocument, initialPageIndex: Int) {
+    /// Shows `document`, positioned at `initialPageIndex` as soon as the view has a size: at
+    /// `startPosition`'s exact place and zoom when given (a resumed reader's, or the book's
+    /// latest), else at the top of the page.
+    func attach(_ document: PDFDocument, initialPageIndex: Int, position startPosition: ReaderPosition? = nil) {
         position.setPendingPage(initialPageIndex)
+        pendingPosition = startPosition
         view.document = document
         view.applyPDFKitPolicies()
         observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
+    }
+
+    /// Lets the document go for good (`ReaderSession.close()`): PDFKit's pages, tiles and the
+    /// page overlays go with it, and the view leaves its host.
+    func close() {
+        guard isViewLoaded else { return }
+        position.clearPendingPage()
+        pendingPosition = nil
+        offsetObservation = nil
+        position.invalidatePosition()
+        view.clearSelection()
+        view.highlightedSelections = nil
+        view.document = nil
+        view.removeFromSuperview()
     }
 
     /// The page object for a zero-based index on the on-screen document.
@@ -128,6 +154,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     func moveWithoutRecordingHistory(toPage pageIndex: Int) {
         guard hasPositionedInitially, let page = page(at: pageIndex), view.bounds.width > 0 else {
             position.setPendingPage(pageIndex)
+            pendingPosition = nil
             applyPendingPageIfPossible()
             return
         }
@@ -196,6 +223,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.autoScales = true
         view.layoutDocumentView()
         position.setPendingPage(pageIndex)
+        pendingPosition = nil
         applyPendingPageIfPossible()
     }
 
@@ -525,8 +553,18 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         DispatchQueue.main.async { [weak self] in
             guard let self, let index = self.position.pendingPageIndex, let page = self.page(at: index) else { return }
             self.position.clearPendingPage()
+            let start = self.pendingPosition
+            self.pendingPosition = nil
+            if let start, !start.isFitWidth, start.scale > 0 {
+                self.view.autoScales = false
+                self.view.scaleFactor = min(max(CGFloat(start.scale), self.view.minScaleFactor), self.view.maxScaleFactor)
+            }
             self.position.willNavigate(scale: self.view.scaleFactor)
-            self.view.showTop(of: page)
+            if let start, let anchorPage = self.page(at: start.anchor.pageIndex) {
+                self.view.show(start.anchor.point, of: anchorPage)
+            } else {
+                self.view.showTop(of: page)
+            }
             PerfMarks.mark("positioned")
             self.observeScrollViewIfNeeded()
             self.position.didPosition(anchor: self.captureAnchor(), scale: self.view.scaleFactor)

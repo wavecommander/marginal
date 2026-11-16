@@ -274,10 +274,29 @@ Added by the owner after the first plan. These rules apply to every screen and e
   book without a relaunch. A surface that is mid-stroke or mid-edit is never overwritten by a
   change arriving from another window; it reconciles when the stroke or edit ends. The book's
   stored last-read page follows the most recently active window.
+- **The book's latest position** (owner decision, 15 November 2026). A newly opened reader (from
+  the Library, in another window, or restored after a relaunch) opens at the book's latest
+  position, the exact place and zoom any reader on it last left, unless it was opened at a
+  particular page (a Notebook row, a link, "Open in New Window" at a page). The position is saved
+  a moment after the reader stops moving, and at once when the reader is covered, popped or
+  backgrounded; a reader that was never on screen saves none.
+- **Sleeping readers** (owner decisions, 15 and 16 November 2026). A window keeps awake only the
+  top screen of its stack and the one directly under it (so the back swipe shows a live reader).
+  A reader further down falls asleep after a short delay (five seconds): it saves everything, then
+  lets go of its document, views, ink canvases, notes, search and outline, keeping only what it
+  needs to come back. It wakes as soon as it is the top screen or the one under it again, and
+  resumes exactly as it was left: its own place, zoom, panels and section history, whatever other
+  readers on the same book did meanwhile (each reader in a stack keeps its own position while the
+  app runs; after a relaunch a restored reader opens at the book's latest position). Search
+  results, a text selection and markup mode are not kept. A popped reader lets go the same way.
+  A memory warning puts every reader that is not on screen to sleep at once, the one under the top
+  screen included (owner decision, 16 November 2026); it wakes when it is shown, so the back swipe
+  then shows it loading.
 - **Closing and deleting.** A window that goes to the background or is closed saves pending text
   and ink first. Deleting a book closes every reader and Notebook window showing it.
-- **State restoration.** Each window restores what it was showing (screen, book, page, panels)
-  after the system reclaims it or the app relaunches. Markup mode is not restored.
+- **State restoration.** Each window restores what it was showing (screen, book, panels, section
+  history; the page is the book's latest position) after the system reclaims it or the app
+  relaunches. Markup mode is not restored.
 - **Any size.** Layout is driven by the window's own size and size class, never by the screen or
   the device orientation, so full screen, Split View, Slide Over, Stage Manager, freely resized
   windows and external displays all work. The "narrow width" rule above is about window width.
@@ -683,7 +702,8 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
 | Project file | XcodeGen `project.yml`; the `.xcodeproj` is generated and git-ignored | Parallel agents never edit or merge a `pbxproj`. |
 | Minimum OS | iPadOS 17.0 deployment target, built with Xcode 27.2 (27B52) against the iOS 27.2 SDK (confirmed: the build targets `arm64-apple-ios17.0-simulator`). Tests run on the iOS 27.0 and iOS 17.5 simulator runtimes; behaviour on 18 and 26 is compiler-checked but not exercised. | The owner wants the lowest system the design allows. 17.0 is the floor because SwiftData and the Observation framework (`@Observable`) start there. |
 | Newer-OS features | Availability-gated (`if #available`, `@available`) with a working fallback at the floor; see "OS versions" | Later systems get everything the SDK offers without raising the floor. |
-| Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per reader window; `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
+| Scenes | SwiftUI `WindowGroup`s: Library, and value-based groups for a reader and a Notebook keyed by book ID; one `ReaderSession` per awake reader screen (`ReaderSlot`); `@SceneStorage` or a user activity for restoration | Multiple windows, state restoration and "Open in New Window" from system APIs. |
+| Reading position | `Book.lastReadPageIndex` plus the exact place and zoom in `UserDefaults` (`ReaderPositionStore`), used only while its page matches the stored one | One latest position for every reader on a book without a schema change; a restore or merge that moves the page wins. |
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub (`StoreChangeHub`, one per `LibraryStore`) announces every committed change, to records and to ink files alike (what changed and the book, page or note it concerns, never the new value), and other windows re-read what they show through `LibraryStore`. Nothing relies on SwiftData observation or `@Query` | One signal for structured data and for ink, which lives in files; each change carries its origin (the window or job that made it), so a window can tell its own changes from another window's. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |

@@ -164,6 +164,7 @@ nonisolated enum AccessibilityID {
         static let markupState = "reader.markupState"
         static let markupUndoProbe = "reader.markupUndo"
         static let markupRedoProbe = "reader.markupRedo"
+        static let memoryWarningProbe = "reader.memoryWarning"
         static let loading = "reader.loading"
         /// The "Cannot Open Book" state's "Locate PDF…" and "Open Notebook" (book without its PDF).
         static let locatePDF = "reader.locatePDF"

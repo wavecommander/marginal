@@ -169,6 +169,14 @@ final class NotesPanelController {
     /// The models alive now (tests).
     var liveTargets: Set<NoteTarget> { Set(cache.keys) }
 
+    /// Saves every live model's pending text and ink and waits for it (before a sleeping reader
+    /// lets its session go: a model's autosave does not outlive the model).
+    func flushAll() async {
+        for model in Array(cache.values) {
+            await model.flush()
+        }
+    }
+
     // MARK: Deciding
 
     /// Re-decides which note to show. `explicit`: the reader asked for this change (see

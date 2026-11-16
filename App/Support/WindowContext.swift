@@ -59,7 +59,15 @@ final class WindowContext {
 
     let kind: Kind
     /// The navigation path; empty shows the Library. Saved per window for restoration.
-    var path: [WindowRoute]
+    var path: [WindowRoute] {
+        didSet {
+            updateReaderSlots(popped: oldValue.count > path.count && Array(oldValue.prefix(path.count)) == path)
+        }
+    }
+    /// How long a reader two or more screens below the top stays awake (design: "Sleeping
+    /// readers"). `-readerSleepDelay` shortens it for UI tests.
+    @ObservationIgnored var readerSleepDelay: Duration = WindowContext.defaultReaderSleepDelay
+    nonisolated static let defaultReaderSleepDelay: Duration = .seconds(5)
     /// Increases when "Import PDF…" is chosen for this window. WP3's Library screen watches it
     /// (`.onChange(of: window.importRequestCount)`) and presents its importer.
     private(set) var importRequestCount = 0
@@ -80,6 +88,16 @@ final class WindowContext {
     @ObservationIgnored var openWindowAction: OpenWindowAction?
     @ObservationIgnored private var pendingOverrides: [UUID: ReaderOverrides] = [:]
     @ObservationIgnored private var hubToken: StoreChangeObservation?
+    /// The reader screens shown in this window so far (weak: a popped screen's slot goes with it).
+    @ObservationIgnored private var readerSlots: [WeakSlot] = []
+    private final class WeakSlot {
+        weak var value: ReaderSlot?
+        init(_ value: ReaderSlot) { self.value = value }
+    }
+    /// The window's latest reader state per book (panels, section history), as also kept in
+    /// scene storage: a new reader on a book in this window starts from it (a woken reader
+    /// resumes its own, `ReaderSlot`).
+    @ObservationIgnored private var readerStates: [UUID: ReaderSession.RestorableState] = [:]
 
     init(kind: Kind, path: [WindowRoute] = [], store: LibraryStore? = nil) {
         self.kind = kind
@@ -182,6 +200,90 @@ final class WindowContext {
         pendingOverrides.removeValue(forKey: bookID)
     }
 
+    // MARK: Sleeping readers
+
+    /// The window's latest reader state for a book (`nil` before any reader on it was shown).
+    func readerState(for bookID: UUID) -> ReaderSession.RestorableState? {
+        readerStates[bookID]
+    }
+
+    func setReaderState(_ state: ReaderSession.RestorableState, for bookID: UUID) {
+        readerStates[bookID] = state
+    }
+
+    /// A reader screen was shown (pushed, or revealed by a pop or the back swipe): learns its
+    /// place in the path and applies the sleep rule.
+    func readerSlotDidAppear(_ slot: ReaderSlot) {
+        slot.pathIndex = Self.pathIndex(ofShownReader: slot.bookID, in: path)
+        if !readerSlots.contains(where: { $0.value === slot }) {
+            readerSlots.append(WeakSlot(slot))
+        }
+        updateReaderSlots()
+    }
+
+    /// Where a reader on `bookID` that is being shown sits in `path`: the top, or the screen just
+    /// under it while the back swipe reveals it (the path drops the top only when the swipe ends).
+    /// Neighbouring screens are never two readers on one book.
+    nonisolated static func pathIndex(ofShownReader bookID: UUID, in path: [WindowRoute]) -> Int? {
+        let route = WindowRoute.reader(bookID: bookID)
+        if path.last == route { return path.count - 1 }
+        if path.count >= 2, path[path.count - 2] == route { return path.count - 2 }
+        return nil
+    }
+
+    /// The top screen and the one directly under it stay awake; readers further down sleep.
+    nonisolated static func readerStaysAwake(pathIndex: Int, pathCount: Int) -> Bool {
+        pathCount - 1 - pathIndex <= 1
+    }
+
+    /// A popped reader lets its session go after this long (once its screen has animated away),
+    /// even if SwiftUI still holds the screen's state.
+    nonisolated static let poppedReaderSleepDelay: Duration = .seconds(1)
+
+    /// A memory warning: every reader that is not on screen falls asleep now, the one under the
+    /// top screen and any still counting down included (`WindowRootView` calls this). The reader
+    /// on screen stays, and handles the warning itself (`ReaderSession.handleMemoryWarning()`).
+    /// A reader put to sleep here wakes like any other: when it is shown, or when the path next
+    /// changes and it is the top screen or the one under it.
+    func sleepOffScreenReaders() {
+        readerSlots.removeAll { $0.value == nil }
+        for slot in readerSlots.compactMap(\.value) where !slot.isShown {
+            slot.sleepNow()
+        }
+    }
+
+    /// Wakes the readers near the top and counts down the others. `popped`: the path lost
+    /// screens from its top (and nothing else changed).
+    private func updateReaderSlots(popped: Bool = false) {
+        readerSlots.removeAll { $0.value == nil }
+        var placed: [(slot: ReaderSlot, index: Int)] = []
+        for slot in readerSlots.compactMap(\.value) {
+            guard let index = slot.pathIndex, path.indices.contains(index),
+                  path[index] == .reader(bookID: slot.bookID) else {
+                if popped, let index = slot.pathIndex, index >= path.count {
+                    // Its position is saved now, before a reader it uncovers wakes.
+                    slot.session?.saveLastReadPageNow()
+                    slot.cancelSleep()
+                    slot.scheduleSleep(after: Self.poppedReaderSleepDelay)
+                } else if slot.pathIndex != nil {
+                    // The path was rearranged (a deletion): no longer placed; it is placed again
+                    // when shown.
+                    slot.cancelSleep()
+                }
+                if slot.pathIndex != nil { slot.pathIndex = nil }
+                continue
+            }
+            placed.append((slot, index))
+        }
+        for (slot, index) in placed {
+            if Self.readerStaysAwake(pathIndex: index, pathCount: path.count) {
+                slot.wake()
+            } else {
+                slot.scheduleSleep(after: readerSleepDelay)
+            }
+        }
+    }
+
     // MARK: Other windows
 
     /// Opens a new reader window on the book (always a new window, even for the same book), at
@@ -214,6 +316,7 @@ final class WindowContext {
     /// nothing of its own closes; a Library window shows the Library.
     func bookWasDeleted(_ bookID: UUID) {
         let before = path.count
+        readerStates[bookID] = nil
         path = Self.path(path, removingBook: bookID)
         if path.isEmpty, before > 0, kind != .library {
             closeWindow()

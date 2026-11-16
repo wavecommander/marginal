@@ -109,6 +109,12 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       expands in Files to a folder whose Markdown shows the images from `images/` and
       `handwriting/` (open it in a Markdown app such as Obsidian).
 - [ ] **Export a selection.** Select, tick a few rows and a heading, export: only those appear.
+- [ ] **Sleeping readers.** With Xcode's memory gauge (Debug Navigator) on a large image-heavy PDF
+      (hundreds of MB): open it, scroll far, open its Notebook, open a row, repeat three times.
+      Memory falls back about five seconds after each new reader opens; going back through every
+      screen, each reader shows briefly loading and then the place and zoom it was itself left at.
+      With two readers open one over the other, Debug ▸ Simulate Memory Warning (simulator) lets
+      the covered one go at once.
 
 ## Importing other formats
 

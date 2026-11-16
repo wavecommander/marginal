@@ -6,9 +6,10 @@ import UIKit
 /// whose root is the Library and whose path shows a reader or a Notebook in place, so the
 /// system back button ("‹ Library") always returns to the Library in that window.
 ///
-/// Restoration: the path is kept in `@SceneStorage("window.path")` per window; each reader keeps
-/// its own state (page, panels) in scene storage too (`ReaderHost`). Routes to books that no
-/// longer exist are dropped on restore.
+/// Restoration: the path is kept in `@SceneStorage("window.path")` per window; the window's
+/// reader state for each book (panels, section history) is in scene storage too (`ReaderHost`),
+/// and a restored reader opens at its book's latest position (`ReaderPositionStore`). Routes to books
+/// that no longer exist are dropped on restore. Readers deep in the path sleep (`ReaderSlot`).
 struct WindowRootView: View {
     let kind: WindowContext.Kind
     /// What the window shows first when it has no restored state (a reader or Notebook window's
@@ -43,6 +44,9 @@ struct WindowRootView: View {
         })
         .accentRoot(scene: scene)
         .onAppear(perform: makeContextIfNeeded)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            context?.sleepOffScreenReaders()
+        }
         .task { await applyLaunchPlanIfFirstWindow() }
     }
 
@@ -64,6 +68,11 @@ struct WindowRootView: View {
         // screens are dropped (a reader/Notebook window left empty shows the Library).
         path = path.filter { (try? environment.store.books.book(id: $0.bookID)) != nil }
         let context = WindowContext(kind: kind, path: path, store: environment.store)
+        #if DEBUG
+        if let delay = environment.launchOptions.readerSleepDelay {
+            context.readerSleepDelay = .milliseconds(Int(delay * 1000))
+        }
+        #endif
         if let opensAt {
             context.setReaderOverrides(opensAt.overrides, for: opensAt.bookID)
         }

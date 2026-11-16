@@ -1,14 +1,16 @@
 import SwiftUI
 
 /// The menu bar (iPadOS 26+) / keyboard shortcut overlay (earlier) commands. Every reader
-/// command acts on the **focused window's** session (`focusedSceneValue`) and is disabled when
-/// no reader is focused. Undo/Redo of markup are the system Edit ▸ Undo/Redo (⌘Z / ⇧⌘Z): in
-/// markup mode the first responder is the session's `MarkupResponderView`, whose `undoManager`
+/// command acts on the session of the **focused window's** top reader (its `ReaderSlot`, a
+/// `focusedSceneValue`) and is disabled when no reader is focused or it is still loading.
+/// Undo/Redo of markup are the system Edit ▸ Undo/Redo (⌘Z / ⇧⌘Z): in markup mode the first
+/// responder is the session's `MarkupResponderView`, whose `undoManager`
 /// (`MarkupRoutingUndoManager`) acts on the surface last drawn on; the tool picker's own
 /// Undo/Redo buttons use the same manager.
 struct ReaderCommands: Commands {
-    @FocusedValue(ReaderSession.self) private var session
+    @FocusedValue(ReaderSlot.self) private var slot
     @FocusedValue(WindowContext.self) private var window
+    private var session: ReaderSession? { slot?.session }
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
