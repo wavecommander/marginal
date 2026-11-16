@@ -1,4 +1,4 @@
-/// Accessibility identifiers used by UI tests. One place for the whole app: later packages add
+/// Accessibility identifiers used by UI tests. One place for the whole app: each feature adds
 /// their own nested enum (or cases to the existing ones) here rather than inlining strings.
 /// UI tests mirror the strings they use (the test target cannot import the app).
 nonisolated enum AccessibilityID {

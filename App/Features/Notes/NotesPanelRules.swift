@@ -2,10 +2,10 @@ import CoreGraphics
 import Foundation
 import ReaderCore
 
-// The notes panel's rules as plain values, so they are unit-tested without a view (WP8).
+// The notes panel's rules as plain values, so they are unit-tested without a view.
 
 /// Accessibility identifiers of the notes panel (UI tests mirror these strings). The note page's
-/// own identifiers (`notePage.text`, `notePage.ink`…) are WP13's `NotePageAccessibilityID`.
+/// own identifiers (`notePage.text`, `notePage.ink`…) are the note page's `NotePageAccessibilityID`.
 nonisolated enum NotesPanelAccessibilityID {
     /// The panel's root container.
     static let panel = "notesPanel"
@@ -13,7 +13,7 @@ nonisolated enum NotesPanelAccessibilityID {
     static let tabs = "notesPanel.tabs"
     /// The title ("Page 312", or the heading's title).
     static let title = "notesPanel.title"
-    /// The "Saved" status (WP13's identifier, kept: label "Saved", "Edited", …, or "Empty").
+    /// The "Saved" status (the note page's identifier, kept: label "Saved", "Edited", …, or "Empty").
     static let status = "notePage.status"
     /// The shrink button (shown while the pane is wider than its default).
     static let shrink = "notesPanel.shrink"

@@ -20,7 +20,7 @@ import UIKit
 ///   - highlights: p. 4 yellow, p. 10 green, p. 19 yellow, p. 25 yellow and green, p. 29 blue;
 ///   - a bookmark on p. 20 (not shown in the Notebook).
 /// - `-seedNotebookPageInk`: also page ink on pp. 2, 18 and 25 (`seedPageInk`), for the
-///   handwriting rows (WP14).
+///   handwriting rows.
 /// - `-notebookDebugWidth <points>`: the Notebook lays itself out at most this wide (narrow-width
 ///   screenshots on a simulator, which cannot resize windows).
 /// - `-seedNotebookLateNote`: also adds a page note on p. 33 ("Added while the Notebook was

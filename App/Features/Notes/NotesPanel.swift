@@ -1,7 +1,7 @@
 import ReaderCore
 import SwiftUI
 
-/// The notes panel (WP8): Page note and Section note tabs around the WP13 note editor.
+/// The notes panel: Page note and Section note tabs around the note page editor.
 ///
 /// The shell hosts it as the right-hand pane (wide windows: its width is
 /// `session.notesPanelWidth`, dragged with `reader.notesDivider`), as the system sheet with

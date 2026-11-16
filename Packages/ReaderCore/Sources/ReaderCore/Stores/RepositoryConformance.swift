@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// Executable contract checks for store implementations. WP2 calls these from its own tests
+/// Executable contract checks for store implementations. ReaderStore calls these from its own tests
 /// against the SwiftData repositories and the file-backed ink store; ReaderCore's tests run them
 /// against the in-memory reference stores. Each check creates its own book with a fresh ID,
 /// and removes everything it created, also when it fails.

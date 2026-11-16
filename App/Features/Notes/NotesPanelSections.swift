@@ -2,7 +2,7 @@ import ReaderCore
 import SwiftUI
 
 // The parts of the notes panel around the editor: the level picker, the highlights under the
-// note, and the Section tab's empty state (WP8).
+// note, and the Section tab's empty state.
 
 // MARK: - Level picker
 

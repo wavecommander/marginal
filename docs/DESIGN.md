@@ -8,6 +8,13 @@ and Swift module (`Marginal`), and the bundle identifier (`software.tactile.marg
 A native iPadOS app for reading large textbook PDFs, marking them up, and keeping notes attached
 to pages and to headings.
 
+**Status, 16 November 2026:** the app is built and largely feature complete for the MVP
+(version 1). This document describes the app as built and is the spec for changes to it; the
+initial build plan is finished and retired. Still in progress: scanned books
+(`docs/SCANNED_BOOKS_PLAN.md`), the last import formats (`docs/FORMAT_IMPORT_PLAN.md`) and
+localization (`docs/LOCALIZATION_PLAN.md`). Annotated PDF export of a book is not built (open
+question 3).
+
 Mockups: https://claude.ai/artifact/DGC3WWVFeVmNY7pSaKknpP (seven screens plus four first-run
 onboarding screens; names below match the artboard titles). The mockups are drawn in HTML, so treat them as layout and behaviour intent.
 System controls (segmented controls, sheets, the PencilKit tool picker) should be the real system
@@ -260,7 +267,7 @@ ones even where the mockup draws an approximation.
 
 ## Windows and scenes
 
-Added by the owner after the first plan. These rules apply to every screen and every package.
+Added by the owner after the first plan. These rules apply to every screen and every feature.
 
 - **Multiple windows.** The app declares multiple-scene support. A window shows the Library, a
   reader on one book, or one book's Notebook. A Library window opens a book in place (the mockups'
@@ -428,10 +435,10 @@ take full advantage of their SDKs.
   in the shortcut overlay instead of a menu bar).
 - **Testing.** Routine testing is on the iOS 27.0 simulator and the owner's iPad (iPadOS 27).
   An iOS 17.5 simulator runtime is installed (imported by the owner with `xcrun simctl runtime
-  add`) and was used for every package until 13 November 2026; since then, by owner decision,
-  iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on every build
-  and were last exercised on the packages merged up to that date (reader engine, library, note
-  page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
+  add`) and was used for every feature built until 13 November 2026; since then, by owner
+  decision, iPadOS 17 is tested only occasionally. Its fallback paths are compiler-checked on
+  every build and were last exercised on the features merged up to that date (reader engine,
+  library, note page, Notebook, search). Systems in between (18, 26) are covered by the compiler and review.
 
 ## Backup and restore
 
@@ -787,7 +794,8 @@ is never written to, and no text layer is added to it.
 - **Selecting text on a scanned page is Live Text**, PDFKit's own, on the page in view, whether
   or not the book has been made searchable. The app does not build a selection of its own. What
   the reader's menu offers on that selection (Copy, Look Up, Add as Heading, Select All) is
-  whatever works without a text layer, established in package S0 and recorded there.
+  whatever works without a text layer, established in package S0 of
+  `docs/SCANNED_BOOKS_PLAN.md` and recorded in `docs/SCANNED_BOOKS_FINDINGS.md`.
 - **Highlights on scanned pages** are made the same way as any other: select, then choose a
   colour, with a finger and outside markup mode. After that they take their own path:
   - *Captured once.* The highlight stores the selection's rects, the colour and the text Live
@@ -826,7 +834,8 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
    `software.tactile.marginal`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
-3. Should exporting an annotated PDF copy of the book (WP11) be in version 1?
+3. Exporting an annotated PDF copy of the book (ink and highlights drawn into a copy, the
+   original untouched) is not built. Should it be in version 1?
 4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build
    seeds shapes generated in code; real handwriting has to be written once on an iPad by the
    owner and bundled. Does the owner want to supply it?

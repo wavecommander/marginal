@@ -1,6 +1,6 @@
 import XCTest
 
-/// Page ink (WP6): persistence across relaunch, undo/redo (through the markup responder's undo
+/// Page ink: persistence across relaunch, undo/redo (through the markup responder's undo
 /// manager, as the tool picker's buttons), read-only ink and scrolling
 /// outside markup mode, two-finger scroll and pinch while a finger can draw, a second window on
 /// the same book, registration under zoom, the page and note canvases in one markup session,
@@ -115,7 +115,7 @@ final class PageInkUITests: XCTestCase {
 
     // MARK: Persistence
 
-    /// The WP6 "done when": draw on page 3 of `small.pdf`, relaunch, the stroke is still there.
+    /// End to end: draw on page 3 of `small.pdf`, relaunch, the stroke is still there.
     func testStrokeOnPage3IsThereAfterRelaunch() {
         let app = launch(["-markup", "-inkAnyInput"])
         drawLine(app)
@@ -217,7 +217,7 @@ final class PageInkUITests: XCTestCase {
     func testStrokeAppearsInASecondWindowOnTheSameBook() throws {
         let app = launch(page: 1, ["-inkAnyInput", "-alsoOpenWindow", "small"])
         let views = app.otherElements.matching(identifier: ID.pdfView)
-        // Always leave one window (system Close Window, ⌘W), as WP4's tests do, even when an
+        // Always leave one window (system Close Window, ⌘W), as the reader shell's tests do, even when an
         // assertion fails: a window left open is restored into every later launch.
         addTeardownBlock { @MainActor in
             for _ in 0..<2 where app.otherElements.matching(identifier: ID.pdfView).count > 1 {

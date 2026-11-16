@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// Text highlights (WP7): make one from a text selection through the edit menu, see it, find it
+/// Text highlights: make one from a text selection through the edit menu, see it, find it
 /// again after a relaunch, recolour and delete it from the tap menu, without the reading
 /// position moving; a second window on the same book shows it; screenshots of the four colours
 /// and both menus (`build/shots/highlights-*.png`).

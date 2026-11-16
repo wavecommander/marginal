@@ -1,6 +1,6 @@
 import XCTest
 
-/// The notes panel (WP8) on `small.pdf` (12 pages; "1 Linear Systems" p1 with "1.1 Foundations"
+/// The notes panel on `small.pdf` (12 pages; "1 Linear Systems" p1 with "1.1 Foundations"
 /// p2–3 and "1.2 Exercises" p4; "2 Vector Spaces" p5 with 2.1 p6–7 and 2.2 p8; "3 Eigenvalues"
 /// p9…). Queries are typed and scoped (never `.any` over the PDF's element tree) except for the
 /// shell's divider.
@@ -424,7 +424,7 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual(ink(again).value as? String, "1 stroke")
     }
 
-    /// Not a check: saves the WP8 screenshots (`build/shots/wp8-*-ios<major>.png`) on the seeded
+    /// Not a check: saves the notes panel screenshots (`build/shots/wp8-*-ios<major>.png`) on the seeded
     /// book: the Page note tab with and without highlights, the Section note tab with the level
     /// picker collapsed and expanded, both tabs in the widened pane, and both in the narrow-window
     /// sheet. Appearance is the simulator's (`xcrun simctl ui <udid> appearance dark`).

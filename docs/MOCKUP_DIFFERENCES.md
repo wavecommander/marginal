@@ -1,6 +1,6 @@
 # Tactile Texts: differences from the mockups
 
-WP12, 14 November 2026. Every mockup artboard was screenshotted on the iOS 27.0 simulator
+Integration pass, 14 November 2026. Every mockup artboard was screenshotted on the iOS 27.0 simulator
 (`Marginal-A`, iPad Pro 11-inch (M5), landscape unless stated), in Light and Dark Mode, by
 `UITests/MockupScreenshotUITests.swift` (reader states on `no-outline.pdf` seeded with
 `-seedNotebook -seedNotebookPageInk`, whose user headings, notes, highlights and ink mirror the
@@ -35,7 +35,7 @@ mockups' sample book by construction and are not listed.
 | Difference | Status |
 | --- | --- |
 | Import is a "+" toolbar button and sort is a "⇅" menu, not a text "Import PDF" button and a "Recently opened" label. | Open (cosmetic): both are labelled for VoiceOver ("Import PDF", "Sort"); the mockup's text buttons would be a toolbar style change. |
-| Covers are the PDF's first page, not typographic covers. | Intentional: WP3 "cover thumbnail from page one". |
+| Covers are the PDF's first page, not typographic covers. | Intentional: the original build plan made the cover thumbnail from page one. |
 | The Continue reading card says "Page 312 of 1,500" (and the note/highlight count when there are any) but not the section ("5.2 The Characteristic Equation · …"). | Open: the card has no outline loaded; showing the section needs the book's outline at Library time. |
 | Reading progress is a bar under each cover; the mockup draws a percentage ring on the cover. | Open (cosmetic). VoiceOver reads "N percent read" either way. |
 
@@ -47,7 +47,7 @@ mockups' sample book by construction and are not listed.
 | The notes panel header adds Delete Note (trash). It has no zoom button: the note is zoomed by pinching it. | Intentional: "Deleting a note"; "Writing room"; "Notes panel layout" (TSOFT-217). |
 | There is no "This page is in" list under the note; "Highlights on this page" is the only thing under it, and with no highlights on the page the note takes the whole panel. | Intentional: "Notes panel layout" (TSOFT-217). |
 | Contents rows mark the reader's own headings with a person badge, and show the note badge as an icon beside the page number. | Intentional: "The reader's own headings … marked as the reader's own wherever they are listed". |
-| "Highlights on this page" was missing from the Page note tab whenever the page had highlights. | **Fixed in WP12** (`NotesHighlightsSection` loaded its rows from a `.task` on an empty `Group`, which never ran); covered by `JourneyUITests`. |
+| "Highlights on this page" was missing from the Page note tab whenever the page had highlights. | **Fixed in the integration pass** (`NotesHighlightsSection` loaded its rows from a `.task` on an empty `Group`, which never ran); covered by `JourneyUITests`. |
 | "Add Heading at Page N" is title case. | Intentional (system title case for buttons). |
 
 ## Reader · section note (`reader-section-note.jpg`)
@@ -87,7 +87,7 @@ mockups' sample book by construction and are not listed.
 | The type filter has a fifth segment, "Handwriting", and pages with ink appear as Handwriting rows with a preview of the page and its ink. | Intentional: "Ink is navigable like highlights and bookmarks" (Notebook only). |
 | Filter titles are title case ("Section Notes"). | Intentional (system segmented control style). |
 | The back button is the system one; the toolbar adds "Open Book" beside Export. | Intentional: "System chrome"; Notebook rows and the book are one tap from the reader. |
-| Note rows offer Delete Note (context menu and VoiceOver action); a heading note's row opens the reader with that note in the notes panel. | Intentional: "Deleting a note"; "Notebook rows open the reader at that page or heading". Added in WP12. |
+| Note rows offer Delete Note (context menu and VoiceOver action); a heading note's row opens the reader with that note in the notes panel. | Intentional: "Deleting a note"; "Notebook rows open the reader at that page or heading". Added in the integration pass. |
 | The search field's placeholder is cut off ("Search Notes and High…") at this window width. | Open (cosmetic): a shorter prompt ("Search Notebook") would fit. |
 | In Dark Mode the handwriting previews show the book page white, as in Light Mode. | Intentional: "PDF pages stay as the PDF draws them". |
 
@@ -101,14 +101,14 @@ mockups' sample book by construction and are not listed.
 
 ## Largest accessibility text size (`*-xxxl.jpg`)
 
-Not in the mockups; checked in WP12 at Accessibility XXXL (`TEST_RUNNER_MOCKUP_ARGS=
+Not in the mockups; checked in the integration pass at Accessibility XXXL (`TEST_RUNNER_MOCKUP_ARGS=
 "-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL"`,
 `TEST_RUNNER_MOCKUP_SUFFIX=-xxxl`).
 
 | Finding | Status |
 | --- | --- |
-| Contents rows showed no title at all (badge, mark and page number took the 280 pt row). | **Fixed in WP12:** at accessibility sizes the title takes the row and the mark, badge and page number go under it; indentation stops growing with the text. |
-| Notes pane header: tabs cut to "Page…" / "Sectio…", zoom wrapped to "200 / %", section titles and the level picker cut to "5.2…". | **Fixed in WP12:** the header is capped at Accessibility 1 like toolbar controls, and the page range goes under the section title. The note and the region below it keep the full size. "Section note" can still show as "Section n…". Since TSOFT-217/218 the zoom button is gone and the level picker sits at the bottom of the panel, where it wraps at full size. |
-| "Add Heading at Page N" under Contents wrapped to five lines. | **Fixed in WP12:** capped at Accessibility 1. |
+| Contents rows showed no title at all (badge, mark and page number took the 280 pt row). | **Fixed in the integration pass:** at accessibility sizes the title takes the row and the mark, badge and page number go under it; indentation stops growing with the text. |
+| Notes pane header: tabs cut to "Page…" / "Sectio…", zoom wrapped to "200 / %", section titles and the level picker cut to "5.2…". | **Fixed in the integration pass:** the header is capped at Accessibility 1 like toolbar controls, and the page range goes under the section title. The note and the region below it keep the full size. "Section note" can still show as "Section n…". Since TSOFT-217/218 the zoom button is gone and the level picker sits at the bottom of the panel, where it wraps at full size. |
+| "Add Heading at Page N" under Contents wrapped to five lines. | **Fixed in the integration pass:** capped at Accessibility 1. |
 | The note page's default zoom follows Dynamic Type (200%), wider than the 330 pt pane, so the note scrolls sideways until the pane is widened. | Open: by design ("Dynamic Type sets the default zoom"); a cap at the pane's width is an owner choice. |
 | The Notebook's filter column hyphenates long headings ("3 Matri-ces"). | Open (cosmetic). |

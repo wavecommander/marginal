@@ -6,7 +6,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// WP7 against a real reader session and `PDFView` (the generated `small.pdf`): selection to
+/// Highlights against a real reader session and `PDFView` (the generated `small.pdf`): selection to
 /// highlights, the overlap rule, hit-testing and taps, applying and removing per displayed
 /// page, re-applying after the document view is rebuilt, the PDF never written, change events
 /// and two windows, drawing registration on rotated and cropped pages.

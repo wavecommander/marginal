@@ -1,6 +1,6 @@
 import XCTest
 
-/// Note page (WP13): ink follows text, ink persists, typing in markup mode, read-only ink outside
+/// Note page: ink follows text, ink persists, typing in markup mode, read-only ink outside
 /// markup mode, emptied notes are deleted. Runs in the notes panel host with `-inkAnyInput` so a
 /// finger can draw.
 @MainActor

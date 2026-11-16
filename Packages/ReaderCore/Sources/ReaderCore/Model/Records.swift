@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 // Value types for everything the app stores. All IDs are UUIDs; all page references are
-// zero-based page indices (see `PageNumbering`). The SwiftData models in WP2 mirror these
+// zero-based page indices (see `PageNumbering`). The SwiftData models in ReaderStore mirror these
 // field-for-field and convert at the repository boundary.
 
 /// One book in the Library: a PDF, either imported as it was or made from another format at import.
@@ -10,7 +10,7 @@ public struct Book: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
     /// Display title (initially the file name without extension; the reader can rename it).
     public var title: String
-    /// Opaque content identity computed by the importer (WP3), e.g. a SHA-256 hex digest of the
+    /// Opaque content identity computed by the importer, e.g. a SHA-256 hex digest of the
     /// file. Two imports with equal fingerprints are the same book (`RecordStore.book(fingerprint:)`).
     /// For a converted book this is the fingerprint of the original file, not of the generated PDF.
     public var fingerprint: String

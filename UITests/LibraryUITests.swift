@@ -1,6 +1,6 @@
 import XCTest
 
-/// Library (WP3): import through `-importFixture` (the real pipeline), grid, open, rename,
+/// Library: import through `-importFixture` (the real pipeline), grid, open, rename,
 /// delete, dedupe, sort, search, a large import, and a second window.
 @MainActor
 final class LibraryUITests: XCTestCase {

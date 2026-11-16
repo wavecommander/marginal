@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// WP7's pure rules: text normalisation, overlap, hit-testing, the palette and the menus.
+/// Highlights' pure rules: text normalisation, overlap, hit-testing, the palette and the menus.
 @MainActor
 struct HighlightsGeometryTests {
     private let bookID = UUID()

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Search (WP10) through the real UI.
+/// Search through the real UI.
 ///
 /// Queries: the panel focuses its field itself, so the tests type with `app.typeText` and find
 /// everything by typed, identifier-scoped queries (buttons, static texts). This style dates from
@@ -109,7 +109,7 @@ final class SearchUITests: XCTestCase {
         let app = launch(Fixtures.large, "large")
         XCTAssertTrue(waitForLabel(pill(app), "Page 1 of 1500"))
         let back = app.buttons[ID.historyBack].firstMatch
-        // iPadOS 17 reports the shell's disabled Back button as enabled to XCUITest (WP4's note);
+        // iPadOS 17 reports the shell's disabled Back button as enabled to XCUITest (see `ReaderUITests`);
         // the Back press at the end proves the jump was recorded on every system.
         if #available(iOS 18, *) { XCTAssertFalse(back.isEnabled, "Back enabled before any jump") }
 

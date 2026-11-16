@@ -1,6 +1,6 @@
 import XCTest
 
-/// Performance on `large.pdf` (1,500 pages) for WP12, through the DEBUG `-perfProbe` element
+/// Performance on `large.pdf` (1,500 pages), through the DEBUG `-perfProbe` element
 /// (`ReaderPerfProbe`): launch and open to first page, opening at page 1,200, continuous scroll
 /// frame gaps and memory (`-perfAutoScroll`, driven by the app itself), and the time to open
 /// Contents, the Pages grid and the Notebook (XCUITest wall clock from the tap to the first row,

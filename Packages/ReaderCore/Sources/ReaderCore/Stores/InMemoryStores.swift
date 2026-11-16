@@ -2,7 +2,7 @@ import Foundation
 
 /// Reference implementation of `RecordStore`, held in memory.
 ///
-/// It defines the contract's semantics executable-ly (the persistent store in WP2 must behave
+/// It defines the contract's semantics executable-ly (the persistent store in ReaderStore must behave
 /// the same; `RepositoryConformance` checks that) and serves tests and SwiftUI previews.
 @MainActor
 public class InMemoryRecordStore: RecordStore {

@@ -2,11 +2,25 @@
 
 Tactile Texts, an iPadOS PDF reader with Pencil markup and notes. "Marginal" is the internal name only (repo, target, scheme, module, bundle ID `software.tactile.marginal`); user-facing text says "Tactile Texts".
 
+The app is built and largely feature complete for the MVP (version 1). The initial build plan is finished and retired (16 November 2026); work now goes in as features and fixes against `docs/DESIGN.md`.
+
 ## Read first
 
 - `docs/DESIGN.md` is the behaviour spec, with dated owner decisions. If the design looks wrong or an API is missing, stop and report; do not invent a workaround that changes behaviour. Keep it in step when behaviour changes.
-- `docs/WORK_PACKAGES.md` holds the owner's standing rules for agents. Feature plans: `docs/FORMAT_IMPORT_PLAN.md`, `docs/LOCALIZATION_PLAN.md`.
+- Feature plans still in progress: `docs/SCANNED_BOOKS_PLAN.md`, `docs/FORMAT_IMPORT_PLAN.md`, `docs/LOCALIZATION_PLAN.md`.
 - `Backend/backup-worker/README.md` is the Worker's HTTP contract and setup.
+
+## Owner's standing rules
+
+These apply to every change, alongside the build, test and convention rules below.
+
+- Every agent runs on Opus.
+- Test only the region you changed (see "Build and test"); the full gate is suspended until the owner says otherwise.
+- At most three agents build or use simulators at once, one booted simulator each.
+- Test on the iOS 27 simulator. iPadOS 17 testing is suspended, but the deployment target stays 17.0 and fallbacks must compile. A report lists every availability-gated path it added, what its fallback does, and what is unverified at the floor.
+- Windows: every view reads and commands its own window's `ReaderSession`, never a shared one, and shows changes made in another window on the same book. Ink surfaces reload when the change hub reports a write from another window, unless a stroke or edit is in progress.
+- Pencil: the system `PKToolPicker` with its standard tools and the default drawing policy; nothing overrides Pencil double-tap, squeeze or hover.
+- PDF exports draw ink as vector paths where the ink allows it; read-only note views render from the strokes at display scale.
 
 ## Layout
 

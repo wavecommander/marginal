@@ -6,7 +6,7 @@ import Testing
 import UIKit
 @testable import Marginal
 
-/// `NotePageRenderer`: sizes, PNG, vector PDF, read-only view, and the editor view itself (WP13).
+/// `NotePageRenderer`: sizes, PNG, vector PDF, read-only view, and the editor view itself.
 @MainActor
 struct NotePageRendererTests {
     typealias Support = NotePageTestSupport

@@ -254,7 +254,7 @@ final class ReaderSession: Identifiable {
     /// `defaultNotesPanelWidth...windowWidth/2`. A wider pane widens the note page; it never zooms
     /// it (`NotesPanelMetrics`).
     var notesPanelWidth: Double = ReaderSession.defaultNotesPanelWidth
-    /// The search UI (WP10) is shown.
+    /// The search UI is shown.
     var isSearchVisible = false
     /// The search popover is closing (its dismissal is still animating) and has not
     /// gone yet. Set by the shell. Asking for search in this window is queued, not dropped:
@@ -515,7 +515,7 @@ final class ReaderSession: Identifiable {
     }
 
     /// Jumps to rects on a page (page space) and, with `mark`, marks the text under them until
-    /// `pdf.clearMarks()`: for search hits (WP10).
+    /// `pdf.clearMarks()`: for search hits.
     @discardableResult
     func jump(toPage pageIndex: Int, revealing rects: [CGRect], mark: Bool = true) -> Bool {
         guard PageNumbering.isValid(pageIndex, pageCount: pageCount) else { return false }
@@ -635,7 +635,7 @@ final class ReaderSession: Identifiable {
     }
 
     /// A request to add a heading of the reader's own (design: "The reader's own headings"),
-    /// made from the More menu, the menu bar or a text selection. The Contents sidebar (WP5)
+    /// made from the More menu, the menu bar or a text selection. The Contents sidebar
     /// observes `pendingAddHeadingRequest`, presents its add-heading sheet and clears the
     /// request with `takeAddHeadingRequest()`.
     struct AddHeadingRequest: Equatable, Identifiable, Sendable {
@@ -713,12 +713,12 @@ final class ReaderSession: Identifiable {
     // plug into it directly (`ReaderPDFController`: page overlays, the selection menu, taps,
     // visible pages).
 
-    /// Page ink (WP6): one canvas per displayed page. `nil` in a session made without features
+    /// Page ink: one canvas per displayed page. `nil` in a session made without features
     /// (`Configuration.installsFeatures`).
     @ObservationIgnored private(set) var pageInk: PageInkOverlayProvider?
-    /// Text highlights (WP7). `nil` in a session made without features.
+    /// Text highlights. `nil` in a session made without features.
     @ObservationIgnored private(set) var highlights: HighlightController?
-    /// The notes panel's state (WP8): made with the window, or on first use in a session made
+    /// The notes panel's state: made with the window, or on first use in a session made
     /// without features (unit tests).
     var notesPanel: NotesPanelController {
         if let notesPanelIfCreated { return notesPanelIfCreated }
@@ -726,7 +726,7 @@ final class ReaderSession: Identifiable {
         notesPanelIfCreated = controller
         return controller
     }
-    /// The Contents sidebar's state (WP5), made on first use (`ContentsSidebarModel.shared(for:)`
+    /// The Contents sidebar's state, made on first use (`ContentsSidebarModel.shared(for:)`
     /// also starts it).
     var sidebarModel: ContentsSidebarModel {
         if let sidebarModelIfCreated { return sidebarModelIfCreated }
@@ -734,7 +734,7 @@ final class ReaderSession: Identifiable {
         sidebarModelIfCreated = model
         return model
     }
-    /// This window's search (WP10), made on first use and kept for the session's lifetime (it
+    /// This window's search, made on first use and kept for the session's lifetime (it
     /// survives closing its popover).
     var searchModel: SearchModel {
         if let searchModelIfCreated { return searchModelIfCreated }

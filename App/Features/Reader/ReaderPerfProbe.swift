@@ -4,7 +4,7 @@ import PDFKit
 import QuartzCore
 import UIKit
 
-/// DEBUG-only performance probe (WP12), switched on by `LaunchOptions` (`perfProbe`,
+/// DEBUG-only performance probe, switched on by `LaunchOptions` (`perfProbe`,
 /// `perfAutoScroll`).
 ///
 /// `-perfProbe` adds an accessibility element `reader.perfStats` to the reader whose value is

@@ -5,15 +5,15 @@ import UIKit
 // What the PDF bridge (`ReaderPDFController`) hands to the session's features, and the values it
 // hands them. The bridge calls the features directly, through the session's typed properties:
 //
-// - Page overlays (WP6, page ink): `session.pageInk` supplies one overlay view per displayed
+// - Page overlays (page ink): `session.pageInk` supplies one overlay view per displayed
 //   page (`makeOverlayView`, `overlayWillAppear`, `overlayDidDisappear`). PDFKit owns the
 //   overlay's frame: it sizes the overlay to the page and scales it with the page under zoom, so
 //   draw in the overlay's own bounds (one point = one page point at 100%) and never set its
 //   frame. PDFKit asks for an overlay when a page comes near the screen and ends it when the
 //   page goes away; release everything per page in `overlayDidDisappear`.
 // - The edit menu of a text selection (`ReaderPDFController.selectionMenuElements()`): the
-//   highlight colours from `session.highlights` (WP7), then "Add as Heading"
-//   (`SidebarHeadingActions`, WP5), inserted as an inline group at the start of the menu
+//   highlight colours from `session.highlights`, then "Add as Heading"
+//   (`SidebarHeadingActions`, Contents sidebar), inserted as an inline group at the start of the menu
 //   whenever there is a non-empty selection. Use `session.pdf.clearSelection()` after acting.
 // - Single taps on a page: `session.highlights` first (it consumes a tap on a highlight), then
 //   the window's search if it exists (it clears its mark). The bridge's tap recogniser runs
