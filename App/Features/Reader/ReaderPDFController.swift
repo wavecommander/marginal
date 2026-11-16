@@ -366,6 +366,10 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// Scrolls `rects` (page space) on `pageIndex` into view and, with `mark`, marks the text
     /// under them until `clearMarks()` (or the next `reveal`). Build the rects on your own
     /// background `PDFDocument`; this re-creates the selection on the on-screen one.
+    ///
+    /// When no text can be found again under the rects (a scanned page PDFKit has not read: a
+    /// hit in recognised text, S2), the mark is drawn from the rects alone
+    /// (`SearchMarkAnnotation`, in memory on the on-screen page only).
     func revealWithoutRecordingHistory(pageIndex: Int, rects: [CGRect], mark: Bool = true) {
         guard let page = page(at: pageIndex) else { return }
         acceptCurrentScale()
@@ -378,6 +382,10 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         session?.pdfReportedCurrentPage(pageIndex)
         guard mark else { return }
         let selections = rects.compactMap { page.selection(for: $0) }
+        guard selections.contains(where: { !($0.string ?? "").isEmpty }) else {
+            markFromRectsAlone(rects, on: page, pageIndex: pageIndex)
+            return
+        }
         guard let first = selections.first else { return }
         for other in selections.dropFirst() { first.add(other) }
         first.color = UIColor.systemYellow.withAlphaComponent(0.6)
@@ -388,6 +396,32 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     func clearMarks() {
         guard isViewLoaded else { return }
         view.highlightedSelections = nil
+        removeRectsOnlyMark()
+    }
+
+    /// The search mark drawn from rects alone, while one is shown (tests and diagnostics).
+    var rectsOnlyMark: (pageIndex: Int, rects: [CGRect])? {
+        guard let annotation = rectsOnlyMarkAnnotation, let page = annotation.page, let index = pageIndex(of: page) else {
+            return nil
+        }
+        return (index, annotation.lineRects)
+    }
+
+    private var rectsOnlyMarkAnnotation: SearchMarkAnnotation?
+
+    private func markFromRectsAlone(_ rects: [CGRect], on page: PDFPage, pageIndex: Int) {
+        removeRectsOnlyMark()
+        let lineRects = rects.filter { !$0.isNull && !$0.isEmpty }
+        guard !lineRects.isEmpty else { return }
+        let annotation = SearchMarkAnnotation(lineRects: lineRects)
+        page.addAnnotation(annotation)
+        rectsOnlyMarkAnnotation = annotation
+    }
+
+    private func removeRectsOnlyMark() {
+        guard let annotation = rectsOnlyMarkAnnotation else { return }
+        rectsOnlyMarkAnnotation = nil
+        annotation.page?.removeAnnotation(annotation)
     }
 
     // MARK: Mode
@@ -1027,6 +1061,37 @@ final class ReaderPDFHostView: UIView {
             probe.frame = CGRect(x: CGFloat(index) * 12, y: 0, width: 10, height: 10)
             addSubview(probe)
         }
+    }
+}
+
+/// A search mark drawn from page-space rects alone (`ReaderPDFController.revealWithoutRecordingHistory`),
+/// for a hit on a page with no text PDFKit can select: the same yellow as the selection-based mark.
+/// Lives only on the on-screen page, in memory; never printed, never saved.
+nonisolated final class SearchMarkAnnotation: PDFAnnotation {
+    /// The marked line rects (page space).
+    let lineRects: [CGRect]
+    private let fill = UIColor.systemYellow.withAlphaComponent(0.6)
+
+    init(lineRects: [CGRect]) {
+        self.lineRects = lineRects
+        let bounds = lineRects.reduce(CGRect.null) { $0.union($1) }
+        super.init(bounds: bounds.isNull ? .zero : bounds, forType: .highlight, withProperties: nil)
+        color = fill
+        isReadOnly = true
+        shouldPrint = false
+        shouldDisplay = true
+        userName = "Marginal search"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func draw(with box: PDFDisplayBox, in context: CGContext) {
+        context.saveGState()
+        context.setBlendMode(.multiply)
+        context.setFillColor(fill.cgColor)
+        for rect in lineRects { context.fill(rect) }
+        context.restoreGState()
     }
 }
 

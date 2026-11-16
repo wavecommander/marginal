@@ -41,6 +41,9 @@ final class AppEnvironment {
     @ObservationIgnored let backupScheduler: BackupScheduler
     /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.
     let onboarding: OnboardingCoordinator
+    /// The one text-recognition queue for scanned books (started after launch work). The
+    /// search status (S3) calls its entry points; progress reaches windows through the hub.
+    @ObservationIgnored let textRecognition: TextRecognitionEngine
 
     @ObservationIgnored private var launchTask: Task<LaunchPlan, Never>?
     @ObservationIgnored private var launchPlanClaimed = false
@@ -70,6 +73,7 @@ final class AppEnvironment {
         self.storeErrorMessage = storeErrorMessage
         self.fixtureImporter = FixtureImporter(store: store, converters: FixtureImporter.converters(for: launchOptions))
         self.onboarding = OnboardingCoordinator()
+        self.textRecognition = TextRecognitionEngine(store: store)
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
         let backupAutomaticSettings = BackupAutomaticSettings()
@@ -229,6 +233,9 @@ final class AppEnvironment {
             plan.alsoOpenBookID = book(titled: title)?.id
             plan.alsoOpenPageIndex = launchOptions.alsoOpenWindowPage.map(PageNumbering.pageIndex(forDisplayNumber:))
         }
+        // Scanned books in progress resume once interrupted restores are finished and orphans
+        // swept; the plan does not wait for it.
+        Task { await self.textRecognition.start() }
         return plan
     }
 

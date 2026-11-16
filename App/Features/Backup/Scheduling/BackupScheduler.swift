@@ -12,7 +12,8 @@ let backupSchedulerLog = Logger(subsystem: "software.tactile.marginal", category
 /// `BackupAutomaticSettings`, which this reads and records into.
 ///
 /// - **Change tracking.** Every change posted on the store's hub (a restore's own writes
-///   included) marks the library changed. Bursts are coalesced: the time of the latest change is
+///   included) marks the library changed, except changes whose `affectsBackup` is false
+///   (recognised text and recognition state of scanned books). Bursts are coalesced: the time of the latest change is
 ///   written to the settings at most once per `changeCoalescingDelay`, and at once when the app
 ///   goes to the background or a run is considered. A change made while a backup or restore job
 ///   runs is recorded again when that job ends, so it is never hidden by the job's own success
@@ -121,7 +122,7 @@ final class BackupScheduler {
         self.foregroundCheckInterval = foregroundCheckInterval
         self.waitUntilReady = waitUntilReady
         self.lastSeenEnabled = settings.isEnabled
-        hubToken = service.store.hub.observe { [weak self] _ in self?.noteChange() }
+        hubToken = service.store.hub.observe { [weak self] event in self?.noteChange(event.change) }
         observeSettings()
     }
 
@@ -370,7 +371,12 @@ final class BackupScheduler {
 
     // MARK: Change tracking
 
-    private func noteChange() {
+    /// A change posted on the hub. Changes that cannot alter what a backup holds
+    /// (`StoreChange.affectsBackup` is false: a scanned book's recognised text and recognition
+    /// state, derived from the PDF and never backed up) are ignored, so recognition progress never
+    /// makes an automatic backup due.
+    private func noteChange(_ change: StoreChange) {
+        guard change.affectsBackup else { return }
         pendingChangeAt = now()
         if service.isBusy {
             changedDuringJob = true
