@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The EPUB converter, called directly on fixture books built in code. Serialized: each test
 /// drives an off-screen web view, and the stall measurement must not share the main thread.

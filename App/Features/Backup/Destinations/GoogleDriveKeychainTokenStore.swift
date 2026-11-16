@@ -16,7 +16,7 @@ import Security
 ///   type throws contains them (only the Keychain's status code).
 nonisolated final class GoogleDriveKeychainTokenStore: GoogleTokenStore {
     /// The item's service attribute in the app.
-    static let defaultService = "software.tactile.marginal.google-drive"
+    static let defaultService = "software.tactile.texts.google-drive"
     static let account = "oauth-tokens"
 
     let service: String

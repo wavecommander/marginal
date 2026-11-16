@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import S3Kit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `S3BackupBlobStore` against a fake R2 bucket with temporary credentials, and the whole
 /// encrypted stack (`EncryptedBackupDestination` over it) with no network.

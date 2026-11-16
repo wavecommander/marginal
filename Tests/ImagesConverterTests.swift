@@ -5,7 +5,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UniformTypeIdentifiers
-@testable import Marginal
+@testable import TactileTexts
 
 /// The images converter (comic archives and picture files to PDF), on the simulator. Serialized
 /// so the memory measurement is not disturbed by the other tests of the suite.

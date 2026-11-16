@@ -1,11 +1,11 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupServiceConfiguration`: reading `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` from the
 /// Info.plist.
 struct BackupCloudServiceConfigurationTests {
-    static let productID = "software.tactile.marginal.backup.standard"
+    static let productID = "software.tactile.texts.backup.standard"
 
     static func info(host: Any?, ids: Any?) -> [String: Any] {
         var values: [String: Any] = [:]

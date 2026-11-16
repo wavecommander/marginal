@@ -51,7 +51,7 @@
               "locale" : "en_GB"
             }
           ],
-          "productID" : "software.tactile.marginal.backup.standard",
+          "productID" : "software.tactile.texts.backup.standard",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Cloud Backup Standard Monthly",
           "subscriptionGroupID" : "21800001",

@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Sleeping readers: a released session is deallocated, and a closed one holds nothing heavy
 /// even while something (SwiftUI's state of a finished screen) still holds the session.

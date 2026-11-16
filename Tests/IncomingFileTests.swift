@@ -1,7 +1,7 @@
 import Foundation
 import ReaderBackup
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Files handed to the app from outside: which flow a file starts, and whether the app may
 /// consume it. (That Files lists the app under "Open With" and delivers the file is the system's

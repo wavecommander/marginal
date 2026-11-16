@@ -108,12 +108,12 @@ public final class LibraryStore {
 
     /// A store backed by `InMemoryRecordStore` and `InMemoryInkStore`, for previews, unit tests,
     /// and running the app before a persistent store exists. Nothing is written to disk by the
-    /// store itself; `rootDirectory` only feeds the URL helpers (default: a `MarginalInMemory`
+    /// store itself; `rootDirectory` only feeds the URL helpers (default: a `TactileTextsInMemory`
     /// folder in the temporary directory).
     public static func inMemory(rootDirectory: URL? = nil) -> LibraryStore {
         let records = InMemoryRecordStore()
         let root = rootDirectory ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("MarginalInMemory", isDirectory: true)
+            .appendingPathComponent("TactileTextsInMemory", isDirectory: true)
         return LibraryStore(records: records, inkStore: InMemoryInkStore(), rootDirectory: root)
     }
 

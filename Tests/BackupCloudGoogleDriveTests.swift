@@ -4,7 +4,7 @@ import GoogleDriveKit
 import ReaderBackup
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Returns a chosen callback for Google's sign-in page instead of showing it.
 @MainActor
@@ -489,7 +489,7 @@ struct BackupCloudGoogleDriveTests {
     }
 
     private func keychainRoundTrip() async throws {
-        let store = GoogleDriveKeychainTokenStore(service: "software.tactile.marginal.tests.\(UUID().uuidString)")
+        let store = GoogleDriveKeychainTokenStore(service: "software.tactile.texts.tests.\(UUID().uuidString)")
         defer { Task { try? await store.clear() } }
         #expect(try await store.load() == nil)
         try await store.save(.backupCloudValid)
@@ -508,7 +508,7 @@ struct BackupCloudGoogleDriveTests {
     }
 
     private func keychainAttributes() async throws {
-        let service = "software.tactile.marginal.tests.\(UUID().uuidString)"
+        let service = "software.tactile.texts.tests.\(UUID().uuidString)"
         let store = GoogleDriveKeychainTokenStore(service: service)
         defer { Task { try? await store.clear() } }
         try await store.save(.backupCloudValid)

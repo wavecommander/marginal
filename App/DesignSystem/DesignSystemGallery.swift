@@ -6,7 +6,7 @@ struct DesignSystemGallery: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xxl) {
-                Text("Marginal").font(Typeface.largeTitle)
+                Text("Tactile Texts").font(Typeface.largeTitle)
                     .foregroundStyle(Palette.ink)
 
                 section("Surfaces") {
@@ -47,9 +47,9 @@ struct DesignSystemGallery: View {
                 }
                 section("Controls") {
                     HStack {
-                        Button("Resume") {}.buttonStyle(.marginalPrimary)
-                        Button("Open Notebook") {}.buttonStyle(.marginalTonal)
-                        Button("Disabled") {}.buttonStyle(.marginalPrimary).disabled(true)
+                        Button("Resume") {}.buttonStyle(.tactilePrimary)
+                        Button("Open Notebook") {}.buttonStyle(.tactileTonal)
+                        Button("Disabled") {}.buttonStyle(.tactilePrimary).disabled(true)
                     }
                     HStack { NoteBadge(count: nil); NoteBadge(count: 3) }
                     ReadingProgress(fraction: 0.42).frame(width: 240)

@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The import flow with the app's real converters (`ConverterRegistry.standard`), end to end.
 @MainActor

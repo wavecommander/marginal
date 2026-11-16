@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupSubscription` with a scripted StoreKit: every state and transition, and the signed
 /// transaction handed to the backup service.
@@ -258,7 +258,7 @@ struct BackupCloudServiceSubscriptionTests {
         let store = storeWithProduct()
         let model = make(store)
         await model.load()
-        store.send(S.transaction(80, original: 80, product: "software.tactile.marginal.tip", purchased: 0, expires: nil))
+        store.send(S.transaction(80, original: 80, product: "software.tactile.texts.tip", purchased: 0, expires: nil))
         store.send(S.transaction(81, original: 81, purchased: 0, expires: 30 * Self.day))
         await eventually { store.finished == [81] }
         #expect(store.finished == [81])
@@ -302,7 +302,7 @@ struct BackupCloudServiceSubscriptionTests {
             // Newer, but unverified: never used.
             S.transaction(103, original: 100, purchased: -Self.day, expires: 29 * Self.day, verified: false),
             // Another app's product: not ours.
-            S.transaction(104, original: 104, product: "software.tactile.marginal.tip", purchased: 0, expires: nil),
+            S.transaction(104, original: 104, product: "software.tactile.texts.tip", purchased: 0, expires: nil),
         ]
         await model.load()
         #expect(model.state == .ended(plan, endedAt: S.now.addingTimeInterval(-2 * Self.day)))

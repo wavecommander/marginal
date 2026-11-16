@@ -3,7 +3,7 @@ import PencilKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Page ink (`PageInkMerge`) and note ink (`NoteInk.merge`) share one three-way merge
 /// (`StrokeMerge`). These tests pin the stroke order it produces, which is the z-order: the

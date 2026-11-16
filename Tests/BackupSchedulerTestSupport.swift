@@ -3,7 +3,7 @@ import ReaderBackup
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 // Fakes and a test rig for `BackupScheduler` (B5b): the system scheduler, background tasks,
 // background-time assertions, a settable clock, a sleep the test releases, and a destination

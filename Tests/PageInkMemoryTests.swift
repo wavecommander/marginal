@@ -4,7 +4,7 @@ import PDFKit
 import PencilKit
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Scrolling 200 pages of `large.pdf` in markup mode, in a real PDF view: the number of live
 /// page canvases stays small (none is kept for pages that left the screen) and the process

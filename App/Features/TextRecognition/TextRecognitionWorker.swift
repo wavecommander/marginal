@@ -36,7 +36,7 @@ nonisolated final class TextRecognitionWorker: @unchecked Sendable {
     /// Pages read through one document before it is released and the file reopened.
     static let pagesPerDocument = 8
 
-    private let queue = DispatchQueue(label: "software.tactile.marginal.text-recognition", qos: .utility)
+    private let queue = DispatchQueue(label: "software.tactile.texts.text-recognition", qos: .utility)
     private let recognizer: any PageRecognizing
     private let dpi: CGFloat
     private var document: PDFDocument?

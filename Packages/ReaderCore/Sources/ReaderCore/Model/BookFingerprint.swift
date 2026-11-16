@@ -47,6 +47,7 @@ public enum BookFingerprint {
         defer { try? handle.close() }
         let size = Int64(try handle.seekToEnd())
         var hasher = SHA256()
+        // The salt keeps the app's working title on purpose: changing it changes every book's ID.
         hasher.update(data: Data("marginal-fingerprint-v1\0".utf8))
         withUnsafeBytes(of: UInt64(size).bigEndian) { hasher.update(bufferPointer: $0) }
         if hashesWholeFile(size: size) {

@@ -3,7 +3,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The import pipeline and library rules, app-hosted on the simulator.
 @MainActor

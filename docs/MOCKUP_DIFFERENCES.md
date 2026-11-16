@@ -7,7 +7,7 @@ Integration pass, 14 November 2026. Every mockup artboard was screenshotted on t
 mockups' page 312). The screenshots are in `docs/mockup-shots/` (`<artboard>.jpg` and
 `<artboard>-dark.jpg`, downscaled); regenerate full-size PNGs with
 
-    MARGINAL_SIM=<udid> scripts/test.sh --skip-packages -only-testing:MarginalUITests/MockupScreenshotUITests
+    TACTILE_SIM=<udid> scripts/test.sh --skip-packages -only-testing:TactileTextsUITests/MockupScreenshotUITests
     # Dark: xcrun simctl ui <udid> appearance dark, then shut the simulator down and boot it
     # again (on this iOS 27 simulator the setting took effect only after a reboot), then the
     # same command with TEST_RUNNER_MOCKUP_SUFFIX=-dark

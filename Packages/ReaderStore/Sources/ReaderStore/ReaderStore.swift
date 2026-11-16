@@ -7,7 +7,7 @@ public enum ReaderStore {
     /// Directory under the root that holds the SwiftData store files.
     public static let databaseDirectoryName = "Database"
     /// The SwiftData store file name inside `databaseDirectoryName` (SQLite adds `-wal` and `-shm`).
-    public static let databaseFileName = "Marginal.store"
+    public static let databaseFileName = "TactileTexts.store"
 }
 
 extension LibraryStore {
@@ -16,7 +16,7 @@ extension LibraryStore {
     /// backup).
     ///
     /// On disk, everything lives under `rootDirectory`:
-    /// - `Database/Marginal.store` (+ `-wal`, `-shm`): the SwiftData store.
+    /// - `Database/TactileTexts.store` (+ `-wal`, `-shm`): the SwiftData store.
     /// - `Database Copies/<stamp>-<reason>/`: copies of the store (`LibraryDatabase`).
     /// - `Books/<bookID>/...`: per `BookStorageLayout` (PDF copy, `ink/`, `notes/`, and for a
     ///   scanned book `text/` and `recognition.json`, through `FileRecognisedTextStore`).
@@ -81,7 +81,7 @@ extension LibraryStore {
     @MainActor
     public static func ephemeral() throws -> LibraryStore {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MarginalEphemeral-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("TactileTextsEphemeral-\(UUID().uuidString)", isDirectory: true)
         let container = try SchemaFactory.makeContainer(storeURL: nil)
         let records = SwiftDataRecordStore(container: container)
         return LibraryStore(records: records, inkStore: FileInkStore(rootDirectory: root), rootDirectory: root,

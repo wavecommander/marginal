@@ -3,7 +3,7 @@ import PencilKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Design rule "The notes pane follows the system appearance": the note page (editor and
 /// read-only views) follows light and dark, live, with PencilKit's own light/dark ink rendering;

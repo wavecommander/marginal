@@ -4,7 +4,7 @@ import PDFKit
 import ReaderCore
 import ReaderStore
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Helpers for the highlight tests (hosting reuses `PageInkTestSupport.Host`).
 @MainActor

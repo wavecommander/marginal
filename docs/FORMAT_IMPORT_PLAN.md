@@ -38,7 +38,7 @@ before any conversion starts. They can back out at that point with nothing chang
   - `ImportError.notAPDF` and its message; `IncomingPDFHandler`.
 - `ImportJob.Phase` is `waiting, checking, copying, finishing`. There is no step where an import
   waits for the reader.
-- The SwiftData schema is `MarginalSchemaV1` with no migration stages.
+- The SwiftData schema is `TactileTextsSchemaV1` with no migration stages.
 - The project has no third-party dependencies, and `DESIGN.md` lists EPUB under "Not in version 1".
 
 ## Formats
@@ -131,7 +131,7 @@ The copy above is the draft English. It goes through the rules in `docs/LOCALIZA
 - `Book.fingerprint` is the **original** file's fingerprint, so importing the same EPUB twice finds
   the existing book before any conversion.
 - `Book` gains three optional fields (`nil` for a native PDF): `sourceFormat`, `originalFileName`,
-  `converterVersion`. This is `MarginalSchemaV2` with a lightweight migration stage.
+  `converterVersion`. This is `TactileTextsSchemaV2` with a lightweight migration stage.
 - Principle 1 ("The PDF is never modified") still holds: the generated PDF is written once during
   import and never touched after the commit, and the original is never touched at all.
   `DESIGN.md` is updated to say so and to move EPUB out of "Not in version 1".
@@ -276,7 +276,7 @@ Things F3 and F5 need to know:
 
 ### F2 · Book fields, schema V2 and the converter contract
 
-- `Book.sourceFormat`, `originalFileName`, `converterVersion`; `MarginalSchemaV2`; lightweight
+- `Book.sourceFormat`, `originalFileName`, `converterVersion`; `TactileTextsSchemaV2`; lightweight
   migration from V1.
 - `DocumentConverter` protocol, `ConversionOptions`, `ConvertedDocument`, and a registry keyed by
   `ImportFormat`, in a new `App/Features/Import/` folder. No converter yet; a test stub only.

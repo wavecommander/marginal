@@ -137,7 +137,7 @@ final class WebPDFRenderer: NSObject, WKNavigationDelegate {
     /// The URL scheme the content is served under. Lower case (WebKit requires it).
     nonisolated static let scheme = "tactile-content"
     nonisolated static let host = "document"
-    nonisolated static let ruleListIdentifier = "software.tactile.marginal.block-network.v2"
+    nonisolated static let ruleListIdentifier = "software.tactile.texts.block-network.v2"
     /// Everything is blocked, then the content scheme is let through, and the scheme QuickLook
     /// serves a converted Office or iWork document's pictures under
     /// (`WebKitWorkarounds.ruleListBlockingEverything`, `QuickLookWorkarounds`).

@@ -4,11 +4,11 @@ import Foundation
 /// Shown in Settings ▸ About.
 ///
 /// The version comes from `CFBundleShortVersionString` and `CFBundleVersion`. The rest is the
-/// `MarginalBuild` dictionary, which `scripts/stamp-build-info.sh` writes into the built
+/// `TactileTextsBuild` dictionary, which `scripts/stamp-build-info.sh` writes into the built
 /// Info.plist on every build (the committed `App/Info.plist` never has it). Anything missing,
 /// empty or malformed reads as `nil`, and Settings shows "Unknown" for it.
 nonisolated struct BuildInfo: Equatable, Sendable {
-    static let infoKey = "MarginalBuild"
+    static let infoKey = "TactileTextsBuild"
 
     var version: String?
     var buildNumber: String?

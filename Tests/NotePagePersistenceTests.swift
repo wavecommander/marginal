@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Saving, loading, relocation on load, emptying, undo, and two windows on one note.
 @MainActor

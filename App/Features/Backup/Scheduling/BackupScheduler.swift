@@ -6,7 +6,7 @@ import ReaderCore
 import SwiftUI
 import UIKit
 
-let backupSchedulerLog = Logger(subsystem: "software.tactile.marginal", category: "BackupScheduler")
+let backupSchedulerLog = Logger(subsystem: "software.tactile.texts", category: "BackupScheduler")
 
 /// Runs automatic backups. One per app, owned by `AppEnvironment`; the Backup screen only edits
 /// `BackupAutomaticSettings`, which this reads and records into.
@@ -33,7 +33,7 @@ let backupSchedulerLog = Logger(subsystem: "software.tactile.marginal", category
 @MainActor
 final class BackupScheduler {
     /// The background processing task (`BGTaskSchedulerPermittedIdentifiers` in `project.yml`).
-    nonisolated static let taskIdentifier = "software.tactile.marginal.backup"
+    nonisolated static let taskIdentifier = "software.tactile.texts.backup"
     nonisolated static let defaultChangeCoalescingDelay: Duration = .seconds(5)
     nonisolated static let defaultForegroundCheckInterval: Duration = .seconds(15 * 60)
 
@@ -129,7 +129,7 @@ final class BackupScheduler {
     // MARK: Background task registration
 
     /// Registers the background task's launch handler. Call once, before the app finishes
-    /// launching (`MarginalApp.init`), as `BGTaskScheduler` requires.
+    /// launching (`TactileTextsApp.init`), as `BGTaskScheduler` requires.
     @discardableResult
     func registerBackgroundTask() -> Bool {
         guard !isBackgroundTaskRegistered else { return true }
@@ -150,7 +150,7 @@ final class BackupScheduler {
 
     // MARK: Scene phase
 
-    /// The app's scene phase (`MarginalApp` forwards it).
+    /// The app's scene phase (`TactileTextsApp` forwards it).
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .active:

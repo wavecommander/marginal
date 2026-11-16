@@ -54,7 +54,7 @@ npm run prove
 
 ### The app against `wrangler dev` (end to end)
 
-`MarginalTests/BackupCloudServiceEndToEndTests` runs the app's own client against a local
+`TactileTextsTests/BackupCloudServiceEndToEndTests` runs the app's own client against a local
 `wrangler dev` that mints real temporary credentials for the real development bucket: a
 StoreKit test purchase, a backup of a small library, a check that every object is opaque, a
 restore into an empty library, and delete-everything. It needs three more values in
@@ -70,9 +70,9 @@ restore into an empty library, and delete-everything. It needs three more values
   `writeStoreKitTestCertificate` buys through an `SKTestSession` and writes that entry to a file:
 
   ```sh
-  TEST_RUNNER_MARGINAL_STOREKIT_CERT_OUT=/tmp/storekit-cert.txt \
+  TEST_RUNNER_TACTILE_STOREKIT_CERT_OUT=/tmp/storekit-cert.txt \
     scripts/test.sh --skip-packages \
-    "-only-testing:MarginalTests/BackupCloudServiceEndToEndTests/writeStoreKitTestCertificate()"
+    "-only-testing:TactileTextsTests/BackupCloudServiceEndToEndTests/writeStoreKitTestCertificate()"
   echo "XCODE_STOREKIT_CERT=$(tr -d '\n' < /tmp/storekit-cert.txt)" >> .dev.vars
   ```
 
@@ -86,9 +86,9 @@ Then:
 npm run migrate:local
 npx wrangler dev --port 8797 --ip 127.0.0.1
 # in the repository root, with the bypass secret from .dev.vars:
-TEST_RUNNER_MARGINAL_BACKUP_SERVICE=127.0.0.1:8797 \
-TEST_RUNNER_MARGINAL_BACKUP_SERVICE_BYPASS=<APP_ATTEST_BYPASS_SECRET> \
-  scripts/test.sh --skip-packages -only-testing:MarginalTests/BackupCloudServiceEndToEndTests
+TEST_RUNNER_TACTILE_BACKUP_SERVICE=127.0.0.1:8797 \
+TEST_RUNNER_TACTILE_BACKUP_SERVICE_BYPASS=<APP_ATTEST_BYPASS_SECRET> \
+  scripts/test.sh --skip-packages -only-testing:TactileTextsTests/BackupCloudServiceEndToEndTests
 ```
 
 Two things differ from a deployment, because `wrangler dev`'s `BUCKET` binding is the *local*
@@ -217,7 +217,7 @@ seen); the signed transaction (and renewal info).
   "subscription": {
     "state": "active",
     "environment": "Production",
-    "productId": "software.tactile.marginal.backup.standard",
+    "productId": "software.tactile.texts.backup.standard",
     "expiresAt": "2026-12-01T00:00:00.000Z",
     "endedAt": null,
     "readOnlyUntil": null,

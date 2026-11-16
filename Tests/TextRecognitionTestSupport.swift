@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import ReaderCore
 import ReaderStore
-@testable import Marginal
+@testable import TactileTexts
 
 /// Fakes and fixtures for the text-recognition tests (S2).
 @MainActor

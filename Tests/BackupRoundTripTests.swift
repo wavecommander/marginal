@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The backup engine end to end (B3), app-hosted: back up a seeded library, restore it into a
 /// fresh store, through a folder destination, over books already in the Library (including on

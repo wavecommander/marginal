@@ -10,5 +10,5 @@ public enum BackupFormat {
     /// File extension of a snapshot archive, without the dot.
     public static let fileExtension = "ttbackup"
     /// Uniform type identifier of a snapshot archive (exported by the app).
-    public static let typeIdentifier = "software.tactile.marginal.backup"
+    public static let typeIdentifier = "software.tactile.texts.backup"
 }

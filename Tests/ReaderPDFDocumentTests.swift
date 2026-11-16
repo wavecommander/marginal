@@ -1,7 +1,7 @@
 import Foundation
 import PDFKit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `ReaderPDFDocument`'s batched document-span selection gives exactly PDFKit's selection.
 @MainActor

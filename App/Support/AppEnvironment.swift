@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import SwiftUI
 
-/// The composition root: created once per process by `MarginalApp` and shared by every window
+/// The composition root: created once per process by `TactileTextsApp` and shared by every window
 /// through the SwiftUI environment (`@Environment(AppEnvironment.self)`). Holds only app-wide
 /// things: the one `LibraryStore`, the launch options, and launch-time work. Nothing per window
 /// lives here (that is `WindowContext` and `ReaderSession`).
@@ -40,7 +40,7 @@ final class AppEnvironment {
     @ObservationIgnored let cloudBackup: TactileCloudBackup?
     /// Automatic-backup preferences and the outcome of the last automatic run.
     @ObservationIgnored let backupAutomaticSettings: BackupAutomaticSettings
-    /// Runs automatic backups (`MarginalApp` registers its background task and forwards the
+    /// Runs automatic backups (`TactileTextsApp` registers its background task and forwards the
     /// scene phase). Disarmed in a `-resetState` launch until automatic backups are switched on.
     @ObservationIgnored let backupScheduler: BackupScheduler
     /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.

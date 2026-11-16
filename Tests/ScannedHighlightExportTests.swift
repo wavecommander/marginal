@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// S4 · Scanned-page highlights in the Notebook and its three exports: the text-only Markdown
 /// (S1's caption form, and the ZIP is offered), the Markdown ZIP (the crop under `highlights/`,

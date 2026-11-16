@@ -3,7 +3,7 @@ import ReaderBackup
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The safety copy a restore keeps of the books it changes, and Undo Last Restore
 /// (`RestoreSafety.swift`), app-hosted.

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `LibraryActivity`: the user activity that opens a book in a new window.
 struct LibraryActivityTests {

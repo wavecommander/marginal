@@ -13,7 +13,7 @@ import S3Kit
 ///   host (`localhost`, `127.0.0.1`, `[::1]`) is reached over plain HTTP, for `wrangler dev`;
 ///   every other host over HTTPS.
 /// - `BACKUP_PRODUCT_IDS`: the subscription product IDs, separated by commas
-///   (`software.tactile.marginal.backup.standard`).
+///   (`software.tactile.texts.backup.standard`).
 /// - `BACKUP_SERVICE_ATTEST_BYPASS` (optional, **development only**): the `dev` Worker's
 ///   `APP_ATTEST_BYPASS_SECRET`, sent as `X-App-Attest-Bypass` where App Attest is not
 ///   supported (the simulator). Only debug builds read it; it ends up in the built app's

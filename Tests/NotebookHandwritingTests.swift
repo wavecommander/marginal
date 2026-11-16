@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Ink navigation in the Notebook: handwriting rows in the feed and the filter, live
 /// updates from page-ink changes, previews (off the main thread, light paper, bounded cache), and

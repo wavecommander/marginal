@@ -142,7 +142,7 @@ nonisolated struct SystemAppAttestService: AppAttestService {
 /// Apple's sandbox servers, and a TestFlight or App Store build always uses production
 /// (`com.apple.developer.devicecheck.appattest-environment` documentation).
 actor DeviceAppAttestClient: AppAttestClient {
-    static let defaultsKey = "software.tactile.marginal.cloud-backup.app-attest-key"
+    static let defaultsKey = "software.tactile.texts.cloud-backup.app-attest-key"
 
     private struct Record: Codable {
         var keyID: String

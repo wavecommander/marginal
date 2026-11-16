@@ -4,7 +4,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The recognition queue (S2) on `scanned.pdf`: Vision finds the known phrase with rects in page
 /// space, the typed cover is not recognised, a relaunch continues the count, pause reasons hold

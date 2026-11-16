@@ -3,7 +3,7 @@ import PencilKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Band layouts from real TextKit layout, and ink following the text.
 @MainActor

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Source this file:  source scripts/sim.sh
 # Exports REPO, SIM_11_NAME, SIM_13_NAME, SIM_UDID, BUNDLE_ID.
-# Set MARGINAL_SIM (device name or UDID) to use a specific simulator; default is the 11-inch.
+# Set TACTILE_SIM (device name or UDID) to use a specific simulator; default is the 11-inch.
 # Nothing here boots a device on its own; call `sim_boot`.
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO
 export SIM_11_NAME="iPad Pro 11-inch (M5)"
 export SIM_13_NAME="iPad Pro 13-inch (M5)"
-export BUNDLE_ID="software.tactile.marginal"
+export BUNDLE_ID="software.tactile.texts"
 
 _sim_resolve() {
-  local want="${MARGINAL_SIM:-$SIM_11_NAME}"
+  local want="${TACTILE_SIM:-$SIM_11_NAME}"
   # A UDID is used as is; a name is looked up among available devices.
   if [[ "$want" =~ ^[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$ ]]; then
     printf '%s\n' "$want"
@@ -28,7 +28,7 @@ print(devs[0]["udid"] if devs else "")
 
 SIM_UDID="$(_sim_resolve)"
 if [[ -z "$SIM_UDID" ]]; then
-  echo "sim.sh: no simulator matches '${MARGINAL_SIM:-$SIM_11_NAME}'" >&2
+  echo "sim.sh: no simulator matches '${TACTILE_SIM:-$SIM_11_NAME}'" >&2
   return 1 2>/dev/null || exit 1
 fi
 export SIM_UDID

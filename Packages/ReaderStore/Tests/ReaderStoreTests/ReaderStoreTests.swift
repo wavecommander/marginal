@@ -429,7 +429,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         #expect(try again.bookmarks.isBookmarked(bookID: book.id, pageIndex: 4))
         #expect(try await again.pageInk(bookID: book.id, pageIndex: 3) == Data([7, 7]))
         // The store file lives inside the root.
-        let db = root.url.appendingPathComponent("Database/Marginal.store")
+        let db = root.url.appendingPathComponent("Database/TactileTexts.store")
         #expect(FileManager.default.fileExists(atPath: db.path))
     }
 
@@ -514,7 +514,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         let junk = root.url.appendingPathComponent("Books/\(UUID().uuidString)/ink", isDirectory: true)
         try FileManager.default.createDirectory(at: junk, withIntermediateDirectories: true)
         try Data([1]).write(to: junk.appendingPathComponent("0.drawing"))
-        try Data([1]).write(to: root.url.appendingPathComponent("Database/Marginal.store-wal"))
+        try Data([1]).write(to: root.url.appendingPathComponent("Database/TactileTexts.store-wal"))
 
         for _ in 0..<2 {
             let fresh = try LibraryStore.live(rootDirectory: root.url, reset: true)
@@ -666,20 +666,20 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
     /// fields read as `nil`. Then a converted book can be saved into the migrated store.
     @Test func versionOneStoreOpensAsVersionTwo() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        let storeURL = root.url.appendingPathComponent("Marginal.store")
+        let storeURL = root.url.appendingPathComponent("TactileTexts.store")
         let book = Book(title: "Old", fingerprint: "fp-old", fileName: "old.pdf", pageCount: 40, fileSize: 123,
                         addedAt: Date(timeIntervalSince1970: 1_700_000_000),
                         lastOpenedAt: Date(timeIntervalSince1970: 1_700_000_500), lastReadPageIndex: 7)
         let noteID = UUID()
         do {
-            let schema = Schema(versionedSchema: MarginalSchemaV1.self)
+            let schema = Schema(versionedSchema: TactileTextsSchemaV1.self)
             let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
             let context = ModelContext(container)
-            context.insert(MarginalSchemaV1.BookModel(book))
-            context.insert(MarginalSchemaV1.NoteModel(id: noteID, bookID: book.id, targetKey: NoteTarget.page(3).storageKey,
+            context.insert(TactileTextsSchemaV1.BookModel(book))
+            context.insert(TactileTextsSchemaV1.NoteModel(id: noteID, bookID: book.id, targetKey: NoteTarget.page(3).storageKey,
                                                       pageIndex: 3, text: "kept", hasInk: false, bandLayoutData: nil,
                                                       createdAt: book.addedAt, modifiedAt: book.addedAt))
-            context.insert(MarginalSchemaV1.BookmarkModel(id: UUID(), bookID: book.id, pageIndex: 5, createdAt: book.addedAt))
+            context.insert(TactileTextsSchemaV1.BookmarkModel(id: UUID(), bookID: book.id, pageIndex: 5, createdAt: book.addedAt))
             try context.save()
         }
 
@@ -704,7 +704,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
     /// highlight can be saved into the migrated store, and both survive reopening.
     @Test func versionTwoStoreWithHighlightsOpensAsVersionThree() throws {
         let root = TempRoot(); defer { root.cleanup() }
-        let storeURL = root.url.appendingPathComponent("Marginal.store")
+        let storeURL = root.url.appendingPathComponent("TactileTexts.store")
         let book = Book(title: "Has highlights", fingerprint: "fp-v2", fileName: "v2.pdf", pageCount: 40, fileSize: 123,
                         addedAt: Date(timeIntervalSince1970: 1_700_000_000), sourceFormat: .epub, originalFileName: "v2.epub",
                         converterVersion: 2)
@@ -716,13 +716,13 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
             Highlight(bookID: book.id, pageIndex: 9, rects: [rects[0]], color: .yellow, text: "", createdAt: Date(timeIntervalSince1970: 1_700_000_300)),
         ]
         do {
-            let schema = Schema(versionedSchema: MarginalSchemaV2.self)
+            let schema = Schema(versionedSchema: TactileTextsSchemaV2.self)
             let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
             let context = ModelContext(container)
-            context.insert(MarginalSchemaV2.BookModel(book))
+            context.insert(TactileTextsSchemaV2.BookModel(book))
             for h in old {
                 let bounds = h.bounds
-                context.insert(MarginalSchemaV1.HighlightModel(id: h.id, bookID: h.bookID, pageIndex: h.pageIndex,
+                context.insert(TactileTextsSchemaV1.HighlightModel(id: h.id, bookID: h.bookID, pageIndex: h.pageIndex,
                                                                rectsData: try JSONEncoder().encode(h.rects), colorRaw: h.color.rawValue,
                                                                text: h.text, createdAt: h.createdAt, sortRank: bounds.isNull ? 1 : 0,
                                                                sortMaxY: bounds.isNull ? 0 : bounds.maxY, sortMinX: bounds.isNull ? 0 : bounds.minX))

@@ -45,7 +45,7 @@ nonisolated enum CloudBackupUITestState: String, CaseIterable, Sendable {
 @MainActor
 enum CloudBackupUITestMode {
     nonisolated static let argument = "-cloudBackupUITest"
-    nonisolated static let productID = "software.tactile.marginal.backup.standard"
+    nonisolated static let productID = "software.tactile.texts.backup.standard"
     nonisolated static let groupID = "21800001"
     nonisolated static let serviceHost = "cloud.ui-test"
     nonisolated static let storageHost = "r2.ui-test"
@@ -55,7 +55,7 @@ enum CloudBackupUITestMode {
     nonisolated static let recoveryKey = "0C51-260Z-4RPK-8ET2-9585-EQK5-DHSQ-N0C8-HYB9-V95B-PAWW-1HYE-TQE0-045G"
     /// Another valid recovery key, not the backups' (`differentKey` holds it; tests type it).
     nonisolated static let otherRecoveryKey = "CNS7-Z34S-MTSW-1KET-WZT0-23GV-50TM-4KTW-D5V8-744X-NAVW-9MEY-XFW0-R2A5"
-    nonisolated static let defaultsSuite = "software.tactile.marginal.cloud-backup-ui-test"
+    nonisolated static let defaultsSuite = "software.tactile.texts.cloud-backup-ui-test"
 
     /// Tactile Texts Cloud on fakes, in `state`; `nil` for a name that isn't a state.
     static func make(stateName: String) -> TactileCloudBackup? {

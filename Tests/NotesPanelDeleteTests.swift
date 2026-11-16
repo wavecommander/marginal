@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Deleting a note from the notes panel (design: "Deleting a note"): `NotePageModel.deleteNote()`
 /// and `NotesPanelController.delete(_:)` (the header's Delete Note).

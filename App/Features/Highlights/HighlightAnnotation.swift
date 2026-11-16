@@ -39,7 +39,7 @@ nonisolated final class HighlightAnnotation: PDFAnnotation {
         isReadOnly = true
         shouldPrint = false
         shouldDisplay = true
-        userName = "Marginal"
+        userName = "Tactile Texts"
     }
 
     @available(*, unavailable)

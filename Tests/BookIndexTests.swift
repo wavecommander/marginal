@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// One book shown in several windows at once (two readers and a Notebook): every window's
 /// outline and Notebook tree follow the same stored data.

@@ -4,7 +4,7 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>software.tactile.marginal.backup</string>
+		<string>software.tactile.texts.backup</string>
 	</array>
 	<key>BackupService</key>
 	<dict>
@@ -58,7 +58,7 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>software.tactile.marginal.cbz</string>
+				<string>software.tactile.texts.cbz</string>
 				<string>public.zip-archive</string>
 			</array>
 		</dict>
@@ -137,7 +137,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>software.tactile.marginal.backup</string>
+				<string>software.tactile.texts.backup</string>
 			</array>
 		</dict>
 	</array>
@@ -163,7 +163,7 @@
 	<true/>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.software.tactile.marginal</key>
+		<key>iCloud.software.tactile.texts</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
@@ -175,7 +175,7 @@
 	</dict>
 	<key>NSUserActivityTypes</key>
 	<array>
-		<string>software.tactile.marginal.openBook</string>
+		<string>software.tactile.texts.openBook</string>
 	</array>
 	<key>S3Backup</key>
 	<dict>
@@ -225,7 +225,7 @@
 			<key>UTTypeDescription</key>
 			<string>Tactile Texts Backup</string>
 			<key>UTTypeIdentifier</key>
-			<string>software.tactile.marginal.backup</string>
+			<string>software.tactile.texts.backup</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -246,7 +246,7 @@
 			<key>UTTypeDescription</key>
 			<string>Comic Book Archive</string>
 			<key>UTTypeIdentifier</key>
-			<string>software.tactile.marginal.cbz</string>
+			<string>software.tactile.texts.cbz</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -268,7 +268,7 @@
 			<key>UTTypeDescription</key>
 			<string>Comic Book Archive (RAR)</string>
 			<key>UTTypeIdentifier</key>
-			<string>software.tactile.marginal.cbr</string>
+			<string>software.tactile.texts.cbr</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -289,7 +289,7 @@
 			<key>UTTypeDescription</key>
 			<string>Kindle Book</string>
 			<key>UTTypeIdentifier</key>
-			<string>software.tactile.marginal.kindle-book</string>
+			<string>software.tactile.texts.kindle-book</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -315,7 +315,7 @@
 			<key>UTTypeDescription</key>
 			<string>DjVu Document</string>
 			<key>UTTypeIdentifier</key>
-			<string>software.tactile.marginal.djvu</string>
+			<string>software.tactile.texts.djvu</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

@@ -4,7 +4,7 @@ import OSLog
 import ReaderBackup
 import ReaderCore
 
-let backupLog = Logger(subsystem: "software.tactile.marginal", category: "Backup")
+let backupLog = Logger(subsystem: "software.tactile.texts", category: "Backup")
 
 // MARK: - Layout
 

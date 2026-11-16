@@ -7,7 +7,7 @@ import SwiftUI
 /// Every window hosts a `WindowRootView` (Library at the root, a reader or Notebook pushed in
 /// place). One `AppEnvironment` is shared by all windows; each reader has its own session.
 @main
-struct MarginalApp: App {
+struct TactileTextsApp: App {
     @State private var environment: AppEnvironment
     @Environment(\.scenePhase) private var scenePhase
 

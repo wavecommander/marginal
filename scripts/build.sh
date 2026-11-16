@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generates the Xcode project and builds the app for the simulator.
-# Env: MARGINAL_SIM (device name or UDID, default iPad Pro 11-inch).
+# Env: TACTILE_SIM (device name or UDID, default iPad Pro 11-inch).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sim.sh"
 cd "$REPO"
@@ -11,7 +11,7 @@ LOG="$REPO/build/build.log"
 mkdir -p "$REPO/build"
 set +e
 xcodebuild build \
-  -project Marginal.xcodeproj -scheme Marginal \
+  -project TactileTexts.xcodeproj -scheme TactileTexts \
   -destination "id=$SIM_UDID" \
   -derivedDataPath "$REPO/build/DerivedData" \
   -skipPackagePluginValidation \

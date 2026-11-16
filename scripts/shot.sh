@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: scripts/shot.sh <name> [launch args...]   -> build/shots/<name>.png
-# Env: MARGINAL_SIM (device name or UDID), SHOT_DELAY (seconds to wait after launch, default 4),
+# Env: TACTILE_SIM (device name or UDID), SHOT_DELAY (seconds to wait after launch, default 4),
 #      SHOT_NO_BUILD=1 to skip building.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sim.sh"
@@ -10,7 +10,7 @@ if [[ $# -lt 1 ]]; then echo "usage: shot.sh <name> [launch args...]" >&2; exit 
 NAME="$1"; shift
 
 if [[ -z "${SHOT_NO_BUILD:-}" ]]; then "$REPO/scripts/build.sh" >/dev/null; fi
-APP="$REPO/build/DerivedData/Build/Products/Debug-iphonesimulator/Marginal.app"
+APP="$REPO/build/DerivedData/Build/Products/Debug-iphonesimulator/TactileTexts.app"
 [[ -d "$APP" ]] || { echo "shot.sh: $APP not found" >&2; exit 1; }
 
 sim_boot

@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// S4 helpers: a store holding a copy of `scanned.pdf` (page 1 typed, pages 2 to 30 pictures of
 /// text with no text layer; "The quiet heron measures tidewater." is the first body line of page

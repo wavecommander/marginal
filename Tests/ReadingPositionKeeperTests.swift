@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The rule behind "the reading position is stable", as phase transitions of
 /// `ReadingPositionKeeper` on a clock the test moves by hand: which offset changes are the reader

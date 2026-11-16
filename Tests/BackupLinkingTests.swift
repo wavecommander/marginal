@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Linking a PDF to a book restored without it (B3): through the normal import path and through
 /// `ImportService.linkPDF`, refusing a different PDF and a same-fingerprint, different-content

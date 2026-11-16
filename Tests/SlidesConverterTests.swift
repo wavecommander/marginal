@@ -3,7 +3,7 @@ import PDFKit
 import ReaderCore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The PowerPoint / Keynote converter, called directly on the committed decks
 /// (Tests/Fixtures/f6-slides.pptx, 5 slides; f6-deck-40.pptx, 40 slides).

@@ -5,7 +5,7 @@ import Foundation
 import Network
 import PDFKit
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 // Fixtures and instruments for the EPUB converter tests. Every EPUB is built here, in code.
 

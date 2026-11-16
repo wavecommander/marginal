@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Page ink saving and loading through an ephemeral `LibraryStore`: round trip, empty drawings,
 /// debounce and flush, stale loads, leaving the screen mid-save, and the two-window reconcile

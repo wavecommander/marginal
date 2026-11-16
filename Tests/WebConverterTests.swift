@@ -2,7 +2,7 @@ import Foundation
 import PDFKit
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// The shared web-converter pieces: the scheme's path rules, the text locator and the renderer
 /// on a plain document.

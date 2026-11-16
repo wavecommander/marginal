@@ -1,6 +1,6 @@
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// Settings ▸ Supported Formats (F7): which groups and formats it lists, from the converters the
 /// app has, and that every kind of file it can't import has words.

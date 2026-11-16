@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import S3Kit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `BackupServiceClient` against the fake Worker: attestation, assertions over the exact body,
 /// the retry-once paths, the simulator bypass, and every contract error code.

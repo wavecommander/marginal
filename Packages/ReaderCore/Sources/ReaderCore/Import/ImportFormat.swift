@@ -91,7 +91,7 @@ public enum ImportFormat: String, Codable, Sendable, CaseIterable, Hashable {
         switch self {
         case .pdf: ["com.adobe.pdf"]
         case .epub: ["org.idpf.epub-container"]
-        case .comicArchive: ["software.tactile.marginal.cbz", "public.zip-archive"]
+        case .comicArchive: ["software.tactile.texts.cbz", "public.zip-archive"]
         case .image: ["public.image"]
         case .plainText: ["public.plain-text"]
         case .markdown: ["net.daringfireball.markdown"]
@@ -146,11 +146,11 @@ public enum ImportFormatCatalog {
     /// Pages or Keynote).
     public static var declaredTypes: [DeclaredType] {
         [
-            DeclaredType(identifier: "software.tactile.marginal.cbz", fileExtensions: ["cbz"]),
-            DeclaredType(identifier: "software.tactile.marginal.cbr", fileExtensions: ["cbr"]),
-            DeclaredType(identifier: "software.tactile.marginal.kindle-book",
+            DeclaredType(identifier: "software.tactile.texts.cbz", fileExtensions: ["cbz"]),
+            DeclaredType(identifier: "software.tactile.texts.cbr", fileExtensions: ["cbr"]),
+            DeclaredType(identifier: "software.tactile.texts.kindle-book",
                          fileExtensions: UnsupportedImportFormat.kindle.fileExtensions),
-            DeclaredType(identifier: "software.tactile.marginal.djvu", fileExtensions: UnsupportedImportFormat.djvu.fileExtensions),
+            DeclaredType(identifier: "software.tactile.texts.djvu", fileExtensions: UnsupportedImportFormat.djvu.fileExtensions),
             DeclaredType(identifier: "net.daringfireball.markdown", fileExtensions: ImportFormat.markdown.allFileExtensions),
             DeclaredType(identifier: "com.apple.iwork.pages.pages", fileExtensions: ImportFormat.pages.allFileExtensions),
             DeclaredType(identifier: "com.apple.iwork.keynote.key", fileExtensions: ImportFormat.keynote.allFileExtensions),

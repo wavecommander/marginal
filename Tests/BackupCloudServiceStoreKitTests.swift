@@ -3,21 +3,21 @@ import StoreKit
 import StoreKitTest
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 private final class BundleMarker {}
 
 /// `BackupSubscription` over the real StoreKit (`AppStoreBackupStore`), with a StoreKit test
-/// session reading `Config/Marginal.storekit` (copied into the test bundle): no App Store
+/// session reading `Config/TactileTexts.storekit` (copied into the test bundle): no App Store
 /// account, no network. Serialized: the test session is shared by the whole process.
 @MainActor
 @Suite(.serialized)
 struct BackupCloudServiceStoreKitTests {
-    static let productID = "software.tactile.marginal.backup.standard"
+    static let productID = "software.tactile.texts.backup.standard"
 
     func session() throws -> SKTestSession {
-        let url = try #require(Bundle(for: BundleMarker.self).url(forResource: "Marginal", withExtension: "storekit"),
-                               "Marginal.storekit is not in the test bundle")
+        let url = try #require(Bundle(for: BundleMarker.self).url(forResource: "TactileTexts", withExtension: "storekit"),
+                               "TactileTexts.storekit is not in the test bundle")
         let session = try SKTestSession(contentsOf: url)
         session.resetToDefaultState()
         session.disableDialogs = true
@@ -49,17 +49,17 @@ struct BackupCloudServiceStoreKitTests {
 
     /// The in-app purchase path (`Product.purchase`). In this setup (app-hosted unit tests, an
     /// unsigned simulator build) the system answers it with the App Store sign-in sheet instead of
-    /// the test session, so the test only runs when `MARGINAL_STOREKIT_PURCHASE_TEST` is set and
+    /// the test session, so the test only runs when `TACTILE_STOREKIT_PURCHASE_TEST` is set and
     /// someone is there to watch; it records what happened.
-    /// (`TEST_RUNNER_MARGINAL_STOREKIT_PURCHASE_TEST=1 scripts/test.sh …` passes it through.)
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["MARGINAL_STOREKIT_PURCHASE_TEST"] != nil))
+    /// (`TEST_RUNNER_TACTILE_STOREKIT_PURCHASE_TEST=1 scripts/test.sh …` passes it through.)
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["TACTILE_STOREKIT_PURCHASE_TEST"] != nil))
     func purchaseThroughTheApp() async throws {
         let session = try session()
         defer { session.clearTransactions() }
         let model = BackupSubscription(productIDs: [Self.productID], store: AppStoreBackupStore())
         await model.load()
         do {
-            let withScene = ProcessInfo.processInfo.environment["MARGINAL_STOREKIT_PURCHASE_TEST"] == "scene"
+            let withScene = ProcessInfo.processInfo.environment["TACTILE_STOREKIT_PURCHASE_TEST"] == "scene"
             let outcome = try await model.purchase(Self.productID, confirmIn: withScene ? scene : nil)
             #expect(outcome == .purchased, "purchase outcome: \(outcome)")
         } catch {

@@ -1,8 +1,8 @@
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
-/// `BuildInfo`: reading the version and the `MarginalBuild` stamp (`scripts/stamp-build-info.sh`)
+/// `BuildInfo`: reading the version and the `TactileTextsBuild` stamp (`scripts/stamp-build-info.sh`)
 /// from the Info.plist, for Settings ▸ About.
 struct BuildInfoTests {
     static func info(branch: Any? = "build-v1", commit: Any? = "1032119", dirty: Any? = false,
@@ -12,7 +12,7 @@ struct BuildInfoTests {
         stamp["Commit"] = commit
         stamp["Dirty"] = dirty
         stamp["Time"] = time
-        return ["CFBundleShortVersionString": "0.1", "CFBundleVersion": "1", "MarginalBuild": stamp]
+        return ["CFBundleShortVersionString": "0.1", "CFBundleVersion": "1", "TactileTextsBuild": stamp]
     }
 
     @Test func readsACompleteStamp() {
@@ -26,7 +26,7 @@ struct BuildInfoTests {
     }
 
     @Test func noStampMeansUnknown() {
-        for dictionary: [String: Any]? in [nil, [:], ["MarginalBuild": "nope"]] {
+        for dictionary: [String: Any]? in [nil, [:], ["TactileTextsBuild": "nope"]] {
             let build = BuildInfo.fromInfoDictionary(dictionary)
             #expect(build.branch == nil)
             #expect(build.commit == nil)

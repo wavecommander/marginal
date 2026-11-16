@@ -73,7 +73,7 @@ nonisolated enum BackupKeyStoreError: LocalizedError, Hashable, Sendable {
 /// every call fails with `errSecMissingEntitlement` (-34018).
 nonisolated struct KeychainBackupKeyStore: BackupKeyStore, CustomStringConvertible {
     /// The item's service attribute in the app.
-    static let defaultService = "software.tactile.marginal.cloud-backup"
+    static let defaultService = "software.tactile.texts.cloud-backup"
     static let account = "backup-encryption-key"
     /// The accessibility class of the item.
     static var accessibility: CFString { kSecAttrAccessibleAfterFirstUnlock }

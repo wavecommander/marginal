@@ -4,7 +4,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// Highlights against a real reader session and `PDFView` (the generated `small.pdf`): selection to
 /// highlights, the overlap rule, hit-testing and taps, applying and removing per displayed

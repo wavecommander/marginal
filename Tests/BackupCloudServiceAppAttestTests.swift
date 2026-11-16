@@ -2,7 +2,7 @@ import CryptoKit
 import DeviceCheck
 import Foundation
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `AppAttestClient`: the fake, the system service in the simulator (unsupported), and
 /// `DeviceAppAttestClient` over a scripted service for key handling and error mapping.
@@ -56,7 +56,7 @@ struct BackupCloudServiceAppAttestTests {
     }
 
     func client(_ service: ScriptedService) -> (DeviceAppAttestClient, String) {
-        let suite = "software.tactile.marginal.tests.attest.\(UUID().uuidString)"
+        let suite = "software.tactile.texts.tests.attest.\(UUID().uuidString)"
         return (DeviceAppAttestClient(service: service, defaultsSuiteName: suite), suite)
     }
 
@@ -64,7 +64,7 @@ struct BackupCloudServiceAppAttestTests {
 
     @Test(.timeLimit(.minutes(1))) func theSimulatorCannotAttest() async throws {
         #expect(!SystemAppAttestService().isSupported)
-        let suite = "software.tactile.marginal.tests.attest.\(UUID().uuidString)"
+        let suite = "software.tactile.texts.tests.attest.\(UUID().uuidString)"
         let client = DeviceAppAttestClient(defaultsSuiteName: suite)
         #expect(!client.isSupported)
         await #expect(throws: AppAttestError.unsupported) { _ = try await client.keyID() }

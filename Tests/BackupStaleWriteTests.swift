@@ -5,7 +5,7 @@ import ReaderCore
 import ReaderStore
 import Testing
 import UIKit
-@testable import Marginal
+@testable import TactileTexts
 
 /// No stale write lands after a restore (B3, item 5): a restore replaces a book under the same
 /// ID, its open reader session and note editor see `.bookDeleted`, and any later save from them

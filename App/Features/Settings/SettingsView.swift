@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The in-app Settings sheet (iPadOS has no system Settings entry for Marginal, and there is no
+/// The in-app Settings sheet (iPadOS has no system Settings entry for Tactile Texts, and there is no
 /// `Settings.bundle`, so this is the one place for preferences). Opened from the Library's gear
 /// button and from "Settings…" (⌘,) in any window (`WindowContext.showSettings()`).
 ///
@@ -244,8 +244,8 @@ struct AccentPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.l) {
             HStack(spacing: Space.s) {
-                Button("Resume") {}.buttonStyle(.marginalPrimary)
-                Button("Open Notebook") {}.buttonStyle(.marginalTonal)
+                Button("Resume") {}.buttonStyle(.tactilePrimary)
+                Button("Open Notebook") {}.buttonStyle(.tactileTonal)
             }
             HStack {
                 Image(systemName: "note.text")

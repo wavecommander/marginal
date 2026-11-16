@@ -993,7 +993,7 @@ nonisolated final class SearchMarkAnnotation: PDFAnnotation {
         isReadOnly = true
         shouldPrint = false
         shouldDisplay = true
-        userName = "Marginal search"
+        userName = "Tactile Texts search"
     }
 
     @available(*, unavailable)

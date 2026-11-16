@@ -3,7 +3,7 @@ import GoogleDriveKit
 import ReaderBackup
 import S3Kit
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// `S3BackupDestination` and `S3BackupConfiguration`, against a fake bucket behind a
 /// `URLProtocol` stub.

@@ -6,7 +6,7 @@ import ReaderCore
 ///
 /// **Format (version 1):** a binary property list (`PropertyListEncoder`, `.binary`) of
 ///
-///     format:  "software.tactile.marginal.note-ink"
+///     format:  "software.tactile.texts.note-ink"
 ///     version: 1
 ///     layout:  NoteBandLayout   — the band layout the strokes are anchored to
 ///     bands:   [Int]            — per stroke, in z-order: paragraph index, or -1 for trailing
@@ -22,7 +22,7 @@ import ReaderCore
 /// strokes in note-page coordinates against `fallbackLayout`, anchored by geometry. A `bands`
 /// array whose length does not match the drawing's strokes is ignored the same way.
 nonisolated enum NoteInkArchive {
-    static let formatIdentifier = "software.tactile.marginal.note-ink"
+    static let formatIdentifier = "software.tactile.texts.note-ink"
     static let currentVersion = 1
 
     private struct Payload: Codable {

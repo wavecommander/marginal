@@ -2,7 +2,7 @@ import ReaderCore
 import SwiftUI
 import UIKit
 
-/// Marginal's colour tokens: "paper and ink".
+/// Tactile Texts' colour tokens: "paper and ink".
 ///
 /// Light is warm paper under dark ink; dark is a warm charcoal "night paper" (never pure black,
 /// never cold grey). Every token is a dynamic colour, so views never branch on colour scheme.

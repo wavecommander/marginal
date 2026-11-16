@@ -2,7 +2,7 @@ import Foundation
 import ReaderCore
 import ReaderStore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The notes panel controller on a real session over `small.pdf` (12 pages; "1 Linear Systems"
 /// p1 with 1.1 p2 and 1.2 p4; "2 Vector Spaces" p5 with 2.1 p6 and 2.2 p8; "3 Eigenvalues" p9

@@ -9,8 +9,8 @@ import UniformTypeIdentifiers
 /// opens the reader in place. The type must be listed in the app's `NSUserActivityTypes`
 /// (Info.plist, via `project.yml`) for the system to route it to this app's scenes.
 nonisolated enum LibraryActivity {
-    /// `software.tactile.marginal.openBook`
-    static let openBookType = "software.tactile.marginal.openBook"
+    /// `software.tactile.texts.openBook`
+    static let openBookType = "software.tactile.texts.openBook"
     static let bookIDKey = "bookID"
 
     static func makeActivity(bookID: UUID, title: String) -> NSUserActivity {

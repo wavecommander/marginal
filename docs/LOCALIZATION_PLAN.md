@@ -269,7 +269,7 @@ otherwise.
 ### L1a · Strings: library, import, commands, shell · Opus
 
 Owns `App/Features/Library/`, `App/Support/` (except the accessibility-identifier files and
-`BidiIsolated.swift`), `App/MarginalApp.swift`, `App/DesignSystem/Components.swift` and
+`BidiIsolated.swift`), `App/TactileTextsApp.swift`, `App/DesignSystem/Components.swift` and
 `App/Features/Reader/ReaderHost.swift`.
 
 - Turn every user-facing literal into a catalog key with a comment. This covers the menu bar

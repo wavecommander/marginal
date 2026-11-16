@@ -122,8 +122,8 @@ final class CloudBackupAccount {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var stateAtLastRefresh: BackupSubscription.State?
 
-    static let recoveryKeyShownKey = "software.tactile.marginal.cloud-backup.recovery-key-shown"
-    static let recoveryKeySavedKey = "software.tactile.marginal.cloud-backup.recovery-key-saved"
+    static let recoveryKeyShownKey = "software.tactile.texts.cloud-backup.recovery-key-shown"
+    static let recoveryKeySavedKey = "software.tactile.texts.cloud-backup.recovery-key-saved"
     /// Delete-everything gives up after this many unfinished batches (100,000 objects each).
     static let maxDeletionRounds = 200
 

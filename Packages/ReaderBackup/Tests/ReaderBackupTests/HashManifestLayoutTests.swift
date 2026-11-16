@@ -125,7 +125,7 @@ struct BackupManifestTests {
     }
 
     @Test func aPDFFileNameThatLeavesTheBookDirectoryIsRefused() throws {
-        for name in ["", "..", ".hidden.pdf", "a/b.pdf", "..\\b.pdf", "../../Database/Marginal.store", "x\u{0}.pdf",
+        for name in ["", "..", ".hidden.pdf", "a/b.pdf", "..\\b.pdf", "../../Database/TactileTexts.store", "x\u{0}.pdf",
                      "document.sha256", "records.json", String(repeating: "a", count: 256)] {
             var manifest = Self.manifest()
             manifest.books[0].book.fileName = name

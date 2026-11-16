@@ -2,7 +2,7 @@ import Foundation
 import ReaderBackup
 import ReaderCore
 import Testing
-@testable import Marginal
+@testable import TactileTexts
 
 /// The Backup screens' plain decisions (`BackupUILogic.swift`, `BackupJobText`).
 struct BackupUILogicTests {

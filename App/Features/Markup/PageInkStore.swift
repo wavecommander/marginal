@@ -4,7 +4,7 @@ import PencilKit
 import ReaderCore
 import UIKit
 
-let pageInkLog = Logger(subsystem: "software.tactile.marginal", category: "PageInk")
+let pageInkLog = Logger(subsystem: "software.tactile.texts", category: "PageInk")
 
 /// One stored state of a page's ink: the data as stored (`nil`: no file) and its drawing.
 nonisolated struct PageInkVersion: Sendable {
