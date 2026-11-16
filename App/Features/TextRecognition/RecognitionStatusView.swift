@@ -122,12 +122,30 @@ struct SearchRecognitionStatus: View {
     let session: ReaderSession
     let model: SearchModel
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// Tallest the status may be at accessibility text sizes, where the offer alone would fill
+    /// the panel above the keyboard: beyond it, the status scrolls and the field and results
+    /// keep their room.
+    static let maximumAccessibilityHeight: CGFloat = 260
 
     var body: some View {
         if let status = RecognitionStatus.make(state: model.recognitionState, pageCount: session.pageCount) {
-            RecognitionStatusView(status: status, perform: perform)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            let view = RecognitionStatusView(status: status, perform: perform)
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    ViewThatFits(in: .vertical) {
+                        view
+                        ScrollView { view }
+                            .scrollIndicators(.visible)
+                    }
+                    .frame(maxHeight: Self.maximumAccessibilityHeight)
+                } else {
+                    view
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
