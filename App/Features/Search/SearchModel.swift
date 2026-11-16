@@ -26,6 +26,13 @@ import ReaderCore
 /// Matched alongside the text (`AnnotationSearch`), re-read whenever this book's notes or
 /// highlights change in any window (store change hub), and regrouped whenever the outline
 /// changes (user headings added in any window).
+///
+/// ## Scanned books (S2)
+/// Pages with no text of their own are searched in their recognised text (`PDFTextSearch`,
+/// `RecognisedTextSource`). A page recognised after the scan has passed it (the hub's
+/// `.recognisedTextChanged`) is searched again on its own, once (`RecognisedPageLedger`), and
+/// its hits join the results without restarting the search. `recognitionState` and
+/// `isPageSearchPartial` tell the search panel's status (S3) where recognition stands.
 @Observable
 @MainActor
 final class SearchModel {
@@ -74,6 +81,17 @@ final class SearchModel {
     var resultCount: Int { textHitCount + annotationResultCount }
     var isSearching: Bool { phase == .searching }
 
+    /// The book's text-recognition state (`nil` for a book with a text layer), kept current
+    /// from the store in every window (`.recognitionStateChanged`).
+    private(set) var recognitionState: RecognitionState?
+    /// Page search covers only the pages recognised so far: the book is scanned and its
+    /// recognition is not complete (not decided, declined, in progress or paused). Results
+    /// arrive as more pages are recognised. The search panel says so (S3).
+    var isPageSearchPartial: Bool {
+        guard let recognitionState else { return false }
+        return recognitionState != .complete
+    }
+
     /// Main-thread cost of applying streamed hits (regrouping), in thread CPU time, since the
     /// current search started. For diagnostics and the responsiveness test.
     struct UpdateCost: Equatable {
@@ -104,6 +122,15 @@ final class SearchModel {
     @ObservationIgnored private var closingAfterChoice = false
     @ObservationIgnored private let pageDelay: Duration
     @ObservationIgnored private let hitCap: Int
+    /// The current query's pages searched without recognised text (see the type's comment).
+    @ObservationIgnored private(set) var ledger = RecognisedPageLedger()
+    /// Pages waiting to be searched again now that they are recognised.
+    @ObservationIgnored private var catchUpPages: Set<Int> = []
+    @ObservationIgnored private var catchUpTask: Task<Void, Never>?
+    @ObservationIgnored private var catchUpID = 0
+    @ObservationIgnored private var recognitionStateTask: Task<Void, Never>?
+    /// Pages searched again after being recognised (tests and diagnostics).
+    @ObservationIgnored private(set) var caughtUpPages: [Int] = []
 
     init(session: ReaderSession, hitCap: Int = PDFTextSearch.defaultHitCap, pageDelay: Duration? = nil) {
         self.session = session
@@ -118,12 +145,17 @@ final class SearchModel {
             switch event.change {
             case .noteSaved, .noteRemoved, .highlightsChanged:
                 self?.scheduleAnnotationRefresh()
+            case .recognisedTextChanged(_, let page?):
+                self?.pageWasRecognised(page)
+            case .recognitionStateChanged:
+                self?.reloadRecognitionState()
             default:
                 break
             }
         }
         session.pdf.addTapHandler(self)
         observeOutline()
+        reloadRecognitionState()
     }
 
     deinit {
@@ -133,6 +165,8 @@ final class SearchModel {
         debounceTask?.cancel()
         searchTask?.cancel()
         annotationRefreshTask?.cancel()
+        catchUpTask?.cancel()
+        recognitionStateTask?.cancel()
     }
 
     // MARK: Query
@@ -170,6 +204,7 @@ final class SearchModel {
 
     /// Clears the previous query's results and shows the new query as searching.
     private func prepareNewSearch() {
+        resetRecognisedPageTracking()
         textHits = []
         annotationResults = []
         selectedResultID = nil
@@ -188,6 +223,7 @@ final class SearchModel {
     }
 
     private func reset() {
+        resetRecognisedPageTracking()
         textHits = []
         annotationResults = []
         searchedQuery = ""
@@ -243,12 +279,78 @@ final class SearchModel {
         let id = runID
         phase = .searching
         let stream = PDFTextSearch.stream(url: session.documentURL, query: searchedQuery, startPage: startPage,
-                                          hitCap: hitCap, pageDelay: pageDelay)
+                                          hitCap: hitCap, pageDelay: pageDelay,
+                                          recognised: recognisedTextSource(session))
         searchTask = Task { [weak self] in
             for await event in stream {
                 guard let self, self.runID == id else { return }
                 self.apply(event)
             }
+        }
+    }
+
+    private func recognisedTextSource(_ session: ReaderSession) -> RecognisedTextSource {
+        RecognisedTextSource(store: session.store.recognisedText, bookID: session.book.id, ledger: ledger)
+    }
+
+    // MARK: Recognised pages (scanned books)
+
+    /// A new query (or none): pages missed by the previous one no longer matter.
+    private func resetRecognisedPageTracking() {
+        ledger = RecognisedPageLedger()
+        catchUpID += 1
+        catchUpTask?.cancel()
+        catchUpTask = nil
+        catchUpPages = []
+        caughtUpPages = []
+    }
+
+    /// The hub announced a recognised page. If the current search passed it without recognised
+    /// text, it is searched again now; if the search has not reached it, the scan finds it.
+    private func pageWasRecognised(_ page: Int) {
+        guard !searchedQuery.isEmpty, ledger.pageRecognised(page) else { return }
+        catchUpPages.insert(page)
+        startCatchUpIfNeeded()
+    }
+
+    /// Searches the pages waiting in `catchUpPages` (one engine run at a time, any pages that
+    /// arrive meanwhile in the next). Their earlier hits, if any (a page's few characters of
+    /// its own), are replaced by the recognised text's.
+    private func startCatchUpIfNeeded() {
+        guard catchUpTask == nil, !catchUpPages.isEmpty, let session, !searchedQuery.isEmpty else { return }
+        let pages = catchUpPages.sorted()
+        catchUpPages = []
+        caughtUpPages += pages
+        let replaced = Set(pages)
+        if textHits.contains(where: { replaced.contains($0.pageIndex) }) {
+            textHits.removeAll { replaced.contains($0.pageIndex) }
+            regroup()
+        }
+        catchUpID += 1
+        let id = catchUpID
+        let stream = PDFTextSearch.stream(url: session.documentURL, query: searchedQuery, hitCap: .max,
+                                          recognised: recognisedTextSource(session), onlyPages: pages)
+        catchUpTask = Task { [weak self] in
+            for await event in stream {
+                guard let self, self.catchUpID == id else { return }
+                if case .hits = event { self.apply(event) }
+            }
+            guard let self, self.catchUpID == id else { return }
+            self.catchUpTask = nil
+            self.startCatchUpIfNeeded()
+        }
+    }
+
+    /// Re-reads the book's recognition state (off the main actor).
+    private func reloadRecognitionState() {
+        guard let session else { return }
+        recognitionStateTask?.cancel()
+        let store = session.store
+        let bookID = session.book.id
+        recognitionStateTask = Task { [weak self] in
+            let state = (try? await store.recognitionState(bookID: bookID)) ?? nil
+            guard !Task.isCancelled, let self else { return }
+            if self.recognitionState != state { self.recognitionState = state }
         }
     }
 

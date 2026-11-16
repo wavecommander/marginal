@@ -1,6 +1,7 @@
 import Foundation
 import os
 import PDFKit
+import ReaderCore
 
 // The search engine (WP10): in-book text search that streams results, can be cancelled, never
 // touches the on-screen document and never holds more than a few dozen pages' text.
@@ -24,6 +25,16 @@ import PDFKit
 // 485 MB (measured, phys_footprint). The worker therefore releases its document and opens a
 // fresh one every `pagesPerDocument` pages (peak about 24 MB, about 10% slower), and reads one
 // page's text at a time (`PDFPage.string`), never the whole document's.
+//
+// ## Scanned pages (S2)
+// One search path reads each page from whichever source has text (design, "Page text for
+// search"): the file's own text when the page has text of its own (`PageTextPolicy`, asked of the
+// worker's private document, which never has PDFKit's Live Text), otherwise the page's
+// `RecognisedPage` when the book's recognition has saved one. Matching, snippets, the cap and
+// cancellation are the same; a recognised hit's rects come from the recognised words' boxes
+// (`RecognisedPage.rects(forUTF16Range:)`). Pages searched with no recognised text are noted in
+// a `RecognisedPageLedger`, so `SearchModel` can search them again when they are recognised
+// after the scan has passed them.
 
 // MARK: - Values
 
@@ -251,6 +262,64 @@ nonisolated struct SearchTextMatcher {
     }
 }
 
+// MARK: - Recognised text (scanned books)
+
+/// Where the search worker finds a scanned book's recognised pages.
+nonisolated struct RecognisedTextSource: Sendable {
+    /// The raw store (synchronous; read on the worker thread only).
+    var store: any RecognisedTextStore
+    var bookID: UUID
+    /// Notes pages searched without recognised text, for searching them again later.
+    var ledger: RecognisedPageLedger?
+
+    /// The page's recognised text, or `nil` (not recognised yet, or unreadable).
+    func page(_ index: Int) -> RecognisedPage? {
+        (try? store.recognisedPage(bookID: bookID, pageIndex: index)) ?? nil
+    }
+}
+
+/// The pages of one search (one query, across its continuations) that were searched without
+/// recognised text, and the pages announced as recognised since it started.
+///
+/// The worker and `SearchModel` meet here under one lock, so a page recognised while the scan
+/// passes it is searched exactly once with its recognised text: either the worker finds the page
+/// (or, told it was announced meanwhile, reads it again), or the model sees it was missed and
+/// searches it again (`SearchModel`'s catch-up).
+nonisolated final class RecognisedPageLedger: Sendable {
+    private struct State {
+        var missed: Set<Int> = []
+        var announced: Set<Int> = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init() {}
+
+    /// Worker: `page` was searched without recognised text. Returns `true` when the page has
+    /// been announced as recognised meanwhile: the worker reads it again instead (and it is
+    /// not noted as missed).
+    func searchedWithoutRecognisedText(_ page: Int) -> Bool {
+        state.withLock { state in
+            if state.announced.contains(page) { return true }
+            state.missed.insert(page)
+            return false
+        }
+    }
+
+    /// Model: `page` has been recognised. Returns `true` when it was searched without
+    /// recognised text, so it must be searched again (once: it is no longer noted as missed).
+    func pageRecognised(_ page: Int) -> Bool {
+        state.withLock { state in
+            if state.missed.remove(page) != nil { return true }
+            state.announced.insert(page)
+            return false
+        }
+    }
+
+    /// Pages searched without recognised text and not recognised since (tests).
+    var missedPages: Set<Int> { state.withLock { $0.missed } }
+}
+
 // MARK: - Cancellation and diagnostics
 
 /// A thread-safe cancellation flag shared by a stream's consumer side and its worker.
@@ -309,14 +378,20 @@ nonisolated enum PDFTextSearch {
     ///
     /// - Parameter pageDelay: test hook (the UI tests' `-searchPageDelayMs`): the worker sleeps
     ///   this long after each page so a search is still running when a test acts on it.
+    /// - Parameter recognised: a scanned book's recognised text, read for pages with no text of
+    ///   their own (`nil`: the file's text only).
+    /// - Parameter onlyPages: search just these pages, in order, then finish `.completed` (for
+    ///   searching pages again once they are recognised); `startPage` is then ignored.
     static func stream(url: URL, query: String, startPage: Int = 0, hitCap: Int = defaultHitCap,
-                       pageDelay: Duration = .zero) -> AsyncStream<SearchEvent> {
+                       pageDelay: Duration = .zero, recognised: RecognisedTextSource? = nil,
+                       onlyPages: [Int]? = nil) -> AsyncStream<SearchEvent> {
         AsyncStream(SearchEvent.self, bufferingPolicy: .unbounded) { continuation in
             let cancellation = SearchCancellation()
             continuation.onTermination = { _ in cancellation.cancel() }
             SearchDiagnostics.update { $0.liveWorkers += 1 }
             DispatchQueue.global(qos: .userInitiated).async {
                 run(url: url, query: query, startPage: startPage, hitCap: hitCap, pageDelay: pageDelay,
+                    recognised: recognised, onlyPages: onlyPages,
                     cancellation: cancellation, emit: { continuation.yield($0) })
                 // The run has released its document; count it gone before the stream ends, so a
                 // consumer that sees the end also sees `liveWorkers` drop.
@@ -328,6 +403,7 @@ nonisolated enum PDFTextSearch {
 
     /// The worker loop. Synchronous; every PDFKit object it creates stays on this thread.
     private static func run(url: URL, query: String, startPage: Int, hitCap: Int, pageDelay: Duration,
+                            recognised: RecognisedTextSource?, onlyPages: [Int]?,
                             cancellation: SearchCancellation, emit: (SearchEvent) -> Void) {
         var matcher = SearchTextMatcher()
         let needle = matcher.foldQuery(query)
@@ -355,11 +431,23 @@ nonisolated enum PDFTextSearch {
             lastEmit = now
         }
 
-        var page = max(0, startPage)
-        while page < total {
-            if cancellation.isCancelled { return }
+        /// Searches one page: its recognised text when it has no text of its own and has been
+        /// recognised, otherwise the file's text.
+        func search(_ page: Int) {
             autoreleasepool {
-                guard let pdfPage = pages.page(at: page), let text = pdfPage.string, !text.isEmpty else { return }
+                guard let pdfPage = pages.page(at: page) else { return }
+                let fileText = pdfPage.string
+                if let recognised, !PageTextPolicy.hasOwnText(fileText) {
+                    var found = recognised.page(page)
+                    if found == nil, recognised.ledger?.searchedWithoutRecognisedText(page) == true {
+                        found = recognised.page(page)  // recognised while this page was being read
+                    }
+                    if let found {
+                        searchRecognised(found)
+                        return
+                    }
+                }
+                guard let text = fileText, !text.isEmpty else { return }
                 let folded = matcher.fold(text)
                 let ranges = SearchTextMatcher.matches(of: needle, in: folded)
                 guard !ranges.isEmpty else { return }
@@ -374,6 +462,41 @@ nonisolated enum PDFTextSearch {
                     totalHits += 1
                 }
             }
+        }
+
+        /// The same matching and snippets over recognised text; the rects come from the
+        /// recognised words' boxes.
+        func searchRecognised(_ recognisedPage: RecognisedPage) {
+            let text = recognisedPage.text
+            guard !text.isEmpty else { return }
+            let ranges = SearchTextMatcher.matches(of: needle, in: matcher.fold(text))
+            guard !ranges.isEmpty else { return }
+            let nsText = text as NSString
+            for (ordinal, range) in ranges.enumerated() {
+                let rects = recognisedPage.rects(forUTF16Range: range.location..<NSMaxRange(range))
+                pending.append(SearchHit(pageIndex: recognisedPage.pageIndex, rects: rects,
+                                         snippet: SearchTextMatcher.snippet(in: nsText, around: range),
+                                         ordinal: ordinal))
+                totalHits += 1
+            }
+        }
+
+        if let onlyPages {
+            for page in onlyPages where page >= 0 && page < total {
+                if cancellation.isCancelled { return }
+                search(page)
+                SearchDiagnostics.update { $0.pagesScanned += 1 }
+            }
+            if cancellation.isCancelled { return }
+            flush(pagesSearched: total, force: true)
+            emit(.finished(SearchCompletion(reason: .completed, nextPage: total)))
+            return
+        }
+
+        var page = max(0, startPage)
+        while page < total {
+            if cancellation.isCancelled { return }
+            search(page)
             page += 1
             SearchDiagnostics.update { $0.pagesScanned += 1 }
             if pageDelay > .zero {
