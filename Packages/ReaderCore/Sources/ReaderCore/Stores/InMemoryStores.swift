@@ -1,12 +1,11 @@
 import Foundation
 
-/// Reference implementation of every record repository, held in memory.
+/// Reference implementation of `RecordStore`, held in memory.
 ///
 /// It defines the contract's semantics executable-ly (the persistent store in WP2 must behave
 /// the same; `RepositoryConformance` checks that) and serves tests and SwiftUI previews.
 @MainActor
-public final class InMemoryRecordStore: RecordStore, BookRepository, NoteRepository, HighlightRepository,
-    BookmarkRepository, HeadingRepository {
+public class InMemoryRecordStore: RecordStore {
     public var changePoster: StoreChangePoster?
     private var books: [UUID: Book] = [:]
     private var notesByID: [UUID: Note] = [:]
@@ -20,7 +19,7 @@ public final class InMemoryRecordStore: RecordStore, BookRepository, NoteReposit
         guard books[id] != nil else { throw RepositoryError.bookNotFound(id) }
     }
 
-    // MARK: BookRepository
+    // MARK: Books
 
     public func allBooks() throws -> [Book] { Array(books.values) }
     public func book(id: UUID) throws -> Book? { books[id] }
@@ -75,7 +74,7 @@ public final class InMemoryRecordStore: RecordStore, BookRepository, NoteReposit
         )
     }
 
-    // MARK: NoteRepository
+    // MARK: Notes
 
     public func note(bookID: UUID, target: NoteTarget) throws -> Note? {
         notesByID.values.first { $0.bookID == bookID && $0.target == target }
@@ -129,7 +128,7 @@ public final class InMemoryRecordStore: RecordStore, BookRepository, NoteReposit
         notesByID.values.count { $0.bookID == bookID }
     }
 
-    // MARK: HighlightRepository
+    // MARK: Highlights
 
     public func highlight(id: UUID) throws -> Highlight? { highlightsByID[id] }
 
@@ -158,7 +157,7 @@ public final class InMemoryRecordStore: RecordStore, BookRepository, NoteReposit
         highlightsByID.values.count { $0.bookID == bookID }
     }
 
-    // MARK: BookmarkRepository
+    // MARK: Bookmarks
 
     public func bookmarks(bookID: UUID) throws -> [Bookmark] {
         bookmarksByID.values.filter { $0.bookID == bookID }.sorted { $0.pageIndex < $1.pageIndex }
@@ -182,7 +181,7 @@ public final class InMemoryRecordStore: RecordStore, BookRepository, NoteReposit
         }
     }
 
-    // MARK: HeadingRepository
+    // MARK: Headings
 
     public func userHeadings(bookID: UUID) throws -> [UserHeading] {
         headingsByID.values.filter { $0.bookID == bookID }

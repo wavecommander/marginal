@@ -3,7 +3,7 @@ import CoreGraphics
 import SwiftData
 import ReaderCore
 
-/// SwiftData implementation of all five record repositories over one container's `mainContext`.
+/// SwiftData implementation of `RecordStore` over one container's `mainContext`.
 ///
 /// Semantics are those of `InMemoryRecordStore` (checked by `RepositoryConformance`).
 ///
@@ -20,8 +20,7 @@ import ReaderCore
 /// Fetches always use predicates (and sort descriptors) on the database; per-book queries never
 /// load other books' rows.
 @MainActor
-final class SwiftDataRecordStore: RecordStore, BookRepository, NoteRepository, HighlightRepository,
-    BookmarkRepository, HeadingRepository {
+final class SwiftDataRecordStore: RecordStore {
     var changePoster: StoreChangePoster?
     /// Held so the container (and its store) outlives every context use.
     let container: ModelContainer

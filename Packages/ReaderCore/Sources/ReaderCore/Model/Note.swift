@@ -62,7 +62,7 @@ public enum NoteTarget: Hashable, Sendable, Codable, CustomStringConvertible {
 /// with the record whenever the ink is saved.
 ///
 /// **Empty rule:** a note is empty when its text is only whitespace/newlines and it has no ink.
-/// An empty note is never stored: `NoteRepository.save(_:)` deletes the record instead.
+/// An empty note is never stored: `RecordStore.save(_:)` deletes the record instead.
 public struct Note: Identifiable, Hashable, Codable, Sendable {
     /// Stable ID; also keys the note's ink (`InkStore.noteInk`).
     public var id: UUID

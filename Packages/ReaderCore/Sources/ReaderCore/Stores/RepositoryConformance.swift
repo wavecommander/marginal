@@ -25,15 +25,22 @@ public enum RepositoryConformance {
         throw Failure(description: "\(label): expected \(expected), but no error was thrown")
     }
 
-    /// Checks the record repositories together (pass the same object several times if one type
-    /// implements them all). Covers: book save/fetch/fingerprint, note upsert by target, the
+    /// Checks every rule of `verifyRecordStores` on one record store.
+    @MainActor
+    public static func verifyRecordStore(_ records: some RecordStore) throws {
+        try verifyRecordStores(books: records, notes: records, highlights: records, bookmarks: records, headings: records)
+    }
+
+    /// Checks a record store, read under each of the five names `LibraryStore` gives it (pass
+    /// the same store five times, or `store.books`, `store.notes`, … of a `LibraryStore`; see
+    /// `verifyRecordStore(_:)`). Covers: book save/fetch/fingerprint, note upsert by target, the
     /// empty-note rule, one note per target, retarget, page-note range queries, highlight order
     /// and range queries, idempotent bookmarks, user headings, counts, and cascade delete.
     @MainActor
-    public static func verifyRecordStores(books: some BookRepository, notes: some NoteRepository,
-                                          highlights: some HighlightRepository,
-                                          bookmarks: some BookmarkRepository,
-                                          headings: some HeadingRepository) throws {
+    public static func verifyRecordStores(books: some RecordStore, notes: some RecordStore,
+                                          highlights: some RecordStore,
+                                          bookmarks: some RecordStore,
+                                          headings: some RecordStore) throws {
         let bookID = UUID()
         let fingerprint = "conformance-\(bookID.uuidString)"
         defer { try? books.deleteBook(id: bookID) }
@@ -158,17 +165,17 @@ public enum RepositoryConformance {
         try verifyBookReplacement(books: books, notes: notes, highlights: highlights, bookmarks: bookmarks, headings: headings)
     }
 
-    /// Checks `BookRepository.replaceBook(_:removing:)` (also run by `verifyRecordStores`):
+    /// Checks `RecordStore.replaceBook(_:removing:)` (also run by `verifyRecordStores`):
     /// verbatim insert of a new book (every field, IDs and dates, and the lookups that depend on
     /// derived columns: note by target, page ranges, highlight order, bookmarked pages); replacing
     /// a book with the same ID, including reused record IDs, a freed note target and a freed
     /// bookmark page; removing other IDs (a book with the archive's fingerprint, an unknown ID);
     /// idempotence; every refusal leaving the store untouched; and other books never touched.
     @MainActor
-    public static func verifyBookReplacement(books: some BookRepository, notes: some NoteRepository,
-                                             highlights: some HighlightRepository,
-                                             bookmarks: some BookmarkRepository,
-                                             headings: some HeadingRepository) throws {
+    public static func verifyBookReplacement(books: some RecordStore, notes: some RecordStore,
+                                             highlights: some RecordStore,
+                                             bookmarks: some RecordStore,
+                                             headings: some RecordStore) throws {
         let fresh = UUID(), target = UUID(), other = UUID(), extra = UUID(), successor = UUID()
         let all = [fresh, target, other, extra, successor]
         defer { for id in all { try? books.deleteBook(id: id) } }
