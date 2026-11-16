@@ -15,8 +15,8 @@ to pages and to headings.
 (version 1). This document describes the app as built and is the spec for changes to it; the
 initial build plan is finished and retired. Still in progress: scanned books
 (`docs/SCANNED_BOOKS_PLAN.md`), the last import formats (`docs/FORMAT_IMPORT_PLAN.md`) and
-localization (`docs/LOCALIZATION_PLAN.md`). Annotated PDF export of a book is not built (open
-question 3).
+localization (`docs/LOCALIZATION_PLAN.md`). Annotated PDF export of a book ("Export Marked-Up
+PDF", TSOFT-229) is built (see "Export").
 
 Mockups: https://claude.ai/artifact/DGC3WWVFeVmNY7pSaKknpP (seven screens plus four first-run
 onboarding screens; names below match the artboard titles). The mockups are drawn in HTML, so treat them as layout and behaviour intent.
@@ -264,6 +264,39 @@ ones even where the mockup draws an approximation.
     each note with ink (text and ink together), `handwriting/` an image of each page with
     handwriting (the page of the book with its ink).
   - *PDF*: the faithful format, every note drawn exactly as it looks, ink included.
+- **Export Marked-Up PDF** (owner request TSOFT-229, 16 November 2026; answers open question 3).
+  A new PDF of the whole book with the reader's markup drawn in, shared through the share sheet
+  like the Notebook's exports. The imported PDF is only read (principle 1).
+  - *Where:* the reader's More menu, as a submenu with two choices, and the menu bar's Book ›
+    Export Marked-Up PDF, acting on the focused window (Book Only ⌥⌘E, Book with Notes ⌥⇧⌘E).
+    **Book Only** ("Ink and highlights drawn on the pages") and **Book with Notes** ("Your notes
+    added at the end"); Book with Notes is unavailable while the book has no notes. Not offered
+    in the Library or the Notebook. Pending edits in every window are saved first.
+  - *Pages:* every page of the book, in order, as the reader sees it upright (its crop box with
+    its rotation applied), on white. The page's own content is copied, not pictured: text stays
+    selectable and searchable where the book's is, vector stays vector, a scanned page keeps its
+    picture (no text layer is added). The PDF's own annotations are drawn as the reader shows
+    them; its links still work (a link to a page goes to the top of that page).
+  - *Markup in place:* highlights in their colours exactly as on screen (scanned-page highlights
+    too, from their rects), then page ink, as vector paths wherever the stroke allows and a
+    high-resolution image only for textured inks (as "Vector ink" says). Always light.
+  - *Notes appendix* (Book with Notes): after the last page, the book's notes (page and section
+    notes, not highlights or page ink, which are already on the pages) laid out and drawn exactly
+    as in the Notebook's PDF export, under the heading "Notes", in the Notebook's order (front
+    matter, the headings with notes, unfiled notes). Each note's page label ("p. 312") and each
+    heading's title link to that page of the book in the same file. Bookmarks are not exported
+    (as in the Notebook exports).
+  - *Outline:* the book's outline as Contents shows it, the reader's own headings included where
+    they sit (design: a reader's heading behaves exactly like a PDF heading, exports included;
+    they are not marked as the reader's own in the file). Each entry opens the top of its page;
+    an entry with no page opens its first sub-heading's page. With the appendix, a last
+    top-level entry "Notes" holds the headings that have notes, nested as in the book, each
+    opening the page its notes start on, with "Front matter" and "Unfiled notes" when present.
+  - *File:* `<Title> (Marked Up).pdf` or `<Title> (Marked Up with Notes).pdf`; the PDF's title is
+    the book's. Appendix pages are A4 or US Letter by locale, like the Notebook PDF.
+  - *Large books:* written page by page to the file, one page's ink in memory at a time, pages
+    copied off the main thread, with progress and Cancel (which leaves nothing behind). A book
+    whose PDF is missing or password-protected says so instead.
 - **Choosing what to export.** Export takes the whole Notebook. "Select" puts a checkbox on every
   row (a heading's checkbox ticks everything shown under it; "Select All" ticks what the filters
   show); Export then takes only the ticked notes, highlights and handwriting, in any format. The
@@ -926,8 +959,8 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
    `software.tactile.texts`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
-3. Exporting an annotated PDF copy of the book (ink and highlights drawn into a copy, the
-   original untouched) is not built. Should it be in version 1?
+3. ~~Exporting an annotated PDF copy of the book.~~ Settled: in version 1 (owner request
+   TSOFT-229, 16 November 2026), built as "Export Marked-Up PDF" (see "Export").
 4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build
    seeds shapes generated in code; real handwriting has to be written once on an iPad by the
    owner and bundled. Does the owner want to supply it?

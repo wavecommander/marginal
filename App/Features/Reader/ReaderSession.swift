@@ -303,6 +303,8 @@ final class ReaderSession: Identifiable {
         return renderer
     }
     @ObservationIgnored private var thumbnailsIfCreated: PDFThumbnailRenderer?
+    /// This window's "Export Marked-Up PDF" (`exportMarkedUpPDF(_:)`); cancelled by `close()`.
+    let markedUpExport = MarkedUpExportController()
 
     // MARK: Private state
 
@@ -437,6 +439,7 @@ final class ReaderSession: Identifiable {
         guard !isClosed else { return }
         isClosed = true
         for task in [openTask, lastReadSaveTask, placeSaveTask, pagePillIdleTask] { task?.cancel() }
+        markedUpExport.cancel()
         hubToken = nil
         indexObservation = nil
         index = nil

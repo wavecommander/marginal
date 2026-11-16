@@ -36,6 +36,12 @@ import UIKit
 /// **Memory.** The PDF context streams pages to the file; each note's ink is loaded, laid out,
 /// drawn and released before the next (`autoreleasepool`), so memory stays flat for hundreds of
 /// notes. Main actor (the note renderer is), yielding after every item.
+///
+/// **As an appendix** (`init(context:…)`, the marked-up book export): the writer draws into a PDF
+/// context it does not own, numbering its pages after the book's, under its own heading and
+/// footer. It records the page each part starts on (`partStarts`, for the export's outline) and,
+/// given `destinationName`, makes every page label ("p. 312") and every heading's title a link to
+/// that page of the book in the same file.
 @MainActor
 final class NotebookPDFWriter {
     static var defaultPageSize: CGSize {
@@ -53,6 +59,13 @@ final class NotebookPDFWriter {
     private var isPageOpen = false
     private var isClosed = false
     private var bookPages: BookPages?
+    /// `false` when drawing into another writer's context (`close()` then leaves it open).
+    private let ownsContext: Bool
+    private let footerTitle: String
+    /// The named destination of a book page in the same file (links), or `nil` for no links.
+    private let destinationName: ((Int) -> String)?
+    /// The page (1-based, in the file) each part of the notebook starts on, as drawn so far.
+    private(set) var partStarts: [NotebookExportPart: Int] = [:]
 
     private var contentTop: CGFloat { margin }
     private var contentBottom: CGFloat { pageSize.height - margin - footerHeight }
@@ -73,6 +86,32 @@ final class NotebookPDFWriter {
             throw CocoaError(.fileWriteUnknown)
         }
         self.context = context
+        ownsContext = true
+        footerTitle = "\(self.bookTitle) · Notebook"
+        destinationName = nil
+    }
+
+    /// A writer that draws into `context`, a PDF context someone else owns and closes, after
+    /// the `firstPageNumber - 1` pages already in it.
+    /// - Parameters:
+    ///   - footerTitle: the running footer's text (the page number follows it).
+    ///   - destinationName: the named destination of a book page (zero-based index) in the
+    ///     same file; page labels and headings link to it. `nil`: no links.
+    init(context: CGContext, pageSize: CGSize = NotebookPDFWriter.defaultPageSize, bookTitle: String,
+         footerTitle: String, firstPageNumber: Int, destinationName: ((Int) -> String)? = nil) {
+        self.pageSize = pageSize
+        self.context = context
+        self.bookTitle = OutlineText.normalizedTitle(bookTitle)
+        self.footerTitle = footerTitle
+        self.destinationName = destinationName
+        ownsContext = false
+        pageNumber = max(0, firstPageNumber - 1)
+    }
+
+    /// The heading at the top of the first page, in place of the book title and the counts.
+    struct Heading {
+        let title: String
+        let subtitle: String
     }
 
     /// The book's pages and their ink, for the pages with handwriting.
@@ -94,7 +133,7 @@ final class NotebookPDFWriter {
     ///   - progress: fractions in `0..<1` as items are drawn.
     /// - Throws: `CancellationError` when the task is cancelled (the file is closed, not removed;
     ///   the caller removes it).
-    func write(_ notebook: Notebook, loadInk: @escaping @MainActor (Note) async -> Data?,
+    func write(_ notebook: Notebook, heading: Heading? = nil, loadInk: @escaping @MainActor (Note) async -> Data?,
                bookPages: BookPages? = nil, progress: @escaping @MainActor (Double) -> Void) async throws {
         self.bookPages = bookPages
         let total = max(1, notebook.totalCounts.items)
@@ -107,14 +146,15 @@ final class NotebookPDFWriter {
         }
 
         beginPage()
-        drawTitleBlock(notebook)
+        partStarts[.title] = pageNumber
+        drawTitleBlock(notebook, heading: heading)
         if NotebookFeed.itemCount(notebook) == 0 {
             drawText(NSAttributedString(string: "No notes, highlights or handwriting yet.", attributes: Self.attributes(size: 12, color: .secondaryLabel)),
                      x: margin, width: contentWidth)
         }
 
         if notebook.frontMatter.contains(where: Self.isExportable) {
-            drawHeader(title: "Front matter", level: 1, range: nil)
+            drawHeader(title: "Front matter", level: 1, range: nil, part: .frontMatter)
             for page in notebook.frontMatter { try await drawPage(page, loadInk: loadInk, step: step) }
         }
         for section in notebook.sectionsWithContent {
@@ -122,7 +162,7 @@ final class NotebookPDFWriter {
         }
         let unfiledPages = notebook.orphanPages.filter(Self.isExportable)
         if !notebook.orphanNotes.isEmpty || !unfiledPages.isEmpty {
-            drawHeader(title: "Unfiled notes", level: 1, range: nil)
+            drawHeader(title: "Unfiled notes", level: 1, range: nil, part: .unfiled)
             for note in notebook.orphanNotes {
                 drawHeader(title: NotebookFeed.unfiledTitle(note), level: 2, range: nil)
                 try await drawNote(note, label: "Section", loadInk: loadInk)
@@ -133,11 +173,12 @@ final class NotebookPDFWriter {
         close()
     }
 
-    /// Ends the open page and closes the file (idempotent).
+    /// Ends the open page and closes the file (idempotent). A writer drawing into another's
+    /// context only ends its open page.
     func close() {
         guard !isClosed else { return }
         if isPageOpen { endPage() }
-        context.closePDF()
+        if ownsContext { context.closePDF() }
         isClosed = true
     }
 
@@ -147,7 +188,8 @@ final class NotebookPDFWriter {
 
     private func drawSection(_ section: NotebookSection, loadInk: @escaping @MainActor (Note) async -> Data?,
                              step: @MainActor () async throws -> Void) async throws {
-        drawHeader(title: section.title, level: section.level, range: section.pageRange)
+        drawHeader(title: section.title, level: section.level, range: section.pageRange,
+                   part: .section(section.anchor), linkPage: section.startPage)
         if let note = section.note {
             try await drawNote(note, label: NotebookFeed.headingNoteLabel(level: section.level), loadInk: loadInk)
             try await step()
@@ -160,7 +202,7 @@ final class NotebookPDFWriter {
                           step: @MainActor () async throws -> Void) async throws {
         let label = PageNumbering.label(forPageIndex: page.pageIndex)
         if let note = page.note {
-            try await drawNote(note, label: label, loadInk: loadInk)
+            try await drawNote(note, label: label, linkPage: page.pageIndex, loadInk: loadInk)
             try await step()
         }
         for highlight in page.highlights {
@@ -182,7 +224,11 @@ final class NotebookPDFWriter {
     // MARK: Pages
 
     private func beginPage() {
-        context.beginPDFPage(nil)
+        // The media box is given on every page: as an appendix, the context's default box is not
+        // this writer's.
+        var box = CGRect(origin: .zero, size: pageSize)
+        let boxData = Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
+        context.beginPDFPage([kCGPDFContextMediaBox: boxData] as CFDictionary)
         context.saveGState()
         // UIKit orientation (y down), as `NotePageRenderer.draw` requires.
         context.translateBy(x: 0, y: pageSize.height)
@@ -195,7 +241,7 @@ final class NotebookPDFWriter {
     private func endPage() {
         let footerAttributes = Self.attributes(size: 8.5, color: .secondaryLabel)
         let baseline = pageSize.height - margin + 4
-        if let line = lines(NSAttributedString(string: "\(bookTitle) · Notebook", attributes: footerAttributes),
+        if let line = lines(NSAttributedString(string: footerTitle, attributes: footerAttributes),
                             width: contentWidth - 60).first {
             draw(line.line, x: margin, baseline: baseline)
         }
@@ -220,14 +266,15 @@ final class NotebookPDFWriter {
 
     // MARK: Blocks
 
-    private func drawTitleBlock(_ notebook: Notebook) {
-        drawText(NSAttributedString(string: bookTitle, attributes: Self.attributes(size: 22, weight: .bold)),
+    private func drawTitleBlock(_ notebook: Notebook, heading: Heading?) {
+        drawText(NSAttributedString(string: heading?.title ?? bookTitle, attributes: Self.attributes(size: 22, weight: .bold)),
                  x: margin, width: contentWidth)
         y += 2
         let notes = notebook.totalCounts.notes, highlights = notebook.totalCounts.highlights
         let inked = notebook.totalCounts.inkedPages
         var counts = "Notebook · \(notes) \(notes == 1 ? "note" : "notes") · \(highlights) \(highlights == 1 ? "highlight" : "highlights")"
         if inked > 0 { counts += " · \(inked) \(inked == 1 ? "page" : "pages") of handwriting" }
+        if let heading { counts = heading.subtitle }
         drawText(NSAttributedString(string: counts, attributes: Self.attributes(size: 11, color: .secondaryLabel)),
                  x: margin, width: contentWidth)
         y += 6
@@ -235,7 +282,8 @@ final class NotebookPDFWriter {
         y += 4
     }
 
-    private func drawHeader(title: String, level: Int, range: ClosedRange<Int>?) {
+    private func drawHeader(title: String, level: Int, range: ClosedRange<Int>?, part: NotebookExportPart? = nil,
+                            linkPage: Int? = nil) {
         let size: CGFloat = level <= 1 ? 17 : (level == 2 ? 13.5 : 12)
         let spaceBefore: CGFloat = level <= 1 ? 18 : 10
         let rangeText = range.map(PageNumbering.label(forPageRange:)) ?? ""
@@ -248,9 +296,11 @@ final class NotebookPDFWriter {
         // Keep the header with the start of what follows it.
         ensureRoom(spaceBefore + titleHeight + 8 + 60)
         if !atPageTop { y += spaceBefore }
+        if let part { partStarts[part] = pageNumber }
         var firstBaseline: CGFloat?
         for line in titleLines {
             draw(line.line, x: margin, baseline: y + line.ascent)
+            if let linkPage { link(CGRect(x: margin, y: y, width: line.width, height: line.height), toPage: linkPage) }
             if firstBaseline == nil { firstBaseline = y + line.ascent }
             y += line.height
         }
@@ -262,16 +312,17 @@ final class NotebookPDFWriter {
         y += 8
     }
 
-    private func drawNote(_ note: Note, label: String, loadInk: @MainActor (Note) async -> Data?) async throws {
+    private func drawNote(_ note: Note, label: String, linkPage: Int? = nil,
+                          loadInk: @MainActor (Note) async -> Data?) async throws {
         let ink = note.hasInk ? await loadInk(note) : nil
         try Task.checkCancellation()
         autoreleasepool {
             let snapshot = NotePageRenderer.snapshot(note: note, inkData: ink)
-            drawSnapshot(snapshot, label: label)
+            drawSnapshot(snapshot, label: label, linkPage: linkPage)
         }
     }
 
-    private func drawSnapshot(_ snapshot: NotePageSnapshot, label: String) {
+    private func drawSnapshot(_ snapshot: NotePageSnapshot, label: String, linkPage: Int? = nil) {
         // At its own size where the body has room (a note whose ink reaches past the default page
         // is wider than `NotePageStyle.pageWidth`), scaled down to the body otherwise.
         let width = min(bodyWidth, snapshot.size.width)
@@ -293,7 +344,7 @@ final class NotebookPDFWriter {
                 : bestCut(in: snapshot, from: sliceTop, limit: sliceTop + room / scale)
             let rect = CGRect(x: bodyX, y: y, width: width, height: (sliceBottom - sliceTop) * scale)
             if !labelDrawn {
-                drawLabel(label, top: y + 6)
+                drawLabel(label, top: y + 6, linkPage: linkPage)
                 labelDrawn = true
             }
             if sliceTop == 0, sliceBottom >= snapshot.size.height {
@@ -515,10 +566,20 @@ final class NotebookPDFWriter {
         }
     }
 
-    private func drawLabel(_ label: String, top: CGFloat) {
+    private func drawLabel(_ label: String, top: CGFloat, linkPage: Int? = nil) {
         let string = NSAttributedString(string: label, attributes: Self.attributes(size: 9.5, weight: .semibold, color: .secondaryLabel))
         guard let line = lines(string, width: labelColumn - 8).first else { return }
         draw(line.line, x: margin, baseline: top + line.ascent)
+        if let linkPage { link(CGRect(x: margin, y: top, width: line.width, height: line.height), toPage: linkPage) }
+    }
+
+    /// Makes `rect` (in the writer's y-down space) a link to the book page `pageIndex` in the same
+    /// file, when the writer has destinations (`destinationName`). Core Graphics takes the rect
+    /// in the page's default space (y up), the PDF context's base space.
+    private func link(_ rect: CGRect, toPage pageIndex: Int) {
+        guard let destinationName else { return }
+        let pageRect = rect.insetBy(dx: -2, dy: -1).applying(context.ctm)
+        context.setDestination(destinationName(pageIndex) as CFString, for: pageRect)
     }
 
     /// Draws wrapped text at the cursor, breaking pages between lines.
