@@ -14,7 +14,8 @@ import ReaderCore
 /// band-local position unchanged, so it sits on the same paragraph it was drawn on. Trailing
 /// strokes stay in the trailing band, which follows the end of the merged text. The two inks are
 /// then combined with `NoteInk.merge(local:remote:base: nil)`: the union by stroke identity, the
-/// local version of a stroke both sides have, local strokes first.
+/// local version of a stroke both sides have, in the backup's order with the strokes only this
+/// iPad has on top (the same order page ink gets from `PageInkMerge`).
 ///
 /// **Trailing space.** Strokes both sides drew in the blank space after the text would land on top
 /// of each other. The backup's trailing strokes that the local ink does not already have (by

@@ -160,64 +160,21 @@ nonisolated struct NoteInk: Sendable {
 
     // MARK: Merge
 
-    /// Three-way merge of two edits of the same note's ink (multi-window reconcile).
+    /// Three-way merge of two edits of the same note's ink (multi-window reconcile, and the
+    /// union of a backup merge when `base` is `nil`).
     ///
-    /// `local` and `remote` are relocated into `local.layout` first. Strokes are matched by
-    /// `StrokeIdentity` (stable across moves, recolouring and relocation) and occurrence.
-    /// **Rule:** strokes added on either side since `base` are kept; a stroke erased on one side
-    /// is removed only if the other side left it unchanged since `base` (otherwise the edit wins
-    /// and the stroke is kept); a stroke edited on one side only takes that side's version; edited
-    /// on both, the local version wins. With no `base` (nothing known in common) the result is
-    /// the union: nothing is ever dropped. Remote additions are drawn on top.
+    /// `remote` is relocated into `local.layout` first. The rule and the stroke order are
+    /// `StrokeMerge`'s, shared with page ink: the remote order first, local-only strokes on top.
+    /// Strokes are compared by `StrokeContent` of the band-local stroke, so a move caused by
+    /// relocation alone is not an edit. A stroke taken from `remote` gets a new `uid`.
     static func merge(local: NoteInk, remote: NoteInk, base: NoteInk?) -> NoteInk {
         let remote = remote.relaid(to: local.layout)
-        let baseContent: [StrokeKey: StrokeContent] = base.map { base in
-            var map: [StrokeKey: StrokeContent] = [:]
-            for (key, stroke) in keyed(base.strokes) { map[key] = StrokeContent(stroke.local) }
-            return map
-        } ?? [:]
-        let localKeyed = keyed(local.strokes)
-        let remoteKeyed = keyed(remote.strokes)
-        var remoteByKey: [StrokeKey: NoteInkStroke] = [:]
-        for (key, stroke) in remoteKeyed { remoteByKey[key] = stroke }
-        let localKeys = Set(localKeyed.map(\.0))
-
-        var result: [NoteInkStroke] = []
-        for (key, stroke) in localKeyed {
-            guard let baseValue = baseContent[key] else {
-                result.append(stroke)  // local addition (or unknown base: keep)
-                continue
-            }
-            let localContent = StrokeContent(stroke.local)
-            if let remoteStroke = remoteByKey[key] {
-                let remoteContent = StrokeContent(remoteStroke.local)
-                if localContent == baseValue && remoteContent != baseValue {
-                    result.append(NoteInkStroke(band: remoteStroke.band, local: remoteStroke.local))
-                } else {
-                    result.append(stroke)
-                }
-            } else if localContent != baseValue {
-                result.append(stroke)  // erased remotely, edited locally: keep
-            }
-        }
-        for (key, stroke) in remoteKeyed where !localKeys.contains(key) {
-            if let baseValue = baseContent[key], StrokeContent(stroke.local) == baseValue {
-                continue  // erased locally, unchanged remotely
-            }
-            result.append(NoteInkStroke(band: stroke.band, local: stroke.local))
-        }
-        return NoteInk(layout: local.layout, strokes: result)
-    }
-
-    /// Strokes paired with identity keys (identity plus occurrence number among equal identities).
-    private static func keyed(_ strokes: [NoteInkStroke]) -> [(StrokeKey, NoteInkStroke)] {
-        var seen: [StrokeIdentity: Int] = [:]
-        return strokes.map { stroke in
-            let identity = StrokeIdentity(stroke.local)
-            let occurrence = seen[identity, default: 0]
-            seen[identity] = occurrence + 1
-            return (StrokeKey(identity: identity, occurrence: occurrence), stroke)
-        }
+        let strokes = StrokeMerge.merge(
+            local: local.strokes, remote: remote.strokes, base: base?.strokes,
+            stroke: \.local,
+            content: { StrokeContent($0.local) },
+            adoptRemote: { NoteInkStroke(band: $0.band, local: $0.local) })
+        return NoteInk(layout: local.layout, strokes: strokes)
     }
 }
 
