@@ -142,7 +142,8 @@ struct TextRecognitionEngineTests {
         #expect(await reasons() == [.lowPowerMode, .thermal, .reader])
 
         // Nothing is read while paused (the page in flight when it paused may still finish).
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await Support.waitUntil(timeout: 10) { !engine.isWorking })
         let pagesWhilePaused = engine.recognisedPages.count
         try await Task.sleep(for: .milliseconds(600))
         #expect(engine.recognisedPages.count == pagesWhilePaused)
@@ -183,7 +184,8 @@ struct TextRecognitionEngineTests {
         #expect(await engine.accept(bookID: bookID))
         #expect(await Support.waitUntil { engine.recognisedPages.count >= 2 })
         engine.setSuspended(true)
-        try await Task.sleep(for: .milliseconds(300))  // the page in flight finishes
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await Support.waitUntil(timeout: 10) { !engine.isWorking })  // the page in flight finishes
         let count = engine.recognisedPages.count
         try await Task.sleep(for: .milliseconds(500))
         #expect(engine.recognisedPages.count == count)

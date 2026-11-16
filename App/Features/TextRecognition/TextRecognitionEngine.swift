@@ -11,7 +11,8 @@ import UIKit
 /// page from a private `PDFDocument` opened on the file (never the on-screen document), read it
 /// with Vision (`VisionPageRecognizer`), convert the word boxes to page space, save the
 /// `RecognisedPage` through `LibraryStore` (which posts `.recognisedTextChanged`) and advance the
-/// state (`finishingPage()`, then `finishing()`; posts `.recognitionStateChanged`). Pages with
+/// state (the count of pages done, then `finishing()` once the files on disk are all there;
+/// posts `.recognitionStateChanged`). Pages with
 /// text of their own in the file (`PageTextPolicy`) are not recognised but count as done, so a
 /// typed cover on a scan is never read and the count still reaches the total.
 ///
@@ -397,11 +398,9 @@ final class TextRecognitionEngine {
             recognisedPages.append((bookID, pageIndex))
             // `-perfProbe` measurements: when recognition ran, relative to the scroll.
             PerfMarks.mark("recognised\(recognisedPages.count)")
-            jobs[bookID]?.remaining.removeAll { $0 == pageIndex }
-            await transition(bookID) { $0.finishingPage() }
+            await pageDone(bookID, pageIndex)
         case .hasOwnText:
-            jobs[bookID]?.remaining.removeAll { $0 == pageIndex }
-            await transition(bookID) { $0.finishingPage() }
+            await pageDone(bookID, pageIndex)
         case .failed(let reason):
             jobs[bookID]?.failed.insert(pageIndex)
             textRecognitionLog.error("recognition: \(reason, privacy: .public)")
@@ -413,6 +412,16 @@ final class TextRecognitionEngine {
             if isCurrent(bookID, generation) { await reconcile(bookID, recognised: onDisk) }
         }
         if !isCurrent(bookID, generation) { await removeLeftoversIfDeleted(bookID) }
+    }
+
+    /// One more page done: the count is the pages not left. It never completes the book here
+    /// (S1's `finishingPage()` would, on the count alone); completion waits for the check
+    /// against the files on disk in `recognise`.
+    private func pageDone(_ bookID: UUID, _ pageIndex: Int) async {
+        jobs[bookID]?.remaining.removeAll { $0 == pageIndex }
+        guard let job = jobs[bookID], job.isSurveyed else { return }
+        let progress = RecognitionProgress(pagesDone: job.pageCount - job.remaining.count, totalPages: job.pageCount)
+        await transition(bookID) { Self.state($0, withProgress: progress) }
     }
 
     // MARK: State
