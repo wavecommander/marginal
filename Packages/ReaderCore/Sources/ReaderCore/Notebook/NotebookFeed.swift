@@ -111,6 +111,14 @@ public struct NotebookHeader: Hashable, Sendable {
     public var pageRangeLabel: String { pageRange.map(PageNumbering.label(forPageRange:)) ?? "" }
 }
 
+/// A heading of the feed and the rows under it up to the next heading (`NotebookFeed.sections`).
+public struct NotebookFeedSection: Identifiable, Hashable, Sendable {
+    public let header: NotebookFeedRow?
+    public let rows: [NotebookFeedRow]
+
+    public var id: String { header?.id ?? "lead:" + (rows.first?.id ?? "") }
+}
+
 /// One row of the feed.
 public struct NotebookFeedRow: Identifiable, Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
@@ -311,6 +319,29 @@ public enum NotebookFeed {
 
     /// The items of `rows`, in feed order.
     public static func items(in rows: [NotebookFeedRow]) -> [NotebookItemID] { rows.compactMap(\.itemID) }
+
+    /// `rows` split at every header: each section is a header and the rows up to the next header
+    /// (of any level), for a feed whose headings stay pinned while their rows scroll beneath.
+    /// Rows before the first header, if any, form a section without one.
+    public static func sections(_ rows: [NotebookFeedRow]) -> [NotebookFeedSection] {
+        var sections: [NotebookFeedSection] = []
+        var header: NotebookFeedRow?
+        var current: [NotebookFeedRow] = []
+        func close() {
+            if header != nil || !current.isEmpty { sections.append(NotebookFeedSection(header: header, rows: current)) }
+        }
+        for row in rows {
+            if row.isHeader {
+                close()
+                header = row
+                current = []
+            } else {
+                current.append(row)
+            }
+        }
+        close()
+        return sections
+    }
 
     /// For every header row of `rows` (by row `id`), the items the feed shows under it: its own
     /// and those under its subheadings, down to the next header of the same or a higher level.

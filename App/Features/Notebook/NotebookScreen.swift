@@ -83,6 +83,10 @@ private struct NotebookContent: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var rows: [NotebookFeedRow] = []
+    /// `rows` split at every heading: the heading stays pinned while its rows scroll beneath.
+    @State private var sections: [NotebookFeedSection] = []
+    /// The feed's visible height, for scrolling a row to just below the pinned heading.
+    @State private var feedHeight: CGFloat = 600
     @State private var entries: [NotebookScopeEntry] = []
     @State private var feedVersion = 0
     @State private var didRestoreScroll = false
@@ -203,6 +207,7 @@ private struct NotebookContent: View {
         }
         guard let notebook = model.notebook else {
             rows = []
+            sections = []
             entries = []
             headerItems = [:]
             map = nil
@@ -214,6 +219,7 @@ private struct NotebookContent: View {
         if !selection.isEmpty { selection.formIntersection(computed.items) }
         if computed.entries.contains(where: { $0.scope == filter.scope }) || filter.scope == .all {
             rows = computed.rows
+            sections = NotebookFeed.sections(computed.rows)
             headerItems = computed.headerItems
         } else {
             // The chosen heading has no content any more (deleted from another window).
@@ -353,16 +359,37 @@ private struct NotebookContent: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Where a row lands when the feed scrolls to it: just below the pinned heading, not under it.
+    private static let pinnedHeadingRoom: CGFloat = 64
+
+    private var rowAnchor: UnitPoint {
+        UnitPoint(x: 0.5, y: min(Self.pinnedHeadingRoom / max(feedHeight, 1), 0.4))
+    }
+
+    /// One row of the feed (a heading or an item), with its checkbox while selecting.
+    private func rowView(_ row: NotebookFeedRow) -> some View {
+        NotebookRowView(row: row, model: model, actions: rowActions,
+                        selection: isSelecting ? NotebookFeed.selectionState(of: items(of: row), in: selection) : nil,
+                        toggle: { toggle(row) })
+            .id(row.id)
+    }
+
     private var feed: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(rows) { row in
-                        NotebookRowView(row: row, model: model, actions: rowActions,
-                                        selection: isSelecting ? NotebookFeed.selectionState(of: items(of: row), in: selection)
-                                                               : nil,
-                                        toggle: { toggle(row) })
-                            .id(row.id)
+                // Each heading stays pinned at the top while its rows scroll beneath it, until the
+                // next heading takes its place.
+                LazyVStack(alignment: .leading, spacing: 2, pinnedViews: [.sectionHeaders]) {
+                    ForEach(sections) { section in
+                        Section {
+                            ForEach(section.rows) { row in rowView(row) }
+                        } header: {
+                            if let header = section.header {
+                                rowView(header)
+                                    .padding(.bottom, 4)
+                                    .background(Color(uiColor: .systemBackground).padding(.horizontal, -12))
+                            }
+                        }
                     }
                 }
                 .scrollTargetLayout()
@@ -371,18 +398,19 @@ private struct NotebookContent: View {
                 .padding(.bottom, 32)
                 .frame(maxWidth: .infinity)
             }
-            .scrollPosition(id: $scrollAnchor, anchor: .top)
+            .scrollPosition(id: $scrollAnchor, anchor: rowAnchor)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { feedHeight = $0 }
             .modifier(NotebookVisibleRows(ids: $visibleRowIDs))
             .accessibilityIdentifier(NotebookAccessibilityID.feed)
             .onChange(of: feedVersion) { _, _ in
                 if let target = pendingMapTarget, rows.contains(where: { $0.id == target }) {
                     pendingMapTarget = nil
-                    proxy.scrollTo(target, anchor: .top)
+                    proxy.scrollTo(target, anchor: rowAnchor)
                 }
                 if !didRestoreScroll {
                     didRestoreScroll = true
                     if let anchor = scrollAnchor, rows.contains(where: { $0.id == anchor }) {
-                        proxy.scrollTo(anchor, anchor: .top)
+                        proxy.scrollTo(anchor, anchor: rowAnchor)
                     }
                 }
             }

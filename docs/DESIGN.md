@@ -261,6 +261,12 @@ ones even where the mockup draws an approximation.
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
+- **Notebook headings stay pinned** (*owner decision, 17 November 2026*). While the feed
+  scrolls, the heading of the rows on screen stays at the top of the feed, on the page's
+  background, until the next heading (of any level) pushes it away. A pinned heading is the
+  same row as before: it opens the reader at its start page and has its checkbox while
+  selecting. Scrolling to a row (from the map, or restoring the window's place) lands it just
+  below the pinned heading, not under it.
 - **Notebook map** (*owner decision, 17 November 2026: mockup N1, from Library search option D*).
   Above the feed, under the type filter, a strip stands for the whole book: one segment per
   top-level heading (front matter first when the first heading starts later), labelled with the

@@ -65,6 +65,22 @@ enum NotebookFeedFixture {
 struct NotebookFeedTests {
     typealias Support = NotebookFeedFixture
 
+    @Test func sectionsSplitTheFeedAtEveryHeading() {
+        let rows = NotebookFeed.rows(for: Support.seeded(), filter: NotebookFilter())
+        let sections = NotebookFeed.sections(rows)
+        // Every row once, in order.
+        #expect(sections.flatMap { [$0.header].compactMap { $0 } + $0.rows } == rows)
+        #expect(sections.allSatisfy { $0.header?.isHeader ?? false })
+        #expect(sections.allSatisfy { !$0.rows.contains(where: \.isHeader) })
+        #expect(sections.map { $0.header.map { Support.titles([$0]) } ?? [] }.flatMap { $0 } == Support.titles(rows))
+        // "5 Eigenvalues and Eigenvectors" holds only its own note; 5.1 follows as its own section.
+        let chapter = sections.first { Support.titles([$0.header!]) == ["5 Eigenvalues and Eigenvectors"] }
+        #expect(chapter?.rows.count == 1)
+        #expect(Set(sections.map(\.id)).count == sections.count)
+
+        #expect(NotebookFeed.sections([]).isEmpty)
+    }
+
     @Test func groupsUnderTheRightHeadings() throws {
         let notebook = Support.seeded()
         let rows = NotebookFeed.rows(for: notebook, filter: NotebookFilter())
