@@ -185,6 +185,24 @@ struct NotesPanelRulesTests {
         #expect(abs(half.zoom(base: 1) - 1.3) < 0.0001, "never the 179% the full width would give")
     }
 
+    @Test func hidingTheListsGivesTheNoteTheWholePanelAtTheSameZoom() {
+        let size = CGSize(width: 834, height: 560)
+        let shown = NotesPanelMetrics(presentation: .narrow, size: size)
+        let hidden = NotesPanelMetrics(presentation: .narrow, size: size, listsHidden: true)
+        #expect(hidden.usesColumns && hidden.noteColumnWidth == 834)
+        #expect(hidden.zoom(base: 1) == shown.zoom(base: 1), "hiding the lists never zooms the note")
+        #expect(hidden.notePageWidth > shown.notePageWidth, "the page widens instead")
+        // The page fills the panel on screen, as a pane's page fills the pane.
+        let onScreen = hidden.notePageWidth * hidden.zoom(base: 1)
+        #expect(abs(onScreen - 834 * NotePageStyle.pageWidth / NotesPanelMetrics.defaultPaneWidth) < 2)
+        // A stacked panel has no column to give back: nothing changes but the lists.
+        let slim = CGSize(width: 402, height: 500)
+        #expect(NotesPanelMetrics(presentation: .narrow, size: slim, listsHidden: true).notePageWidth
+                == NotePageStyle.pageWidth)
+        #expect(NotesPanelMetrics(presentation: .narrow, size: slim, listsHidden: true).zoom(base: 1)
+                == NotesPanelMetrics(presentation: .narrow, size: slim).zoom(base: 1))
+    }
+
     @Test func dynamicTypeSetsTheDefaultBase() {
         #expect(NotePageStyle.defaultZoom(for: DynamicTypeSize.large) == 1)
         #expect(NotePageStyle.defaultZoom(for: DynamicTypeSize.xxxLarge) > 1)

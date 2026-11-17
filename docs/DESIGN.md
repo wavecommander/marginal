@@ -218,6 +218,16 @@ ones even where the mockup draws an approximation.
   - *Header:* the Page note / Section note tabs, Delete Note, the shrink control when the pane
     is widened, then the title (the page number, or the heading's title and page range) and the
     save status. No zoom button, and no level picker here.
+  - *Header, narrow panel on a compact screen* (an iPhone, or a compact-width iPad window;
+    owner decision, 17 November 2026): the sheet can cover the toolbar (in landscape on an
+    iPhone it takes the whole screen) or sit under a toolbar whose Markup button is in the
+    overflow menu, so the header also has the Markup switch and, while markup is on, ink Undo
+    and Redo. They do what the toolbar's do. The toolbar's Markup button is otherwise still the
+    only switch for the mode.
+  - *Hiding the lists* (narrow panels; owner decision, 17 November 2026): when there is
+    anything under or beside the note, a header button hides it and shows it again, and the
+    choice is remembered. Hidden in a two-column sheet, the note has the whole width and its
+    page widens to fill it at the same zoom (the text re-wraps, as in a widened pane).
   - *Page note tab, under the note:* "Highlights on this page", only while the page has any.
     There is no "This page is in" list: the toolbar subtitle, the Contents sidebar and the
     Section note tab already say where the page sits.

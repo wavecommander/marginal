@@ -17,6 +17,13 @@ nonisolated enum NotesPanelAccessibilityID {
     static let status = "notePage.status"
     /// The shrink button (shown while the pane is wider than its default).
     static let shrink = "notesPanel.shrink"
+    /// Markup and ink Undo / Redo in the header (a narrow panel on a compact screen).
+    static let markup = "notesPanel.markup"
+    static let undo = "notesPanel.undo"
+    static let redo = "notesPanel.redo"
+    /// Hides and shows the lists under or beside the note (narrow panels; value "Collapsed" or
+    /// "Expanded").
+    static let lowerRegionToggle = "notesPanel.lowerRegionToggle"
     /// The level picker's disclosure row (label "Heading level, <shown heading>", value
     /// "Collapsed" or "Expanded").
     static let levelToggle = "notesPanel.levelToggle"
@@ -176,6 +183,13 @@ nonisolated enum NotesPanelPresentation: Equatable, Sendable {
 ///   note, comfortably readable, with room left for highlights.
 /// - **Pinch** is the only way to choose a zoom (design: "Writing room"; there is no zoom button).
 ///   A change of Dynamic Type drops the pinched choice, so the note follows the new text size.
+/// The lists under (or beside) the note: "Highlights on this page", or the level picker and
+/// "Open in Notebook".
+nonisolated enum NotesPanelRegions {
+    /// Defaults key for "the reader hid them" (narrow panels; `-resetState` clears it).
+    static let collapsedKey = "notesPanel.lowerRegionCollapsed"
+}
+
 struct NotesPanelMetrics: Equatable {
     static let defaultPaneWidth = CGFloat(ReaderSession.defaultNotesPanelWidth)
     /// Narrow panels at least this wide put the lists in a column beside the note.
@@ -192,24 +206,36 @@ struct NotesPanelMetrics: Equatable {
 
     var presentation: NotesPanelPresentation
     var size: CGSize
+    /// The reader hid the lists (narrow presentations: the header's hide button). In a
+    /// two-column panel the note then has the whole width, and its page widens to fill it at
+    /// the same zoom, the way a widened pane's does (the text re-wraps; nothing is zoomed).
+    var listsHidden = false
 
     /// Lists beside the note instead of below it.
     var usesColumns: Bool { presentation == .narrow && size.width >= Self.columnsMinimumWidth }
+    /// The note's column in a two-column panel, whether or not the lists are shown (the zoom
+    /// follows it, so hiding the lists never changes the zoom).
+    private var noteColumnShare: CGFloat { usesColumns ? floor(size.width * Self.noteColumnFraction) : size.width }
     /// The width the note editor gets.
-    var noteColumnWidth: CGFloat { usesColumns ? floor(size.width * Self.noteColumnFraction) : size.width }
+    var noteColumnWidth: CGFloat { listsHidden ? size.width : noteColumnShare }
     /// The note page's width before zoom (see the type documentation): in proportion to a pane's
-    /// width, never below `NotePageStyle.pageWidth`; that width in narrow presentations.
+    /// width, never below `NotePageStyle.pageWidth`; that width in narrow presentations, except
+    /// in a two-column panel whose lists are hidden, where it is in proportion to the panel's.
     var notePageWidth: CGFloat {
         switch presentation {
-        case .pane: max(NotePageStyle.pageWidth, floor(NotePageStyle.pageWidth * noteColumnWidth / Self.defaultPaneWidth))
-        case .narrow: NotePageStyle.pageWidth
+        case .pane:
+            max(NotePageStyle.pageWidth, floor(NotePageStyle.pageWidth * noteColumnWidth / Self.defaultPaneWidth))
+        case .narrow:
+            usesColumns && listsHidden
+                ? max(NotePageStyle.pageWidth, floor(NotePageStyle.pageWidth * size.width / zoomReferenceWidth))
+                : NotePageStyle.pageWidth
         }
     }
     /// The width the zoom follows (see the type documentation).
     var zoomReferenceWidth: CGFloat {
         switch presentation {
         case .pane: Self.defaultPaneWidth
-        case .narrow: min(noteColumnWidth, Self.defaultPaneWidth * Self.narrowMaximumFactor)
+        case .narrow: min(noteColumnShare, Self.defaultPaneWidth * Self.narrowMaximumFactor)
         }
     }
     /// The most the stacked lists below the note may take.

@@ -135,6 +135,7 @@ final class AppEnvironment {
         if launchOptions.resetState {
             // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
             UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
+            UserDefaults.standard.removeObject(forKey: NotesPanelRegions.collapsedKey)
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
             // A fresh state has no backup folder chosen and automatic backups off.
             UserDefaults.standard.removeObject(forKey: BackupFolderStore.defaultKey)

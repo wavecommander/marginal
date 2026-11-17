@@ -36,6 +36,7 @@ struct ReaderScreen: View {
     @Bindable var session: ReaderSession
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// Search panels on screen (each counts from its appearance until its dismissal has
     /// finished). A count, not a flag: when search reopens while the last panel is still going,
     /// the new panel's appearance and the old one's disappearance can come in either order.
@@ -152,7 +153,8 @@ struct ReaderScreen: View {
         .statusBarHidden(session.isMaximized)
         .animation(.default, value: session.isMaximized)
         .sheet(isPresented: notesSheetBinding) {
-            NotesPanel(session: session)
+            NotesPanel(session: session,
+                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact)
                 .presentationDetents([.medium, .large])
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
@@ -489,6 +491,8 @@ private struct MaximizedPageControls: View {
 private struct NotesBottomPanel: View {
     let session: ReaderSession
     let containerHeight: CGFloat
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var isLarge = false
     /// The grabber's vertical travel in the drag under way (0 otherwise). A gesture state, so a
     /// cancelled drag puts the panel back. Its reset is not animated (see `NotesSidePane`).
@@ -530,7 +534,8 @@ private struct NotesBottomPanel: View {
                 .accessibilityAdjustableAction { direction in
                     withAnimation { isLarge = direction == .increment }
                 }
-            NotesPanel(session: session)
+            NotesPanel(session: session,
+                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact)
         }
         .frame(height: min(largeHeight, max(120, baseHeight - dragOffset - releaseOffset)))
         .frame(maxWidth: .infinity)
