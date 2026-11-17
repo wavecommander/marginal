@@ -26,11 +26,12 @@ These apply to every change, alongside the build, test and convention rules belo
 ## Layout
 
 - `App/` app target (SwiftUI; UIKit only to bridge `PDFView` and `PKCanvasView`). Composition root is `App/Support/AppEnvironment.swift`; scenes are in `App/TactileTextsApp.swift`; one `ReaderSession` per reader window.
-- `Packages/` five local SwiftPM packages, all testable on the Mac with `swift test`:
+- `Packages/` six local SwiftPM packages, all testable on the Mac with `swift test`:
   - `ReaderCore`: pure Swift. No PDFKit, SwiftData, UIKit or PencilKit imports.
   - `ReaderStore`: SwiftData models and ink files.
   - `ReaderBackup`, `S3Kit`: Foundation and CryptoKit only.
-  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores, and the sync engine (`SyncEngine`, with the `SyncLibrary` and `SyncInkMerger` seams the app implements) (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`); not yet in `project.yml` or the app target.
+  - `GoogleSignInKit`: Sign in with Google for Tactile Texts Cloud, sign-in only (PKCE, `state`, `nonce`, one code exchange for the ID token; no token storage). Foundation and CryptoKit only.
+  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores, and the sync engine (`SyncEngine`, with the `SyncLibrary` and `SyncInkMerger` seams the app implements) (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`). The app uses only its `SyncKeys` so far (device names on the Tactile Texts Cloud account screen).
 - `Tests/` app-hosted unit tests (Swift Testing). `UITests/` XCTest UI tests.
 - `Backend/backup-worker/` Cloudflare Worker (TypeScript, D1, R2), separate npm project.
 - No third-party Swift dependencies. Do not add one.
@@ -41,7 +42,7 @@ Use the scripts, not raw `xcodebuild`: they run XcodeGen, generate fixtures, pic
 
 ```sh
 scripts/build.sh                                   # simulator build
-scripts/test.sh --packages-only                    # swift test in all five packages
+scripts/test.sh --packages-only                    # swift test in all six packages
 scripts/test.sh --skip-packages -only-testing:TactileTextsTests/NotesPanelRulesTests
 scripts/test.sh --skip-packages "-only-testing:TactileTextsTests/NotesPanelRulesTests/levelPickerListsTheWholeHeadingPath()"
 scripts/test.sh --skip-packages -only-testing:TactileTextsUITests/LibraryUITests/testImportOpenBackRenameDelete
@@ -50,7 +51,7 @@ scripts/shot.sh <name> [launch args...]            # screenshot to build/shots/<
 ```
 
 - **Do not run the full gate** (`scripts/test.sh` with no `-only-testing`) unless asked. It is very expensive. Owner rule: build, then run only the tests for the region you changed.
-- Without `--skip-packages`, `test.sh` runs all five packages' tests before the app tests, even with `-only-testing`.
+- Without `--skip-packages`, `test.sh` runs all six packages' tests before the app tests, even with `-only-testing`.
 - Swift Testing IDs need the trailing `()` on a test function (quote it for zsh); XCTest UI test IDs do not.
 - Owner rule: at most three agents building or using simulators at once. `TACTILE_SIM` (name or UDID) picks a different simulator; the default is `iPad Pro 11-inch (M5)`.
 - Timing-sensitive tests and the unit tests fail under load from parallel simulator clones; `test.sh` lists them in `MEASURING` and runs them alone. Add new timing tests to that list, and screenshot-only tests to `SCREENSHOTS`.
@@ -61,7 +62,7 @@ scripts/shot.sh <name> [launch args...]            # screenshot to build/shots/<
 - `TactileTexts.xcodeproj` is generated from `project.yml` and git-ignored. Never edit it. New files are picked up by folder on the next `xcodegen generate`.
 - `App/Info.plist` is committed but generated: change `info.properties` in `project.yml`, regenerate, commit both.
 - `Config/Signing.xcconfig` is committed and holds empty defaults; secrets and the team ID go only in the git-ignored `Config/Local.xcconfig`. In xcconfig, `//` starts a comment, so hosts and URLs are written without a scheme.
-- Backup integrations (S3, the cloud service) are off unless `Local.xcconfig` sets them; code must work with all of them empty. iCloud Drive and Google Drive have no code of their own: the reader reaches them through the system's file and folder pickers.
+- Backup integrations (S3, the cloud service and its sign-in: `SIGN_IN_WITH_APPLE` with `Config/SignInWithApple.entitlements`, `GOOGLE_SIGNIN_CLIENT_ID`) are off unless `Local.xcconfig` sets them; code must work with all of them empty. iCloud Drive and Google Drive have no code of their own: the reader reaches them through the system's file and folder pickers.
 
 ## Swift conventions that bite
 

@@ -12,11 +12,13 @@ export const APP_APPLE_ID = 1234567890;
 export const ALLOWANCE = 10_000;
 export const SANDBOX_ALLOWANCE = 1_000;
 export const BYPASS_SECRET = "dev-bypass-secret-0123456789abcdef-not-real";
+export const DEV_SIGNIN_SECRET = "dev-test-signin-secret-0123456789abcdef-not-real";
 export const SIWA_KEY_ID = "SIWAKEY123";
 export const SECRET_VALUES = [
   "test-parent-secret-access-key-not-real",
   "test-identity-key-secret-0123456789abcdef-not-real",
   BYPASS_SECRET,
+  DEV_SIGNIN_SECRET,
 ];
 
 /** The variables and secrets, without bindings. */

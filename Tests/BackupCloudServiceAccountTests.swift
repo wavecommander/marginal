@@ -14,18 +14,33 @@ struct BackupCloudServiceAccountTests {
     typealias Rig = BackupCloudServiceRig
     typealias W = BackupCloudServiceFakeWorker
 
-    // MARK: StoreKit first
+    // MARK: Signed out, and not subscribed
 
-    @Test func neverSubscribedNeverAsksTheService() async throws {
+    @Test func signedOutNeverAsksTheService() async throws {
+        let rig = try Rig.make(signedIn: false)
+        defer { rig.cleanUp() }
+        #expect(rig.account.status == .signedOut)
+        await rig.start()
+        #expect(rig.account.status == .signedOut)
+        #expect(await rig.destination.availability() == .unavailable(reason: CloudServiceError.notSignedIn.localizedDescription))
+        await #expect(throws: CloudServiceError.notSignedIn) { try await rig.destination.listSnapshots() }
+        await #expect(throws: CloudServiceError.notSignedIn) { try await rig.account.deleteEverything() }
+        #expect(rig.worker.stub.requests.isEmpty)
+        #expect(rig.r2.stub.requests.isEmpty)
+    }
+
+    @Test func anAccountWithoutASubscriptionIsNotSubscribed() async throws {
         let rig = try Rig.make(subscribed: false)
         defer { rig.cleanUp() }
         await rig.start()
         #expect(rig.account.status == .notSubscribed)
         #expect(await rig.destination.availability() == .unavailable(reason: CloudServiceError.notSubscribed.localizedDescription))
         await #expect(throws: CloudServiceError.notSubscribed) { try await rig.destination.listSnapshots() }
-        await #expect(throws: CloudServiceError.notSubscribed) { try await rig.account.deleteEverything() }
-        #expect(rig.worker.stub.requests.isEmpty)
         #expect(rig.r2.stub.requests.isEmpty)
+        // The session was asked for with the device session and no transaction (there is none).
+        let sent = try #require(rig.worker.stub.requests("POST", pathPrefix: "/v1/session").first)
+        let body = try #require(try JSONSerialization.jsonObject(with: sent.body) as? [String: String])
+        #expect(body["deviceSessionToken"] == W.liveToken && body["signedTransaction"] == nil)
     }
 
     @Test func aStoreThatCannotBeReachedSaysSo() async throws {
@@ -34,7 +49,6 @@ struct BackupCloudServiceAccountTests {
         rig.store.productsError = .networkUnavailable
         await rig.start()
         #expect(rig.account.status == .storeUnavailable(reason: BackupSubscriptionError.networkUnavailable.localizedDescription))
-        #expect(rig.worker.stub.requests.isEmpty)
     }
 
     @Test func aPurchaseIsNoticedByTheNextAvailabilityCheck() async throws {
@@ -85,7 +99,7 @@ struct BackupCloudServiceAccountTests {
         #expect(rig.account.recoveryKeyShown && !rig.account.recoveryKeySaved)
         rig.account.markRecoveryKeySaved()
         #expect(rig.account.recoveryKeySaved)
-        #expect(rig.defaults.bool(forKey: CloudBackupAccount.recoveryKeySavedKey))
+        #expect(rig.defaults.bool(forKey: CloudBackupAccount.flagKey(CloudBackupAccount.recoveryKeySavedKey, account: W.account(1))))
     }
 
     @Test func aRoundTripThroughTheBackupEngine() async throws {
@@ -394,6 +408,27 @@ struct BackupCloudServiceAccountTests {
         #expect(cloud.configuration.baseURL.absoluteString == "http://localhost:8787")
         #expect(BackupDestinationKind(id: last.id) == .tactileCloud)
         #expect(BackupDestinationKind.tactileCloud.systemImage == "lock.icloud")
+        // With neither way of signing in configured, the service says it isn't available.
+        #expect(cloud.signIn.availableProviders.isEmpty)
+        #expect(cloud.account.status == .notInThisBuild)
+    }
+
+    @Test func eachSignInButtonNeedsItsSetting() throws {
+        func providers(_ values: [String: String]) throws -> [CloudSignInProvider] {
+            var service = ["Host": "localhost:8787", "ProductIDs": BackupCloudServiceStoreFixtures.productID]
+            service.merge(values) { $1 }
+            let configuration = try #require(BackupServiceConfiguration.fromInfoDictionary(["BackupService": service]))
+            return TactileCloudBackup.identityProvider(for: configuration).availableProviders
+        }
+        let google = "123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com"
+        #expect(try providers([:]).isEmpty)
+        #expect(try providers(["AppleSignIn": "$(SIGN_IN_WITH_APPLE)", "GoogleClientID": "$(GOOGLE_SIGNIN_CLIENT_ID)"]).isEmpty)
+        #expect(try providers(["AppleSignIn": "YES"]) == [.apple])
+        #expect(try providers(["GoogleClientID": google]) == [.google])
+        #expect(try providers(["AppleSignIn": "YES", "GoogleClientID": google]) == [.apple, .google])
+        #expect(try providers(["GoogleClientID": "not-a-client-id"]).isEmpty)
+        // The dev Worker's test issuer stands in for both (debug builds only).
+        #expect(try providers(["DevSignIn": "a-dev-test-secret-of-at-least-32-characters"]) == [.apple, .google])
     }
 
     @Test func statusesMapToAvailability() {
@@ -402,7 +437,8 @@ struct BackupCloudServiceAccountTests {
         #expect(A.availability(status: .active, info: nil, lastError: nil) == .available)
         #expect(A.availability(status: .overAllowance, info: nil, lastError: nil) == .available)
         #expect(A.availability(status: .readOnly(readOnlyUntil: nil, deleteAfter: nil), info: nil, lastError: nil) == .available)
-        for status: A.Status in [.notInThisBuild, .unknown, .storeUnavailable(reason: "x"), .notSubscribed,
+        for status: A.Status in [.notInThisBuild, .unknown, .signedOut, .storeUnavailable(reason: "x"), .notSubscribed,
+                                 .subscriptionElsewhere(.subscriptionInUse),
                                  .needsRecoveryKey(.differentKey), .lapsed(deleteAfter: nil), .revoked(deleteAfter: nil), .dataDeleted] {
             #expect(!A.availability(status: status, info: info, lastError: nil).isAvailable, "\(status)")
         }

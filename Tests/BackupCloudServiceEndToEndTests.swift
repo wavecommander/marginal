@@ -12,22 +12,27 @@ private final class EndToEndBundleMarker {}
 
 /// Tactile Texts Cloud end to end, opt-in: the app's own client against `wrangler dev` of
 /// `Backend/backup-worker`, which mints real temporary credentials for the real development
-/// bucket. Skipped unless both are set (`TEST_RUNNER_` passes them through `xcodebuild`):
+/// bucket. It signs in through the `dev` Worker's test issuer (no Apple or Google account).
+/// Skipped unless all three are set (`TEST_RUNNER_` passes them through `xcodebuild`):
 ///
 ///     TEST_RUNNER_TACTILE_BACKUP_SERVICE=localhost:<port>
 ///     TEST_RUNNER_TACTILE_BACKUP_SERVICE_BYPASS=<the Worker's APP_ATTEST_BYPASS_SECRET>
+///     TEST_RUNNER_TACTILE_BACKUP_SERVICE_DEV_SIGNIN=<the Worker's DEV_TEST_SIGNIN_SECRET>
+///
+/// Never point it at a real deployment: production refuses the test issuer anyway.
 ///
 /// The Worker needs `XCODE_STOREKIT_CERT` (the certificate this simulator's StoreKit test
 /// session signs with): `TEST_RUNNER_TACTILE_STOREKIT_CERT_OUT=<file>` runs
 /// `writeStoreKitTestCertificate`, which writes it there (see the Worker's README).
 ///
-/// Nothing secret is printed: not the JWS, the credentials or the bypass secret.
+/// Nothing secret is printed: not the JWS, the credentials, the tokens or the secrets.
 @MainActor
 @Suite(.serialized)
 struct BackupCloudServiceEndToEndTests {
     static let productID = "software.tactile.texts.backup.standard"
     nonisolated static let serviceHost = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE"]
     nonisolated static let bypassSecret = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE_BYPASS"]
+    nonisolated static let devSignInSecret = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE_DEV_SIGNIN"]
     nonisolated static let certificateOut = ProcessInfo.processInfo.environment["TACTILE_STOREKIT_CERT_OUT"]
 
     func storeKitSession() throws -> SKTestSession {
@@ -44,9 +49,11 @@ struct BackupCloudServiceEndToEndTests {
     }
 
     /// Buys the subscription through the test session and waits until the model sees it.
-    func subscribe(_ subscription: BackupSubscription, session: SKTestSession) async throws -> BackupSignedTransaction {
+    func subscribe(_ subscription: BackupSubscription, session: SKTestSession,
+                   appAccountToken: UUID? = nil) async throws -> BackupSignedTransaction {
         await subscription.load()
-        _ = try await session.buyProduct(identifier: Self.productID)
+        _ = try await session.buyProduct(identifier: Self.productID,
+                                         options: appAccountToken.map { [.appAccountToken($0)] } ?? [])
         await eventually {
             if case .subscribed = subscription.state { return true }
             return false
@@ -86,8 +93,8 @@ struct BackupCloudServiceEndToEndTests {
 
     // MARK: Back up, restore, delete
 
-    @Test(.enabled(if: serviceHost != nil && bypassSecret != nil))
-    func backUpRestoreAndDeleteEverythingThroughTheService() async throws {
+    @Test(.enabled(if: serviceHost != nil && bypassSecret != nil && devSignInSecret != nil))
+    func signInBackUpRestoreAndDeleteThroughTheService() async throws {
         let storeKit = try storeKitSession()
         defer { storeKit.clearTransactions() }
         let host = try #require(Self.serviceHost)
@@ -103,14 +110,22 @@ struct BackupCloudServiceEndToEndTests {
         let keyStore = InMemoryBackupKeyStore()
         let attest = DeviceAppAttestClient(defaultsSuiteName: suite)
         #expect(!attest.isSupported, "the simulator has no App Attest, so the bypass is used")
+        let identity = DevTestCloudIdentityProvider(secret: try #require(Self.devSignInSecret), audience: "software.tactile.texts",
+                                                    subject: "end-to-end-\(UUID().uuidString.lowercased())")
         let cloud = TactileCloudBackup.make(configuration: configuration, store: AppStoreBackupStore(), attest: attest,
-                                            keyStore: keyStore, temporaryDirectory: scratch.appendingPathComponent("enc"),
+                                            keyStore: keyStore, sessionStore: InMemoryCloudDeviceSessionStore(),
+                                            identity: identity, temporaryDirectory: scratch.appendingPathComponent("enc"),
                                             defaults: defaults)
         let account = cloud.account
         let connection = try #require(account.connection)
         #expect(try await connection.client.health() == "dev")
 
-        _ = try await subscribe(cloud.subscription, session: storeKit)
+        // Sign in (a new account), then subscribe: the purchase binds to it.
+        #expect(account.status == .signedOut)
+        try await cloud.signIn.signIn(with: .apple, anchor: nil)
+        #expect(cloud.signIn.isSignedIn)
+        let token = try #require(cloud.signIn.appAccountToken)
+        _ = try await subscribe(cloud.subscription, session: storeKit, appAccountToken: token)
         await account.refresh()
         let session = try #require(connection.latestSession, "no session: \(String(describing: account.lastError))")
         #expect(session.storage.prefix.hasPrefix("sandbox/"), "a StoreKit test purchase lives under sandbox/")
@@ -176,6 +191,22 @@ struct BackupCloudServiceEndToEndTests {
         // folder's own credentials, so nothing is left behind, and check the folder is empty.
         for object in try await raw.list() { try await raw.delete(key: object.key) }
         #expect(try await raw.list().isEmpty)
+
+        // Change the sign-in to Google and back, then sign out and in again: the same account.
+        let accountID = try #require(cloud.signIn.accountID)
+        try await cloud.signIn.changeSignIn(anchor: nil)
+        #expect(cloud.signIn.session?.provider == .google && cloud.signIn.accountID == accountID)
+        await cloud.signIn.signOut()
+        #expect(account.status == .signedOut)
+        try await cloud.signIn.signIn(with: .google, anchor: nil)
+        #expect(cloud.signIn.accountID == accountID)
+
+        // Delete the account: the device is signed out and the account is gone.
+        try await cloud.deleteAccount(anchor: nil)
+        #expect(!cloud.signIn.isSignedIn && cloud.signIn.signedOutReason == .accountDeleted)
+        try await cloud.signIn.signIn(with: .google, anchor: nil)
+        #expect(cloud.signIn.accountID != accountID, "the same identity now makes a new account")
+        try await cloud.deleteAccount(anchor: nil)
     }
 
     static func base64URLDecoded(_ text: String) -> Data? {

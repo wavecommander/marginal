@@ -15,11 +15,23 @@
 //
 // Only the two fixed addresses are ever fetched. Key sets are cached for as long as the
 // provider's Cache-Control says, kept within 5 minutes to 24 hours.
+//
+// The dev test issuer. The `dev` deployment, and only when DEV_TEST_SIGNIN_SECRET is set, also
+// accepts sign-in tokens it can check itself, so the simulator and end-to-end tests can sign in
+// without Apple or Google. Such a token is a compact JWT with header {"alg":"HS256","typ":"JWT"},
+// an HMAC-SHA256 over `<header>.<payload>` keyed with the UTF-8 bytes of the secret, issuer
+// `DEV_TEST_ISSUER`, and the same claims as Apple's: audience the bundle ID, `sub`, `nonce`, `iat`
+// and `exp` (at most `DEV_TEST_MAX_LIFETIME_S` after `iat`). It stands in for whichever provider
+// the endpoint asked for, but its identity is hashed in that provider's dev-test namespace
+// (identity.ts), never the real one, so it can never reach an account made with a real token.
+// The RS256 path never accepts HS256 (no algorithm confusion: an HS256 token claiming Apple's or
+// Google's issuer is refused everywhere), and Apple's sign-in notifications never take test
+// tokens.
 
 import { fromBase64Url, hex, sha256 } from "./bytes";
 import type { Settings } from "./env";
 import { Refusal } from "./http";
-import type { Provider } from "./identity";
+import { devTestNamespace, type IdentityNamespace, type Provider } from "./identity";
 import { logError } from "./log";
 
 export const JWKS_URLS: Readonly<Record<Provider, string>> = {
@@ -221,17 +233,40 @@ export async function nonceFor(challenge: Uint8Array): Promise<string> {
 }
 
 export interface VerifiedIdToken {
+  /** The provider the token stands for: the endpoint's, whoever issued it. */
   provider: Provider;
+  /**
+   * Where the identity lives: the provider itself, or its dev-test namespace for a dev test
+   * token. Hash the subject in this namespace, never in `provider`.
+   */
+  namespace: IdentityNamespace;
+  /** Who signed the token: the real provider, or the `dev` deployment's test issuer. */
+  issuer: "provider" | "dev-test";
   /** The provider's stable user ID. Hash it at once; never store or log it. */
   subject: string;
+}
+
+/** The `iss` of the dev test issuer's tokens. */
+export const DEV_TEST_ISSUER = "tactile-texts-dev-test";
+/** A dev test token may be valid for at most this long (`exp - iat`, seconds). */
+export const DEV_TEST_MAX_LIFETIME_S = 600;
+
+/**
+ * Whether the dev test issuer is on: the `dev` deployment with DEV_TEST_SIGNIN_SECRET set.
+ * readSettings never sets the secret in production; the environment is checked here again anyway.
+ */
+export function devTestIssuerEnabled(settings: Settings): boolean {
+  return settings.environment === "dev" && settings.devTestSigninSecret !== undefined;
 }
 
 /**
  * Verifies a sign-in ID token for `provider`, bound to this request's challenge. Refuses with
  * `provider-disabled` (Google not configured), `provider-unreachable` (no key set) or
- * `id-token-invalid`.
+ * `id-token-invalid`. In `dev` with the test issuer on, an HS256 token from that issuer stands in
+ * for `provider`, its identity in that provider's dev-test namespace.
  */
 export async function verifyIdToken(token: string, provider: Provider, nonce: string, settings: Settings, context: JwtContext): Promise<VerifiedIdToken> {
+  if (headerAlgorithm(token) === "HS256") return verifyDevTestToken(token, provider, nonce, settings, context);
   const audiences = audiencesFor(provider, settings);
   let claims: Record<string, unknown>;
   try {
@@ -244,17 +279,101 @@ export async function verifyIdToken(token: string, provider: Provider, nonce: st
   if (provider === "google" && claims.azp !== undefined && (typeof claims.azp !== "string" || !audiences.includes(claims.azp))) {
     throw new Refusal("id-token-invalid", "jwt: authorized party");
   }
+  return { provider, namespace: provider, issuer: "provider", subject: subjectOf(claims) };
+}
+
+/** The `alg` a compact JWT's header names, or undefined. Used only to pick the verifier. */
+function headerAlgorithm(token: string): unknown {
+  if (token.length > MAX_TOKEN_LENGTH) return undefined;
+  try {
+    return jsonObject(token.split(".")[0] ?? "", "header").alg;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A token from the dev test issuer. Accepted only in `dev` with the secret set (checked again
+ * here, at use, whatever built the settings), signed HS256 with that secret, issuer exactly
+ * `DEV_TEST_ISSUER`, audience the bundle ID, this request's nonce, unexpired, issued no later
+ * than a minute from now, and valid for at most `DEV_TEST_MAX_LIFETIME_S`.
+ */
+async function verifyDevTestToken(token: string, provider: Provider, nonce: string, settings: Settings, context: JwtContext): Promise<VerifiedIdToken> {
+  const secret = settings.devTestSigninSecret;
+  if (settings.environment !== "dev" || secret === undefined || secret.length < 32) {
+    // As the RS256 verifier would say: production does not know this issuer exists.
+    throw new Refusal("id-token-invalid", "jwt: algorithm is not RS256");
+  }
+  let claims: Record<string, unknown>;
+  try {
+    claims = await verifyHs256(token, secret);
+  } catch (error) {
+    throw new Refusal("id-token-invalid", error instanceof Error ? error.message : "unknown");
+  }
+  const refuse = (what: string): never => {
+    throw new Refusal("id-token-invalid", `dev-test jwt: ${what}`);
+  };
+  if (claims.iss !== DEV_TEST_ISSUER) refuse("issuer");
+  const aud = Array.isArray(claims.aud) && claims.aud.length === 1 ? claims.aud[0] : claims.aud;
+  if (aud !== settings.bundleId) refuse("audience");
+  const now = context.now.getTime();
+  if (!isSeconds(claims.exp)) refuse("no expiry");
+  if (!isSeconds(claims.iat)) refuse("no issue time");
+  const exp = claims.exp as number;
+  const iat = claims.iat as number;
+  if (now >= exp * 1000 + SKEW_MS) refuse("expired");
+  if (iat * 1000 > now + SKEW_MS) refuse("issued in the future");
+  if (exp <= iat || exp - iat > DEV_TEST_MAX_LIFETIME_S) refuse("lifetime");
+  if (typeof claims.nonce !== "string" || claims.nonce !== nonce) refuse("nonce");
+  return { provider, namespace: devTestNamespace(provider), issuer: "dev-test", subject: subjectOf(claims) };
+}
+
+/** Checks an HS256 compact JWT's header and its signature (constant time); returns its claims. */
+async function verifyHs256(token: string, secret: string): Promise<Record<string, unknown>> {
+  if (token.length > MAX_TOKEN_LENGTH) throw new Error("dev-test jwt: too long");
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("dev-test jwt: not compact serialization");
+  const [headerPart, payloadPart, signaturePart] = parts as [string, string, string];
+  const header = jsonObject(headerPart, "header");
+  const claims = jsonObject(payloadPart, "payload");
+  if (header.alg !== "HS256") throw new Error("dev-test jwt: algorithm");
+  if (header.typ !== undefined && header.typ !== "JWT") throw new Error("dev-test jwt: type");
+  if ("crit" in header) throw new Error("dev-test jwt: critical header parameters");
+  let signature: Uint8Array;
+  try {
+    signature = fromBase64Url(signaturePart);
+  } catch {
+    throw new Error("dev-test jwt: signature is not base64url");
+  }
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  if (!(await crypto.subtle.verify("HMAC", key, signature, encoder.encode(`${headerPart}.${payloadPart}`)))) {
+    throw new Error("dev-test jwt: bad signature");
+  }
+  return claims;
+}
+
+function subjectOf(claims: Record<string, unknown>): string {
   const subject = claims.sub;
   if (typeof subject !== "string" || subject.length === 0 || subject.length > 255 || subject.includes("\0")) {
     throw new Refusal("id-token-invalid", "jwt: subject");
   }
-  return { provider, subject };
+  return subject;
 }
 
 export function audiencesFor(provider: Provider, settings: Settings): readonly string[] {
   if (provider === "apple") return [settings.bundleId];
   if (settings.googleClientIds.length === 0) throw new Refusal("provider-disabled", "GOOGLE_CLIENT_IDS is empty");
   return settings.googleClientIds;
+}
+
+/**
+ * Before a sign-in spends its challenge: `provider-disabled` when Google is not configured,
+ * unless the dev test issuer is on (it can stand in for Google without client IDs; a real Google
+ * token is then still refused `provider-disabled` when it is verified).
+ */
+export function checkProviderEnabled(provider: Provider, settings: Settings): void {
+  if (!devTestIssuerEnabled(settings)) audiencesFor(provider, settings);
 }
 
 export interface AppleSignInEvent {

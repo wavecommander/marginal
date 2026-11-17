@@ -104,6 +104,20 @@ nonisolated enum AccessibilityID {
         static let terms = "cloud.terms"
         static let privacy = "cloud.privacy"
         static let notice = "cloud.notice"
+        // Signing in (the offer, signed out)
+        static let signInApple = "cloud.signIn.apple"
+        static let signInGoogle = "cloud.signIn.google"
+        /// Why this iPad was signed out (session ended, Apple revoked, account deleted).
+        static let signedOutNotice = "cloud.signedOut"
+        // The account (signed in)
+        static let accountSignIn = "cloud.account.signIn"
+        /// One row per device: `cloud.account.device.<n>`, oldest first from 0.
+        static func device(_ index: Int) -> String { "cloud.account.device.\(index)" }
+        static let changeSignIn = "cloud.account.change"
+        static let signOut = "cloud.account.signOut"
+        static let signOutAll = "cloud.account.signOutAll"
+        static let deleteAccount = "cloud.account.delete"
+        static let accountBusy = "cloud.account.busy"
         // The status page
         static let status = "cloud.status"
         static let banner = "cloud.banner"

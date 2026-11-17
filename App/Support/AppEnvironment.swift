@@ -115,6 +115,11 @@ final class AppEnvironment {
         self.cloudBackup = cloudBackup
         if let cloudBackup {
             backupDestinations.register(cloudBackup.destination)
+            // Automatic backup is on by default for a signed-in subscriber (unless the reader
+            // already set automatic backups up, or turned them off).
+            cloudBackup.account.onActiveSubscriber = { [weak backupAutomaticSettings] in
+                backupAutomaticSettings?.applyDefault(destinationID: TactileCloudBackupDestination.destinationID)
+            }
             cloudBackup.start()
         }
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.

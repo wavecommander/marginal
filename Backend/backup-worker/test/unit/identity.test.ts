@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  devTestNamespace,
   identityHash,
   newAccountId,
   newFolderKey,
@@ -26,6 +27,15 @@ describe("identityHash", () => {
     expect(await identityHash(SECRET, "google", "123")).not.toBe(a);
     expect(await identityHash(SECRET, "apple", "124")).not.toBe(a);
     expect(await identityHash("t".repeat(40), "apple", "123")).not.toBe(a);
+  });
+
+  it("keeps the dev test issuer's identities in their own namespaces, apart from the real providers'", async () => {
+    expect(await identityHash(SECRET, "dev-test:apple", "123")).toBe(createHmac("sha256", SECRET).update(["tactile-identity-v1", "dev-test:apple", "123"].join("\0")).digest("hex"));
+    const hashes = await Promise.all((["apple", "google", "dev-test:apple", "dev-test:google"] as const).map((namespace) => identityHash(SECRET, namespace, "123")));
+    expect(new Set(hashes).size).toBe(4);
+    expect(devTestNamespace("apple")).toBe("dev-test:apple");
+    expect(devTestNamespace("google")).toBe("dev-test:google");
+    await expect(identityHash(SECRET, "dev-test" as never, "123")).rejects.toThrow(/namespace/);
   });
 
   it("refuses a weak secret and an empty or oversized subject", async () => {

@@ -337,11 +337,20 @@ cannot silently roll a book back.
 
 **Status, 17 November 2026:** C0, C1 and C3 are done and merged into `reader-markup-subtitle`
 (C1 with the fixes from an independent security review: one medium and three low findings, all
-closed). On the merged branch all five packages' tests and the Worker's 210 tests pass. C2, C4
-and C5 are not started. `ReaderSync` is not yet in `project.yml` or the app, and the app's
-`BackupCloudServiceEndToEndTests` cannot pass against the new Worker until C2. Nothing has
-been checked on a real iPad, against real Apple or Google sign-in, or against R2 through the
-Swift code. C0's answers are in `docs/CLOUD_SYNC_FINDINGS.md`.
+closed). On the merged branch all five packages' tests and the Worker's 210 tests pass. C4
+and C5 are not started. C0's answers are in `docs/CLOUD_SYNC_FINDINGS.md`.
+
+**C2, 17 November 2026: built, on its own branch, not yet merged.** Sign-in with Apple and
+Google (`GoogleSignInKit`, a sixth package), the device session in the Keychain, the account
+screen with Change, devices, Sign Out, Sign Out of All Devices and Delete Account, the backup
+key per account, purchases with `appAccountToken`, automatic backup on by default for a
+signed-in subscriber, the Sign in with Apple entitlements file and the build settings, and
+`-cloudBackupUITest` states for signed-out and an ended session. `ReaderSync` is now in the app
+target, for `SyncKeys` only (device names). The Worker gained a `dev`-only test issuer
+(`DEV_TEST_SIGNIN_SECRET`) so the simulator and `BackupCloudServiceEndToEndTests` can sign in;
+the end-to-end test was rewritten for accounts but has not been run against `wrangler dev`.
+Nothing has been checked on a real iPad, against real Apple or Google sign-in (Google's nonce
+included), or against R2 through the Swift code; those are in `docs/DEVICE_CHECKLIST.md`.
 
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`

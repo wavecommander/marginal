@@ -24,7 +24,7 @@ as a keyed hash, and every other name for an account is random.
 | `src/requestAuth.ts` | The checks every attested request goes through: challenge, App Attest, device session. |
 | `src/entitlement.ts` | Which account a subscription pays for: binding, refusing and moving subscriptions. |
 | `src/contract.ts` | The HTTP contract below, as exported TypeScript types and error codes. |
-| `src/idToken.ts` | Verifies Apple's and Google's ID tokens and Apple's sign-in notifications; fetches and caches their key sets. |
+| `src/idToken.ts` | Verifies Apple's and Google's ID tokens (and, in `dev` only, the dev test issuer's) and Apple's sign-in notifications; fetches and caches their key sets. |
 | `src/appleSignIn.ts` | Revokes a Sign in with Apple authorization (client secret, token exchange, revoke). |
 | `src/identity.ts` | Keyed hashes of identities and subscriptions; random account, folder and session names. |
 | `src/appleJws.ts` | Verifies App Store JWS: transactions, renewal info, server notifications. |
@@ -66,18 +66,21 @@ npm run prove
 ### The app against `wrangler dev` (end to end)
 
 `TactileTextsTests/BackupCloudServiceEndToEndTests` runs the app's own client against a local
-`wrangler dev` that mints real temporary credentials for the real development bucket. **It
-predates accounts and does not sign in, so it fails against this version until the app's
-client is moved onto accounts (package C2).** Signing in needs a real Apple or Google ID token
-for this app even in `dev`: there is an App Attest bypass for the simulator, and no sign-in
-bypass. What it needs in `.dev.vars`, beyond the bucket:
+`wrangler dev` that mints real temporary credentials for the real development bucket. The
+simulator has neither App Attest nor a way to get a real Apple or Google ID token for a test
+run, so the test uses the `dev` deployment's two development switches: the App Attest bypass,
+and the dev test issuer (below), which it signs in through by minting its own tokens. What it
+needs in `.dev.vars`, beyond the bucket:
 
 - `APP_ATTEST_BYPASS_SECRET`: any 32+ random characters (`openssl rand -hex 24`). The
   simulator has no App Attest.
+- `DEV_TEST_SIGNIN_SECRET`: any 32+ random characters (`openssl rand -hex 24`), different from
+  the bypass secret. Turns on the dev test issuer.
 - `APPLE_TEAM_ID`: required by the settings check even when App Attest is bypassed; any 10
   uppercase letters or digits will do locally.
 - `IDENTITY_KEY_SECRET`: any 32+ random characters.
-- `GOOGLE_CLIENT_IDS`: the app's iOS OAuth client ID, to sign in with Google.
+- `GOOGLE_CLIENT_IDS`: the app's iOS OAuth client ID, to sign in with real Google tokens. Not
+  needed for dev test tokens, which stand in for Google without it.
 - `XCODE_STOREKIT_CERT`: the certificate StoreKit Testing signs transactions with. **Getting it
   without the Xcode UI:** a test-session transaction's JWS carries it as the only entry of its
   header's `x5c` (base64 DER, self-signed, "StoreKit Testing in Xcode"). The app's test
@@ -99,11 +102,67 @@ Then:
 ```sh
 npm run migrate:local
 npx wrangler dev --port 8797 --ip 127.0.0.1
-# in the repository root, with the bypass secret from .dev.vars:
+# in the repository root, with the two secrets from .dev.vars:
 TEST_RUNNER_TACTILE_BACKUP_SERVICE=127.0.0.1:8797 \
 TEST_RUNNER_TACTILE_BACKUP_SERVICE_BYPASS=<APP_ATTEST_BYPASS_SECRET> \
+TEST_RUNNER_TACTILE_BACKUP_SERVICE_DEV_SIGNIN=<DEV_TEST_SIGNIN_SECRET> \
   scripts/test.sh --skip-packages -only-testing:TactileTextsTests/BackupCloudServiceEndToEndTests
 ```
+
+To sign in from the app itself in the simulator against `dev` (a local `wrangler dev` or the
+development deployment), a debug build can set `BACKUP_SERVICE_DEV_SIGNIN` to the
+`DEV_TEST_SIGNIN_SECRET` in `Config/Local.xcconfig`. That is for development only: the value
+ends up in the built app, so never set it for a build that leaves your Mac, and never reuse a
+secret that a deployment you care about holds.
+
+### The dev test issuer
+
+A sign-in identity provider for development only, so the simulator and end-to-end tests can sign
+in without a real Apple or Google ID token. It is on only on the `dev` deployment with
+`DEV_TEST_SIGNIN_SECRET` set; production refuses to start if that setting exists at all, and
+the Worker checks the environment again each time it sees such a token. It does not change how
+Apple's and Google's tokens are verified.
+
+Wherever an endpoint takes an ID token (`idToken` of `/v1/auth/apple`, `/v1/auth/google` and
+`/v1/account/delete`; `currentIdToken` and `newIdToken` of `/v1/auth/change`), a dev test token
+may be sent instead and **stands in for the provider that endpoint expects** (the one the path
+names, the account's current provider, or `newProvider`). The account's `provider` is then that
+provider, and everything else (sessions, the authorization code needed when leaving Apple, the
+revocation, which is skipped with a log line without a Sign in with Apple key) works as for a
+real sign-in. Sign in with Apple notifications never accept dev test tokens.
+
+**Its own identities.** A dev test token's subject is hashed in its own namespace,
+`dev-test:apple` or `dev-test:google` in place of `apple` or `google` (see `src/identity.ts`).
+So a dev test token can never reach, prove or take over an account made with a real Apple or
+Google sign-in, even with the same `sub`: signing in makes a separate account, and as proof for
+a real account (or a real token as proof for a dev test account) it is `identity-mismatch`.
+Google sign-in with dev test tokens works even without `GOOGLE_CLIENT_IDS`.
+
+**The token**, which the app's debug build and its end-to-end test mint themselves: a compact
+JWS (JWT), `base64url(header) "." base64url(payload) "." base64url(signature)`, unpadded
+base64url (RFC 7515), at most 8 KiB.
+
+- Header, exactly: `{"alg":"HS256","typ":"JWT"}` (`typ` may be left out; no `crit`).
+- Signature: HMAC-SHA256 over the ASCII bytes of `base64url(header) "." base64url(payload)`,
+  keyed with the **UTF-8 bytes of `DEV_TEST_SIGNIN_SECRET`** as given (not hex- or
+  base64-decoded); 32 bytes.
+- Payload claims:
+
+  | Claim | Value |
+  | --- | --- |
+  | `iss` | `tactile-texts-dev-test`, exactly. |
+  | `aud` | `APP_BUNDLE_ID` (`software.tactile.texts`), as a string (or a one-element array), for Apple and Google alike. |
+  | `sub` | The test identity: 1 to 255 characters, no NUL. Same `sub`, same account (per provider). |
+  | `nonce` | As for real ID tokens: lower-case hex SHA-256 of this request's base64-decoded challenge bytes. |
+  | `iat` | Issue time, seconds since 1970 (a number). Not more than a minute in the future. |
+  | `exp` | Expiry, seconds; after `iat` and at most 600 seconds (10 minutes) after it; refused from a minute past it. |
+  | `email` | Optional, ignored. Any other claim is ignored too. |
+
+Anything else (another algorithm, issuer, audience, nonce, a bad signature, an expired or
+too-long-lived token) is `401 id-token-invalid`, as is any dev test token in production or in
+`dev` without the secret. An HS256 token claiming Apple's or Google's issuer is refused
+everywhere. A `signed-in` log line made through it says `"issuer": "dev-test"`; logs never hold
+the secret, the token or its subject.
 
 Two things differ from a deployment, because `wrangler dev`'s `BUCKET` binding is the *local*
 bucket while the credentials reach the real one: usage always counts 0, and
@@ -230,7 +289,9 @@ For Apple, set `ASAuthorizationAppleIDRequest.nonce` to that string; for Google,
 the issuer (`https://appleid.apple.com`; Google `accounts.google.com` or
 `https://accounts.google.com`), the audience (Apple: the bundle ID; Google: one of
 `GOOGLE_CLIENT_IDS`, and `azp` too when present), the expiry and issue time (a minute's skew)
-and the nonce. So a token is good for one request only.
+and the nonce. So a token is good for one request only. On the `dev` deployment with
+`DEV_TEST_SIGNIN_SECRET` set, a dev test token may stand in for either provider's (see "The dev
+test issuer").
 
 ### Signing in: `POST /v1/auth/apple`, `POST /v1/auth/google`
 
@@ -617,6 +678,7 @@ locally):
 | `IDENTITY_KEY_SECRET` | At least 32 characters. Keys the hashes of sign-in identities and of subscriptions. |
 | `APPLE_SIWA_KEY_ID`, `APPLE_SIWA_PRIVATE_KEY` | Optional, both or neither: a Sign in with Apple key (Certificates, Identifiers & Profiles > Keys, with Sign in with Apple enabled for the app's App ID): its 10-character key ID and its `.p8` file's contents (PKCS#8 PEM; line breaks may be written as `\n`). Used only to revoke Apple authorizations. |
 | `APP_ATTEST_BYPASS_SECRET` | `dev` only, optional, at least 32 characters. |
+| `DEV_TEST_SIGNIN_SECRET` | `dev` only, optional, at least 32 characters: turns on the dev test issuer and is its HMAC key (see "The dev test issuer"). Empty or absent: off. |
 
 **Without the Sign in with Apple key**, Apple sign-in, sign-in changes and account deletion all
 work, but the Worker cannot revoke the Apple authorization when an account leaves Apple or is
@@ -625,9 +687,9 @@ deletion, so production should have the key before release.
 
 Every setting is checked on each request; a missing or malformed one makes every endpoint answer
 `500` and logs which setting (never its value). In production, the mere presence of
-`APP_ATTEST_BYPASS_SECRET`, or a non-empty `XCODE_STOREKIT_CERT`, is such an error: the
-development switches cannot be turned on there by mistake, and the code checks the environment
-again before honouring either.
+`APP_ATTEST_BYPASS_SECRET` or `DEV_TEST_SIGNIN_SECRET` (even empty), or a non-empty
+`XCODE_STOREKIT_CERT`, is such an error: the development switches cannot be turned on there by
+mistake, and the code checks the environment again before honouring any of them.
 
 Changing `IDENTITY_KEY_SECRET` loses every sign-in (each identity would make a new, empty
 account) and every subscription binding. The folders themselves are named randomly and would be

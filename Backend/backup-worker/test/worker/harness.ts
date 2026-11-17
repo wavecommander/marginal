@@ -9,9 +9,9 @@ import type { Env } from "../../src/env";
 import type { Provider } from "../../src/identity";
 import { handle, runScheduled, type CronResult, type Deps } from "../../src/service";
 import { attestPki, makeAssertion, makeAttestation, newDevice, sha256, type AttestPki, type Device } from "../helpers/attest";
-import { TestJwks, idTokenClaims, nonceOf, rsaSigningKey, signRs256, siwaKey, type SigningKey } from "../helpers/oidc";
+import { TestJwks, devTestClaims, idTokenClaims, nonceOf, rsaSigningKey, signDevTestToken, signRs256, siwaKey, type SigningKey } from "../helpers/oidc";
 import { appleLikeChain, base64, signWithChain, type AppleChain } from "../helpers/pki";
-import { APP_ID, SIWA_KEY_ID, testVars } from "../helpers/settings";
+import { APP_ID, DEV_SIGNIN_SECRET, SIWA_KEY_ID, testVars } from "../helpers/settings";
 
 /** A request the Worker sent to Apple's token or revoke endpoint. */
 export interface OutboundCall {
@@ -145,6 +145,11 @@ export async function attestedPost(
 /** An ID token from the world's stand-in for `provider`, for `subject`, bound to `challenge`. */
 export async function idToken(world: World, provider: Provider, subject: string, challenge: string, overrides: Record<string, unknown> = {}, key?: SigningKey): Promise<string> {
   return signRs256(idTokenClaims(provider, subject, await nonceOf(challenge), world.clock.now, overrides), key ?? world.signingKeys[provider]);
+}
+
+/** A dev test issuer token for `subject`, bound to `challenge`, keyed with `secret` (default: the test one). */
+export async function devIdToken(world: World, subject: string, challenge: string, overrides: Record<string, unknown> = {}, secret = DEV_SIGNIN_SECRET): Promise<string> {
+  return signDevTestToken(devTestClaims(subject, await nonceOf(challenge), world.clock.now, overrides), secret);
 }
 
 let subjectCounter = 0;

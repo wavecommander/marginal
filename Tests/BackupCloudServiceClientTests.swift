@@ -20,7 +20,7 @@ struct BackupCloudServiceClientTests {
     @Test func theFirstSessionAttestsTheKeyThenSignsTheRequest() async throws {
         let worker = W(r2: nil)
         let attest = FakeAppAttestClient()
-        let session = try await client(worker, attest: attest).session(signedTransaction: Self.jws, signedRenewalInfo: Self.renewal)
+        let session = try await client(worker, attest: attest).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: Self.renewal)
         #expect(worker.log == ["POST /v1/challenge", "POST /v1/challenge", "POST /v1/attest", "POST /v1/session"])
         #expect(worker.attests == 1 && worker.registeredKeys == ["fake-key-1"])
         #expect(session.mode == .readWrite)
@@ -36,14 +36,14 @@ struct BackupCloudServiceClientTests {
                                                     countedAt: Date(timeIntervalSince1970: 1_800_000_000)))
 
         // The key is attested once: the next session only asks for a challenge.
-        _ = try await client(worker, attest: attest).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        _ = try await client(worker, attest: attest).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         #expect(worker.attests == 1)
         #expect(worker.log.suffix(2) == ["POST /v1/challenge", "POST /v1/session"])
     }
 
     @Test func theBytesSignedAreTheBytesSent() async throws {
         let worker = W(r2: nil)
-        _ = try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: Self.renewal)
+        _ = try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: Self.renewal)
         let request = try #require(worker.stub.requests("POST", pathPrefix: "/v1/session").first)
         let assertion = try #require(request.headers["x-app-attest-assertion"].flatMap { Data(base64Encoded: $0) })
         #expect(String(decoding: assertion, as: UTF8.self) == "fake-assertion:fake-key-1:\(W.hex(request.body))")
@@ -55,15 +55,15 @@ struct BackupCloudServiceClientTests {
         #expect(body["challenge"].flatMap { Data(base64Encoded: $0) }?.count == 32)
 
         // Without renewal info the field is left out.
-        _ = try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        _ = try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         let second = try #require(try JSONSerialization.jsonObject(with: worker.sessionBodies.last!) as? [String: String])
-        #expect(second["signedRenewalInfo"] == nil && second.count == 3)
+        #expect(second["signedRenewalInfo"] == nil && second.count == 4 && second["deviceSessionToken"] == W.liveToken)
     }
 
     @Test func anAlreadyRegisteredKeyIsUsed() async throws {
         let worker = W(r2: nil)
         worker.preregister("fake-key-1")
-        let session = try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        let session = try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         #expect(session.mode == .readWrite)
         #expect(worker.attests == 0)
         #expect(worker.stub.requests("POST", pathPrefix: "/v1/attest").count == 1, "409 device-already-attested, then used")
@@ -73,9 +73,9 @@ struct BackupCloudServiceClientTests {
         let worker = W(r2: nil)
         let attest = FakeAppAttestClient()
         let client = client(worker, attest: attest)
-        _ = try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        _ = try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         worker.forgetDevices()
-        let session = try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        let session = try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         #expect(session.mode == .readWrite)
         #expect(worker.registeredKeys == ["fake-key-2"], "the client reset and made a new key")
         #expect(worker.attests == 2)
@@ -85,15 +85,15 @@ struct BackupCloudServiceClientTests {
     @Test func anInvalidAssertionIsAttestedAgainAndRetriedOnce() async throws {
         let worker = W(r2: nil)
         let client = client(worker)
-        _ = try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        _ = try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         worker.rejectAssertions = 1
-        _ = try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        _ = try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         #expect(worker.attests == 2 && worker.registeredKeys.contains("fake-key-2"))
 
         // A second refusal in a row is not retried again.
         worker.rejectAssertions = 2
         await #expect(throws: CloudServiceError.assertionInvalid) {
-            try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+            try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         }
         #expect(worker.stub.requests("POST", pathPrefix: "/v1/session").count == 1 + 2 + 2)
     }
@@ -101,7 +101,7 @@ struct BackupCloudServiceClientTests {
     @Test func theSimulatorSendsTheBypassAndNeverAttests() async throws {
         let worker = W(r2: nil)
         let session = try await client(worker, attest: FakeAppAttestClient(isSupported: false), bypass: W.bypass)
-            .session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+            .session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         #expect(session.mode == .readWrite)
         #expect(worker.bypassed == 1 && worker.attests == 0)
         let request = try #require(worker.stub.requests("POST", pathPrefix: "/v1/session").first)
@@ -114,7 +114,7 @@ struct BackupCloudServiceClientTests {
         let worker = W(r2: nil)
         await #expect(throws: CloudServiceError.appAttestUnavailable) {
             try await client(worker, attest: FakeAppAttestClient(isSupported: false))
-                .session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+                .session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         }
         #expect(worker.stub.requests.isEmpty)
         #expect(CloudServiceError.appAttestUnavailable.localizedDescription.contains("isn’t available on this device"))
@@ -154,7 +154,7 @@ struct BackupCloudServiceClientTests {
         let carriesDates = ["subscription-revoked", "subscription-lapsed", "data-deleted"].contains(code)
         worker.sessionFailure = .init(status: status, code: code, subscription: carriesDates ? W.endedSubscription : nil)
         await #expect(throws: expected) {
-            try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+            try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         }
         #expect(expected.code == code)
         #expect(CloudServiceError(code: code, subscription: carriesDates ? Self.lapsedInfo : nil) == expected)
@@ -174,13 +174,13 @@ struct BackupCloudServiceClientTests {
         let worker = W(r2: nil)
         worker.sessionFailure = .init(status: 418, code: "teapot", subscription: nil)
         await #expect(throws: CloudServiceError.unexpectedResponse(status: 418, code: "teapot")) {
-            try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+            try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         }
         let gateway = BackupCloudStub { _ in .http(502, body: Data("<html>Bad gateway</html>".utf8)) }
         let viaGateway = BackupServiceClient(baseURL: URL(string: "https://\(W.host)")!, attest: FakeAppAttestClient(),
                                              urlSession: gateway.session)
         await #expect(throws: CloudServiceError.unexpectedResponse(status: 502, code: nil)) {
-            try await viaGateway.session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+            try await viaGateway.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         }
         let offline = BackupCloudStub { _ in .fail(.notConnectedToInternet) }
         let viaOffline = BackupServiceClient(baseURL: URL(string: "https://\(W.host)")!, attest: FakeAppAttestClient(),
@@ -196,9 +196,9 @@ struct BackupCloudServiceClientTests {
         for index in 0..<3 { r2.put(BackupCloudServiceFixtures.key("PDFs/\(index).ttenc"), Data([1])) }
         let worker = W(r2: r2)
         let client = client(worker)
-        let first = try await client.deleteMyData(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        let first = try await client.deleteMyData(sessionToken: W.liveToken)
         #expect(first == BackupServiceDeletion(done: false, deletedObjects: 2))
-        let second = try await client.deleteMyData(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        let second = try await client.deleteMyData(sessionToken: W.liveToken)
         #expect(second == BackupServiceDeletion(done: true, deletedObjects: 1))
         let body = try #require(try JSONSerialization.jsonObject(with: worker.sessionBodies.last!) as? [String: String])
         #expect(body["action"] == "delete-my-data")
@@ -209,7 +209,7 @@ struct BackupCloudServiceClientTests {
         let client = client(worker)
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<6 {
-                group.addTask { _ = try await client.session(signedTransaction: Self.jws, signedRenewalInfo: nil) }
+                group.addTask { _ = try await client.session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil) }
             }
             try await group.waitForAll()
         }
@@ -220,7 +220,7 @@ struct BackupCloudServiceClientTests {
 
     @Test func nothingSecretAppearsInDescriptions() async throws {
         let worker = W(r2: nil)
-        let session = try await client(worker).session(signedTransaction: Self.jws, signedRenewalInfo: nil)
+        let session = try await client(worker).session(sessionToken: W.liveToken, signedTransaction: Self.jws, signedRenewalInfo: nil)
         var dumped = ""
         dump(session, to: &dumped)
         for text in [String(describing: session), String(reflecting: session), dumped] {

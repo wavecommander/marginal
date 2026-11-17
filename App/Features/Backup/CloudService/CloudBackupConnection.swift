@@ -50,6 +50,18 @@ nonisolated enum CloudBackupKeyNeed: Hashable, Sendable {
     case differentKey
 }
 
+/// Who asks the service for a session: this device's session token (`nil` when signed out) and
+/// the App Store transaction to bind or refresh the subscription, when there is one. Never
+/// described: it carries a token and a JWS.
+nonisolated struct CloudBackupIdentity: Sendable, CustomStringConvertible {
+    var sessionToken: String?
+    var transaction: BackupSignedTransaction?
+
+    var description: String {
+        "CloudBackupIdentity(signedIn: \(sessionToken != nil), transaction: \(transaction == nil ? "none" : "<redacted>"))"
+    }
+}
+
 /// What `CloudBackupConnection` tells the account as it happens.
 nonisolated enum CloudBackupConnectionEvent: Sendable {
     /// The service answered a session request.
@@ -70,8 +82,9 @@ nonisolated enum CloudBackupConnectionEvent: Sendable {
 /// key (a new iPad whose key has not arrived through iCloud Keychain yet), every call that needs
 /// the key throws `TactileCloudError.needsRecoveryKey(.noKeyOnThisDevice)`; nothing is created.
 nonisolated final class CloudBackupConnection: @unchecked Sendable {
-    /// The reader's subscription, signed (`nil`: never subscribed; the service is not asked).
-    typealias Identity = @Sendable () async -> BackupSignedTransaction?
+    /// This device's session token (`nil`: signed out; the service is not asked) and the reader's
+    /// subscription, signed, when the App Store has one (sent to bind or refresh it).
+    typealias Identity = @Sendable () async -> CloudBackupIdentity
     typealias Observer = @Sendable (CloudBackupConnectionEvent) async -> Void
 
     let client: BackupServiceClient
@@ -90,12 +103,14 @@ nonisolated final class CloudBackupConnection: @unchecked Sendable {
     private let lock = NSLock()
     private var observer: Observer?
     private var lastSession: BackupServiceSession?
+    /// Moves on at every `reset()`; a session asked for before it is not kept.
+    private var epoch = 0
     private var cached: (storage: BackupServiceStorage, key: BackupEncryptionKey, destination: EncryptedBackupDestination)?
 
     /// - Parameters:
     ///   - client: the backup service.
     ///   - keyStore: where the backup key is kept (the Keychain in the app).
-    ///   - identity: the signed subscription to send.
+    ///   - identity: the device session and the signed subscription to send.
     ///   - s3Session, retryPolicy, partSize: as for `S3BackupBlobStore`.
     ///   - temporaryDirectory, availableCapacity: as for `EncryptedBackupDestination`.
     ///   - now: the clock credentials expiry is judged by.
@@ -137,8 +152,13 @@ nonisolated final class CloudBackupConnection: @unchecked Sendable {
     /// only one runs at a time); call `currentSession` instead.
     func fetchSession() async throws -> BackupServiceSession {
         do {
-            guard let signed = await identity() else { throw CloudServiceError.notSubscribed }
-            let session = try await client.session(signedTransaction: signed.jws, signedRenewalInfo: signed.signedRenewalInfo)
+            let identity = await identity()
+            guard let token = identity.sessionToken else { throw CloudServiceError.notSignedIn }
+            let epoch = lock.withLock { self.epoch }
+            let session = try await client.session(sessionToken: token, signedTransaction: identity.transaction?.jws,
+                                                   signedRenewalInfo: identity.transaction?.signedRenewalInfo)
+            // Signed out (or into another account) while the request was out: not this session's.
+            guard lock.withLock({ self.epoch == epoch }) else { throw CloudServiceError.notSignedIn }
             lock.withLock { lastSession = session }
             await notify(.session(session))
             return session
@@ -155,15 +175,30 @@ nonisolated final class CloudBackupConnection: @unchecked Sendable {
     /// reader asked for, after resubscribing for example).
     func currentSession(forceNew: Bool = false) async throws -> BackupServiceSession {
         if forceNew, let last = latestSession { await credentials.credentialsRejected(last.credentials) }
+        let cached = try await credentials.credentials()
+        if let session = latestSession, session.credentials == cached { return session }
+        // The provider still held credentials of a session that was forgotten (signed out, or
+        // another account): drop them and ask the service again.
+        await credentials.credentialsRejected(cached)
         _ = try await credentials.credentials()
         guard let session = latestSession else { throw CloudServiceError.unexpectedResponse(status: 0, code: "no session") }
         return session
     }
 
-    /// One `/v1/delete-my-data` batch for the reader's subscription.
+    /// Forgets the session and the destination built for it, after signing out or in to another
+    /// account: nothing made for one account's session is used again.
+    func reset() {
+        lock.withLock {
+            epoch += 1
+            lastSession = nil
+            cached = nil
+        }
+    }
+
+    /// One `/v1/delete-my-data` batch for the signed-in account.
     func deleteMyData() async throws -> BackupServiceDeletion {
-        guard let signed = await identity() else { throw CloudServiceError.notSubscribed }
-        return try await client.deleteMyData(signedTransaction: signed.jws, signedRenewalInfo: signed.signedRenewalInfo)
+        guard let token = await identity().sessionToken else { throw CloudServiceError.notSignedIn }
+        return try await client.deleteMyData(sessionToken: token)
     }
 
     // MARK: Storage

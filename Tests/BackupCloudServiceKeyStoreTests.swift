@@ -83,7 +83,7 @@ struct BackupCloudServiceKeyStoreTests {
         let store = InMemoryBackupKeyStore(key: key)
         let formatted = key.recoveryKey.formatted
         let hex = key.withUnsafeBytes { $0.map { String(format: "%02x", $0) }.joined() }
-        var texts = [String(describing: store), String(reflecting: store), String(describing: KeychainBackupKeyStore())]
+        var texts = [String(describing: store), String(reflecting: store), String(describing: KeychainBackupKeyStore(accountID: "0123abcd"))]
         var dumped = ""
         dump(store, to: &dumped)
         texts.append(dumped)
@@ -115,7 +115,7 @@ struct BackupCloudServiceKeyStoreTests {
 
     @Test func keychainStoreDoesEveryOperation() async throws {
         try await withKeychain {
-            let store = KeychainBackupKeyStore(service: "software.tactile.texts.tests.\(UUID().uuidString)")
+            let store = KeychainBackupKeyStore(service: "software.tactile.texts.tests.\(UUID().uuidString)", accountID: "0123abcd")
             defer { Task { try? await store.removeKey() } }
             try await Self.exercise(store)
         }
@@ -124,7 +124,7 @@ struct BackupCloudServiceKeyStoreTests {
     @Test func keychainItemSynchronisesAndIsReadableAfterFirstUnlock() async throws {
         try await withKeychain {
             let service = "software.tactile.texts.tests.\(UUID().uuidString)"
-            let store = KeychainBackupKeyStore(service: service)
+            let store = KeychainBackupKeyStore(service: service, accountID: "0123abcd")
             defer { Task { try? await store.removeKey() } }
             let key = try await store.createKey()
             let query: [String: Any] = [
@@ -138,7 +138,7 @@ struct BackupCloudServiceKeyStoreTests {
             #expect(items.count == 1)
             #expect((items[0][kSecAttrSynchronizable as String] as? NSNumber)?.boolValue == true)
             #expect(items[0][kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlock as String)
-            #expect(items[0][kSecAttrAccount as String] as? String == KeychainBackupKeyStore.account)
+            #expect(items[0][kSecAttrAccount as String] as? String == "backup-encryption-key.0123abcd")
             #expect(items[0][kSecValueData as String] as? Data == key.withUnsafeBytes { Data($0) })
             // A query that doesn't name the attribute doesn't see the item (Apple's documented
             // behaviour, the reason every query of the store names it).
@@ -151,11 +151,11 @@ struct BackupCloudServiceKeyStoreTests {
     @Test func keychainStoreRefusesAnItemThatIsNotAKey() async throws {
         try await withKeychain {
             let service = "software.tactile.texts.tests.\(UUID().uuidString)"
-            let store = KeychainBackupKeyStore(service: service)
+            let store = KeychainBackupKeyStore(service: service, accountID: "0123abcd")
             defer { Task { try? await store.removeKey() } }
             let add: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                kSecAttrAccount as String: KeychainBackupKeyStore.account,
+                kSecAttrAccount as String: "backup-encryption-key.0123abcd",
                 kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
                 kSecValueData as String: Data("short".utf8),

@@ -719,7 +719,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   the same commit: the merged book is built to one side, then swapped in.
 - **One at a time.** One backup or restore runs for the whole app, with progress and Cancel in
   every window. Cancel is honoured until books are being swapped in.
-- **Automatic backups** (owner decision: manual plus automatic). Off by default. When on, a
+- **Automatic backups** (owner decision: manual plus automatic). Off by default (except for a
+  signed-in Tactile Texts Cloud subscriber; see that section). When on, a
   backup to the chosen destination is due when the library has changed and the last success is
   at least a day old. It is checked when a window becomes active, every 15 minutes while the
   app stays in front, and from a background processing task scheduled when the app goes to the
@@ -820,12 +821,51 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   through the Worker. The Worker makes the credentials itself by signing with a parent R2 token
   it keeps as a secret, so issuing them costs no call to Cloudflare, and revoking the parent
   token ends every credential made from it.
-- **Identity is the App Store subscription** (owner decision). There is no account, sign-in,
-  email address or password. The iPad sends the signed subscription transaction Apple gave it;
-  the Worker checks Apple's signature chain to a pinned Apple root, the bundle ID, the product
-  and the environment. The user's folder is `users/<HMAC-SHA256(server secret, original
-  transaction ID)>/`, so Restore Purchases on a new iPad finds the same backups. App Store
-  Server Notifications keep the Worker's record current for renewals, expiry and refunds.
+- **An account, signed in with Apple or Google** (owner decisions, 17 November 2026; this
+  replaces "identity is the App Store subscription" of 15 November 2026). The reader signs in
+  to an account with Sign in with Apple or Sign in with Google; the subscription pays for the
+  account and is not who the reader is. An account has exactly one sign-in at a time. There is
+  still no password, and the service keeps no name or email address: the email in the ID
+  token is shown on the Account section of the iPad that signed in and is never sent. Signing
+  in asks the Worker for a one-time challenge, asks Apple or Google for an ID token carrying its
+  SHA-256 as the nonce, and gets a device session back, kept in the Keychain on this iPad only
+  (not synchronised). Every later request carries that session and App Attest. The account's
+  folder name is random. Purchases carry the account's `appAccountToken`, so the signed
+  transaction names the account it pays for; a transaction is sent with every session request
+  so a purchase binds to the account. App Store Server Notifications keep the Worker's record
+  current for renewals, expiry and refunds. The Worker's contract is
+  `Backend/backup-worker/README.md`; the plan is `docs/CLOUD_SYNC_PLAN.md`.
+- **Sign-in is required for the service** (owner decision 2), and only for it: the rest of the
+  app has no account and the welcome sheet's "no account" stays true. Subscribe and Restore
+  Purchases appear only when signed in.
+- **The library is never touched by a sign-in change** (owner decision 7). The books, notes and
+  ink on the iPad are ordinary local data. Sign Out, Sign Out of All Devices, Change the
+  sign-in, a session the service ended (signed out elsewhere, or by Apple), a revoked Sign in
+  with Apple authorization, a lapsed subscription and a deleted account all leave every book
+  open and editable; only the service stops. Automatic cloud backup then skips, and the page
+  says the books are no longer backed up there.
+- **Signing in and the Account section** (as built 17 November 2026). Signed out, the offer shows
+  Sign in with Apple (the system's button) and Sign in with Google at the same size, in place
+  of Subscribe; only the ways the build is configured for appear (`SIGN_IN_WITH_APPLE` with the
+  committed `Config/SignInWithApple.entitlements`, `GOOGLE_SIGNIN_CLIENT_ID`), and with neither
+  the service says it isn't available. A build with every setting empty has no service and no
+  sign-in anywhere. Signed in, an Account section shows which sign-in and the email, the
+  signed-in devices (each named by an encrypted label only the account's key opens: "This
+  iPad" and "Another device" until the key exists), Change to Sign in with Google/Apple…, Sign
+  Out…, Sign Out of All Devices… and Delete Account…. Each asks first and says what happens to
+  the books on this iPad (they stay) and to what is in the cloud.
+  - *Sign Out* ends this iPad's session (even when the service can't be reached); the key
+    stays, so signing in again carries on. *Sign Out of All Devices* ends every session of the
+    account; other iPads find out at their next request and say so.
+  - *Change* confirms with the current sign-in, then the new one; the account, folder,
+    subscription and key stay the same. A new sign-in that already has its own account is
+    refused with an explanation; afterwards the page offers Sign Out of All Devices.
+  - *Delete Account* (App Store guideline 5.1.1(v)) confirms with the current sign-in, then
+    deletes the folder and the account in steps, with progress; Apple's authorization is
+    revoked by the Worker. It says the subscription is not cancelled and points to Manage
+    Subscription. The account's key is removed after.
+  - At launch the app asks Apple whether a Sign in with Apple authorization still holds, and
+    listens for its revocation, signing out here if not.
 - **That it is the real app.** App Attest: each install registers a device key once and signs
   every request for credentials with it, so a copied subscription transaction alone cannot be
   used from a script. The simulator has no App Attest; only the Worker's `dev` deployment
@@ -839,8 +879,10 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   recognised), and a snapshot keeps only its timestamp in the clear, with the device name
   encrypted. Sizes and times remain visible to the operator. The plaintext SHA-256 check on
   restore is unchanged.
-- **The key.** A random 256-bit key in the Keychain, carried to the reader's other devices by
-  iCloud Keychain, plus a **recovery key** (56 characters in 14 groups of 4, with typo
+- **The key.** A random 256-bit key in the Keychain, one item per account (named by the
+  account's random ID, so signing in to another account on the same iPad never pairs one
+  account's key with another's backups), carried to the reader's other devices by iCloud
+  Keychain, plus a **recovery key** (56 characters in 14 groups of 4, with typo
   detection) the reader can save. A small key-check object in the user's folder tells "wrong
   key" apart from damage. A device that finds backups but has no key asks for the recovery key
   and **never makes a new key while data exists**, because the key may simply not have arrived
@@ -858,9 +900,14 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   between sessions, not within one.
 - **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
   them, then removes the key from the Keychain (on every device, since it is synchronised).
+- **Automatic backup is on by default for a signed-in subscriber** (owner decision, 17 November
+  2026), to Tactile Texts Cloud, the first time the account is seen able to back up, unless the
+  reader already set automatic backups up (switched them on or off, or chose a destination). A
+  reader who turns it off is left alone. Nothing changes for anyone else or for other
+  destinations.
 - **Where it lives and what the reader sees.** The service is the last row under Destinations on
-  the Backup screen, and opens its own page (not the generic destination page). Not subscribed:
-  an offer saying what it is, the price and period from the App Store, that backups are
+  the Backup screen, and opens its own page (not the generic destination page). Signed out: the
+  offer with the two sign-in buttons. Signed in and not subscribed: an offer saying what it is, the price and period from the App Store, that backups are
   encrypted on the iPad and nobody else can read them, why the recovery key matters, what
   happens when a subscription ends, Subscribe, Restore Purchases, and Terms of Use and Privacy
   Policy links (`BACKUP_TERMS_URL`, `BACKUP_PRIVACY_URL`; a link left empty is not shown).
@@ -881,8 +928,12 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   (`Config/TactileTexts.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
   kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance. The UI tests
   launch debug builds with `-cloudBackupUITest <state>`, which builds the service from fakes in
-  the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
-  of it is in a release build.
+  the app's debug code (a scripted StoreKit, Apple and Google that answer at once, a fake Worker
+  and a folder standing in for R2); `signedOut` and `sessionExpired` start signed out or with an
+  ended session, every other state signed in. None of it is in a release build. The Worker's
+  `dev` deployment has a test issuer (`DEV_TEST_SIGNIN_SECRET`) so a debug build
+  (`BACKUP_SERVICE_DEV_SIGNIN`) and the end-to-end test can sign in without Apple or Google;
+  production refuses it.
 
 ## Keeping data openable across versions
 

@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { readSettings } from "../../src/env";
 import { Refusal } from "../../src/http";
-import { JWKS_URLS, JwksCache, cacheLifetime, verifyAppleSignInNotification, verifyIdToken, type Jwk } from "../../src/idToken";
-import { GOOGLE_CLIENT_ID, OTHER_GOOGLE_CLIENT_ID, TestJwks, idTokenClaims, rsaSigningKey, signRs256, type SigningKey } from "../helpers/oidc";
-import { testEnv } from "../helpers/settings";
+import { DEV_TEST_ISSUER, JWKS_URLS, JwksCache, cacheLifetime, verifyAppleSignInNotification, verifyIdToken, type Jwk } from "../../src/idToken";
+import { GOOGLE_CLIENT_ID, OTHER_GOOGLE_CLIENT_ID, TestJwks, devTestClaims, idTokenClaims, rsaSigningKey, signDevTestToken, signRs256, type SigningKey } from "../helpers/oidc";
+import { BUNDLE_ID, DEV_SIGNIN_SECRET, testEnv } from "../helpers/settings";
 
 const NOW = new Date("2026-11-15T12:00:00Z");
 const NONCE = "ab".repeat(32);
@@ -41,8 +41,8 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
 describe("verifyIdToken", () => {
   it("accepts Apple's and Google's tokens and returns only the subject", async () => {
     fresh();
-    expect(await verify(await signRs256(idTokenClaims("apple", "001.abc.002", NONCE, NOW), apple))).toEqual({ provider: "apple", subject: "001.abc.002" });
-    expect(await verify(await signRs256(idTokenClaims("google", "1170001", NONCE, NOW), google), "google")).toEqual({ provider: "google", subject: "1170001" });
+    expect(await verify(await signRs256(idTokenClaims("apple", "001.abc.002", NONCE, NOW), apple))).toEqual({ provider: "apple", namespace: "apple", issuer: "provider", subject: "001.abc.002" });
+    expect(await verify(await signRs256(idTokenClaims("google", "1170001", NONCE, NOW), google), "google")).toEqual({ provider: "google", namespace: "google", issuer: "provider", subject: "1170001" });
     // Both of Google's issuer spellings, and an audience given as a one-element list.
     expect(await verify(await signRs256(idTokenClaims("google", "1170001", NONCE, NOW, { iss: "accounts.google.com", aud: [GOOGLE_CLIENT_ID] }), google), "google")).toMatchObject({ subject: "1170001" });
   });
@@ -123,6 +123,95 @@ describe("verifyIdToken", () => {
     expect(await refusal(verify(token, "google", NONCE, readSettings(testEnv({ GOOGLE_CLIENT_IDS: "" }))))).toMatch(/^provider-disabled/);
     jwks.unavailable = true;
     expect(await refusal(verify(token, "google"))).toMatch(/^provider-unreachable/);
+  });
+});
+
+describe("the dev test issuer", () => {
+  const devSettings = readSettings(testEnv({ ENVIRONMENT: "dev", R2_S3_HOST: "localhost:8787", APP_APPLE_ID: "", DEV_TEST_SIGNIN_SECRET: DEV_SIGNIN_SECRET }));
+  const devOff = readSettings(testEnv({ ENVIRONMENT: "dev", R2_S3_HOST: "localhost:8787", APP_APPLE_ID: "" }));
+  const devToken = (overrides: Record<string, unknown> = {}, secret = DEV_SIGNIN_SECRET, header: Record<string, unknown> = {}) =>
+    signDevTestToken(devTestClaims("tester-1", NONCE, NOW, overrides), secret, header);
+
+  it("stands in for Apple and Google in dev with the secret, in each provider's dev-test namespace", async () => {
+    fresh();
+    expect(DEV_TEST_ISSUER).toBe("tactile-texts-dev-test");
+    const token = await devToken();
+    expect(await verify(token, "apple", NONCE, devSettings)).toEqual({ provider: "apple", namespace: "dev-test:apple", issuer: "dev-test", subject: "tester-1" });
+    // No Google client IDs needed: the audience is the bundle ID for either.
+    const noGoogle = readSettings(testEnv({ ENVIRONMENT: "dev", R2_S3_HOST: "localhost:8787", APP_APPLE_ID: "", GOOGLE_CLIENT_IDS: "", DEV_TEST_SIGNIN_SECRET: DEV_SIGNIN_SECRET }));
+    expect(await verify(token, "google", NONCE, noGoogle)).toEqual({ provider: "google", namespace: "dev-test:google", issuer: "dev-test", subject: "tester-1" });
+    // An audience given as a one-element list, no `typ`, no email, and a minute's skew.
+    const iat = Math.floor(NOW.getTime() / 1000);
+    expect(await verify(await devToken({ aud: [BUNDLE_ID], email: undefined, iat: iat + 59, exp: iat + 59 + 600 }, DEV_SIGNIN_SECRET, { typ: undefined }), "apple", NONCE, devSettings)).toMatchObject({ subject: "tester-1" });
+    expect(await verify(await devToken({ iat: iat - 600, exp: iat - 59 }), "apple", NONCE, devSettings)).toMatchObject({ subject: "tester-1" });
+  });
+
+  it("is refused in production, even with settings that somehow carry the secret, and in dev without the secret", async () => {
+    fresh();
+    const token = await devToken();
+    expect(await refusal(verify(token, "apple"))).toMatch(/^id-token-invalid: jwt: algorithm is not RS256/);
+    const forced = { ...devSettings, environment: "production" as const };
+    expect(await refusal(verify(token, "apple", NONCE, forced))).toMatch(/^id-token-invalid: jwt: algorithm is not RS256/);
+    expect(await refusal(verify(token, "google", NONCE, forced))).toMatch(/^id-token-invalid/);
+    expect(await refusal(verify(token, "apple", NONCE, devOff))).toMatch(/^id-token-invalid: jwt: algorithm is not RS256/);
+  });
+
+  it("refuses a wrong secret, issuer, audience, nonce, expiry, issue time, lifetime, subject or header", async () => {
+    fresh();
+    const iat = Math.floor(NOW.getTime() / 1000);
+    const cases: [Promise<string>, RegExp][] = [
+      [devToken({}, `${DEV_SIGNIN_SECRET}x`), /bad signature/],
+      [devToken({ iss: "https://appleid.apple.com" }), /issuer/],
+      [devToken({ iss: "https://accounts.google.com" }), /issuer/],
+      [devToken({ iss: undefined }), /issuer/],
+      [devToken({ aud: "com.example.other" }), /audience/],
+      [devToken({ aud: GOOGLE_CLIENT_ID }), /audience/],
+      [devToken({ aud: [BUNDLE_ID, "x"] }), /audience/],
+      [devToken({ nonce: "cd".repeat(32) }), /nonce/],
+      [devToken({ nonce: undefined }), /nonce/],
+      [devToken({ iat: iat - 661, exp: iat - 61 }), /expired/],
+      [devToken({ exp: undefined }), /expiry/],
+      [devToken({ iat: undefined }), /issue time/],
+      [devToken({ iat: iat + 120, exp: iat + 600 }), /future/],
+      [devToken({ exp: iat + 601 }), /lifetime/],
+      [devToken({ exp: iat }), /lifetime/],
+      [devToken({ sub: "" }), /subject/],
+      [devToken({ sub: "x".repeat(256) }), /subject/],
+      [devToken({ sub: "a\0b" }), /subject/],
+      [devToken({}, DEV_SIGNIN_SECRET, { typ: "JOSE+JSON" }), /type/],
+      [devToken({}, DEV_SIGNIN_SECRET, { crit: ["x"] }), /critical/],
+    ];
+    for (const [token, pattern] of cases) {
+      expect(await refusal(verify(await token, "apple", NONCE, devSettings))).toMatch(new RegExp(`^id-token-invalid: .*${pattern.source}`));
+    }
+    // A tampered payload under a good signature.
+    const [h, , s] = (await devToken()).split(".") as [string, string, string];
+    const other = (await devToken({ sub: "tester-2" })).split(".")[1]!;
+    expect(await refusal(verify(`${h}.${other}.${s}`, "apple", NONCE, devSettings))).toMatch(/bad signature/);
+  });
+
+  it("never lets HS256 through the real providers' path (no algorithm confusion)", async () => {
+    fresh();
+    // An HS256 token claiming Apple's issuer, keyed with the dev secret: refused in dev too.
+    const asApple = await signDevTestToken(idTokenClaims("apple", "001.abc.002", NONCE, NOW), DEV_SIGNIN_SECRET);
+    expect(await refusal(verify(asApple, "apple", NONCE, devSettings))).toMatch(/^id-token-invalid: dev-test jwt: issuer/);
+    const asGoogle = await signDevTestToken(idTokenClaims("google", "1170001", NONCE, NOW), DEV_SIGNIN_SECRET);
+    expect(await refusal(verify(asGoogle, "google", NONCE, devSettings))).toMatch(/^id-token-invalid/);
+    // Keyed with Apple's public key material (the classic confusion): refused everywhere.
+    const confused = await signDevTestToken(idTokenClaims("apple", "001.abc.002", NONCE, NOW), String(apple.jwk.n), { kid: apple.kid });
+    expect(await refusal(verify(confused, "apple"))).toMatch(/^id-token-invalid/);
+    expect(await refusal(verify(confused, "apple", NONCE, devSettings))).toMatch(/^id-token-invalid/);
+    // RS256 with the dev issuer: the RS256 path's issuer check refuses it.
+    expect(await refusal(verify(await signRs256(devTestClaims("tester-1", NONCE, NOW), apple), "apple", NONCE, devSettings))).toMatch(/^id-token-invalid: jwt: issuer/);
+  });
+
+  it("is never a Sign in with Apple notification", async () => {
+    fresh();
+    const iat = Math.floor(NOW.getTime() / 1000);
+    const claims = devTestClaims("tester-1", NONCE, NOW, { iss: "https://appleid.apple.com", events: JSON.stringify({ type: "consent-revoked", sub: "tester-1", event_time: iat }) });
+    expect(await refusal(verifyAppleSignInNotification(await signDevTestToken(claims, DEV_SIGNIN_SECRET), devSettings, { jwks, now: NOW }))).toMatch(/^notification-invalid: jwt: algorithm/);
+    const ownIssuer = devTestClaims("tester-1", NONCE, NOW, { events: JSON.stringify({ type: "consent-revoked", sub: "tester-1", event_time: iat }) });
+    expect(await refusal(verifyAppleSignInNotification(await signDevTestToken(ownIssuer, DEV_SIGNIN_SECRET), devSettings, { jwks, now: NOW }))).toMatch(/^notification-invalid/);
   });
 });
 

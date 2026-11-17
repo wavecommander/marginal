@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sign in with Apple for Tactile Texts Cloud, and nothing else. Used only when
+  Config/Local.xcconfig sets TACTILE_ENTITLEMENTS = Config/SignInWithApple.entitlements (with
+  SIGN_IN_WITH_APPLE = YES); a build without it has no Apple button. Needs a paid developer team
+  whose App ID has Sign in with Apple enabled.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

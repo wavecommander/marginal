@@ -146,8 +146,9 @@ nonisolated enum BackupStorePurchaseResult: Hashable, Sendable {
 protocol BackupStoreKit: AnyObject {
     /// The products with these IDs that the App Store knows (any it does not are left out).
     func products(for ids: [String]) async throws -> [BackupStoreProduct]
-    /// Buys the product, showing the system's confirmation in `scene` when given.
-    func purchase(productID: String, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult
+    /// Buys the product with the account's `appAccountToken` (when given), showing the system's
+    /// confirmation in `scene` when given.
+    func purchase(productID: String, appAccountToken: UUID?, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult
     /// `AppStore.sync()`: asks the App Store for the reader's transactions (may ask them to sign
     /// in). Cancelling that sign-in is not an error.
     func sync() async throws
@@ -239,7 +240,7 @@ final class AppStoreBackupStore: BackupStoreKit {
         return loaded.map(Self.value)
     }
 
-    func purchase(productID: String, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
+    func purchase(productID: String, appAccountToken: UUID?, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
         let product: Product
         if let cached = products[productID] {
             product = cached
@@ -250,11 +251,13 @@ final class AppStoreBackupStore: BackupStoreKit {
             product = fresh
         }
         let result: Product.PurchaseResult
+        // The account's token, so the signed transaction names the account it pays for.
+        let options: Set<Product.PurchaseOption> = appAccountToken.map { [.appAccountToken($0)] } ?? []
         do {
             if let scene {
-                result = try await product.purchase(confirmIn: scene)
+                result = try await product.purchase(confirmIn: scene, options: options)
             } else {
-                result = try await product.purchase()
+                result = try await product.purchase(options: options)
             }
         } catch StoreKitError.userCancelled {
             return .userCancelled
