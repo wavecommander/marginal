@@ -223,6 +223,11 @@ final class ReaderMarkupController: NSObject, PKToolPickerObserver {
         strokesInProgress.contains(surface.markupSurfaceID)
     }
 
+    /// The live registered surfaces (sync asks which pages the reader is drawing on).
+    var registeredSurfaces: [any MarkupSurface] {
+        surfaces.values.compactMap(\.value)
+    }
+
     /// The undo manager Undo/Redo act on: the most recently active registered surface's.
     var routedUndoManager: UndoManager? {
         for id in activity.reversed() {

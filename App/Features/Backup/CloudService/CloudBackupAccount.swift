@@ -187,10 +187,15 @@ final class CloudBackupAccount {
 
     // MARK: Signing in and out
 
+    /// Told first whenever the sign-in changes (sync stops and forgets its engine; the library
+    /// and every account's sync directory stay).
+    @ObservationIgnored var onSignInChanged: (() -> Void)?
+
     /// The sign-in changed (signed in, out, to another account, or the session ended): nothing
     /// known about the last account's folder is kept, and a signed-in account is checked again.
     /// The library is not touched.
     func signInChanged() {
+        onSignInChanged?()
         connection?.reset()
         refreshTask?.cancel()
         refreshTask = nil
