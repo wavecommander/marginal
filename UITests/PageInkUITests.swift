@@ -106,7 +106,7 @@ final class PageInkUITests: XCTestCase {
         let toggle = app.buttons[ID.markupToggle].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         toggle.tap()
-        XCTAssertTrue(wait(toggle, "isSelected == false"), "markup off")
+        XCTAssertTrue(wait(toggle, "label == %@", ["Markup"]), "markup off")
     }
 
     private func strokes(_ element: XCUIElement, _ count: Int, timeout: TimeInterval = 10) -> Bool {
