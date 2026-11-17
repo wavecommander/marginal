@@ -165,7 +165,9 @@ ones even where the mockup draws an approximation.
   ink read-only. Ink saves when a page leaves the screen, on leaving markup mode, and when the app backgrounds.
 - **Markup controls.** The toolbar's Markup button is the only switch for the mode, and it is
   always in the same place: outlined while markup is off, filled while it is on, and tapping it
-  toggles. There is no Done button, and the rest of the toolbar is the same in both modes. Undo
+  toggles. There is no Done button, and the rest of the toolbar is the same in both modes; the
+  toolbar subtitle shows only the reader's place, with no "Markup" prefix (owner decision,
+  17 November 2026). Undo
   and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
   they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
   system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.

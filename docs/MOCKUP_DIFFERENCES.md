@@ -62,7 +62,7 @@ mockups' sample book by construction and are not listed.
 | Difference | Status |
 | --- | --- |
 | No Done button and no toolbar Undo/Redo; the Markup toggle is filled while on and the rest of the toolbar is unchanged. Undo/Redo are the tool picker's. | Intentional: "Markup controls". |
-| The subtitle reads "Markup · 5.2 …" as in the mockup. | Matches. |
+| The subtitle reads only the place ("5.2 …"), not "Markup · 5.2 …" as in the mockup. | Intentional: owner decision, 17 November 2026 ("Markup controls"). |
 
 ## Markup · page and note together (`markup-page-and-note.jpg`)
 

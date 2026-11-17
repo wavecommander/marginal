@@ -254,10 +254,11 @@ struct ReaderScreen: View {
 
     // MARK: Title
 
+    /// The reader's place only; markup mode does not add a prefix (the filled Markup button
+    /// shows the mode; design, "Markup controls").
     private var subtitle: String {
-        let place = session.deepestHeading?.title
+        session.deepestHeading?.title
             ?? PageNumbering.label(forPageIndex: session.currentPageIndex)
-        return session.isMarkupMode ? "Markup · \(place)" : place
     }
 
     // MARK: Toolbar

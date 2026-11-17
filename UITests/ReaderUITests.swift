@@ -494,7 +494,8 @@ final class ReaderUITests: XCTestCase {
 
     /// The Markup toggle is the only switch (design, "Markup controls"): the same button in
     /// both modes, selected (filled) while markup is on, no Done button, and at regular width
-    /// no toolbar Undo/Redo (the tool picker has its own); the rest of the toolbar stays.
+    /// no toolbar Undo/Redo (the tool picker has its own); the rest of the toolbar stays, and
+    /// the subtitle keeps showing only the place.
     func testMarkupToggleIsSelectedInMarkupModeWithNoDoneButton() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
@@ -512,6 +513,9 @@ final class ReaderUITests: XCTestCase {
         XCTAssertFalse(app.buttons["reader.toolbar.redo"].exists, "Redo is the tool picker's at regular width")
         XCTAssertTrue(app.buttons[ReaderID.more].firstMatch.exists, "same toolbar in markup mode")
         XCTAssertTrue(app.buttons[ReaderID.notesToggle].firstMatch.exists, "same toolbar in markup mode")
+        let markupPrefix = app.navigationBars.firstMatch.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Markup ·", "Markup ·"))
+        XCTAssertEqual(markupPrefix.count, 0, "the subtitle has no Markup prefix")
 
         toggle.tap()
         XCTAssertTrue(waitForSelected(toggle, false), "outlined again")
