@@ -173,7 +173,8 @@ private struct AccentProbe: UIViewRepresentable {
 
 /// Toolbar glyphs in the label colour (design, "Toolbar glyphs"). On iPadOS 26 and later the
 /// Liquid Glass capsule already marks a bar item as a button, so only a screen's one main action
-/// keeps the accent (it does not use this modifier); filled glyphs that show state are plain too.
+/// keeps the accent (it does not use this modifier); the Library's Import uses it, by the owner's
+/// choice. Filled glyphs that show state are plain too.
 /// Earlier systems have no capsule, and bar items keep the accent there. The one availability
 /// check for toolbar colour.
 struct ToolbarGlyphTint: ViewModifier {

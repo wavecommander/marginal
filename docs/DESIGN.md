@@ -487,8 +487,8 @@ Added by the owner (TSOFT-215, 14 November 2026).
 - **Toolbar glyphs** (owner, 17 November 2026). On iPadOS 26 and later, the Library, Reader
   and Notebook toolbars draw their items in the label colour, like the back button and the
   search field the system already draws that way. The Liquid Glass capsule already marks them as
-  buttons, so the accent there marks only a screen's one main action: the Library's Import and
-  the Notebook's Done while choosing. Filled glyphs that show state (Markup on, a bookmarked
+  buttons, so the accent there marks only a screen's one main action: the Notebook's Done while
+  choosing. The Library's Import (+) is in the label colour too (owner, 17 November 2026). Filled glyphs that show state (Markup on, a bookmarked
   page) stay in the label colour too. Other toolbars (sheets, Search, Settings)
   keep the system's tinted confirmation actions. `toolbarGlyph()` in
   `App/DesignSystem/Accent.swift` is the one availability check: before iPadOS 26 there is no

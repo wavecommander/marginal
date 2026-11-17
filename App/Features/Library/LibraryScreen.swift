@@ -423,6 +423,7 @@ struct LibraryScreen: View {
             }
             .fontWeight(.semibold)
             .accessibilityIdentifier(AccessibilityID.Library.importButton)
+            .toolbarGlyph()
         }
     }
 
