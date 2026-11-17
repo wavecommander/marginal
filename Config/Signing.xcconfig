@@ -8,11 +8,11 @@ CODE_SIGNING_ALLOWED = NO
 CODE_SIGNING_REQUIRED = NO
 
 // Backup integrations that need an account are off unless Config/Local.xcconfig turns them on
-// (see Config/Local.xcconfig.example). Empty means off: the app shows the destination as not
-// available in this build.
+// (see Config/Local.xcconfig.example). Empty means off: the app leaves the destination out.
+// Backing up to iCloud Drive, Google Drive or other storage that Files shows needs none of
+// this: the reader picks a folder there with the system's picker.
 // - TACTILE_ENTITLEMENTS: the app target's entitlements file. Empty: none, which is what an
-//   unsigned simulator build and a free Personal Team need.
-// - GOOGLE_DRIVE_CLIENT_ID: the iOS OAuth client ID for the direct Google Drive integration.
+//   unsigned simulator build and a free Personal Team need. Nothing in the repository needs one.
 // - S3_BACKUP_*: an S3-compatible bucket (Amazon S3, Cloudflare R2, MinIO) as a backup
 //   destination. Host, region, bucket and both keys must all be set for it to appear.
 //   The keys end up in the built app's Info.plist, where anyone holding the app can read them:
@@ -29,7 +29,6 @@ CODE_SIGNING_REQUIRED = NO
 //   Tactile Texts Cloud offer links to, written without "https://" ("//" starts a comment in
 //   this file; the app adds https). Not secrets. Empty: that link is not shown.
 TACTILE_ENTITLEMENTS =
-GOOGLE_DRIVE_CLIENT_ID =
 S3_BACKUP_HOST =
 S3_BACKUP_REGION =
 S3_BACKUP_BUCKET =

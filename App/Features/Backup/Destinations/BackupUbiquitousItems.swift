@@ -64,10 +64,10 @@ nonisolated struct SystemUbiquitousItemControl: BackupUbiquitousItemControl {
 /// iCloud's placeholder files for items that are not downloaded: `.<name>.icloud`, a small
 /// property list holding the item's name (`NSURLNameKey`) and size (`NSURLFileSizeKey`).
 ///
-/// Which form a not-downloaded item takes is not stated in Apple's documentation for iOS: the
-/// ubiquity container has historically used these placeholders, and iCloud Drive on File Provider
+/// Which form a not-downloaded item takes is not stated in Apple's documentation for iOS:
+/// iCloud has historically used these placeholders, and iCloud Drive on File Provider
 /// (macOS 14 and later) uses "dataless" files under the real name instead, which a directory
-/// listing already shows with their full size. The destinations handle both: real names come
+/// listing already shows with their full size. The folder destination handles both: real names come
 /// from the folder listing, placeholders are mapped back to the names they stand for.
 nonisolated enum BackupICloudPlaceholder {
     static let suffix = ".icloud"

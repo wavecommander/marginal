@@ -76,8 +76,8 @@ final class SettingsUITests: XCTestCase {
     }
 
     func testCommandCommaOpensSettingsAndResetRestoresRaspberry() {
-        let app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "teal"])
-        waitForAccent(app, "teal")
+        let app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "aubergine"])
+        waitForAccent(app, "aubergine")
         XCTAssertTrue(app.buttons["settings.open"].waitForExistence(timeout: 10))
         // Settings… is disabled until the window is the focused one, and a hardware-key event
         // sent before that is dropped; nothing on screen says when it is, so press again if
@@ -89,7 +89,7 @@ final class SettingsUITests: XCTestCase {
             opened = reset.waitForExistence(timeout: 4)
         }
         XCTAssertTrue(opened, app.debugDescription)
-        XCTAssertEqual(app.buttons["settings.accent.teal"].value as? String, "selected")
+        XCTAssertEqual(app.buttons["settings.accent.aubergine"].value as? String, "selected")
         reset.tap()
         XCTAssertEqual(app.buttons["settings.accent.raspberry"].value as? String, "selected")
         app.buttons["settings.done"].tap()
@@ -128,8 +128,8 @@ final class SettingsUITests: XCTestCase {
     }
 
     func testResetStateClearsTheStoredAccent() {
-        var app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "graphite"])
-        waitForAccent(app, "graphite")
+        var app = XCUIApplication.launchFresh(["-exposeAccent", "-accent", "onyx"])
+        waitForAccent(app, "onyx")
         app.terminate()
         app = XCUIApplication.launchFresh(["-exposeAccent"])
         waitForAccent(app, "raspberry")

@@ -259,18 +259,12 @@ private struct AutomaticBackupSection: View {
 // MARK: - Alerts
 
 extension View {
-    /// Shows a backup failure with its own message; "Sign In…" opens the Google sign-in when it
-    /// would fix it.
-    func backupFailureAlert(_ failure: Binding<BackupFailure?>, signIn: (() -> Void)? = nil) -> some View {
+    /// Shows a backup failure with its own message.
+    func backupFailureAlert(_ failure: Binding<BackupFailure?>) -> some View {
         alert(failure.wrappedValue?.title ?? "", isPresented: Binding(get: { failure.wrappedValue != nil },
                                                                       set: { if !$0 { failure.wrappedValue = nil } }),
-              presenting: failure.wrappedValue) { value in
-            if value.offersSignIn, let signIn {
-                Button("Sign In…", action: signIn)
-                Button("Cancel", role: .cancel) {}
-            } else {
-                Button("OK", role: .cancel) {}
-            }
+              presenting: failure.wrappedValue) { _ in
+            Button("OK", role: .cancel) {}
         } message: { value in
             Text(value.message)
         }

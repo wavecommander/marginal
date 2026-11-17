@@ -94,6 +94,14 @@ struct LibraryLogicTests {
         #expect(message.contains("can't be undone"))
         let bare = LibraryLogic.deletionMessage(title: "Algebra", summary: BookDeletionSummary(records: BookRecordCounts(), inkedPages: 0))
         #expect(bare.contains("the PDF file") && !bare.contains(" and "))
+        #expect(!bare.contains("exported"))
+    }
+
+    @Test func deletionMessageNamesExportedPDFs() {
+        let none = BookDeletionSummary(records: BookRecordCounts(), inkedPages: 0)
+        #expect(LibraryLogic.deletionMessage(title: "Algebra", summary: none, exportedPDFs: 1)
+            .contains("the PDF file and 1 exported PDF."))
+        #expect(LibraryLogic.deletionMessage(title: "Algebra", summary: none, exportedPDFs: 3).contains("3 exported PDFs"))
     }
 
     @Test func paletteIndexIsStable() {

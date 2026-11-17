@@ -279,7 +279,8 @@ ones even where the mockup draws an approximation.
   window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
-  confirmation that states those counts.
+  confirmation that states those counts, and its exported marked-up PDFs (counted as "exported
+  PDFs"; see "Export Marked-Up PDF").
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
@@ -318,30 +319,55 @@ ones even where the mockup draws an approximation.
   - *Where:* the reader's More menu, as a submenu with two choices, and the menu bar's Book ›
     Export Marked-Up PDF, acting on the focused window (Book Only ⌥⌘E, Book with Notes ⌥⇧⌘E).
     **Book Only** ("Ink and highlights drawn on the pages") and **Book with Notes** ("Your notes
-    added at the end"); Book with Notes is unavailable while the book has no notes. Not offered
-    in the Library or the Notebook. Pending edits in every window are saved first.
+    added at the end"); Book with Notes is unavailable while the book has no notes, and both are
+    unavailable while an export of the book is running. Not offered in the Library or the
+    Notebook (the Notebook only offers Try Again for an export that did not finish). Pending
+    edits in every window are saved first.
   - *Confirmation first* (owner decision, 17 November 2026): every way of starting the export
-    (More menu, menu bar, either choice) first asks "Export Marked-Up PDF?" ("Export Book with
-    Notes?"): "This can take a long time, and Tactile Texts will create a file at least as big
-    as the current PDF (48 MB). You can keep reading while it runs in the background." The size
-    is the book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports
-    nothing.
-  - *Running in the background* (owner decision, 17 November 2026): the progress card shows the
-    time left ("About 3 minutes left", once it has 5% done and 2 seconds to go on) with
-    **Cancel** and **Continue in Background**. Continue in Background puts away the card and
-    shows a status pill at the top of the reader (progress ring, title, time left, a Cancel
-    button; tapping it shows the card again), and the reader can be used meanwhile. It asks for
-    permission to notify the first time. An export that finishes in the background, or while
-    Tactile Texts is not in front, does not open the share sheet by itself: a notification says
-    "Export Finished" (shown while the app is open too) and the pill turns into "Marked-Up PDF
-    Ready" with **Share** and a Discard button; opening the notification opens the share sheet
-    in that reader. A failure there also posts "Export Failed", and the reader shows its alert.
-    Another export can start once that one is shared or discarded. The export keeps running
+    (More menu, menu bar, either choice, Try Again) first asks "Export Marked-Up PDF?" ("Export
+    Book with Notes?"): "This can take a long time, and Tactile Texts will create a file at
+    least as big as the current PDF (48 MB). It keeps going while you read or leave the book,
+    and the finished PDF is kept in this book's Notebook until you delete it." The size is the
+    book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports nothing.
+  - *Nothing is lost implicitly* (owner decision, 17 November 2026): the export belongs to the
+    book, not to the reader window. Leaving the book, closing its window, sharing, putting away
+    a notice or relaunching never stops an export or deletes its file. Only the user's own,
+    confirmed actions do: stopping a running export ("Stop Exporting?" — "The PDF made so far is
+    deleted. You can export again later." **Stop Export** / **Keep Exporting**), deleting an
+    exported PDF ("Delete Exported PDF?", naming the file and its size, **Delete** / **Cancel**),
+    or deleting the book (its confirmation counts the exported PDFs).
+  - *Running in the background* (owner decision, 17 November 2026): one export per book at a
+    time. The progress card shows the time left ("About 3 minutes left", once it has 5% done and
+    2 seconds to go on) with **Cancel** (asks first, as above) and **Continue in Background**.
+    Continue in Background puts away the card and shows a status pill at the top of the reader
+    (progress ring, title, time left, a stop button that asks first; tapping it shows the card
+    again), and the reader can be used, or left, meanwhile. Every reader window on the book
+    shows the pill. It asks for permission to notify the first time. The export keeps running
     when Tactile Texts leaves the foreground: on iPadOS 26 and later as a continued processing
-    task, which the system shows with its progress and which the user can stop there (that
-    cancels it, as Cancel does); before iPadOS 26, or if the system will not run that task, only
-    for the short time UIKit allows, after which it is paused until the app is opened again.
-    Leaving the book (closing its reader or window) still cancels the export.
+    task, which the system shows with its progress and which the user can stop there; before
+    iPadOS 26, or if the system will not run that task, only for the short time UIKit allows,
+    after which it is paused until the app is opened again. Stopped by the system (or by the
+    user from the system's display) it is kept as unfinished with Try Again, since the app
+    cannot tell the two apart; cut short by the app quitting, likewise ("Tactile Texts closed
+    before the export finished.").
+  - *When it ends* (owner decision, 17 November 2026): finished in the window showing its card
+    with the app in front, the share sheet opens there. Otherwise a notification says "Export
+    Finished" ("“<file>” is ready. Find it in the Notebook of “<book>”.", shown while the app is
+    open too) or "Export Didn't Finish" with the reason, and the book's readers show a pill:
+    "Marked-Up PDF Ready" / "Kept in this book's Notebook" with **Share** and a Hide button, or
+    "Export Didn't Finish" with the reason, **Try Again** and Hide. Hide only puts the pill away.
+    Opening the notification shows the book's Notebook in the window in front. A failure in
+    front of the user shows an alert ("Export Didn't Finish") instead of the pill.
+  - *Exported PDFs* (owner decision, 17 November 2026): the top of the book's Notebook lists
+    every marked-up export of the book, newest first, under "Exported PDFs" with their count and
+    the space the files take; the list folds away (remembered per window) and scrolls past a
+    few rows. A running export shows its progress ring, time left and **Stop**; a finished one
+    its file name, size and date with **Share** (the share sheet) and Delete (also in its
+    context menu); one that did not finish says why, with **Try Again** and Remove (no file to
+    delete). The section is absent when the book has no exports. Files are kept in the app's
+    own storage (`Marked-Up Exports` in Application Support, one folder per export with its
+    record), not in the Files app, not in backups (they can be made again from the book), and
+    not removed by the system.
   - *Pages:* every page of the book, in order, as the reader sees it upright (its crop box with
     its rotation applied), on white. The page's own content is copied, not pictured: text stays
     selectable and searchable where the book's is, vector stays vector, a scanned page keeps its
@@ -365,8 +391,8 @@ ones even where the mockup draws an approximation.
   - *File:* `<Title> (Marked Up).pdf` or `<Title> (Marked Up with Notes).pdf`; the PDF's title is
     the book's. Appendix pages are A4 or US Letter by locale, like the Notebook PDF.
   - *Large books:* written page by page to the file, one page's ink in memory at a time, pages
-    copied off the main thread, with progress and Cancel (which leaves nothing behind). A book
-    whose PDF is missing or password-protected says so instead.
+    copied off the main thread, with progress and Cancel (which, once confirmed, leaves nothing
+    behind). A book whose PDF is missing or password-protected says so instead.
   - *Nothing left out silently* (owner decision, 16 November 2026): if a page's ink, a note's
     handwriting (Book with Notes), or the book's headings, highlights or notes cannot be read,
     the export fails and says which (the page number for page ink) instead of finishing without
@@ -444,7 +470,7 @@ Added by the owner (TSOFT-215, 14 November 2026).
   `AppIcon76x76@2x~ipad.png` in the bundle.
 - **Accent.** The accent is the reader's choice, from a fixed list of presets in Settings ▸
   Appearance (`AccentChoice` in `App/DesignSystem/Accent.swift`, stored under `settings.accent`):
-  Raspberry (the default), Coral, Indigo, Viridian, Teal, Tobacco, Aubergine and Graphite. There
+  Raspberry (the default), Coral, Indigo, Viridian, Aubergine and Onyx (black in Light Mode, near-white in Dark Mode; it replaced Graphite, and Teal and Tobacco were dropped, 17 November 2026; a stored Graphite reads as Onyx, a stored Teal or Tobacco as Raspberry). There
   is no free colour picker, because each preset is a hand-checked set of accent, accent tint and
   on-accent colours in both appearances. Raspberry is `#9C3656` in Light Mode and `#F4A3BE` in
   Dark Mode. The `AccentColor` asset holds the same raspberry; it is only the default and the
@@ -579,10 +605,10 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
   when present. The newest 10 snapshots are kept; PDFs are never removed automatically. In a
-  folder the reader picked and in the iCloud container the snapshot folder is `Tactile Texts
-  Backups/` (owner decision, 16 November 2026), so it reads as the app's in Files; snapshots
-  already in `Backups/` there still list, restore and delete, and new ones are never written
-  to it. Google Drive, S3 and Tactile Texts Cloud keep `Backups/`.
+  folder the reader picked the snapshot folder is `Tactile Texts Backups/` (owner decision,
+  16 November 2026), so it reads as the app's in Files; snapshots already in `Backups/` there
+  still list, restore and delete, and new ones are never written to it. S3 and Tactile Texts
+  Cloud keep `Backups/`.
 - **Include PDFs is one choice** (owner decision, 15 November 2026). The backup-file switch,
   each destination's switch and the automatic backup's switch all show and change the same
   stored value, in every window at once, so a reader who has decided once is never caught out
@@ -591,14 +617,21 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
   the app, except those to Tactile Texts Cloud (encrypted on the iPad; see below), and the
   Backup screen's footnote says which.
-- **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
-  remembered across launches, which Choose Another Folder… replaces but nothing clears (owner
-  decision, 16 November 2026: no Stop Using This Folder); the app's own iCloud container; Google Drive (the app can see only
-  the files it creates); and an S3-compatible bucket the developer configures at build time (for
-  example Cloudflare R2). The last three are switched on from `Config/Local.xcconfig` and are
-  off, or reported as not available, in a build without them. **S3 credentials set at build
-  time are compiled into the app and can be read out of it**: such a build is for the
-  developer's own devices, with a token limited to one bucket, and is never distributed.
+- **Destinations.** A file; a folder the reader picks in Files, remembered across launches,
+  which Choose Another Folder… replaces but nothing clears (owner decision, 16 November 2026:
+  no Stop Using This Folder); and an S3-compatible bucket the developer configures at build
+  time (for example Cloudflare R2), switched on from `Config/Local.xcconfig` and left out of a
+  build without it. **S3 credentials set at build time are compiled into the app and can be
+  read out of it**: such a build is for the developer's own devices, with a token limited to
+  one bucket, and is never distributed.
+- **iCloud Drive, Google Drive and other storage go through Files** (owner decision,
+  17 November 2026). The app has no iCloud container and no Google sign-in of its own: the
+  system's pickers already reach every location Files shows, so the reader saves or opens a
+  backup file there, or chooses a folder there as the folder destination (its screen says so
+  under Choose Folder…). A folder in iCloud Drive gets what the app can do for it: every
+  access is coordinated, and a backup that is in iCloud but not on this iPad is listed and
+  downloaded before it is read. Whether a folder can be chosen in another app's location is
+  up to that app's Files extension; a backup file can be saved to and opened from any of them.
 - **Linking PDFs by hash.** A book's identity is its sampled fingerprint, as before. A backup
   also records the SHA-256 of the whole PDF, kept beside the book in `document.sha256`. A book
   restored without its PDF is an ordinary book whose file is absent: the Library marks it
@@ -929,7 +962,7 @@ switching between development branches).
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub (`StoreChangeHub`, one per `LibraryStore`) announces every committed change, to records and to ink files alike (what changed and the book, page or note it concerns, never the new value), and other windows re-read what they show through `LibraryStore`. Nothing relies on SwiftData observation or `@Query` | One signal for structured data and for ink, which lives in files; each change carries its origin (the window or job that made it), so a window can tell its own changes from another window's. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
-| Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
+| Backup format and network code | Two Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan) and `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
 | Cloud backup service | A Cloudflare Worker (TypeScript, D1, a daily cron) that verifies the App Store subscription and App Attest and issues 15-minute R2 credentials limited to one user's folder; the iPad talks to R2 directly with `S3Kit` and encrypts with `ReaderBackup` | The only server code is the part that must hold a secret. File data never passes through it, so it stays small and cheap, and the storage holds nothing readable. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
 | Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
@@ -1032,8 +1065,8 @@ is never written to, and no text layer is added to it.
 
 ## Not in version 1
 
-iCloud sync (backup and restore to iCloud exist, see "Backup and restore"; keeping two devices in
-step does not), collections or tags in the Library, for scanned books: writing a text layer into
+iCloud sync (a backup can be kept in iCloud Drive and restored from it, see "Backup and restore";
+keeping two devices in step does not exist), collections or tags in the Library, for scanned books: writing a text layer into
 the PDF, recognition while the app is suspended and a choice of recognition language (see
 "Scanned books" for what exists), handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two

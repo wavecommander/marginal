@@ -126,11 +126,14 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       Export Marked-Up PDF (⌥⌘E, ⌥⇧⌘E) does the same in the focused window.
 - [ ] **Marked-up export in the background.** With the 700+ page textbook, confirm the export,
       tap Continue in Background and allow notifications: the pill shows a time left that settles
-      after a few seconds and keeps reading possible. Go to the Home Screen: the system shows the
-      export's progress (iPadOS 26+), it keeps moving, an "Export Finished" notification arrives,
-      and tapping it opens Tactile Texts with the share sheet. Again, stopping it from the
-      system's progress display: back in the app nothing is left (no pill, no file). On iPadOS 17
-      to 25 (if available): it pauses about 30 seconds after leaving the app and resumes on return.
+      after a few seconds and reading goes on. Go back to the Library and open another book: the
+      export keeps going. Go to the Home Screen: the system shows the export's progress (iPadOS
+      26+), it keeps moving, an "Export Finished" notification arrives, and tapping it opens the
+      book's Notebook with the file under Exported PDFs; Share saves it to Files. Quit the app
+      from the app switcher and reopen: the file is still listed. Again, stopping it from the
+      system's progress display: back in the app the Notebook lists it as not finished, with Try
+      Again. On iPadOS 17 to 25 (if available): it pauses about 30 seconds after leaving the app
+      and resumes on return.
 - [ ] **The toolbar arrives in one motion** (TSOFT-230). In landscape, right after launching the
       app, open a book's Notebook from the Library's context menu, then again from the Continue
       Reading card, from the reader's More › Notebook, and with Open Notebook in New Window. Each
@@ -267,28 +270,25 @@ runs or very large files. Open Settings › Backup & Restore.
       other: the book is unticked, the row says why it can't be merged, and its menu offers
       only Replace with Backup and Leave as Is.
 - [ ] **Folder in iCloud Drive.** Choose Folder… and pick a folder in iCloud Drive; Back Up
-      Now; the files appear under `Backups/` and `PDFs/` in Files and on another device. Quit
+      Now; the files appear under `Tactile Texts Backups/` and `PDFs/` in Files and on another device. Quit
       and relaunch, then restart the iPad: the folder is still remembered each time.
 - [ ] **A backup that is only in iCloud.** On a second device, or after the system has evicted
       the local copy, the backup is still listed and restoring it downloads it first. In
       Aeroplane Mode the app reports that it cannot be downloaded instead of hanging.
 - [ ] **Folder gone.** Delete or rename the chosen folder in Files: the destination says to
       choose the folder again and does not recreate it.
-- [ ] **Another provider's folder.** Try Choose Folder… on the Google Drive app's location in
-      Files. Note whether a folder can be picked at all; if not, that is expected.
+- [ ] **Google Drive through Files.** With the Google Drive app installed and switched on as
+      a location in Files: Save Backup File… into Google Drive, then Restore from File… from
+      there on a fresh install. Then try Choose Folder… on that location and note whether a
+      folder can be picked at all (it is up to Google's Files extension; if it can't, a backup
+      file is the way to use Google Drive). This is the only route to Google Drive: the app has
+      no Google sign-in of its own.
 - [ ] **Automatic backup.** Turn it on for the iCloud Drive folder, make a note, and leave the
       iPad for a day (on power overnight): the status line shows a backup with a new date. Make
       no change the next day: no new backup appears.
 
 Only once the account side exists (see `Config/Local.xcconfig.example`):
 
-- [ ] **iCloud container** (paid developer team). The destination is available, "Tactile Texts"
-      appears in Files › iCloud Drive, and a backup made on one device is listed on another.
-- [ ] **Google Drive** (OAuth client ID). Sign In… shows Google's page and returns to the app;
-      this is the first real test of the redirect scheme. Back Up Now creates "Tactile Texts
-      Backups" in Drive; a large PDF uploads and survives a brief loss of network; restoring on
-      a fresh install works; Sign Out removes access. Quit and relaunch: still signed in (the
-      Keychain has never been exercised on the simulator).
 - [ ] **S3-compatible bucket** (for example Cloudflare R2). The destination appears under the
       configured name; Back Up Now uploads a snapshot and a PDF of several hundred megabytes;
       the objects are under `Backups/` and `PDFs/` in the bucket; restore works; a wrong key

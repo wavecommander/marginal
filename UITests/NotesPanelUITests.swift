@@ -348,7 +348,7 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5), "the level picker, under the note")
         var hide = app.buttons[ID.lowerRegionToggle].firstMatch
         XCTAssertTrue(hide.waitForExistence(timeout: 5))
-        XCTAssertEqual(hide.label, "Hide Section Levels")
+        XCTAssertTrue(wait(hide, "label == %@", "Hide Section Levels"))
         XCTAssertFalse(app.buttons[ID.markup].firstMatch.exists, "Markup stays in the toolbar at regular size")
 
         hide.tap()

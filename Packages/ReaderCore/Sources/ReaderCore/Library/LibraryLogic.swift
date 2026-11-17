@@ -112,7 +112,9 @@ public enum LibraryLogic {
     }
 
     /// The text of the delete confirmation: what goes with the book.
-    public static func deletionMessage(title: String, summary: BookDeletionSummary) -> String {
+    /// - Parameter exportedPDFs: the book's marked-up PDF exports (files kept in the app), deleted
+    ///   with it.
+    public static func deletionMessage(title: String, summary: BookDeletionSummary, exportedPDFs: Int = 0) -> String {
         func count(_ n: Int, _ one: String, _ many: String) -> String? {
             n > 0 ? "\(n.formatted(.number)) \(n == 1 ? one : many)" : nil
         }
@@ -123,6 +125,7 @@ public enum LibraryLogic {
             count(summary.inkedPages, "page of ink", "pages of ink"),
             count(summary.records.bookmarks, "bookmark", "bookmarks"),
             count(summary.records.userHeadings, "heading you added", "headings you added"),
+            count(exportedPDFs, "exported PDF", "exported PDFs"),
         ].compactMap { $0 }
         let list = parts.count > 1
             ? parts.dropLast().joined(separator: ", ") + " and " + parts.last!

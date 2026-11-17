@@ -155,33 +155,12 @@ private struct OpeningView: View {
 private struct FailedView: View {
     let failure: BackupFailure
 
-    @Environment(AppEnvironment.self) private var environment
-    @Environment(WindowContext.self) private var window: WindowContext?
-    @State private var signInFailure: BackupFailure?
-
     var body: some View {
         ContentUnavailableView {
             Label(failure.title, systemImage: "exclamationmark.triangle")
         } description: {
             Text(failure.message)
                 .accessibilityIdentifier(AccessibilityID.Restore.error)
-        } actions: {
-            if failure.offersSignIn, environment.googleDriveAccount.state != .notSetUp {
-                Button("Sign In…") { signIn() }
-                    .buttonStyle(.bordered)
-                    .disabled(environment.googleDriveAccount.isSigningIn)
-            }
-        }
-        .alert(signInFailure?.title ?? "", isPresented: Binding(get: { signInFailure != nil }, set: { if !$0 { signInFailure = nil } }),
-               presenting: signInFailure) { _ in Button("OK", role: .cancel) {} } message: { Text($0.message) }
-    }
-
-    private func signIn() {
-        guard let anchor = window?.presentationAnchor else { return }
-        Task {
-            do { try await environment.googleDriveAccount.signIn(anchor: anchor) } catch {
-                signInFailure = BackupFailure.from(error, title: "Couldn’t Sign In")
-            }
         }
     }
 }

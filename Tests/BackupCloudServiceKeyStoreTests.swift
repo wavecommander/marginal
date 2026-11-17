@@ -102,7 +102,7 @@ struct BackupCloudServiceKeyStoreTests {
 
     /// The unsigned simulator test host (`CODE_SIGNING_ALLOWED = NO`: no `application-identifier`
     /// entitlement) gets `errSecMissingEntitlement` (-34018) from every `SecItem` call. That is
-    /// recorded as a known issue, as the Google Drive Keychain tests do; on a signed host the
+    /// recorded as a known issue; on a signed host the
     /// checks run in full and any other failure fails the test.
     private func withKeychain(_ body: () async throws -> Void) async throws {
         try await withKnownIssue("Unsigned simulator test host: Keychain returns errSecMissingEntitlement (-34018)",

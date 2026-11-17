@@ -36,7 +36,7 @@ struct LaunchOptionsTests {
         #expect(LaunchOptions(arguments: ["app", "-accent", "indigo"]).accent == .indigo)
         #expect(LaunchOptions(arguments: ["app", "-accent", "chartreuse"]).accent == nil)
         #expect(LaunchOptions(arguments: ["app", "-accent"]).accent == nil)
-        #expect(LaunchOptions(arguments: ["app", "-accent", "teal", "-markup"]).markup)
+        #expect(LaunchOptions(arguments: ["app", "-accent", "onyx", "-markup"]).markup)
     }
 
     @Test func parsesBackupFolder() {

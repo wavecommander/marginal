@@ -87,29 +87,29 @@ nonisolated enum BackupUIText {
     /// What a backup without PDFs needs after restoring (the footnote's second sentence).
     static let withoutPDFsNote = "After restoring a backup without PDFs, use Locate PDF… on each book."
 
+    /// Under Choose Folder…: the folder is how iCloud Drive and other storage are reached.
+    static let folderFooter = "Any folder that Files shows, such as one in iCloud Drive."
+
     /// Under Back Up Now: how many backups a destination keeps.
     static let retention = "The newest \(SnapshotRetention.defaultKeepCount) backups are kept."
 }
 
 // MARK: - Errors
 
-/// An error ready to show: title, the error's own message, and whether to offer "Sign In".
+/// An error ready to show: a title and the error's own message.
 nonisolated struct BackupFailure: Identifiable, Equatable, Sendable {
     let id = UUID()
     var title: String
     var message: String
-    /// A Google sign-in would fix it (`CloudBackupError.needsSignIn`).
-    var offersSignIn: Bool
 
     static func == (lhs: BackupFailure, rhs: BackupFailure) -> Bool {
-        lhs.title == rhs.title && lhs.message == rhs.message && lhs.offersSignIn == rhs.offersSignIn
+        lhs.title == rhs.title && lhs.message == rhs.message
     }
 
     /// `nil` for a cancellation (quiet); otherwise the error's own `localizedDescription`.
     static func from(_ error: any Error, title: String) -> BackupFailure? {
         if isCancellation(error) { return nil }
-        let signIn = (error as? CloudBackupError)?.needsSignIn ?? false
-        return BackupFailure(title: title, message: error.localizedDescription, offersSignIn: signIn)
+        return BackupFailure(title: title, message: error.localizedDescription)
     }
 
     static func isCancellation(_ error: any Error) -> Bool {
@@ -127,8 +127,6 @@ nonisolated struct BackupFailure: Identifiable, Equatable, Sendable {
 nonisolated enum BackupDestinationKind: Equatable, Sendable {
     /// The folder the reader picks in Files (`folder`).
     case pickedFolder
-    case iCloud
-    case googleDrive
     case s3
     /// Tactile Texts Cloud, the paid backup service.
     case tactileCloud
@@ -138,8 +136,6 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
     init(id: String) {
         switch id {
         case PickedFolderBackupDestination.destinationID: self = .pickedFolder
-        case ICloudBackupDestination.destinationID: self = .iCloud
-        case GoogleDriveBackupDestination.destinationID: self = .googleDrive
         case S3BackupDestination.destinationID: self = .s3
         case TactileCloudBackupDestination.destinationID: self = .tactileCloud
         default: self = .other
@@ -149,8 +145,6 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
     var systemImage: String {
         switch self {
         case .pickedFolder, .other: "folder"
-        case .iCloud: "icloud"
-        case .googleDrive: "cloud"
         case .s3: "server.rack"
         case .tactileCloud: "lock.icloud"
         }
@@ -158,32 +152,6 @@ nonisolated enum BackupDestinationKind: Equatable, Sendable {
 
     /// "Choose Folder…" (or "Choose Another Folder…").
     var showsFolderControls: Bool { self == .pickedFolder }
-    /// The Google account's state with Sign In / Sign Out.
-    var showsGoogleAccount: Bool { self == .googleDrive }
-}
-
-/// What the Google Drive destination shows for the account.
-nonisolated struct GoogleAccountPresentation: Equatable, Sendable {
-    var status: String
-    var showsSignIn: Bool
-    var showsSignOut: Bool
-
-    static func make(_ state: GoogleDriveAccount.State) -> GoogleAccountPresentation {
-        switch state {
-        case .notSetUp:
-            GoogleAccountPresentation(status: "Google Drive isn’t set up in this build of Tactile Texts.",
-                                      showsSignIn: false, showsSignOut: false)
-        case .signedOut:
-            GoogleAccountPresentation(status: "Not signed in.", showsSignIn: true, showsSignOut: false)
-        case .signedIn:
-            GoogleAccountPresentation(status: "Signed in to Google Drive.", showsSignIn: false, showsSignOut: true)
-        case .needsSignInAgain:
-            GoogleAccountPresentation(status: "Google Drive needs you to sign in again.", showsSignIn: true, showsSignOut: true)
-        }
-    }
-
-    /// What the app can see in the reader's Drive.
-    static let scopeSentence = "Tactile Texts can see only the files it creates in your Google Drive."
 }
 
 // MARK: - Automatic backup

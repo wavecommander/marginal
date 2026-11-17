@@ -37,7 +37,7 @@ colours. So the choice is a fixed list of presets, each a hand-tuned quad:
 | onAccent (light, dark) | Text or icon on a solid accent fill |
 
 About eight presets, reusing the bookcloth hues: Raspberry (default, today's values), Coral,
-Indigo, Viridian, Teal, Tobacco, Aubergine, Graphite. A custom picker can follow later, with the
+Indigo, Viridian, Aubergine, Onyx (the shipped list; Teal and Tobacco were dropped and Graphite became Onyx on 17 November 2026). A custom picker can follow later, with the
 lightness clamped so the same checks pass.
 
 Not affected by the accent: highlighter colours, margin red, destructive red, book cloth, ink and

@@ -589,7 +589,9 @@ struct LibraryScreen: View {
         Task {
             do {
                 let summary = try await environment.store.deletionSummary(bookID: book.id)
-                deletePrompt = DeletePrompt(book: book, message: LibraryLogic.deletionMessage(title: book.title, summary: summary))
+                let exports = environment.markedUpExports.records(for: book.id).filter { $0.isRunning || $0.isFinished }.count
+                deletePrompt = DeletePrompt(book: book, message: LibraryLogic.deletionMessage(title: book.title, summary: summary,
+                                                                                             exportedPDFs: exports))
             } catch {
                 errorMessage = "Couldn't look up what deleting “\(book.title)” removes: \(error)"
             }
@@ -599,13 +601,17 @@ struct LibraryScreen: View {
     private func delete(_ book: Book) {
         let store = environment.store
         let origin = model?.origin
+        let exports = environment.markedUpExports
         Task {
             do {
                 try await store.deleteBook(id: book.id, origin: origin)
+                // Named in the confirmation ("exported PDFs").
+                exports.deleteAll(bookID: book.id)
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
                 ReaderPositionStore().removePosition(for: book.id)
             } catch LibraryStoreError.bookFilesNotRemoved {
+                exports.deleteAll(bookID: book.id)
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
                 ReaderPositionStore().removePosition(for: book.id)
