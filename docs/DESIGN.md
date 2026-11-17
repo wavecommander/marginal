@@ -167,7 +167,10 @@ ones even where the mockup draws an approximation.
   always in the same place: outlined while markup is off, filled while it is on, and tapping it
   toggles. There is no Done button, and the rest of the toolbar is the same in both modes; the
   toolbar subtitle shows only the reader's place, with no "Markup" prefix (owner decision,
-  17 November 2026). Undo
+  17 November 2026). The Contents and Notes buttons are toggles in the same way: selected while
+  their pane is shown, and the Contents icon is filled while the sidebar is shown (the Notes icon
+  has no filled form, so its selected background shows the state) (owner request, 17 November
+  2026). Undo
   and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
   they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
   system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.

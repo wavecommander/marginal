@@ -189,15 +189,24 @@ final class ReaderUITests: XCTestCase {
         let notes = element(app, ReaderID.notesPane)
         XCTAssertTrue(contents.waitForExistence(timeout: 10))
         XCTAssertTrue(notes.exists)
+        // Both buttons are toggles, selected while their pane is shown.
+        let contentsButton = app.buttons[ReaderID.contentsToggle].firstMatch
+        let notesButton = app.buttons[ReaderID.notesToggle].firstMatch
+        XCTAssertTrue(waitForSelected(contentsButton, true))
+        XCTAssertTrue(waitForSelected(notesButton, true))
 
-        app.buttons[ReaderID.contentsToggle].tap()
+        contentsButton.tap()
         XCTAssertTrue(contents.waitForNonExistence(timeout: 5))
-        app.buttons[ReaderID.notesToggle].tap()
+        XCTAssertTrue(waitForSelected(contentsButton, false))
+        notesButton.tap()
         XCTAssertTrue(notes.waitForNonExistence(timeout: 5))
-        app.buttons[ReaderID.contentsToggle].tap()
+        XCTAssertTrue(waitForSelected(notesButton, false))
+        contentsButton.tap()
         XCTAssertTrue(contents.waitForExistence(timeout: 5))
-        app.buttons[ReaderID.notesToggle].tap()
+        XCTAssertTrue(waitForSelected(contentsButton, true))
+        notesButton.tap()
         XCTAssertTrue(notes.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForSelected(notesButton, true))
 
         // A jump from Contents updates the page (and is recorded: Back becomes enabled).
         let chapter = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "2 Vector Spaces")).firstMatch

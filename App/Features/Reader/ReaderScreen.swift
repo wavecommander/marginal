@@ -266,12 +266,7 @@ struct ReaderScreen: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
-            Button {
-                withAnimation { session.toggleContents() }
-            } label: {
-                Label(session.isContentsShown ? "Hide Contents" : "Show Contents", systemImage: "sidebar.leading")
-            }
-            .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
+            contentsToggle
             SectionHistoryButton(session: session, direction: .back)
             SectionHistoryButton(session: session, direction: .forward)
         }
@@ -349,12 +344,35 @@ struct ReaderScreen: View {
         }
     }
 
-    /// The label says the state ("Hide Notes" while shown); an accessibility value here would not
-    /// reach VoiceOver (see `markupToggle`). Tests read it from `ReaderStateProbe`.
+    /// Shows and hides the Contents sidebar: outlined while hidden, filled (and selected) while
+    /// shown. A button-style `Toggle` for the selection state, as `markupToggle` explains.
+    /// `sidebar.leading` has no filled variant; `rectangle.leadinghalf.inset.filled` is the same
+    /// shape with the sidebar half filled.
+    private var contentsToggle: some View {
+        let isOn = session.isContentsShown
+        return Toggle(isOn: Binding(get: { session.isContentsShown },
+                                    set: { on in
+                                        if on != session.isContentsShown { withAnimation { session.toggleContents() } }
+                                    })) {
+            Label(isOn ? "Hide Contents" : "Show Contents",
+                  systemImage: isOn ? "rectangle.leadinghalf.inset.filled" : "sidebar.leading")
+        }
+        .toggleStyle(.button)
+        .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
+    }
+
+    /// Shows and hides the notes pane, selected while shown (a button-style `Toggle`, as
+    /// `markupToggle` explains). `note.text` has no filled variant, so the selected background
+    /// carries the state. The label says the state too ("Hide Notes" while shown). Tests read it
+    /// from `ReaderStateProbe`.
     private var notesToggle: some View {
-        Button { withAnimation { session.toggleNotes() } } label: {
+        Toggle(isOn: Binding(get: { session.isNotesVisible },
+                             set: { on in
+                                 if on != session.isNotesVisible { withAnimation { session.toggleNotes() } }
+                             })) {
             Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "note.text")
         }
+        .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.notesToggle)
     }
 
