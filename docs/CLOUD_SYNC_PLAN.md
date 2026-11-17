@@ -94,6 +94,24 @@ there changes with the package that builds each one.
    change from one to the other and to sign out of every device, and neither they nor any other
    sign-in change removes or locks the readable library on an iPad (see "Changing the sign-in
    and signing out").
+8. **One book per PDF** (added later the same day). Two PDFs with the same hash never appear as
+   two books: not in the app in general, and not in sync. What exists and what is owed:
+   - *Today* a book's identity is its sampled fingerprint, and import and restore already send
+     a second copy of the same file to the existing book. The full SHA-256 is recorded beside
+     the book but nothing checks it for uniqueness, so two books with one PDF are still
+     possible by a side road: a converted book (whose fingerprint is its original file's) and
+     the same generated PDF imported directly, or two conversions that happen to produce
+     identical bytes.
+   - *In sync* the account already holds one book per PDF by construction (the book key is a
+     hash of the PDF's SHA-256, and a head is created only if absent). On one iPad the engine
+     as built syncs the first of two such books and reports the other as a duplicate; that
+     report now marks a state that must not exist, not a normal outcome.
+   - *Owed, in C4:* every road that adds a book (import, conversion, restore, a book arriving
+     from sync, Locate PDF…) checks the full SHA-256 as well as the fingerprint and goes to the
+     existing book; and a library that already holds two books with one PDF has them merged
+     into one (the existing book merge, nothing removed) the first time this version opens it.
+     `docs/DESIGN.md` gains the rule then. Its line "Converting the same file again makes a new
+     book" stays true only while the two conversions' PDFs differ.
 
 ## Accounts and sign-in
 
@@ -317,14 +335,13 @@ cannot silently roll a book back.
 
 ## Packages
 
-**Status, 17 November 2026:** C0 is done; its answers are in `docs/CLOUD_SYNC_FINDINGS.md`,
-and the rows below were corrected from it. C1, C3a (the three-way merge) and C3b (`S3Kit`
-additions and the `ReaderSync` foundations) are built, each on its own agent branch with its
-tests rerun and passing, and none is merged: `worktree-agent-abd5d46db9e349b2e` (C1),
-`worktree-agent-a9f3116cda09011a5` (C3a), `worktree-agent-a0760c082fa584ef8` (C3b). C3c (the
-sync round and the simulated-device tests) is in progress on top of C3a and C3b. C2, C4 and C5
-are not started. Nothing has been checked on a real iPad or against real Apple or Google
-sign-in.
+**Status, 17 November 2026:** C0, C1 and C3 are done and merged into `reader-markup-subtitle`
+(C1 with the fixes from an independent security review: one medium and three low findings, all
+closed). On the merged branch all five packages' tests and the Worker's 210 tests pass. C2, C4
+and C5 are not started. `ReaderSync` is not yet in `project.yml` or the app, and the app's
+`BackupCloudServiceEndToEndTests` cannot pass against the new Worker until C2. Nothing has
+been checked on a real iPad, against real Apple or Google sign-in, or against R2 through the
+Swift code. C0's answers are in `docs/CLOUD_SYNC_FINDINGS.md`.
 
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`
@@ -336,7 +353,7 @@ apply to every package.
 | C1 | Accounts in the Worker: the migration, ID token verification for both providers, device sessions, changing the sign-in, entitlement binding with `appAccountToken`, sign-out of one device and of all, account deletion with Apple revocation, Apple's sign-in notifications. | `Backend/backup-worker` |
 | C2 | Sign-in in the app, and the existing cloud backup moved onto accounts: both sign-in buttons, the account screen (the sign-in and Change, devices, Sign Out, Sign Out of All Devices, delete), the per-account Keychain item, purchase with `appAccountToken`, Sign in with Google as a new small package `GoogleSignInKit` (PKCE, nonce, one code exchange for the ID token; `GoogleDriveKit` was removed on 17 November 2026, its OAuth pieces are in history at `bd7dd50^`), the Sign in with Apple entitlements file, automatic backup on by default for subscribers, `-cloudBackupUITest` states for signed-out and signed-in. | `App/Features/Backup/CloudService`, `App/Features/Backup/UI`, `Packages/GoogleSignInKit`, `Config/` |
 | C3 | Sync core, testable on the Mac. In `ReaderCore`: the three-way book merge and the diff against a base. A new Foundation-and-CryptoKit package `ReaderSync`: head and blob formats, the encrypted object store with conditional writes, the push and pull round with retry on 412, the base store, rollback refusal, the version rules, a write ID on each head so a timed-out put can be reconciled. `S3Kit` (C0 found them missing): `If-Match` and `If-None-Match` on a put, the ETag a put stored, 412 as its own error, a small object read into memory with its ETag, and keys encoded segment by segment. | `Packages/ReaderCore`, `Packages/ReaderSync`, `Packages/S3Kit` |
-| C4 | Sync in the app: the engine wired to `LibraryStore` and `StoreChangeHub`, page and note ink merged with the existing `StrokeMerge` given the base ink (C0: the three-way merge already exists), a page or note whose ink needs a newer PencilKit content version than this iPad has shown but never edited or pushed, applying changes under open windows, the join, scheduling, PDF upload and download, the download state in the Library, the Sync switch and status. | `App/Features/Sync`, hooks in `App/Features/Library` and `App/Features/Backup` |
+| C4 | Sync in the app: the engine wired to `LibraryStore` and `StoreChangeHub`, page and note ink merged with the existing `StrokeMerge` given the base ink (C0: the three-way merge already exists), a page or note whose ink needs a newer PencilKit content version than this iPad has shown but never edited or pushed, applying changes under open windows, one book per PDF (owner decision 8: the full-hash check on every road that adds a book, and merging any duplicates already in a library), the join, scheduling, PDF upload and download, the download state in the Library, the Sync switch and status. | `App/Features/Sync`, hooks in `App/Features/Library` and `App/Features/Backup` |
 | C5 | Safety and housekeeping: Recently Deleted, head history and "restore this book to an earlier day", removal of blobs and PDFs nothing refers to (only when older than seven days, so an upload in flight is never removed), the end-to-end test against `wrangler dev`, `docs/DEVICE_CHECKLIST.md` entries, `docs/DESIGN.md` brought in step. | App, `Backend/backup-worker`, `docs/` |
 | Later | Silent push so another device syncs within seconds (needs an APNs key in the Worker and device tokens); a web or Mac reader, which is what Sign in with Google mostly prepares for. | |
 
