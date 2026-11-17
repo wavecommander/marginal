@@ -249,6 +249,9 @@ struct NotesPanel: View {
                 .labelStyle(.iconOnly)
                 .frame(minWidth: 40, minHeight: 44)
         }
+        // In the label colour, like the toolbar's glyphs (design, "Toolbar glyphs"): Markup
+        // shows its state by its glyph alone.
+        .tint(Color.primary)
         .hoverEffect(.highlight)
         .accessibilityIdentifier(id)
     }
