@@ -150,6 +150,20 @@ public enum RepositoryConformance {
         try bookmarks.setBookmarked(false, bookID: bookID, pageIndex: 1)
         try check(try !bookmarks.isBookmarked(bookID: bookID, pageIndex: 1), "setBookmarked(false) must remove")
         try check(try bookmarks.isBookmarked(bookID: bookID, pageIndex: 12), "isBookmarked must report a bookmark")
+        // A bookmark record stored verbatim replaces the page's bookmark and keeps its ID and date.
+        let dated = Date(timeIntervalSinceReferenceDate: 700_000_000.25)
+        var verbatim = Bookmark(bookID: bookID, pageIndex: 12, createdAt: dated)
+        try bookmarks.save(verbatim)
+        try check(try bookmarks.bookmarks(bookID: bookID) == [verbatim], "save(bookmark) must replace the page's bookmark verbatim")
+        verbatim.pageIndex = 14
+        try bookmarks.save(verbatim)
+        try check(try bookmarks.bookmarks(bookID: bookID) == [verbatim], "save(bookmark) must move a bookmark by its ID")
+        do {
+            try bookmarks.save(Bookmark(bookID: UUID(), pageIndex: 1))
+            try check(false, "save(bookmark) must refuse an unknown book")
+        } catch RepositoryError.bookNotFound {}
+        try bookmarks.setBookmarked(false, bookID: bookID, pageIndex: 14)
+        try bookmarks.setBookmarked(true, bookID: bookID, pageIndex: 12)
 
         // User headings
         var heading = UserHeading(bookID: bookID, title: "Mine", pageIndex: 30, parent: anchor)
@@ -606,6 +620,19 @@ public enum RepositoryConformance {
         }
         try expect("remove a bookmark, unattributed", [.bookmarksChanged(bookID: first, pageIndex: 2)], origin: nil) {
             try store.bookmarks.setBookmarked(false, bookID: first, pageIndex: 2)
+        }
+        var record = Bookmark(bookID: first, pageIndex: 3, createdAt: Date(timeIntervalSinceReferenceDate: 1))
+        try expect("store a bookmark record", [.bookmarksChanged(bookID: first, pageIndex: 3)], origin: window) {
+            try store.bookmarks.save(record)
+        }
+        try expect("store the same bookmark record again", [], origin: window) { try store.bookmarks.save(record) }
+        record.pageIndex = 4
+        try expect("move a bookmark record", [.bookmarksChanged(bookID: first, pageIndex: 3),
+                                              .bookmarksChanged(bookID: first, pageIndex: 4)], origin: window) {
+            try store.bookmarks.save(record)
+        }
+        try expect("remove the moved bookmark", [.bookmarksChanged(bookID: first, pageIndex: 4)], origin: window) {
+            try store.bookmarks.setBookmarked(false, bookID: first, pageIndex: 4)
         }
         try expect("remove a bookmark that is not there", [], origin: window) {
             try store.bookmarks.setBookmarked(false, bookID: first, pageIndex: 2)

@@ -215,6 +215,11 @@ public protocol RecordStore: AnyObject {
     /// bookmark state changed. Idempotent: adding an existing bookmark keeps the existing
     /// record. Throws `.bookNotFound` for an unknown book when adding.
     func storeBookmark(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws -> Bool
+    /// `save(_:)`'s work for a bookmark: stores `bookmark` verbatim (its ID and `createdAt`),
+    /// replacing the stored bookmark with its ID (wherever it was) and any other bookmark on its
+    /// page, and returns what it replaced, in no particular order. Throws `.bookNotFound` for an
+    /// unknown book.
+    func storeBookmarkRecord(_ bookmark: Bookmark) throws -> [Bookmark]
 
     // MARK: User headings (the PDF's own headings are never stored)
 
@@ -345,6 +350,24 @@ extension RecordStore {
         if try storeBookmark(bookmarked, bookID: bookID, pageIndex: pageIndex) {
             post([.bookmarksChanged(bookID: bookID, pageIndex: pageIndex)])
         }
+    }
+
+    /// Stores a bookmark record exactly as given (ID, page and `createdAt`), as a merge or sync
+    /// writes the bookmarks it computed: it replaces the stored bookmark with that ID (moving it
+    /// when it was on another page or book) and any other bookmark on the page, so the page keeps
+    /// one bookmark. Throws `.bookNotFound` for an unknown book. Posts `.bookmarksChanged` for
+    /// each other page (or book) a replaced bookmark was on, then for the bookmark's page;
+    /// nothing when the same record was already stored.
+    public func save(_ bookmark: Bookmark) throws {
+        let replaced = try storeBookmarkRecord(bookmark)
+        guard replaced != [bookmark] else { return }
+        var changes: [StoreChange] = []
+        for old in replaced where old.bookID != bookmark.bookID || old.pageIndex != bookmark.pageIndex {
+            let change = StoreChange.bookmarksChanged(bookID: old.bookID, pageIndex: old.pageIndex)
+            if !changes.contains(change) { changes.append(change) }
+        }
+        changes.append(.bookmarksChanged(bookID: bookmark.bookID, pageIndex: bookmark.pageIndex))
+        post(changes)
     }
 
     /// Inserts or replaces the user heading with `heading.id` (rename, move).
