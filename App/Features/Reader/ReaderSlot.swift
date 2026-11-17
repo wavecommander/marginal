@@ -77,6 +77,7 @@ final class ReaderSlot {
         configuration.hardwareKeyboard = options.hardwareKeyboard
         configuration.scrollDirection = options.scrollDirection
         #endif
+        configuration.markedUpExports = environment.markedUpExports
         configuration.restoredState = leftState ?? window.readerState(for: bookID)
         configuration.resumePosition = leftPosition
         let overrides = takingOverrides ? window.takeReaderOverrides(for: bookID) : nil

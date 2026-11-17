@@ -123,11 +123,14 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       Export Marked-Up PDF (⌥⌘E, ⌥⇧⌘E) does the same in the focused window.
 - [ ] **Marked-up export in the background.** With the 700+ page textbook, confirm the export,
       tap Continue in Background and allow notifications: the pill shows a time left that settles
-      after a few seconds and keeps reading possible. Go to the Home Screen: the system shows the
-      export's progress (iPadOS 26+), it keeps moving, an "Export Finished" notification arrives,
-      and tapping it opens Tactile Texts with the share sheet. Again, stopping it from the
-      system's progress display: back in the app nothing is left (no pill, no file). On iPadOS 17
-      to 25 (if available): it pauses about 30 seconds after leaving the app and resumes on return.
+      after a few seconds and reading goes on. Go back to the Library and open another book: the
+      export keeps going. Go to the Home Screen: the system shows the export's progress (iPadOS
+      26+), it keeps moving, an "Export Finished" notification arrives, and tapping it opens the
+      book's Notebook with the file under Exported PDFs; Share saves it to Files. Quit the app
+      from the app switcher and reopen: the file is still listed. Again, stopping it from the
+      system's progress display: back in the app the Notebook lists it as not finished, with Try
+      Again. On iPadOS 17 to 25 (if available): it pauses about 30 seconds after leaving the app
+      and resumes on return.
 - [ ] **The toolbar arrives in one motion** (TSOFT-230). In landscape, right after launching the
       app, open a book's Notebook from the Library's context menu, then again from the Continue
       Reading card, from the reader's More › Notebook, and with Open Notebook in New Window. Each

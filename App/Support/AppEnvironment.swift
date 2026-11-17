@@ -43,6 +43,9 @@ final class AppEnvironment {
     @ObservationIgnored let backupScheduler: BackupScheduler
     /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.
     let onboarding: OnboardingCoordinator
+    /// Every marked-up PDF export and the files they made, kept until the user deletes them
+    /// (`<store root>/Marked-Up Exports`).
+    let markedUpExports: MarkedUpExportLibrary
     /// The one text-recognition queue for scanned books (started after launch work). The
     /// search status (S3) calls its entry points; progress reaches windows through the hub.
     @ObservationIgnored let textRecognition: TextRecognitionEngine
@@ -77,6 +80,8 @@ final class AppEnvironment {
         self.importService = importService
         self.fixtureImporter = FixtureImporter(service: importService)
         self.onboarding = OnboardingCoordinator()
+        self.markedUpExports = MarkedUpExportLibrary(
+            archive: MarkedUpExportArchive(root: MarkedUpExportArchive.defaultRoot(storeRoot: store.rootDirectory)))
         self.textRecognition = TextRecognitionEngine(store: store)
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
@@ -171,6 +176,7 @@ final class AppEnvironment {
                 // run must not be rolled forward into the empty library.
                 try? FileManager.default.removeItem(at: RestoreLayout.root(storeRoot: store.rootDirectory))
                 try? FileManager.default.removeItem(at: RestoreSafetyStore.root(storeRoot: store.rootDirectory))
+                try? FileManager.default.removeItem(at: MarkedUpExportArchive.defaultRoot(storeRoot: store.rootDirectory))
             }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {

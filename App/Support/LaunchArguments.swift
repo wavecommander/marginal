@@ -203,7 +203,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     var searchPageDelayMs: Int?
 
     /// `-exportPageDelayMs <ms>`: pause this long after each book page of a marked-up PDF export,
-    /// so a test can act while the export runs (`MarkedUpExportController`). Negative or malformed
+    /// so a test can act while the export runs (`MarkedUpExportLibrary`). Negative or malformed
     /// values are ignored.
     var exportPageDelayMs: Int?
 

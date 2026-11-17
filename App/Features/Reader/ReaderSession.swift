@@ -127,6 +127,9 @@ final class ReaderSession: Identifiable {
         var notebookRebuildDelay: Duration = .milliseconds(250)
         /// Install the feature controllers (`ReaderFeatureWiring`). Unit tests may turn it off.
         var installsFeatures = true
+        /// The app's marked-up PDF exports (`AppEnvironment.markedUpExports`); without it the
+        /// reader offers no Export Marked-Up PDF.
+        var markedUpExports: MarkedUpExportLibrary?
 
         init() {}
     }
@@ -303,7 +306,8 @@ final class ReaderSession: Identifiable {
         return renderer
     }
     @ObservationIgnored private var thumbnailsIfCreated: PDFThumbnailRenderer?
-    /// This window's "Export Marked-Up PDF" (`exportMarkedUpPDF(_:)`); cancelled by `close()`.
+    /// This window's confirmations for "Export Marked-Up PDF" (`exportMarkedUpPDF(_:)`). The
+    /// exports belong to the app (`markedUpExports`): `close()` leaves them running.
     let markedUpExport = MarkedUpExportController()
 
     // MARK: Private state
@@ -439,7 +443,9 @@ final class ReaderSession: Identifiable {
         guard !isClosed else { return }
         isClosed = true
         for task in [openTask, lastReadSaveTask, placeSaveTask, pagePillIdleTask] { task?.cancel() }
-        markedUpExport.cancel()
+        markedUpExport.confirmation = nil
+        markedUpExport.stopCandidate = nil
+        configuration.markedUpExports?.readerClosed(id)
         hubToken = nil
         indexObservation = nil
         index = nil

@@ -255,7 +255,20 @@ nonisolated enum AccessibilityID {
         static let status = "reader.exportMarkedUp.status"
         static let backgroundCancel = "reader.exportMarkedUp.status.cancel"
         static let share = "reader.exportMarkedUp.status.share"
-        static let discard = "reader.exportMarkedUp.status.discard"
+        /// Puts away the pill of an export that ended (the file is kept).
+        static let hide = "reader.exportMarkedUp.status.hide"
+        static let retry = "reader.exportMarkedUp.status.retry"
+        /// "Stop Export" in the "Stop Exporting?" confirmation.
+        static let confirmStop = "reader.exportMarkedUp.confirm.stop"
+        /// "Delete" in the "Delete Exported PDF?" confirmation.
+        static let confirmDelete = "reader.exportMarkedUp.confirm.delete"
+        /// The Notebook's "Exported PDFs" section and its rows (row IDs end in the file name).
+        static let notebookSection = "notebook.exportedPDFs"
+        static let notebookRow = "notebook.exportedPDFs.row"
+        static let notebookShare = "notebook.exportedPDFs.share"
+        static let notebookDelete = "notebook.exportedPDFs.delete"
+        static let notebookStop = "notebook.exportedPDFs.stop"
+        static let notebookRetry = "notebook.exportedPDFs.retry"
     }
 
     /// Placeholders the next packages replace (keep the identifiers if convenient).

@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The Notebook of one book: every note and highlight laid out along the book's outline, with
 /// a heading filter column, a type filter, search, and export (design: "Notebook · all notes by
-/// heading").
+/// heading"). At the top, "Exported PDFs" lists the book's marked-up PDF exports, running and
+/// finished, with Share and Delete (`MarkedUpExportsSection`).
 ///
 /// Export offers Markdown (one text-only file), Markdown as a ZIP (with the images of handwritten
 /// notes and of pages with handwriting, in folders) and PDF. Choosing plain Markdown for an export
@@ -284,6 +285,8 @@ private struct NotebookContent: View {
     @ViewBuilder
     private var feedColumn: some View {
         VStack(spacing: 0) {
+            MarkedUpExportsSection(book: model.book, bookID: model.bookID, library: environment.markedUpExports,
+                                   store: environment.store, isWide: isWide)
             typePicker
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity, alignment: .leading)

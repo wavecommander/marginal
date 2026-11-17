@@ -258,7 +258,8 @@ ones even where the mockup draws an approximation.
   window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
-  confirmation that states those counts.
+  confirmation that states those counts, and its exported marked-up PDFs (counted as "exported
+  PDFs"; see "Export Marked-Up PDF").
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
@@ -297,30 +298,55 @@ ones even where the mockup draws an approximation.
   - *Where:* the reader's More menu, as a submenu with two choices, and the menu bar's Book ›
     Export Marked-Up PDF, acting on the focused window (Book Only ⌥⌘E, Book with Notes ⌥⇧⌘E).
     **Book Only** ("Ink and highlights drawn on the pages") and **Book with Notes** ("Your notes
-    added at the end"); Book with Notes is unavailable while the book has no notes. Not offered
-    in the Library or the Notebook. Pending edits in every window are saved first.
+    added at the end"); Book with Notes is unavailable while the book has no notes, and both are
+    unavailable while an export of the book is running. Not offered in the Library or the
+    Notebook (the Notebook only offers Try Again for an export that did not finish). Pending
+    edits in every window are saved first.
   - *Confirmation first* (owner decision, 17 November 2026): every way of starting the export
-    (More menu, menu bar, either choice) first asks "Export Marked-Up PDF?" ("Export Book with
-    Notes?"): "This can take a long time, and Tactile Texts will create a file at least as big
-    as the current PDF (48 MB). You can keep reading while it runs in the background." The size
-    is the book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports
-    nothing.
-  - *Running in the background* (owner decision, 17 November 2026): the progress card shows the
-    time left ("About 3 minutes left", once it has 5% done and 2 seconds to go on) with
-    **Cancel** and **Continue in Background**. Continue in Background puts away the card and
-    shows a status pill at the top of the reader (progress ring, title, time left, a Cancel
-    button; tapping it shows the card again), and the reader can be used meanwhile. It asks for
-    permission to notify the first time. An export that finishes in the background, or while
-    Tactile Texts is not in front, does not open the share sheet by itself: a notification says
-    "Export Finished" (shown while the app is open too) and the pill turns into "Marked-Up PDF
-    Ready" with **Share** and a Discard button; opening the notification opens the share sheet
-    in that reader. A failure there also posts "Export Failed", and the reader shows its alert.
-    Another export can start once that one is shared or discarded. The export keeps running
+    (More menu, menu bar, either choice, Try Again) first asks "Export Marked-Up PDF?" ("Export
+    Book with Notes?"): "This can take a long time, and Tactile Texts will create a file at
+    least as big as the current PDF (48 MB). It keeps going while you read or leave the book,
+    and the finished PDF is kept in this book's Notebook until you delete it." The size is the
+    book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports nothing.
+  - *Nothing is lost implicitly* (owner decision, 17 November 2026): the export belongs to the
+    book, not to the reader window. Leaving the book, closing its window, sharing, putting away
+    a notice or relaunching never stops an export or deletes its file. Only the user's own,
+    confirmed actions do: stopping a running export ("Stop Exporting?" — "The PDF made so far is
+    deleted. You can export again later." **Stop Export** / **Keep Exporting**), deleting an
+    exported PDF ("Delete Exported PDF?", naming the file and its size, **Delete** / **Cancel**),
+    or deleting the book (its confirmation counts the exported PDFs).
+  - *Running in the background* (owner decision, 17 November 2026): one export per book at a
+    time. The progress card shows the time left ("About 3 minutes left", once it has 5% done and
+    2 seconds to go on) with **Cancel** (asks first, as above) and **Continue in Background**.
+    Continue in Background puts away the card and shows a status pill at the top of the reader
+    (progress ring, title, time left, a stop button that asks first; tapping it shows the card
+    again), and the reader can be used, or left, meanwhile. Every reader window on the book
+    shows the pill. It asks for permission to notify the first time. The export keeps running
     when Tactile Texts leaves the foreground: on iPadOS 26 and later as a continued processing
-    task, which the system shows with its progress and which the user can stop there (that
-    cancels it, as Cancel does); before iPadOS 26, or if the system will not run that task, only
-    for the short time UIKit allows, after which it is paused until the app is opened again.
-    Leaving the book (closing its reader or window) still cancels the export.
+    task, which the system shows with its progress and which the user can stop there; before
+    iPadOS 26, or if the system will not run that task, only for the short time UIKit allows,
+    after which it is paused until the app is opened again. Stopped by the system (or by the
+    user from the system's display) it is kept as unfinished with Try Again, since the app
+    cannot tell the two apart; cut short by the app quitting, likewise ("Tactile Texts closed
+    before the export finished.").
+  - *When it ends* (owner decision, 17 November 2026): finished in the window showing its card
+    with the app in front, the share sheet opens there. Otherwise a notification says "Export
+    Finished" ("“<file>” is ready. Find it in the Notebook of “<book>”.", shown while the app is
+    open too) or "Export Didn't Finish" with the reason, and the book's readers show a pill:
+    "Marked-Up PDF Ready" / "Kept in this book's Notebook" with **Share** and a Hide button, or
+    "Export Didn't Finish" with the reason, **Try Again** and Hide. Hide only puts the pill away.
+    Opening the notification shows the book's Notebook in the window in front. A failure in
+    front of the user shows an alert ("Export Didn't Finish") instead of the pill.
+  - *Exported PDFs* (owner decision, 17 November 2026): the top of the book's Notebook lists
+    every marked-up export of the book, newest first, under "Exported PDFs" with their count and
+    the space the files take; the list folds away (remembered per window) and scrolls past a
+    few rows. A running export shows its progress ring, time left and **Stop**; a finished one
+    its file name, size and date with **Share** (the share sheet) and Delete (also in its
+    context menu); one that did not finish says why, with **Try Again** and Remove (no file to
+    delete). The section is absent when the book has no exports. Files are kept in the app's
+    own storage (`Marked-Up Exports` in Application Support, one folder per export with its
+    record), not in the Files app, not in backups (they can be made again from the book), and
+    not removed by the system.
   - *Pages:* every page of the book, in order, as the reader sees it upright (its crop box with
     its rotation applied), on white. The page's own content is copied, not pictured: text stays
     selectable and searchable where the book's is, vector stays vector, a scanned page keeps its
@@ -344,8 +370,8 @@ ones even where the mockup draws an approximation.
   - *File:* `<Title> (Marked Up).pdf` or `<Title> (Marked Up with Notes).pdf`; the PDF's title is
     the book's. Appendix pages are A4 or US Letter by locale, like the Notebook PDF.
   - *Large books:* written page by page to the file, one page's ink in memory at a time, pages
-    copied off the main thread, with progress and Cancel (which leaves nothing behind). A book
-    whose PDF is missing or password-protected says so instead.
+    copied off the main thread, with progress and Cancel (which, once confirmed, leaves nothing
+    behind). A book whose PDF is missing or password-protected says so instead.
   - *Nothing left out silently* (owner decision, 16 November 2026): if a page's ink, a note's
     handwriting (Book with Notes), or the book's headings, highlights or notes cannot be read,
     the export fails and says which (the page number for page ink) instead of finishing without
