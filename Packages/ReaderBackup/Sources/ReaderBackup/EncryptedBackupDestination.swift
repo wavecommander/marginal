@@ -259,6 +259,24 @@ public struct EncryptedBackupDestination: BackupDestination, CustomStringConvert
         progress?(1)
     }
 
+    // MARK: - PDF objects for other packages
+
+    /// The name, within `PDFs/` (`BackupBlobFolder.pdfs`), of the object holding the PDF whose
+    /// SHA-256 is `sha256` under `key`: `hex(HMAC-SHA256(K_pdf, <lower-case hex SHA-256>)).ttenc`
+    /// (see "PDF names"). Sync stores a book's PDF under this same name, in this same format
+    /// (`BackupFileEncryption` with `key` and `pdfObjectMetadata`), so a PDF is stored once for
+    /// backups and sync. Throws `pdfNotAtDestination` when `sha256` is not 64 hex digits.
+    public static func pdfObjectName(sha256: String, key: BackupEncryptionKey) throws -> String {
+        ObjectNames(key: key).pdfObjectName(sha256: try validHash(sha256))
+    }
+
+    /// The encrypted metadata of a PDF object (see "Objects"):
+    /// `{"kind":"pdf","object":<objectName>,"sha256":<hex>,"size":<decimal>}`. A download refuses
+    /// an object whose metadata does not name the PDF asked for.
+    public static func pdfObjectMetadata(sha256: String, size: Int64, objectName: String) -> [String: String] {
+        pdfMetadata(sha256: sha256.lowercased(), size: size, objectName: objectName)
+    }
+
     // MARK: - Internals
 
     private static func info(objectName: String, createdAt: Date, deviceName: String, byteSize: Int64) -> BackupSnapshotInfo {
