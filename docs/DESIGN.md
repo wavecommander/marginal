@@ -273,6 +273,9 @@ ones even where the mockup draws an approximation.
   switches live with the system setting. This replaces the first build's choice to keep the note
   page light in Dark Mode. Read-only notes in the Notebook follow the appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
   the PDF draws them.
+- **The reader's background is true black in Dark Mode** (owner decision, 17 November 2026). The
+  area around and between PDF pages is `#000000` in Dark Mode and a light gray (`#E6E6EA`) in
+  Light Mode; the pages themselves are unchanged.
 - **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
   note it is showing, page note or section note: a Delete Note action in the note's header,
   disabled while the note is empty. It asks for confirmation, saying what will go (the typed

@@ -616,8 +616,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.autoScales = true
         view.maxScaleFactor = Self.maximumScale
+        // True black around the pages in Dark Mode (owner decision, 17 November 2026).
         view.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : UIColor(red: 0.902, green: 0.902, blue: 0.918, alpha: 1)
+            traits.userInterfaceStyle == .dark ? .black : UIColor(red: 0.902, green: 0.902, blue: 0.918, alpha: 1)
         }
         view.pageShadowsEnabled = true
         view.accessibilityIdentifier = AccessibilityID.Reader.pdfView
