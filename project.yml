@@ -213,8 +213,11 @@ targets:
               public.filename-extension:
                 - ttbackup
         # Automatic backups run in a background processing task.
+        # Marked-up PDF exports keep running in a continued processing task (iPadOS 26+), one
+        # identifier per export (`MarkedUpExportBackgroundRun.continuedTaskPrefix`).
         BGTaskSchedulerPermittedIdentifiers:
           - software.tactile.texts.backup
+          - software.tactile.texts.export.*
         UIBackgroundModes:
           - processing
         # The app's iCloud container, shown in Files as "Tactile Texts". Has no effect without

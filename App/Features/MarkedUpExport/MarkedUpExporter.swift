@@ -65,8 +65,11 @@ enum MarkedUpExporter {
     /// - Parameters:
     ///   - includeNotes: add the book's notes as an appendix (none is added when it has no notes).
     ///   - outlineEntries: how to flatten the PDF's outline (default: the reader's loader).
+    ///   - pageDelay: test hook (the UI tests' `-exportPageDelayMs`): pause this long after each
+    ///     book page.
     static func export(book: Book, store: LibraryStore, includeNotes: Bool, root: URL = defaultRoot,
                        outlineEntries: (@Sendable (URL) async -> [RawOutlineEntry])? = nil,
+                       pageDelay: Duration = .zero,
                        progress: @escaping @MainActor (Double) -> Void = { _ in }) async throws -> NotebookExportResult {
         guard store.hasDocument(book) else { throw MarkedUpExportError.missingPDF }
         let source = store.documentURL(for: book)
@@ -144,6 +147,7 @@ enum MarkedUpExporter {
                 created.endPage()
                 progress(min(0.99, Double(pageIndex + 1) / total))
                 try Task.checkCancellation()
+                if pageDelay > .zero { try await Task.sleep(for: pageDelay) }
                 await Task.yield()
             }
 

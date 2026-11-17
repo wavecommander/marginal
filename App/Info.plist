@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>software.tactile.texts.backup</string>
+		<string>software.tactile.texts.export.*</string>
 	</array>
 	<key>BackupService</key>
 	<dict>

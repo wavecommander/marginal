@@ -194,6 +194,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// act while the search runs (`SearchModel`). Negative or malformed values are ignored.
     var searchPageDelayMs: Int?
 
+    /// `-exportPageDelayMs <ms>`: pause this long after each book page of a marked-up PDF export,
+    /// so a test can act while the export runs (`MarkedUpExportController`). Negative or malformed
+    /// values are ignored.
+    var exportPageDelayMs: Int?
+
     /// `-pageInkDebug`, or `PAGE_INK_DEBUG` set to anything in the environment: log the page ink
     /// overlay's work (`PageInkOverlayProvider.debugLog`).
     var pageInkDebug = false
@@ -343,6 +348,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let text = value(after: index) {
                     index += 1
                     if let ms = Int(text), ms >= 0 { searchPageDelayMs = ms }
+                }
+            case "-exportPageDelayMs":
+                if let text = value(after: index) {
+                    index += 1
+                    if let ms = Int(text), ms >= 0 { exportPageDelayMs = ms }
                 }
             case "-pageInkDebug":
                 pageInkDebug = true

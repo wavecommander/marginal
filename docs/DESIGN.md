@@ -274,6 +274,28 @@ ones even where the mockup draws an approximation.
     **Book Only** ("Ink and highlights drawn on the pages") and **Book with Notes** ("Your notes
     added at the end"); Book with Notes is unavailable while the book has no notes. Not offered
     in the Library or the Notebook. Pending edits in every window are saved first.
+  - *Confirmation first* (owner decision, 17 November 2026): every way of starting the export
+    (More menu, menu bar, either choice) first asks "Export Marked-Up PDF?" ("Export Book with
+    Notes?"): "This can take a long time, and Tactile Texts will create a file at least as big
+    as the current PDF (48 MB). You can keep reading while it runs in the background." The size
+    is the book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports
+    nothing.
+  - *Running in the background* (owner decision, 17 November 2026): the progress card shows the
+    time left ("About 3 minutes left", once it has 5% done and 2 seconds to go on) with
+    **Cancel** and **Continue in Background**. Continue in Background puts away the card and
+    shows a status pill at the top of the reader (progress ring, title, time left, a Cancel
+    button; tapping it shows the card again), and the reader can be used meanwhile. It asks for
+    permission to notify the first time. An export that finishes in the background, or while
+    Tactile Texts is not in front, does not open the share sheet by itself: a notification says
+    "Export Finished" (shown while the app is open too) and the pill turns into "Marked-Up PDF
+    Ready" with **Share** and a Discard button; opening the notification opens the share sheet
+    in that reader. A failure there also posts "Export Failed", and the reader shows its alert.
+    Another export can start once that one is shared or discarded. The export keeps running
+    when Tactile Texts leaves the foreground: on iPadOS 26 and later as a continued processing
+    task, which the system shows with its progress and which the user can stop there (that
+    cancels it, as Cancel does); before iPadOS 26, or if the system will not run that task, only
+    for the short time UIKit allows, after which it is paused until the app is opened again.
+    Leaving the book (closing its reader or window) still cancels the export.
   - *Pages:* every page of the book, in order, as the reader sees it upright (its crop box with
     its rotation applied), on white. The page's own content is copied, not pictured: text stays
     selectable and searchable where the book's is, vector stays vector, a scanned page keeps its

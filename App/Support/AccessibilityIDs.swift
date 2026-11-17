@@ -231,6 +231,18 @@ nonisolated enum AccessibilityID {
         static let withNotes = "reader.more.exportMarkedUp.withNotes"
         static let progress = "reader.exportMarkedUp.progress"
         static let cancel = "reader.exportMarkedUp.cancel"
+        /// The confirmation alert's buttons.
+        static let confirmExport = "reader.exportMarkedUp.confirm.export"
+        static let confirmCancel = "reader.exportMarkedUp.confirm.cancel"
+        /// The progress card's "Continue in Background".
+        static let background = "reader.exportMarkedUp.background"
+        /// "About 3 minutes left" (progress card and status pill).
+        static let timeLeft = "reader.exportMarkedUp.timeLeft"
+        /// The status pill shown while the export runs in the background, or when it is ready.
+        static let status = "reader.exportMarkedUp.status"
+        static let backgroundCancel = "reader.exportMarkedUp.status.cancel"
+        static let share = "reader.exportMarkedUp.status.share"
+        static let discard = "reader.exportMarkedUp.status.discard"
     }
 
     /// Placeholders the next packages replace (keep the identifiers if convenient).
