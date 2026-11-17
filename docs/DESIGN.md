@@ -433,6 +433,16 @@ Added by the owner (TSOFT-215, 14 November 2026).
   static colour. Nothing in `App/` hard-codes another blue. Highlight colours, ink, the bookmark
   red, margin red, destructive red and book cloth are separate and do not follow the accent. The
   app icon stays berry whatever the choice.
+- **Toolbar glyphs** (owner, 17 November 2026). On iPadOS 26 and later, the Library, Reader
+  and Notebook toolbars draw their items in the label colour, like the back button and the
+  search field the system already draws that way. The Liquid Glass capsule already marks them as
+  buttons, so the accent there marks only state or a screen's one main action: the Reader's
+  Markup toggle while markup is on (the outline glyph is plain while off), the Library's
+  Import, and the Notebook's Done while choosing. Other toolbars (sheets, Search, Settings)
+  keep the system's tinted confirmation actions. `toolbarGlyph(emphasised:)` in
+  `App/DesignSystem/Accent.swift` is the one availability check: before iPadOS 26 there is no
+  capsule, and bar items keep the accent. Menus opened from the toolbars (More, Sort, Export)
+  are UIKit and still take the accent from `UIWindow.tintColor`.
 - **Settings.** iPadOS has no system Settings entry for Tactile Texts and there is no
   `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
   Library's gear button and from "Settings…" (⌘,) in any window.

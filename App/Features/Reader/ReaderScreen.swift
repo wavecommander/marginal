@@ -272,15 +272,16 @@ struct ReaderScreen: View {
                 Label(session.isContentsShown ? "Hide Contents" : "Show Contents", systemImage: "sidebar.leading")
             }
             .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
-            SectionHistoryButton(session: session, direction: .back)
-            SectionHistoryButton(session: session, direction: .forward)
+            .toolbarGlyph()
+            SectionHistoryButton(session: session, direction: .back).toolbarGlyph()
+            SectionHistoryButton(session: session, direction: .forward).toolbarGlyph()
         }
         // One toolbar in both modes (design, "Markup controls"). Find works in markup mode too
         // (⇧⌘F or the search button); markup stays on.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            searchButton
+            searchButton.toolbarGlyph()
             if !session.isNarrowLayout {
-                BookmarkButton(session: session)
+                BookmarkButton(session: session).toolbarGlyph()
             }
             // Ink undo/redo are the system tool picker's own buttons, except at compact width,
             // where the picker has none.
@@ -288,13 +289,16 @@ struct ReaderScreen: View {
                 Button { session.markup.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!session.markup.canUndo)
                     .accessibilityIdentifier(AccessibilityID.Reader.undo)
+                    .toolbarGlyph()
                 Button { session.markup.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!session.markup.canRedo)
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
+                    .toolbarGlyph()
             }
-            markupToggle
-            notesToggle
-            moreMenu
+            // The accent marks markup mode: the outline glyph is plain while off.
+            markupToggle.toolbarGlyph(emphasised: session.isMarkupMode)
+            notesToggle.toolbarGlyph()
+            moreMenu.toolbarGlyph()
         }
     }
 
