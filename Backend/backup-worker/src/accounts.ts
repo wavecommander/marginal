@@ -193,7 +193,8 @@ export async function deleteAccount(request: Request, env: Env, settings: Settin
   }));
   const { session, account } = await requireSession(env, deps, fields.token, attestKeyId, { allowDeleting: true });
 
-  if (account.deletingSince === null) {
+  let deletingSince = account.deletingSince;
+  if (deletingSince === null) {
     // The first call: proof from the current sign-in, then the point of no return.
     if (fields.idToken === undefined) throw new Refusal("bad-request", "field idToken");
     if (account.provider === "apple" && fields.authorizationCode === undefined) throw new Refusal("bad-request", "field authorizationCode");
@@ -201,9 +202,10 @@ export async function deleteAccount(request: Request, env: Env, settings: Settin
     if ((await identityHash(settings.identityKeySecret, account.provider, proof.subject)) !== account.identityHash) {
       throw new Refusal("identity-mismatch", "ID token is not this account's");
     }
-    await db.markAccountDeleting(env.DB, account.accountId, deps.now().getTime());
+    deletingSince = deps.now().getTime();
+    await db.markAccountDeleting(env.DB, account.accountId, deletingSince);
     // Other devices stop now; this one keeps its session until the deletion is done.
-    await db.deleteAccountSessions(env.DB, account.accountId, session.sessionId);
+    await db.deleteAccountSessions(env.DB, account.accountId, { keep: session.sessionId });
     logEvent("account-deletion-started", { account: shortKey(account.accountId) });
     if (account.provider === "apple") {
       await revokeAppleAuthorization(fields.authorizationCode!, settings, deps.fetch, deps.now(), "account-deleted");
@@ -211,18 +213,29 @@ export async function deleteAccount(request: Request, env: Env, settings: Settin
   }
 
   const result = await emptyAccountFolders(env.BUCKET, account.folderKey, deleteBudget(deps));
-  if (result.done) {
-    await db.removeAccount(env.DB, account.accountId);
-    logEvent("account-deleted", { account: shortKey(account.accountId), by: "app" });
-  }
+  if (result.done) await finishAccountDeletion(env, settings, account, deletingSince, deps.now().getTime(), "app");
   const body: DeleteAccountResponse = { done: result.done, deletedObjects: result.deleted };
   return json(200, body);
+}
+
+/** Added to CREDENTIAL_TTL_SECONDS: how long a deleted account's folder name is kept after its deletion started. */
+export const PURGE_MARGIN_MS = 5 * 60_000;
+
+/**
+ * Once the folders are empty: removes the account (identity, sessions, subscription binding) at
+ * once, keeping only its folder name until every credential minted before the deletion started
+ * has expired. The cron then empties the folders once more and forgets them.
+ */
+export async function finishAccountDeletion(env: Env, settings: Settings, account: db.Account, deletingSince: number, now: number, by: "app" | "cron"): Promise<void> {
+  const purgeAfter = deletingSince + settings.credentialTTLSeconds * 1000 + PURGE_MARGIN_MS;
+  await db.removeAccount(env.DB, account, purgeAfter, now);
+  logEvent("account-deleted", { account: shortKey(account.accountId), by });
 }
 
 // ---------------------------------------------------------------------------------------------
 // Sign in with Apple server-to-server notifications
 
-/** Events that end every session of the Apple identity's account. The data is kept. */
+/** Events that end the sessions of the Apple identity's account. The data is kept. */
 const ENDING_EVENTS = new Set(["consent-revoked", "account-delete"]);
 
 export async function signInNotification(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
@@ -232,11 +245,15 @@ export async function signInNotification(request: Request, env: Env, settings: S
   let outcome = "ignored-type";
   if (ENDING_EVENTS.has(event.type)) {
     const account = await db.getAccountByIdentity(env.DB, await identityHash(settings.identityKeySecret, "apple", event.subject));
-    if (account) {
-      const ended = await db.deleteAccountSessions(env.DB, account.accountId);
-      outcome = `sessions-ended:${ended}`;
-    } else {
+    if (!account) {
       outcome = "ignored-unknown-identity";
+    } else if (account.deletingSince !== null) {
+      // The deletion owns the account's sessions (and its own Apple revocation sends this event).
+      outcome = "ignored-account-deleting";
+    } else {
+      // Only sessions made at or before the event, so a replay cannot sign out a later sign-in.
+      const ended = await db.deleteAccountSessions(env.DB, account.accountId, { createdAtOrBefore: event.occurredAt });
+      outcome = `sessions-ended:${ended}`;
     }
   }
   logEvent("signin-notification", { type: event.type, outcome });

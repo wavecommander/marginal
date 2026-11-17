@@ -33,7 +33,11 @@ export interface World {
   appleStatus: { token: number; revoke: number };
 }
 
-export async function makeWorld(overrides: Partial<Record<keyof Env, unknown>> = {}, depsOverrides: Partial<Deps> = {}): Promise<World> {
+export async function makeWorld(
+  overrides: Partial<Record<keyof Env, unknown>> = {},
+  depsOverrides: Partial<Deps> = {},
+  bindings: Partial<Pick<Env, "BUCKET">> = {},
+): Promise<World> {
   const chain = await appleLikeChain();
   const pki = await attestPki();
   const clock = { now: new Date("2026-11-15T12:00:00Z") };
@@ -60,6 +64,7 @@ export async function makeWorld(overrides: Partial<Record<keyof Env, unknown>> =
     ...testVars({ APPLE_SIWA_KEY_ID: SIWA_KEY_ID, APPLE_SIWA_PRIVATE_KEY: siwa.pem, ...overrides }),
     DB: env.DB,
     BUCKET: env.BUCKET,
+    ...bindings,
   } as Env;
   const deps: Deps = { now: () => clock.now, appleRoots: [chain.root.der], appAttestRoots: [pki.root.der], jwks, fetch: fetcher, ...depsOverrides };
   return { chain, pki, clock, env: worldEnv, deps, jwks, signingKeys, outbound, appleStatus };
@@ -252,6 +257,26 @@ export async function countObjects(prefix: string): Promise<number> {
     if (!listed.truncated) return count;
     cursor = listed.cursor;
   }
+}
+
+/** The local bucket, with a hook the test can set to run once before the next `list`. */
+export function hookedBucket(): { bucket: R2Bucket; beforeNextList: { run: (() => Promise<void>) | null } } {
+  const beforeNextList: { run: (() => Promise<void>) | null } = { run: null };
+  const bucket = {
+    async list(options?: R2ListOptions) {
+      const hook = beforeNextList.run;
+      beforeNextList.run = null;
+      if (hook) await hook();
+      return env.BUCKET.list(options);
+    },
+    delete: (keys: string | string[]) => env.BUCKET.delete(keys),
+  } as unknown as R2Bucket;
+  return { bucket, beforeNextList };
+}
+
+/** The deleted-folder tombstone for a folder key, if any. */
+export function deletedFolder(folderKey: string): Promise<Record<string, unknown> | null> {
+  return env.DB.prepare("SELECT * FROM deleted_folders WHERE folder_key = ?").bind(folderKey).first<Record<string, unknown>>();
 }
 
 /** Every D1 row that mentions the account, by table. */

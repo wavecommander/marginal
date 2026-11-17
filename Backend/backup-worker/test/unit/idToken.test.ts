@@ -194,6 +194,44 @@ describe("JwksCache", () => {
     await expect(new JwksCache(s.fetcher, () => now).keys("google", false)).rejects.toThrow(/unavailable/);
   });
 
+  it("after a failed fetch, fetches again at most once a minute, failing fast or serving stale keys meanwhile", async () => {
+    const s = server();
+    s.fail(true);
+    let now = NOW.getTime();
+    const cache = new JwksCache(s.fetcher, () => now);
+    // No keys at all: one fetch, then immediate failures until the minute is up.
+    for (let i = 0; i < 20; i++) {
+      await expect(cache.keys("apple", i % 2 === 0)).rejects.toThrow(/unavailable/);
+      now += 1000;
+    }
+    expect(s.calls.length).toBe(1);
+    for (let i = 0; i < 50; i++) {
+      await expect(cache.keys("apple", false)).rejects.toThrow(/unavailable/);
+      now += 1000;
+    }
+    // 70 seconds of lookups: one fetch at the start, one when the first minute ended.
+    expect(s.calls.length).toBe(2);
+    // With an expired set: stale keys while the fetch keeps failing, one fetch a minute.
+    s.fail(false);
+    s.set([apple.jwk]);
+    s.cacheControl(null);
+    now += 60_000;
+    expect(await cache.keys("apple", false)).toEqual([apple.jwk]);
+    const fetches = s.calls.length;
+    s.fail(true);
+    now += 3600_000;
+    for (let i = 0; i < 120; i++) {
+      expect(await cache.keys("apple", i % 3 === 0)).toEqual([apple.jwk]);
+      now += 1000;
+    }
+    expect(s.calls.length).toBe(fetches + 2);
+    // Recovery: the next fetch after the cooldown succeeds and clears the failure.
+    s.fail(false);
+    s.set([google.jwk]);
+    now += 60_000;
+    expect(await cache.keys("apple", false)).toEqual([google.jwk]);
+  });
+
   it("refuses a response that is not a key set", async () => {
     for (const response of [new Response("nope", { status: 500 }), new Response("not json"), new Response(JSON.stringify({ keys: [] })), new Response("x".repeat(70_000))]) {
       const cache = new JwksCache(async () => response, () => NOW.getTime());
@@ -221,8 +259,26 @@ describe("verifyAppleSignInNotification", () => {
     fresh();
     const context = { jwks, now: NOW };
     const event = { type: "consent-revoked", sub: "001.abc.002", event_time: NOW.getTime() };
-    expect(await verifyAppleSignInNotification(await notification(JSON.stringify(event)), settings, context)).toEqual({ type: "consent-revoked", subject: "001.abc.002" });
-    expect(await verifyAppleSignInNotification(await notification(event), settings, context)).toEqual({ type: "consent-revoked", subject: "001.abc.002" });
+    expect(await verifyAppleSignInNotification(await notification(JSON.stringify(event)), settings, context)).toEqual({ type: "consent-revoked", subject: "001.abc.002", occurredAt: NOW.getTime() });
+    expect(await verifyAppleSignInNotification(await notification(event), settings, context)).toEqual({ type: "consent-revoked", subject: "001.abc.002", occurredAt: NOW.getTime() });
+  });
+
+  it("refuses one signed more than a day ago, and never dates the event after its signing", async () => {
+    fresh();
+    const event = JSON.stringify({ type: "consent-revoked", sub: "001.abc.002" });
+    const day = 24 * 3600;
+    const iat = Math.floor(NOW.getTime() / 1000);
+    const old = await notification(event, { iat: iat - day - 1 });
+    expect(await refusal(verifyAppleSignInNotification(old, settings, { jwks, now: NOW }))).toMatch(/^notification-invalid: jwt: too old/);
+    const edge = await notification(event, { iat: iat - day });
+    expect((await verifyAppleSignInNotification(edge, settings, { jwks, now: NOW })).occurredAt).toBe((iat - day) * 1000);
+    // event_time in seconds, and one claiming to be later than the notification.
+    const seconds = await notification(JSON.stringify({ type: "consent-revoked", sub: "s", event_time: iat - 30 }));
+    expect((await verifyAppleSignInNotification(seconds, settings, { jwks, now: NOW })).occurredAt).toBe((iat - 30) * 1000);
+    const later = await notification(JSON.stringify({ type: "consent-revoked", sub: "s", event_time: (iat + 3600) * 1000 }));
+    expect((await verifyAppleSignInNotification(later, settings, { jwks, now: NOW })).occurredAt).toBe(iat * 1000);
+    const bad = await notification(JSON.stringify({ type: "consent-revoked", sub: "s", event_time: "soon" }));
+    expect(await refusal(verifyAppleSignInNotification(bad, settings, { jwks, now: NOW }))).toMatch(/event time/);
   });
 
   it("refuses another app's, a forged one and one without an event", async () => {

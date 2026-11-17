@@ -37,7 +37,7 @@ as a keyed hash, and every other name for an account is random.
 | `src/tempCredentials.ts` | Mints the short-lived, scoped credentials (R2 local signing). |
 | `src/env.ts` | Bindings, settings and secrets, parsed and checked (`readSettings`). |
 | `src/http.ts`, `src/log.ts` | Responses, body limits, refusals; logging that cannot leak. |
-| `migrations/` | D1 schema. `0003_accounts.sql` replaces the subscription-keyed table with accounts. |
+| `migrations/` | D1 schema. `0003_accounts.sql` replaces the subscription-keyed table with accounts; `0004_deleted_folders.sql` keeps deleted accounts' folder names until their last credentials expire. |
 | `test/unit/` | Plain Node tests of the pure modules (includes Apple's own App Attest sample). |
 | `test/worker/` | Tests inside the Workers runtime with local D1 and R2, generated sign-in keys and a stand-in for Apple's revoke endpoints. |
 | `scripts/prove-scoped-credentials.ts` | Checks the credentials against a real development bucket. |
@@ -361,10 +361,25 @@ an Apple account, the authorization code (`bad-request` without either). It is t
 return: the account is marked as being deleted, every other device's session ends, and for
 Apple the Worker exchanges the code and revokes the Apple authorization (a failure is logged and
 the deletion goes on). Each call then deletes a bounded batch (up to 100,000 objects). Call
-again, with a new challenge and assertion but no new sign-in, until `done` is true; then the
-account is gone and this session with it. While the deletion runs, other endpoints answer
-`account-deleting` and signing in with the identity does too. If the app stops before `done`,
-the daily cron finishes the deletion (after 15 minutes).
+again, with a new challenge and assertion but no new sign-in, until `done` is true. While the
+deletion runs, sign-in with the identity, `/v1/session`, `/v1/account`, `/v1/auth/change` and
+`/v1/delete-my-data` answer `account-deleting`; `/v1/auth/signout` and
+`/v1/auth/signout-all` still work. A Sign in with Apple `consent-revoked` notification (which
+the Worker's own revocation causes) does not end the deleting device's session. If the app
+stops before `done`, the daily cron finishes the deletion (after 15 minutes).
+
+When `done` is true the account is gone: its identity, its `appAccountToken`, its sessions (this
+one included) and its subscription binding. The same person can sign in again at once and gets a
+new, empty account with a new folder; the subscription binds to it as for any first presenter (a
+token naming the deleted account counts as no token). Credentials minted before the deletion
+started still work for up to `CREDENTIAL_TTL_SECONDS`, so the Worker keeps the deleted account's
+**folder name only** (no account ID, identity or token) in `deleted_folders` until
+`CREDENTIAL_TTL_SECONDS` plus 5 minutes after the deletion started; the next daily cron after
+that empties both folders once more and forgets the name. No account can reach those folders
+meanwhile: folder names are random and never reused. A `/v1/session` request that was under way
+when the deletion started looks at the account again just before minting and answers
+`account-deleting` (or `session-invalid` if the account is already gone), so no credential is
+minted after a deletion starts.
 
 `200 {"done": true | false, "deletedObjects": 2300}`
 
@@ -537,24 +552,37 @@ Notification Endpoint" of the app's Sign in with Apple configuration (Certificat
 `{"payload": "<JWT>"}` → `200 {"ok": true}`
 
 The JWT is verified like an Apple ID token (Apple's keys, issuer, audience = the bundle ID,
-issue time; no nonce). For `consent-revoked` (the person stopped using Sign in with Apple with
-this app) and `account-delete` (their Apple Account was deleted), every device session of that
-Apple identity's account ends. The account and its data stay: the lapse policy and account
+issue time; no nonce). Its `iat` must be at most **24 hours** old (room for Apple's delivery
+retries and clock differences); an older one is refused, so a captured notification cannot be
+replayed later.
+
+For `consent-revoked` (the person stopped using Sign in with Apple with this app) and
+`account-delete` (their Apple Account was deleted), the device sessions of that Apple identity's
+account that were **made at or before the event** end. The event's time is its `event_time`
+(seconds, or milliseconds when the value is above 10^12), never later than the notification's
+`iat`; the `iat` without one. So a replay within the 24 hours cannot sign out a session made
+after the person signed back in. The account and its data stay: the lapse policy and account
 deletion own data removal, and signing in again with the same Apple ID reaches the same
-account. Other event types (`email-disabled`, `email-enabled`, anything new) and identities
-without an account are acknowledged with no effect. A payload that fails verification gets
+account. An account whose deletion has started is left alone (the deletion owns its sessions,
+and the Worker's own revocation causes this event).
+
+Other event types (`email-disabled`, `email-enabled`, anything new) and identities without an
+account are acknowledged with no effect. A payload that fails verification, or is too old, gets
 `401 notification-invalid`; `503 provider-unreachable` if Apple's keys cannot be fetched (Apple
 retries).
 
 ## The daily cron
 
 At 03:17 UTC: removes expired challenges; finishes account deletions the app started more than
-15 minutes ago and did not finish (empties the folders, then removes the account's rows); then,
-for entitlements whose data is still there and whose access ended `DELETE_AFTER_DAYS` or more
-ago (or were revoked that long ago), deletes the folder in batches of 1,000 objects and marks
-the row (`data_deleted_at`). One run spends at most 600 R2 operations (300,000 objects) and
-looks at most at 2,000 entitlements and 50 account deletions, well inside the Workers limits
-even on the Free plan; the next run resumes where it stopped. A row that changed meanwhile (for
+15 minutes ago and did not finish (empties the folders, then removes the account's rows,
+keeping its folder name in `deleted_folders`); empties once more, and then forgets, the folders
+of deleted accounts whose `purge_after` has passed (deletion start + `CREDENTIAL_TTL_SECONDS` +
+5 minutes); then, for entitlements whose data is still there and whose access ended
+`DELETE_AFTER_DAYS` or more ago (or were revoked that long ago), deletes the folder in batches
+of 1,000 objects and marks the row (`data_deleted_at`). One run spends at most 600 R2
+operations (300,000 objects) and looks at most at 2,000 entitlements, 50 account deletions and
+50 deleted folders, well inside the Workers limits even on the Free plan; the next run resumes
+where it stopped. A row that changed meanwhile (for
 example a resubscription) is not marked.
 
 ## Configuration
@@ -608,7 +636,9 @@ The Worker makes outbound requests to exactly four fixed addresses: Apple's and 
 sets (`https://appleid.apple.com/auth/keys`, `https://www.googleapis.com/oauth2/v3/certs`,
 cached as their `Cache-Control` says, kept between 5 minutes and 24 hours, fetched again at most
 once a minute when a token names an unknown key, and used for up to a day past expiry if a
-refresh fails) and Apple's `https://appleid.apple.com/auth/token` and `/auth/revoke`.
+refresh fails; after a failed fetch the next one waits a minute, and lookups meanwhile get the
+stale set or fail at once without a request) and Apple's
+`https://appleid.apple.com/auth/token` and `/auth/revoke`.
 
 ## Security notes and limits
 
@@ -630,7 +660,11 @@ refresh fails) and Apple's `https://appleid.apple.com/auth/token` and `/auth/rev
 - **What is stored** about a person: a keyed hash of their Apple or Google user ID, which
   provider it is, random IDs, session token hashes, an encrypted device label the Worker cannot
   read, and the subscription's state keyed by a hash of its transaction ID. No email, name or
-  raw identifier, and none of them in logs.
+  raw identifier, and none of them in logs. After an account is deleted, only its random folder
+  name stays, for `CREDENTIAL_TTL_SECONDS` plus 5 minutes and until the next daily cron.
+- **Deleting an account cannot leave data behind**: credentials are never minted once a deletion
+  has started, and the folders are emptied again after the last credential minted before it
+  has expired.
 - **A subscription serves one account at a time.** Purchases should carry the account's
   `appAccountToken`; a purchase without one goes to the first account that presents it and can
   move only every `SUBSCRIPTION_MOVE_DAYS`.

@@ -11,7 +11,9 @@ import {
   authed,
   countObjects,
   cron,
+  deletedFolder,
   errorCode,
+  hookedBucket,
   idToken,
   makeWorld,
   newSubject,
@@ -163,10 +165,13 @@ describe("deleting the account", () => {
     expect(await countObjects(session.storage.prefix)).toBe(0);
     expect(await countObjects(`sandbox/${folderKey}/`)).toBe(0);
     expect(await rowsFor(reader.accountId)).toEqual({ accounts: 0, device_sessions: 0, subscribers: 0 });
-    const anywhere = JSON.stringify(await env.DB.batch(["accounts", "device_sessions", "subscribers"].map((t) => env.DB.prepare(`SELECT * FROM ${t}`))));
-    expect(anywhere).not.toContain(reader.accountId);
-    expect(anywhere).not.toContain(folderKey);
-    expect(anywhere).not.toContain(reader.appAccountToken);
+    const everything = async () =>
+      JSON.stringify(await env.DB.batch(["accounts", "device_sessions", "subscribers", "deleted_folders"].map((t) => env.DB.prepare(`SELECT * FROM ${t}`))));
+    // Only the folder name is left, until credentials minted before the deletion have expired
+    // (CREDENTIAL_TTL_SECONDS 900 + a 5-minute margin after the deletion started).
+    expect(await deletedFolder(folderKey)).toEqual({ folder_key: folderKey, deleted_at: NOW, purge_after: NOW + 1_200_000 });
+    expect(await everything()).not.toContain(reader.accountId);
+    expect(await everything()).not.toContain(reader.appAccountToken);
     expect(await countObjects(neighbourSession.storage.prefix)).toBe(2);
     expect(await errorCode(await deleteAccount(reader, { none: true }))).toBe("session-invalid");
 
@@ -175,6 +180,79 @@ describe("deleting the account", () => {
     expect(again.accountId).not.toBe(reader.accountId);
     const rebound = await sessionOk(await authed(world, again, "session", { signedTransaction }));
     expect(rebound.storage.prefix).not.toBe(session.storage.prefix);
+    expect(rebound.storage.prefix.split("/")[1]).not.toBe(folderKey);
+
+    // Credentials minted before the deletion still write after `done` (stood in for by direct writes).
+    await putObjects(session.storage.prefix, 3);
+    await putObjects(`sandbox/${folderKey}/`, 2);
+    world.clock.now = new Date(NOW + 1_200_000 - 1);
+    await cron(world);
+    expect(await countObjects(session.storage.prefix)).toBe(3);
+    world.clock.now = new Date(NOW + 1_200_000);
+    expect((await cron(world)).foldersPurged).toBe(1);
+    expect(await countObjects(session.storage.prefix)).toBe(0);
+    expect(await countObjects(`sandbox/${folderKey}/`)).toBe(0);
+    expect(await deletedFolder(folderKey)).toBeNull();
+    expect(await everything()).not.toContain(folderKey);
+    expect(await countObjects(neighbourSession.storage.prefix)).toBe(2);
+    expect(await countObjects(rebound.storage.prefix)).toBe(0);
+  });
+
+  it("never mints credentials for an account whose deletion started during the session request", async () => {
+    const { bucket, beforeNextList } = hookedBucket();
+    const raced = await makeWorld({}, {}, { BUCKET: bucket });
+    for (const mode of ["started", "finished"] as const) {
+      const reader = await signedInReader(raced, "google");
+      const id = String(nextId++);
+      const signedTransaction = await sign(raced, transactionPayload({ originalTransactionId: id, transactionId: id, signedDate: NOW - DAY, purchaseDate: NOW - DAY, expiresDate: NOW + 29 * DAY }));
+      // The session's usage count lists the folder: the deletion runs right then, after the
+      // session has checked its device session but before it mints.
+      beforeNextList.run = async () => {
+        if (mode === "started") {
+          await env.DB.prepare("UPDATE accounts SET deleting_since = ? WHERE account_id = ?").bind(NOW, reader.accountId).run();
+        } else {
+          const response = await attestedPost(raced, reader.install, "/v1/account/delete", async (challenge) => ({
+            deviceSessionToken: reader.token,
+            idToken: await idToken(raced, "google", reader.subject, challenge),
+          }));
+          expect(((await response.json()) as DeleteAccountResponse).done).toBe(true);
+        }
+      };
+      const response = await authed(raced, reader, "session", { signedTransaction });
+      expect(beforeNextList.run).toBeNull();
+      expect(response.status).not.toBe(200);
+      expect(await errorCode(response)).toBe(mode === "started" ? "account-deleting" : "session-invalid");
+      // Leave no half-deleted account behind for the cron tests below.
+      if (mode === "started") await env.DB.prepare("UPDATE accounts SET deleting_since = NULL WHERE account_id = ?").bind(reader.accountId).run();
+    }
+  });
+
+  it("racing sessions and deletions: whatever was handed out, the folders end empty and forgotten", async () => {
+    const prefixes: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const reader = await signedInReader(world, "google");
+      const { session, signedTransaction } = await subscribe(reader);
+      prefixes.push(session.storage.prefix);
+      world.clock.now = new Date(NOW + 301_000); // past the usage cache, so the session lists
+      const [raced] = await Promise.all([
+        authed(world, reader, "session", { signedTransaction }),
+        attestedPost(world, reader.install, "/v1/account/delete", async (challenge) => ({
+          deviceSessionToken: reader.token,
+          idToken: await idToken(world, "google", reader.subject, challenge),
+        })),
+      ]);
+      // Writes with whatever credentials either session handed out.
+      if (raced.status === 200) await putObjects(((await raced.json()) as SessionResponse).storage.prefix, 2);
+      await putObjects(session.storage.prefix, 2);
+      expect(await rowsFor(reader.accountId)).toEqual({ accounts: 0, device_sessions: 0, subscribers: 0 });
+      world.clock.now = new Date(NOW);
+    }
+    world.clock.now = new Date(NOW + 301_000 + 1_200_000);
+    for (let i = 0; i < 5; i++) if (!(await cron(world)).unfinished) break;
+    for (const prefix of prefixes) {
+      expect(await countObjects(prefix)).toBe(0);
+      expect(await deletedFolder(prefix.split("/")[1]!)).toBeNull();
+    }
   });
 
   it("needs a fresh ID token from the current sign-in, and Apple's code, before anything is deleted", async () => {
@@ -263,6 +341,55 @@ describe("Sign in with Apple notifications", () => {
     expect((await notify("consent-revoked", google.subject)).status).toBe(200);
     expect((await authed(world, reader, "delete-my-data")).status).toBe(200);
     expect((await authed(world, google, "delete-my-data")).status).toBe(200);
+  });
+
+  it("leaves an account being deleted to its deletion (the Worker's own revocation sends consent-revoked)", async () => {
+    const reader = await signedInReader(world, "apple");
+    const { session } = await subscribe(reader);
+    await putObjects(session.storage.prefix, 1200);
+    expect(((await (await deleteAccount(reader)).json()) as DeleteAccountResponse).done).toBe(false);
+    expect((await notify("consent-revoked", reader.subject)).status).toBe(200);
+    // The deleting device still finishes the deletion.
+    let done = false;
+    for (let i = 0; i < 5 && !done; i++) {
+      const response = await deleteAccount(reader, { none: true });
+      expect(response.status).toBe(200);
+      done = ((await response.json()) as DeleteAccountResponse).done;
+    }
+    expect(done).toBe(true);
+    expect(await rowsFor(reader.accountId)).toEqual({ accounts: 0, device_sessions: 0, subscribers: 0 });
+  });
+
+  it("ends only sessions made before the event, so a replay cannot sign out a later sign-in", async () => {
+    const reader = await signedInReader(world, "apple");
+    const iat = Math.floor(NOW / 1000);
+    const captured = { iat, events: JSON.stringify({ type: "consent-revoked", sub: reader.subject, event_time: iat }) };
+    expect((await notify("consent-revoked", reader.subject, world.signingKeys.apple, captured)).status).toBe(200);
+    expect(await errorCode(await authed(world, reader, "delete-my-data"))).toBe("session-invalid");
+    // The reader signs in again a minute later; the same notification is replayed.
+    world.clock.now = new Date(NOW + 60_000);
+    const back = await signedInReader(world, "apple", reader.subject, reader.install);
+    expect((await notify("consent-revoked", reader.subject, world.signingKeys.apple, captured)).status).toBe(200);
+    expect((await authed(world, back, "delete-my-data")).status).toBe(200);
+    // An event time in milliseconds counts the same way.
+    const millis = { iat, events: JSON.stringify({ type: "consent-revoked", sub: reader.subject, event_time: NOW }) };
+    expect((await notify("consent-revoked", reader.subject, world.signingKeys.apple, millis)).status).toBe(200);
+    expect((await authed(world, back, "delete-my-data")).status).toBe(200);
+  });
+
+  it("refuses a notification signed more than a day ago", async () => {
+    const reader = await signedInReader(world, "apple");
+    const iat = Math.floor(NOW / 1000);
+    const captured = { iat, events: JSON.stringify({ type: "consent-revoked", sub: reader.subject, event_time: iat }) };
+    world.clock.now = new Date(NOW + 24 * 60 * 60_000 + 1000);
+    const late = await notify("consent-revoked", reader.subject, world.signingKeys.apple, captured);
+    expect(late.status).toBe(401);
+    expect(await errorCode(late)).toBe("notification-invalid");
+    expect((await authed(world, reader, "delete-my-data")).status).toBe(200);
+    // Within the day it still counts.
+    world.clock.now = new Date(NOW + 24 * 60 * 60_000);
+    expect((await notify("consent-revoked", reader.subject, world.signingKeys.apple, captured)).status).toBe(200);
+    expect(await errorCode(await authed(world, reader, "delete-my-data"))).toBe("session-invalid");
   });
 
   it("refuses a forged notification or one for another app, and changes nothing", async () => {

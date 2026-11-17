@@ -77,6 +77,8 @@ interface CacheEntry {
 /** Fetches and caches the two providers' key sets. One per isolate is enough. */
 export class JwksCache implements JwksSource {
   private readonly entries = new Map<Provider, CacheEntry>();
+  /** After a failed fetch, no new fetch before this time: lookups get stale keys or fail at once. */
+  private readonly retryAfter = new Map<Provider, number>();
 
   constructor(
     private readonly fetcher: OutboundFetch,
@@ -91,15 +93,23 @@ export class JwksCache implements JwksSource {
       if (fresh && !refresh) return entry.keys;
       if (refresh && now - entry.fetchedAt < REFRESH_COOLDOWN_MS) return entry.keys;
     }
+    const retryAt = this.retryAfter.get(provider);
+    if (retryAt !== undefined && now < retryAt) return this.staleOrFail(provider, entry, now);
     try {
       const fetched = await this.fetch(provider, now);
       this.entries.set(provider, fetched);
+      this.retryAfter.delete(provider);
       return fetched.keys;
     } catch (error) {
+      this.retryAfter.set(provider, now + REFRESH_COOLDOWN_MS);
       logError("jwks-fetch-failed", { provider, reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
-      if (entry && now < entry.expiresAt + MAX_STALE_MS) return entry.keys;
-      throw new JwksUnavailable(`${provider} keys unavailable`);
+      return this.staleOrFail(provider, entry, now);
     }
+  }
+
+  private staleOrFail(provider: Provider, entry: CacheEntry | undefined, now: number): Jwk[] {
+    if (entry && now < entry.expiresAt + MAX_STALE_MS) return entry.keys;
+    throw new JwksUnavailable(`${provider} keys unavailable`);
   }
 
   private async fetch(provider: Provider, now: number): Promise<CacheEntry> {
@@ -252,12 +262,23 @@ export interface AppleSignInEvent {
   type: string;
   /** The Apple user ID the event is about. Hash it at once; never store or log it. */
   subject: string;
+  /**
+   * ms; when the event happened: its `event_time` (seconds or milliseconds, read by size), never
+   * later than the notification's `iat`; the `iat` itself without one.
+   */
+  occurredAt: number;
 }
 
 /**
+ * Notifications signed longer ago than this are refused, so a captured one cannot be replayed
+ * later. A day leaves room for Apple's delivery retries and for clock differences.
+ */
+export const MAX_NOTIFICATION_AGE_MS = 24 * 60 * 60_000;
+
+/**
  * Verifies a Sign in with Apple server-to-server notification (`payload`, a JWT signed with
- * Apple's sign-in keys, audience the bundle ID) and returns its event. `events` arrives as a JSON
- * string; an object is accepted too.
+ * Apple's sign-in keys, audience the bundle ID, `iat` at most `MAX_NOTIFICATION_AGE_MS` ago) and
+ * returns its event. `events` arrives as a JSON string; an object is accepted too.
  */
 export async function verifyAppleSignInNotification(payload: string, settings: Settings, context: JwtContext): Promise<AppleSignInEvent> {
   let claims: Record<string, unknown>;
@@ -267,6 +288,9 @@ export async function verifyAppleSignInNotification(payload: string, settings: S
     if (error instanceof JwksUnavailable) throw new Refusal("provider-unreachable", error.message);
     throw new Refusal("notification-invalid", error instanceof Error ? error.message : "unknown");
   }
+  // verifyProviderJwt has checked that `iat` is a positive number and not in the future.
+  const issuedAt = (claims.iat as number) * 1000;
+  if (context.now.getTime() - issuedAt > MAX_NOTIFICATION_AGE_MS) throw new Refusal("notification-invalid", "jwt: too old");
   let events: unknown = claims.events;
   if (typeof events === "string") {
     try {
@@ -276,10 +300,16 @@ export async function verifyAppleSignInNotification(payload: string, settings: S
     }
   }
   if (typeof events !== "object" || events === null || Array.isArray(events)) throw new Refusal("notification-invalid", "events");
-  const { type, sub } = events as Record<string, unknown>;
+  const { type, sub, event_time: eventTime } = events as Record<string, unknown>;
   if (typeof type !== "string" || type.length === 0 || type.length > 64) throw new Refusal("notification-invalid", "event type");
   if (typeof sub !== "string" || sub.length === 0 || sub.length > 255 || sub.includes("\0")) throw new Refusal("notification-invalid", "event subject");
-  return { type, subject: sub };
+  let occurredAt = issuedAt;
+  if (eventTime !== undefined) {
+    if (!isSeconds(eventTime)) throw new Refusal("notification-invalid", "event time");
+    // Apple's examples show seconds; milliseconds are seen too. A value past 1e12 is milliseconds.
+    occurredAt = Math.min(issuedAt, eventTime > 1e12 ? eventTime : eventTime * 1000);
+  }
+  return { type, subject: sub, occurredAt };
 }
 
 function jsonObject(part: string, what: string): Record<string, unknown> {

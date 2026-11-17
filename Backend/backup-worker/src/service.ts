@@ -1,7 +1,7 @@
 // The endpoints and the daily cron. `index.ts` wires these to the Workers runtime; tests call
 // them directly with their own clock, roots of trust, key sets and outbound fetch.
 
-import { changeSignIn, deleteAccount, getAccount, signIn, signInNotification, signOut, signOutAll } from "./accounts";
+import { changeSignIn, deleteAccount, finishAccountDeletion, getAccount, signIn, signInNotification, signOut, signOutAll } from "./accounts";
 import { APPLE_APP_ATTESTATION_ROOT_CA, APPLE_ROOT_CA_G3 } from "./appleRoots";
 import { reason, verifyNotification, verifyRenewalInfo, verifyTransaction, type RenewalInfo, type Transaction, type VerifyContext } from "./appleJws";
 import { attestPolicy, verifyAttestation } from "./appAttest";
@@ -198,6 +198,13 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
   const overAllowance = usage.bytes > allowance || !usage.complete;
   const mode: AccessMode = access.kind === "read-only" ? "read-only" : overAllowance ? "read-delete" : "read-write";
 
+  // Look again right before minting: an account deletion may have started during the steps
+  // above. From here to the credentials there is no more I/O, so any credential minted is from
+  // before the deletion started, which is what the deleted folder's purge time allows for.
+  const current = await db.getAccount(env.DB, account.accountId);
+  if (!current) throw new Refusal("session-invalid", "account removed during the request");
+  if (current.deletingSince !== null) throw new Refusal("account-deleting", "deletion started during the request");
+
   const credentials = await createTempCredentials({
     accountId: settings.r2.accountId,
     s3Host: settings.r2.s3Host,
@@ -297,6 +304,8 @@ export interface CronResult {
   challengesRemoved: number;
   /** Account deletions the app left unfinished, finished here. */
   accountsRemoved: number;
+  /** Deleted accounts' folders emptied for the last time and forgotten. */
+  foldersPurged: number;
   foldersEmptied: number;
   objectsDeleted: number;
   /** True when the budget ran out with work left; the next run continues. */
@@ -306,7 +315,7 @@ export interface CronResult {
 export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
   const settings = readSettings(env);
   const now = deps.now().getTime();
-  const result: CronResult = { challengesRemoved: 0, accountsRemoved: 0, foldersEmptied: 0, objectsDeleted: 0, unfinished: false };
+  const result: CronResult = { challengesRemoved: 0, accountsRemoved: 0, foldersPurged: 0, foldersEmptied: 0, objectsDeleted: 0, unfinished: false };
   result.challengesRemoved = await db.deleteExpiredChallenges(env.DB, now);
   const budget = { operations: deps.cronBudget ?? CRON_BUDGET };
 
@@ -322,9 +331,27 @@ export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
       result.unfinished = true;
       break;
     }
-    await db.removeAccount(env.DB, account.accountId);
+    await finishAccountDeletion(env, settings, account, account.deletingSince ?? now, now, "cron");
     result.accountsRemoved++;
-    logEvent("account-deleted", { account: shortKey(account.accountId), by: "cron" });
+  }
+
+  // Deleted accounts' folders, once every credential minted for them has expired: emptied once
+  // more (credentials minted before the deletion may have written to them), then forgotten.
+  if (!result.unfinished) {
+    for (const folderKey of await db.foldersToPurge(env.DB, now, CRON_MAX_ACCOUNT_DELETIONS)) {
+      if (budget.operations < MIN_DELETE_BUDGET) {
+        result.unfinished = true;
+        break;
+      }
+      const purge = await emptyAccountFolders(env.BUCKET, folderKey, budget);
+      result.objectsDeleted += purge.deleted;
+      if (!purge.done) {
+        result.unfinished = true;
+        break;
+      }
+      await db.forgetDeletedFolder(env.DB, folderKey, now);
+      result.foldersPurged++;
+    }
   }
 
   // The lapse policy.

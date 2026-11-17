@@ -171,13 +171,38 @@ export async function markAccountDeleting(db: D1Database, accountId: string, now
   await db.prepare("UPDATE accounts SET deleting_since = COALESCE(deleting_since, ?) WHERE account_id = ?").bind(now, accountId).run();
 }
 
-/** Removes everything D1 holds for the account, in one transaction. */
-export async function removeAccount(db: D1Database, accountId: string): Promise<void> {
+/**
+ * Removes everything D1 holds for the account, in one transaction, leaving only its folder name
+ * in `deleted_folders` until `purgeAfter` (credentials minted before the deletion may still
+ * write there until then). The identity, the appAccountToken and the subscription binding go at
+ * once, so the same person can sign in to a new account and bind the subscription to it.
+ */
+export async function removeAccount(db: D1Database, account: Pick<Account, "accountId" | "folderKey">, purgeAfter: number, now: number): Promise<void> {
   await db.batch([
-    db.prepare("DELETE FROM device_sessions WHERE account_id = ?").bind(accountId),
-    db.prepare("DELETE FROM subscribers WHERE account_id = ?").bind(accountId),
-    db.prepare("DELETE FROM accounts WHERE account_id = ?").bind(accountId),
+    db
+      .prepare(
+        `INSERT INTO deleted_folders (folder_key, deleted_at, purge_after) VALUES (?, ?, ?)
+         ON CONFLICT (folder_key) DO UPDATE SET purge_after = MAX(purge_after, excluded.purge_after)`,
+      )
+      .bind(account.folderKey, now, purgeAfter),
+    db.prepare("DELETE FROM device_sessions WHERE account_id = ?").bind(account.accountId),
+    db.prepare("DELETE FROM subscribers WHERE account_id = ?").bind(account.accountId),
+    db.prepare("DELETE FROM accounts WHERE account_id = ?").bind(account.accountId),
   ]);
+}
+
+/** Folders of deleted accounts whose last credentials have expired, oldest first. */
+export async function foldersToPurge(db: D1Database, now: number, limit: number): Promise<string[]> {
+  const result = await db
+    .prepare("SELECT folder_key FROM deleted_folders WHERE purge_after <= ? ORDER BY purge_after, folder_key LIMIT ?")
+    .bind(now, limit)
+    .all<{ folder_key: string }>();
+  return result.results.map((row) => row.folder_key);
+}
+
+/** Forgets a deleted account's folder once it has been emptied after `purge_after`. */
+export async function forgetDeletedFolder(db: D1Database, folderKey: string, now: number): Promise<void> {
+  await db.prepare("DELETE FROM deleted_folders WHERE folder_key = ? AND purge_after <= ?").bind(folderKey, now).run();
 }
 
 /** Accounts whose deletion started at or before `before`, oldest first. */
@@ -259,11 +284,14 @@ export async function deleteSession(db: D1Database, sessionId: string): Promise<
   return result.meta.changes ?? 0;
 }
 
-/** Ends every session of the account, except `keep` if given. Returns how many ended. */
-export async function deleteAccountSessions(db: D1Database, accountId: string, keep?: string): Promise<number> {
+/**
+ * Ends every session of the account, except `keep` if given, and (with `createdAtOrBefore`) only
+ * those made at or before that moment. Returns how many ended.
+ */
+export async function deleteAccountSessions(db: D1Database, accountId: string, options: { keep?: string; createdAtOrBefore?: number } = {}): Promise<number> {
   const result = await db
-    .prepare("DELETE FROM device_sessions WHERE account_id = ? AND session_id != ?")
-    .bind(accountId, keep ?? "")
+    .prepare("DELETE FROM device_sessions WHERE account_id = ? AND session_id != ? AND created_at <= ?")
+    .bind(accountId, options.keep ?? "", options.createdAtOrBefore ?? Number.MAX_SAFE_INTEGER)
     .run();
   return result.meta.changes ?? 0;
 }
