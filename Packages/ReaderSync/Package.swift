@@ -1,9 +1,10 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Sync storage foundations: the `Sync/v1` formats (heads, blobs, history), the encrypted object
-// store over a plain object store with conditional writes, the version rules, rollback refusal
-// and the per-book base store. Foundation and CryptoKit only (on ReaderCore and ReaderBackup),
+// Sync: the `Sync/v1` formats (heads, blobs, history), the encrypted object store over a plain
+// object store with conditional writes, the version rules, rollback refusal, the per-book base
+// store, and the sync engine (`SyncEngine`) with its seams to the app's library and ink merge
+// (`SyncLibrary`, `SyncInkMerger`). Foundation and CryptoKit only (on ReaderCore and ReaderBackup),
 // with no S3Kit dependency: the S3 adapter lives in the app. Testable with `swift test` on the Mac.
 let package = Package(
     name: "ReaderSync",

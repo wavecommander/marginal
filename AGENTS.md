@@ -30,7 +30,7 @@ These apply to every change, alongside the build, test and convention rules belo
   - `ReaderCore`: pure Swift. No PDFKit, SwiftData, UIKit or PencilKit imports.
   - `ReaderStore`: SwiftData models and ink files.
   - `ReaderBackup`, `GoogleDriveKit`, `S3Kit`: Foundation and CryptoKit only.
-  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`); not yet in `project.yml` or the app target.
+  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores, and the sync engine (`SyncEngine`, with the `SyncLibrary` and `SyncInkMerger` seams the app implements) (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`); not yet in `project.yml` or the app target.
 - `Tests/` app-hosted unit tests (Swift Testing). `UITests/` XCTest UI tests.
 - `Backend/backup-worker/` Cloudflare Worker (TypeScript, D1, R2), separate npm project.
 - No third-party Swift dependencies. Do not add one.
