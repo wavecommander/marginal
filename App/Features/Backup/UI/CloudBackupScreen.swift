@@ -434,7 +434,6 @@ private struct CloudSignInSection: View {
         } footer: {
             Text(CloudAccountText.lostAccess)
         }
-        .accessibilityIdentifier(AccessibilityID.CloudBackup.signInSection)
     }
 }
 

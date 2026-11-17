@@ -351,6 +351,28 @@ struct CloudAccountSignInTests {
         #expect(rig.signIn.name(of: other) == "Another device")
     }
 
+    // MARK: What the confirmations say
+
+    @Test func everyDestructiveConfirmationSaysTheBooksStayAndWhatHappensInTheCloud() {
+        typealias T = CloudAccountText
+        for message in [T.signOutMessage, T.signOutAllMessage, T.deleteMessage(provider: .apple),
+                        T.changeConfirmMessage(from: .apple, to: .google)] {
+            #expect(message.contains("this iPad") || message.contains("each device"), "the books: \(message)")
+        }
+        #expect(T.signOutMessage.contains("backups stay in your account"))
+        #expect(T.signOutAllMessage.contains("backups stay in your account"))
+        #expect(T.deleteMessage(provider: .apple).contains("deleted for good"))
+        #expect(T.deleteMessage(provider: .apple).contains("subscription isn’t cancelled")
+                && T.deleteMessage(provider: .apple).contains("Manage Subscription"))
+        #expect(T.changeConfirmMessage(from: .apple, to: .google).contains("First confirm with Apple, then sign in with Google"))
+        for reason: CloudBackupSignIn.SignedOutReason in [.sessionEnded, .appleRevoked, .accountDeleted] {
+            #expect(T.signedOutNotice(reason).contains("just as they were"), "\(reason)")
+        }
+        #expect(CloudBackupPage.make(.signedOut, hasError: false) == .offer)
+        #expect(CloudBackupBanner.make(.signedOut, errorMessage: nil, usage: nil) == nil)
+        #expect(CloudBackupCapabilities.make(.signedOut) == CloudBackupCapabilities.make(.notSubscribed))
+    }
+
     // MARK: Automatic backup's default
 
     @Test func automaticBackupIsOnByDefaultForASignedInSubscriberOnly() async throws {

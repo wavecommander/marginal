@@ -107,7 +107,6 @@ nonisolated enum AccessibilityID {
         // Signing in (the offer, signed out)
         static let signInApple = "cloud.signIn.apple"
         static let signInGoogle = "cloud.signIn.google"
-        static let signInSection = "cloud.signIn"
         /// Why this iPad was signed out (session ended, Apple revoked, account deleted).
         static let signedOutNotice = "cloud.signedOut"
         // The account (signed in)

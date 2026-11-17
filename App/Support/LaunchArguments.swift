@@ -142,9 +142,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
 
     #if DEBUG
     /// `-cloudBackupUITest <state>` (DEBUG, UI tests and screenshots): Tactile Texts Cloud built
-    /// from fakes in that starting state (`CloudBackupUITestState`: `notSubscribed`, `active`,
-    /// `readOnly`, `needsRecoveryKey`, …) instead of from the build's settings, so its screens
-    /// work without a Worker or the App Store (`CloudBackupUITestMode`).
+    /// from fakes in that starting state (`CloudBackupUITestState`: `signedOut`, `notSubscribed`,
+    /// `active`, `readOnly`, `needsRecoveryKey`, `sessionExpired`, …) instead of from the build's
+    /// settings, so its screens, signing in included, work without a Worker, Apple, Google or the
+    /// App Store (`CloudBackupUITestMode`).
     var cloudBackupUITest: String?
     #endif
 
