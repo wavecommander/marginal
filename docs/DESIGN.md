@@ -167,9 +167,10 @@ ones even where the mockup draws an approximation.
   always in the same place: outlined while markup is off, filled while it is on, and tapping it
   toggles. There is no Done button, and the rest of the toolbar is the same in both modes; the
   toolbar subtitle shows only the reader's place, with no "Markup" prefix (owner decision,
-  17 November 2026). The Notes button is a toggle in the same way: selected (tinted background)
-  while the notes pane is shown, with the same icon; the Contents button is a plain button with
-  no selected state (owner decision, 17 November 2026). Undo
+  17 November 2026). The Markup button shows its state only by its glyph, with no selected
+  background, and the Notes and Contents buttons are plain buttons that look the same whether
+  their pane is shown or not; their labels say the state ("Done with Markup", "Hide Notes")
+  (owner decision, 17 November 2026). Undo
   and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
   they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
   system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.
@@ -436,10 +437,10 @@ Added by the owner (TSOFT-215, 14 November 2026).
 - **Toolbar glyphs** (owner, 17 November 2026). On iPadOS 26 and later, the Library, Reader
   and Notebook toolbars draw their items in the label colour, like the back button and the
   search field the system already draws that way. The Liquid Glass capsule already marks them as
-  buttons, so the accent there marks only state or a screen's one main action: the Reader's
-  Markup toggle while markup is on (the outline glyph is plain while off), the Library's
-  Import, and the Notebook's Done while choosing. Other toolbars (sheets, Search, Settings)
-  keep the system's tinted confirmation actions. `toolbarGlyph(emphasised:)` in
+  buttons, so the accent there marks only a screen's one main action: the Library's Import and
+  the Notebook's Done while choosing. Filled glyphs that show state (Markup on, a bookmarked
+  page) stay in the label colour too. Other toolbars (sheets, Search, Settings)
+  keep the system's tinted confirmation actions. `toolbarGlyph()` in
   `App/DesignSystem/Accent.swift` is the one availability check: before iPadOS 26 there is no
   capsule, and bar items keep the accent. Menus opened from the toolbars (More, Sort, Export)
   are UIKit and still take the accent from `UIWindow.tintColor`.

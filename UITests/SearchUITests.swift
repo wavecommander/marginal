@@ -220,11 +220,11 @@ final class SearchUITests: XCTestCase {
 
         let markup = app.buttons[ID.markupToggle].firstMatch
         markup.tap()
-        XCTAssertTrue(waitFor(markup, \.isSelected), "markup did not turn on")
+        XCTAssertTrue(waitFor(markup) { $0.label == "Done with Markup" }, "markup did not turn on")
         baseline = settledImage(of: button)
         openAndClose(app, baseline, "Done in markup mode") { app.buttons[ID.done].firstMatch.tap() }
         markup.tap()
-        XCTAssertTrue(waitFor(markup) { !$0.isSelected }, "markup did not turn off")
+        XCTAssertTrue(waitFor(markup) { $0.label == "Markup" }, "markup did not turn off")
 
         XCUIDevice.shared.orientation = .portrait
         let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch

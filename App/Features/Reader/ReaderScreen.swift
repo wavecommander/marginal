@@ -295,31 +295,28 @@ struct ReaderScreen: View {
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
                     .toolbarGlyph()
             }
-            // The accent marks markup mode: the outline glyph is plain while off.
-            markupToggle.toolbarGlyph(emphasised: session.isMarkupMode)
+            // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
+            markupToggle.toolbarGlyph()
             notesToggle.toolbarGlyph()
             moreMenu.toolbarGlyph()
         }
     }
 
-    /// The only switch for markup mode: outlined while off, filled (and selected) while on.
-    /// Turning it off does everything leaving markup does (flushes every surface).
+    /// The only switch for markup mode: the outlined glyph while off, the filled one while on,
+    /// with no selected background (owner decision, 17 November 2026). Turning it off does
+    /// everything leaving markup does (flushes every surface).
     ///
-    /// A `Toggle`, not a `Button` with `.accessibilityAddTraits(.isSelected)`: SwiftUI turns a
-    /// toolbar `Button` into a bar button item that keeps only its title, image, identifier and
-    /// enabled state, so traits and values added to it never reach VoiceOver or XCUITest
-    /// (measured on iPadOS 27 with the button grouped, alone, with and without the More menu).
-    /// A button-style `Toggle` becomes a bar item with a selection state, which UIKit exposes as
-    /// the Selected trait. The label also says the state ("Done with Markup" while on). Tests
+    /// A plain `Button`, so it has no Selected trait: SwiftUI turns a toolbar `Button` into a bar
+    /// button item that keeps only its title, image, identifier and enabled state, and a
+    /// button-style `Toggle` (which does carry the trait) always draws the selected background.
+    /// The label says the state instead ("Done with Markup" while on), and tests read it. They
     /// read the tool picker's visibility from `ReaderStateProbe` (`-exposeMarkupState`).
     private var markupToggle: some View {
         let isOn = session.isMarkupMode
-        return Toggle(isOn: Binding(get: { session.isMarkupMode },
-                                    set: { on in if on != session.isMarkupMode { session.toggleMarkup() } })) {
+        return Button { session.toggleMarkup() } label: {
             Label(isOn ? "Done with Markup" : "Markup",
                   systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
         }
-        .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
     }
 
@@ -353,18 +350,14 @@ struct ReaderScreen: View {
         }
     }
 
-    /// Shows and hides the notes pane, selected while shown (a button-style `Toggle`, as
-    /// `markupToggle` explains). `note.text` has no filled variant, so the selected background
-    /// carries the state. The label says the state too ("Hide Notes" while shown). Tests read it
+    /// Shows and hides the notes pane: a plain button that looks the same either way (owner
+    /// decision, 17 November 2026). The label says the state ("Hide Notes" while shown); an
+    /// accessibility value here would not reach VoiceOver (see `markupToggle`). Tests read it
     /// from `ReaderStateProbe`.
     private var notesToggle: some View {
-        Toggle(isOn: Binding(get: { session.isNotesVisible },
-                             set: { on in
-                                 if on != session.isNotesVisible { withAnimation { session.toggleNotes() } }
-                             })) {
+        Button { withAnimation { session.toggleNotes() } } label: {
             Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "note.text")
         }
-        .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.notesToggle)
     }
 

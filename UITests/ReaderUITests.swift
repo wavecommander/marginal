@@ -189,21 +189,22 @@ final class ReaderUITests: XCTestCase {
         let notes = element(app, ReaderID.notesPane)
         XCTAssertTrue(contents.waitForExistence(timeout: 10))
         XCTAssertTrue(notes.exists)
-        // Notes is a toggle, selected while its pane is shown; Contents is a plain button.
+        // Both are plain buttons with no selected state; the Notes label says the state.
         let contentsButton = app.buttons[ReaderID.contentsToggle].firstMatch
         let notesButton = app.buttons[ReaderID.notesToggle].firstMatch
-        XCTAssertTrue(waitForSelected(notesButton, true))
+        XCTAssertTrue(waitForLabel(notesButton, "Hide Notes"))
+        XCTAssertFalse(notesButton.isSelected, "no selected state")
 
         contentsButton.tap()
         XCTAssertTrue(contents.waitForNonExistence(timeout: 5))
         notesButton.tap()
         XCTAssertTrue(notes.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(waitForSelected(notesButton, false))
+        XCTAssertTrue(waitForLabel(notesButton, "Show Notes"))
         contentsButton.tap()
         XCTAssertTrue(contents.waitForExistence(timeout: 5))
         notesButton.tap()
         XCTAssertTrue(notes.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitForSelected(notesButton, true))
+        XCTAssertTrue(waitForLabel(notesButton, "Hide Notes"))
 
         // A jump from Contents updates the page (and is recorded: Back becomes enabled).
         let chapter = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "2 Vector Spaces")).firstMatch
@@ -316,7 +317,7 @@ final class ReaderUITests: XCTestCase {
         let app = openSmall(["-markup"])
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 30))
-        XCTAssertTrue(waitForSelected(toggle, true), "markup on")
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"), "markup on")
         // A hardware-key event sent before the window has become key is dropped: press again
         // if search did not open.
         let done = app.buttons["search.done"].firstMatch
@@ -327,7 +328,7 @@ final class ReaderUITests: XCTestCase {
         }
         XCTAssertTrue(opened, "search did not open")
         done.tap()
-        XCTAssertTrue(waitForSelected(toggle, true), "markup stays on after search")
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"), "markup stays on after search")
         // The toolbar's search button is there in markup mode too.
         XCTAssertTrue(app.buttons["reader.toolbar.search"].firstMatch.exists)
     }
@@ -419,9 +420,9 @@ final class ReaderUITests: XCTestCase {
         app.typeKey("g", modifierFlags: [.command, .control, .shift]) // Previous Result (disabled)
         app.typeKey("h", modifierFlags: [.command, .option])          // Add Heading at This Page…
         app.typeKey("a", modifierFlags: [.command, .shift])          // Markup
-        XCTAssertTrue(waitForSelected(app.buttons[ReaderID.markupToggle].firstMatch, true))
+        XCTAssertTrue(waitForLabel(app.buttons[ReaderID.markupToggle].firstMatch, "Done with Markup"))
         app.typeKey("a", modifierFlags: [.command, .shift])          // Done with Markup
-        XCTAssertTrue(waitForSelected(app.buttons[ReaderID.markupToggle].firstMatch, false))
+        XCTAssertTrue(waitForLabel(app.buttons[ReaderID.markupToggle].firstMatch, "Markup"))
         openGoToPageField(app)                                       // Go to Page… (a text field)
         let field = app.textFields[ReaderID.goToPageField]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -469,12 +470,12 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, true), "markup on")
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"), "markup on")
         XCTAssertTrue(waitForState(app, "picker=shown"))
         settle(app)
         XCTAssertTrue(waitForState(app, "shows=1 "), "first entry shows the picker once")
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, false), "markup off")
+        XCTAssertTrue(waitForLabel(toggle, "Markup"), "markup off")
         XCTAssertTrue(waitForState(app, "picker=hidden"))
         toggle.tap()
         XCTAssertTrue(waitForState(app, "picker=shown"), "shown again")
@@ -485,7 +486,7 @@ final class ReaderUITests: XCTestCase {
                                                    + ["-openBook", "small", "-markup", "-exposeMarkupState"])
         let toggleAtLaunch = launched.buttons[ReaderID.markupToggle].firstMatch
         XCTAssertTrue(toggleAtLaunch.waitForExistence(timeout: 30))
-        XCTAssertTrue(waitForSelected(toggleAtLaunch, true), "markup on at launch")
+        XCTAssertTrue(waitForLabel(toggleAtLaunch, "Done with Markup"), "markup on at launch")
         XCTAssertTrue(waitForState(launched, "picker=shown"))
         settle(launched)
         XCTAssertTrue(waitForState(launched, "shows=1 "), "shown once at launch, after the reader is pushed")
@@ -499,7 +500,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// The Markup toggle is the only switch (design, "Markup controls"): the same button in
-    /// both modes, selected (filled) while markup is on, no Done button, and at regular width
+    /// both modes, its filled glyph (no selected background) while markup is on, no Done button, and at regular width
     /// no toolbar Undo/Redo (the tool picker has its own); the rest of the toolbar stays, and
     /// the subtitle keeps showing only the place.
     func testMarkupToggleIsSelectedInMarkupModeWithNoDoneButton() {
@@ -507,12 +508,11 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        XCTAssertFalse(toggle.isSelected, "outlined while off")
-        XCTAssertEqual(toggle.label, "Markup")
+        XCTAssertEqual(toggle.label, "Markup", "outlined while off")
 
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, true), "filled (selected) while on")
-        XCTAssertEqual(toggle.label, "Done with Markup")
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"), "filled while on")
+        XCTAssertFalse(toggle.isSelected, "no selected background")
         XCTAssertFalse(app.buttons["reader.toolbar.done"].exists, "no Done button")
         XCTAssertFalse(app.navigationBars.buttons["Done"].exists, "no Done button")
         XCTAssertFalse(app.buttons["reader.toolbar.undo"].exists, "Undo is the tool picker's at regular width")
@@ -524,8 +524,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(markupPrefix.count, 0, "the subtitle has no Markup prefix")
 
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, false), "outlined again")
-        XCTAssertEqual(toggle.label, "Markup")
+        XCTAssertTrue(waitForLabel(toggle, "Markup"), "outlined again")
     }
 
     /// With a registered surface that takes first responder (as a canvas does), the picker stays.
@@ -535,7 +534,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let toggle = app.buttons[ReaderID.markupToggle].firstMatch
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, true))
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"))
         XCTAssertTrue(waitForState(app, "responder=surface"), "the probe canvas is first responder")
         XCTAssertTrue(waitForState(app, "picker=shown"))
         // It stays: still so once the probe has stopped changing.
@@ -547,13 +546,7 @@ final class ReaderUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation
             .write(to: directory.appendingPathComponent("reader-markup-surface\(suffix).png"))
         toggle.tap()
-        XCTAssertTrue(waitForSelected(toggle, false))
-    }
-
-    private func waitForSelected(_ element: XCUIElement, _ selected: Bool, timeout: TimeInterval = 5) -> Bool {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == %@", NSNumber(value: selected)),
-                                                    object: element)
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        XCTAssertTrue(waitForLabel(toggle, "Markup"))
     }
 
     private func waitForEnabled(_ element: XCUIElement, _ enabled: Bool = true, timeout: TimeInterval = 5) -> Bool {
