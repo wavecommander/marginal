@@ -278,7 +278,7 @@ struct LibraryScreen: View {
                 // buttons' own ones.
                 .accessibilityIdentifier("library.emptyState")
         } description: {
-            Text("Import a book or document to start reading and taking notes. You can also drop files here from Files or another app, or restore your books from a backup.",
+            Text("Import a book or document to start reading and taking notes.\nYou can also drop files here from Files or another app, or restore your books from a backup.",
                  comment: "Library empty state: description under 'No Books Yet'.")
         } actions: {
             ViewThatFits {
@@ -291,6 +291,8 @@ struct LibraryScreen: View {
     private var emptyGuideButton: some View {
         Button("Open the Quick Guide", systemImage: "book.pages") { openQuickGuide() }
             .buttonStyle(.bordered)
+            // Its full width, not a truncated title: the row falls back to a column when it doesn't fit.
+            .fixedSize()
             .accessibilityIdentifier(AccessibilityID.Onboarding.emptyLibraryOpenGuide)
     }
 
