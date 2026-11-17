@@ -374,7 +374,8 @@ new, empty account with a new folder; the subscription binds to it as for any fi
 token naming the deleted account counts as no token). Credentials minted before the deletion
 started still work for up to `CREDENTIAL_TTL_SECONDS`, so the Worker keeps the deleted account's
 **folder name only** (no account ID, identity or token) in `deleted_folders` until
-`CREDENTIAL_TTL_SECONDS` plus 5 minutes after the deletion started; the next daily cron after
+65 minutes after the deletion started (the one-hour maximum `CREDENTIAL_TTL_SECONDS` may be set
+to, plus 5 minutes, whatever it is set to now); the next daily cron after
 that empties both folders once more and forgets the name. No account can reach those folders
 meanwhile: folder names are random and never reused. A `/v1/session` request that was under way
 when the deletion started looks at the account again just before minting and answers
@@ -576,8 +577,8 @@ retries).
 At 03:17 UTC: removes expired challenges; finishes account deletions the app started more than
 15 minutes ago and did not finish (empties the folders, then removes the account's rows,
 keeping its folder name in `deleted_folders`); empties once more, and then forgets, the folders
-of deleted accounts whose `purge_after` has passed (deletion start + `CREDENTIAL_TTL_SECONDS` +
-5 minutes); then, for entitlements whose data is still there and whose access ended
+of deleted accounts whose `purge_after` has passed (deletion start + 65 minutes: the
+one-hour maximum credential life plus 5 minutes); then, for entitlements whose data is still there and whose access ended
 `DELETE_AFTER_DAYS` or more ago (or were revoked that long ago), deletes the folder in batches
 of 1,000 objects and marks the row (`data_deleted_at`). One run spends at most 600 R2
 operations (300,000 objects) and looks at most at 2,000 entitlements, 50 account deletions and
@@ -661,7 +662,8 @@ stale set or fail at once without a request) and Apple's
   provider it is, random IDs, session token hashes, an encrypted device label the Worker cannot
   read, and the subscription's state keyed by a hash of its transaction ID. No email, name or
   raw identifier, and none of them in logs. After an account is deleted, only its random folder
-  name stays, for `CREDENTIAL_TTL_SECONDS` plus 5 minutes and until the next daily cron.
+  name stays, for 65 minutes (the longest a credential can be configured to last, plus 5) and
+  until the next daily cron.
 - **Deleting an account cannot leave data behind**: credentials are never minted once a deletion
   has started, and the folders are emptied again after the last credential minted before it
   has expired.

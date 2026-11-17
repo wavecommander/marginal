@@ -15,6 +15,7 @@ import { authenticate, requireSession, sessionTokenField } from "./requestAuth";
 import { deleteBudget, type Deps } from "./service";
 import { emptyAccountFolders, folderFor } from "./storage";
 import { accessAt, allowanceFor, primaryOf, subscriptionInfo } from "./subscription";
+import { MAX_TTL_SECONDS } from "./tempCredentials";
 import { currentUsage } from "./usage";
 
 const MAX_ID_TOKEN = 8 * 1024;
@@ -218,7 +219,12 @@ export async function deleteAccount(request: Request, env: Env, settings: Settin
   return json(200, body);
 }
 
-/** Added to CREDENTIAL_TTL_SECONDS: how long a deleted account's folder name is kept after its deletion started. */
+/**
+ * Added to the longest life a credential may be configured with (`MAX_TTL_SECONDS`, not the
+ * current `CREDENTIAL_TTL_SECONDS`): how long a deleted account's folder name is kept after its
+ * deletion started. Using the maximum means a credential minted under a longer setting than
+ * today's can never outlive the folder's tombstone.
+ */
 export const PURGE_MARGIN_MS = 5 * 60_000;
 
 /**
@@ -227,7 +233,7 @@ export const PURGE_MARGIN_MS = 5 * 60_000;
  * has expired. The cron then empties the folders once more and forgets them.
  */
 export async function finishAccountDeletion(env: Env, settings: Settings, account: db.Account, deletingSince: number, now: number, by: "app" | "cron"): Promise<void> {
-  const purgeAfter = deletingSince + settings.credentialTTLSeconds * 1000 + PURGE_MARGIN_MS;
+  const purgeAfter = deletingSince + MAX_TTL_SECONDS * 1000 + PURGE_MARGIN_MS;
   await db.removeAccount(env.DB, account, purgeAfter, now);
   logEvent("account-deleted", { account: shortKey(account.accountId), by });
 }

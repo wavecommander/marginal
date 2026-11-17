@@ -8,6 +8,6 @@
 CREATE TABLE deleted_folders (
   folder_key   TEXT PRIMARY KEY,                -- 64 hex digits: users/<folder_key>/ and sandbox/<folder_key>/
   deleted_at   INTEGER NOT NULL,                -- ms; when the account was removed
-  purge_after  INTEGER NOT NULL                 -- ms; deletion start + CREDENTIAL_TTL_SECONDS + a margin
+  purge_after  INTEGER NOT NULL                 -- ms; deletion start + the one-hour maximum credential life + a margin
 );
 CREATE INDEX deleted_folders_purge ON deleted_folders (purge_after);

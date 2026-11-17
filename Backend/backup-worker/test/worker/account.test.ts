@@ -168,8 +168,9 @@ describe("deleting the account", () => {
     const everything = async () =>
       JSON.stringify(await env.DB.batch(["accounts", "device_sessions", "subscribers", "deleted_folders"].map((t) => env.DB.prepare(`SELECT * FROM ${t}`))));
     // Only the folder name is left, until credentials minted before the deletion have expired
-    // (CREDENTIAL_TTL_SECONDS 900 + a 5-minute margin after the deletion started).
-    expect(await deletedFolder(folderKey)).toEqual({ folder_key: folderKey, deleted_at: NOW, purge_after: NOW + 1_200_000 });
+    // (the one-hour maximum credential life + a 5-minute margin after the deletion started,
+    // whatever CREDENTIAL_TTL_SECONDS is; it is 900 here).
+    expect(await deletedFolder(folderKey)).toEqual({ folder_key: folderKey, deleted_at: NOW, purge_after: NOW + 3_900_000 });
     expect(await everything()).not.toContain(reader.accountId);
     expect(await everything()).not.toContain(reader.appAccountToken);
     expect(await countObjects(neighbourSession.storage.prefix)).toBe(2);
@@ -185,10 +186,10 @@ describe("deleting the account", () => {
     // Credentials minted before the deletion still write after `done` (stood in for by direct writes).
     await putObjects(session.storage.prefix, 3);
     await putObjects(`sandbox/${folderKey}/`, 2);
-    world.clock.now = new Date(NOW + 1_200_000 - 1);
+    world.clock.now = new Date(NOW + 3_900_000 - 1);
     await cron(world);
     expect(await countObjects(session.storage.prefix)).toBe(3);
-    world.clock.now = new Date(NOW + 1_200_000);
+    world.clock.now = new Date(NOW + 3_900_000);
     expect((await cron(world)).foldersPurged).toBe(1);
     expect(await countObjects(session.storage.prefix)).toBe(0);
     expect(await countObjects(`sandbox/${folderKey}/`)).toBe(0);
@@ -247,7 +248,7 @@ describe("deleting the account", () => {
       expect(await rowsFor(reader.accountId)).toEqual({ accounts: 0, device_sessions: 0, subscribers: 0 });
       world.clock.now = new Date(NOW);
     }
-    world.clock.now = new Date(NOW + 301_000 + 1_200_000);
+    world.clock.now = new Date(NOW + 301_000 + 3_900_000);
     for (let i = 0; i < 5; i++) if (!(await cron(world)).unfinished) break;
     for (const prefix of prefixes) {
       expect(await countObjects(prefix)).toBe(0);
