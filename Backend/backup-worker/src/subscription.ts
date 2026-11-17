@@ -1,9 +1,11 @@
 // What the service knows about a subscription, how new signed information updates it, and what
 // access it gives at a moment in time. Pure functions: the clock is always passed in.
 //
-// Updates are "newest wins", so applying the same signed data twice changes nothing and an older
-// copy can never undo a newer one (a refunded subscription stays refunded even if the app sends
-// the transaction it had before the refund):
+// A `Subscriber` is the entitlement of one of an account's two folders (`users/` for App Store
+// purchases, `sandbox/` for Sandbox and Xcode ones), holding the state of the subscription that
+// pays for it. Updates are "newest wins", so applying the same signed data twice changes nothing
+// and an older copy can never undo a newer one (a refunded subscription stays refunded even if
+// the app sends the transaction it had before the refund):
 // - a transaction replaces the stored one if it covers a later period (`expiresDate`), or the
 //   same period signed no earlier (`signedDate`), which is how a refund or its reversal arrives;
 // - renewal info replaces the stored one if it was signed no earlier.
@@ -16,8 +18,22 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 /** Apple retries a failed renewal for up to 60 days; billing retry never counts as active beyond that. */
 export const BILLING_RETRY_MAX_MS = 60 * DAY_MS;
 
+/** Which of an account's folders: `users/<folder key>/` or `sandbox/<folder key>/`. */
+export type Namespace = "users" | "sandbox";
+
+export function namespaceFor(environment: AppleEnvironment): Namespace {
+  return environment === "Production" ? "users" : "sandbox";
+}
+
 export interface Subscriber {
-  userKey: string;
+  accountId: string;
+  namespace: Namespace;
+  /** The keyed hash naming the subscription that pays for this folder; null once it moved to another account. */
+  subscriptionKey: string | null;
+  /** ms; when that subscription was bound to this account. */
+  boundAt: number;
+  /** The appAccountToken on the newest transaction applied, if any. */
+  appAccountToken: string | null;
   productId: string;
   environment: AppleEnvironment;
   /** ms; end of the paid period. */
@@ -37,9 +53,13 @@ export interface Subscriber {
   version: number;
 }
 
-export function newSubscriber(userKey: string, transaction: Transaction, now: number): Subscriber {
+export function newSubscriber(accountId: string, subscriptionKey: string, transaction: Transaction, now: number): Subscriber {
   return {
-    userKey,
+    accountId,
+    namespace: namespaceFor(transaction.environment),
+    subscriptionKey,
+    boundAt: now,
+    appAccountToken: transaction.appAccountToken ?? null,
     productId: transaction.productId,
     environment: transaction.environment,
     expiresAt: transaction.expiresDate,
@@ -70,6 +90,7 @@ export function applyTransaction(subscriber: Subscriber, transaction: Transactio
     expiresAt: transaction.expiresDate,
     revokedAt: transaction.revocationDate ?? null,
     txnSignedAt: transaction.signedDate,
+    appAccountToken: transaction.appAccountToken ?? null,
   };
 }
 
@@ -159,4 +180,46 @@ export function isSandbox(environment: AppleEnvironment): boolean {
 export function allowanceFor(subscriber: Pick<Subscriber, "productId" | "environment">, settings: Settings): number {
   if (isSandbox(subscriber.environment)) return settings.sandboxAllowanceBytes;
   return settings.allowances.get(subscriber.productId) ?? 0;
+}
+
+/** How much an access gives, for choosing between two subscriptions: higher is better. */
+export function accessRank(access: Access): number {
+  switch (access.kind) {
+    case "active":
+      return 4;
+    case "read-only":
+      return 3;
+    case "lapsed":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * A folder's entitlement once its subscription has moved to another account: no longer tied to
+ * the subscription (Apple's later updates go to the new account), and, if it still gave access,
+ * ended now. The lapse policy then runs for this folder from the moment of the move.
+ */
+export function detached(subscriber: Subscriber, now: number, settings: Pick<Settings, "readOnlyDays" | "deleteAfterDays">): Subscriber {
+  const base = { ...subscriber, subscriptionKey: null };
+  if (accessAt(subscriber, now, settings).kind !== "active") return base;
+  return { ...base, expiresAt: now, inBillingRetry: false, graceExpiresAt: null, billingRetryEndedAt: null };
+}
+
+/**
+ * Of an account's entitlements, the one a request without a transaction is served from: the
+ * best access, the App Store one on a tie.
+ */
+export function primaryOf(subscribers: Subscriber[], now: number, settings: Pick<Settings, "readOnlyDays" | "deleteAfterDays">): Subscriber | undefined {
+  let best: Subscriber | undefined;
+  let bestRank = 0;
+  for (const subscriber of subscribers) {
+    const rank = accessRank(accessAt(subscriber, now, settings));
+    if (rank > bestRank || (rank === bestRank && subscriber.namespace === "users")) {
+      best = subscriber;
+      bestRank = rank;
+    }
+  }
+  return best;
 }

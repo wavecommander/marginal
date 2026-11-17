@@ -8,16 +8,29 @@
 R2_PARENT_ACCESS_KEY_ID=
 R2_PARENT_SECRET_ACCESS_KEY=
 
-# Any long random string (at least 32 characters). Keys the hash that turns a subscription into a
-# folder name, so a folder name cannot be worked back to a subscription.
-USER_KEY_SECRET=
+# Any long random string (at least 32 characters, `openssl rand -hex 32`). Keys the hashes of
+# sign-in identities and subscriptions, so no row can be worked back to an Apple or Google
+# account or a purchase. Changing it loses every sign-in: set it once and keep it.
+IDENTITY_KEY_SECRET=
+
+# The app's Google OAuth client ID (iOS), to accept Google ID tokens. Several may be given,
+# comma-separated. Empty: Google sign-in is off.
+GOOGLE_CLIENT_IDS=
+
+# Optional, both or neither: a Sign in with Apple key (Developer account > Keys), used only to
+# revoke Apple authorizations when an account leaves Apple or is deleted. Without it, revocation
+# is skipped with a log line. The private key is the .p8 file's contents; in this file write it
+# on one line with its line breaks as \n, in double quotes.
+APPLE_SIWA_KEY_ID=
+APPLE_SIWA_PRIVATE_KEY=
 
 # The account that owns the bucket (32 hex digits) and its S3 host. The Worker refuses to serve
 # until both are set. For a purely local run, any 32 hex digits and `localhost:8787` will do.
 R2_ACCOUNT_ID=
 R2_S3_HOST=
 
-# The 10-character App ID prefix (team ID). App Attest checks `<team ID>.<bundle ID>`.
+# The 10-character App ID prefix (team ID). App Attest checks `<team ID>.<bundle ID>`; it is
+# also the issuer of the Sign in with Apple client secret.
 APPLE_TEAM_ID=
 
 # Optional, `dev` only: lets the simulator (which has no App Attest) through when the app sends

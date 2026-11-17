@@ -31,11 +31,20 @@ export interface Env {
    * the root that signs transactions from StoreKit Testing in Xcode. Public, not a secret.
    */
   XCODE_STOREKIT_CERT?: string;
+  /** Comma-separated Google OAuth client IDs whose ID tokens are accepted. Empty: Google sign-in is off. */
+  GOOGLE_CLIENT_IDS?: string;
+  /** Days a subscription stays with an account before another account may take it over (30). */
+  SUBSCRIPTION_MOVE_DAYS?: string;
 
   // Secrets.
   R2_PARENT_ACCESS_KEY_ID: string;
   R2_PARENT_SECRET_ACCESS_KEY: string;
-  USER_KEY_SECRET: string;
+  /** Keys the hashes of sign-in identities and of subscriptions. At least 32 characters. */
+  IDENTITY_KEY_SECRET: string;
+  /** Sign in with Apple key (Certificates, Identifiers & Profiles > Keys): its 10-character ID. Optional. */
+  APPLE_SIWA_KEY_ID?: string;
+  /** That key's private key, PKCS#8 PEM. Optional; without the pair, Apple revocation is skipped. */
+  APPLE_SIWA_PRIVATE_KEY?: string;
   /** `dev` only: lets the simulator (which has no App Attest) through. Must not exist in production. */
   APP_ATTEST_BYPASS_SECRET?: string;
 }
@@ -51,6 +60,8 @@ export interface Settings {
   sandboxAllowanceBytes: number;
   usageCacheSeconds: number;
   bundleId: string;
+  /** The 10-character App ID prefix. */
+  teamId: string;
   /** `<team>.<bundle>`, what App Attest hashes into the RP ID. */
   appId: string;
   appAppleId: number | undefined;
@@ -61,7 +72,12 @@ export interface Settings {
     parentAccessKeyId: string;
     parentSecretAccessKey: string;
   };
-  userKeySecret: string;
+  identityKeySecret: string;
+  /** Google OAuth client IDs accepted as an ID token's audience; empty when Google sign-in is off. */
+  googleClientIds: string[];
+  subscriptionMoveDays: number;
+  /** The Sign in with Apple key, for revoking; undefined when not configured. */
+  siwa: { keyId: string; privateKeyPkcs8: Uint8Array } | undefined;
   /** Only ever set in `dev`. */
   attestBypassSecret: string | undefined;
   /** Only ever set in `dev`. */
@@ -134,9 +150,25 @@ function parseSettings(env: Env): Settings {
   const bucket = matching(env.R2_BUCKET_NAME, /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, "R2_BUCKET_NAME");
   if (!env.R2_PARENT_ACCESS_KEY_ID) throw new Error("R2_PARENT_ACCESS_KEY_ID is not set");
   if (!env.R2_PARENT_SECRET_ACCESS_KEY) throw new Error("R2_PARENT_SECRET_ACCESS_KEY is not set");
-  if (!env.USER_KEY_SECRET || env.USER_KEY_SECRET.length < 32) {
-    throw new Error("USER_KEY_SECRET must be at least 32 characters");
+  if (!env.IDENTITY_KEY_SECRET || env.IDENTITY_KEY_SECRET.length < 32) {
+    throw new Error("IDENTITY_KEY_SECRET must be at least 32 characters");
   }
+
+  const googleClientIds = (env.GOOGLE_CLIENT_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id !== "");
+  for (const id of googleClientIds) {
+    if (!/^[0-9]{1,30}-[a-z0-9]{1,64}\.apps\.googleusercontent\.com$/.test(id)) {
+      throw new Error("GOOGLE_CLIENT_IDS is malformed: a comma-separated list of OAuth client IDs");
+    }
+  }
+  let subscriptionMoveDays = 30;
+  if (env.SUBSCRIPTION_MOVE_DAYS !== undefined && env.SUBSCRIPTION_MOVE_DAYS !== "") {
+    subscriptionMoveDays = wholeNumber(env.SUBSCRIPTION_MOVE_DAYS, "SUBSCRIPTION_MOVE_DAYS");
+    if (subscriptionMoveDays < 1 || subscriptionMoveDays > 3650) throw new Error("SUBSCRIPTION_MOVE_DAYS must be 1...3650");
+  }
+  const siwa = readSiwaKey(env);
 
   // The two development-only switches cannot be turned on in production: if either is present
   // there, the Worker refuses to serve at all, so the mistake is loud rather than silent.
@@ -173,6 +205,7 @@ function parseSettings(env: Env): Settings {
     sandboxAllowanceBytes,
     usageCacheSeconds,
     bundleId,
+    teamId,
     appId: `${teamId}.${bundleId}`,
     appAppleId,
     r2: {
@@ -182,10 +215,37 @@ function parseSettings(env: Env): Settings {
       parentAccessKeyId: env.R2_PARENT_ACCESS_KEY_ID,
       parentSecretAccessKey: env.R2_PARENT_SECRET_ACCESS_KEY,
     },
-    userKeySecret: env.USER_KEY_SECRET,
+    identityKeySecret: env.IDENTITY_KEY_SECRET,
+    googleClientIds,
+    subscriptionMoveDays,
+    siwa,
     attestBypassSecret,
     xcodeStoreKitCert,
   };
+}
+
+/**
+ * The Sign in with Apple key: both values or neither. The PEM may arrive with its line breaks
+ * written as a backslash and `n` (as some secret stores keep it). Only its shape is checked here; WebCrypto
+ * imports it when it is used.
+ */
+function readSiwaKey(env: Env): Settings["siwa"] {
+  const keyId = env.APPLE_SIWA_KEY_ID ?? "";
+  const pem = env.APPLE_SIWA_PRIVATE_KEY ?? "";
+  if (keyId === "" && pem === "") return undefined;
+  if (keyId === "" || pem === "") throw new Error("APPLE_SIWA_KEY_ID and APPLE_SIWA_PRIVATE_KEY must be set together");
+  matching(keyId, /^[A-Z0-9]{10}$/, "APPLE_SIWA_KEY_ID");
+  const body = pem.replace(/\\n/g, "\n").trim();
+  const match = /^-----BEGIN PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+?)\s*-----END PRIVATE KEY-----$/.exec(body);
+  let der: Uint8Array;
+  try {
+    if (!match) throw new Error("no PEM");
+    der = fromBase64(match[1]!.replace(/\s+/g, ""));
+  } catch {
+    throw new Error("APPLE_SIWA_PRIVATE_KEY is not a PKCS#8 PEM private key");
+  }
+  if (der.length < 32 || der[0] !== 0x30) throw new Error("APPLE_SIWA_PRIVATE_KEY is not a PKCS#8 PEM private key");
+  return { keyId, privateKeyPkcs8: der };
 }
 
 function wholeNumber(value: string | undefined, name: string): number {

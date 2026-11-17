@@ -3,23 +3,25 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ErrorResponse, SessionResponse } from "../../src/contract";
 import { DAY, renewalPayload, signedNotification, transactionPayload } from "../helpers/apple";
 import { appleLikeChain, signWithChain } from "../helpers/pki";
-import { attestedInstall, authed, makeWorld, postJson, sign, type Install, type World } from "./harness";
+import { authed, makeWorld, postJson, sign, signedInReader, type Reader, type World } from "./harness";
 
 let world: World;
-let install: Install;
 let nextId = 5000000000000000;
 const NOW = Date.parse("2026-11-15T12:00:00Z");
+/** The reader each subscription belongs to. */
+const readers = new Map<string, Reader>();
 
 beforeAll(async () => {
   world = await makeWorld();
-  install = await attestedInstall(world);
 });
 
-/** Starts a subscription with a session, as the app would. */
+/** Signs a new reader in and starts a subscription with a session, as the app would. */
 async function subscribe(overrides: Record<string, unknown> = {}) {
   const id = String(nextId++);
+  const reader = await signedInReader(world);
+  readers.set(id, reader);
   const transaction = transactionPayload({ originalTransactionId: id, transactionId: id, signedDate: NOW - 10 * DAY, purchaseDate: NOW - 10 * DAY, expiresDate: NOW + 20 * DAY, ...overrides });
-  const response = await authed(world, install, "session", { signedTransaction: await sign(world, transaction) });
+  const response = await authed(world, reader, "session", { signedTransaction: await sign(world, transaction) });
   if (response.status !== 200) throw new Error(`session ${response.status}`);
   return { id, transaction, prefix: ((await response.json()) as SessionResponse).storage.prefix };
 }
@@ -29,7 +31,7 @@ async function notify(signedPayload: string): Promise<Response> {
 }
 
 async function sessionFor(transaction: Record<string, unknown>): Promise<Response> {
-  return authed(world, install, "session", { signedTransaction: await sign(world, transaction) });
+  return authed(world, readers.get(String(transaction.originalTransactionId))!, "session", { signedTransaction: await sign(world, transaction) });
 }
 
 async function stateOf(transaction: Record<string, unknown>): Promise<string> {
@@ -48,6 +50,8 @@ describe("App Store Server Notifications", () => {
     expect(await response.json()).toEqual({ ok: true });
     // The app still sends its old transaction; the renewal it has not seen yet counts.
     expect(await stateOf(transaction)).toBe("read-write");
+    // And so does a session without any transaction.
+    expect((await authed(world, readers.get(String(transaction.originalTransactionId))!, "session")).status).toBe(200);
   });
 
   it("REFUND revokes, REFUND_REVERSED restores, and replays change nothing", async () => {
@@ -57,9 +61,9 @@ describe("App Store Server Notifications", () => {
     expect((await notify(refund)).status).toBe(200);
     expect(await stateOf(transaction)).toBe("subscription-revoked");
     // Idempotent: the same notification again, and the pre-refund transaction from the app.
-    const before = await env.DB.prepare("SELECT * FROM subscribers ORDER BY user_key").all();
+    const before = await env.DB.prepare("SELECT * FROM subscribers ORDER BY account_id, namespace").all();
     expect((await notify(refund)).status).toBe(200);
-    const after = await env.DB.prepare("SELECT * FROM subscribers ORDER BY user_key").all();
+    const after = await env.DB.prepare("SELECT * FROM subscribers ORDER BY account_id, namespace").all();
     expect(after.results).toEqual(before.results);
     expect(await stateOf(transaction)).toBe("subscription-revoked");
 

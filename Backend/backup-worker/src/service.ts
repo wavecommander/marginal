@@ -1,45 +1,60 @@
 // The endpoints and the daily cron. `index.ts` wires these to the Workers runtime; tests call
-// them directly with their own clock and trusted roots.
+// them directly with their own clock, roots of trust, key sets and outbound fetch.
 
+import { changeSignIn, deleteAccount, finishAccountDeletion, getAccount, signIn, signInNotification, signOut, signOutAll } from "./accounts";
 import { APPLE_APP_ATTESTATION_ROOT_CA, APPLE_ROOT_CA_G3 } from "./appleRoots";
-import { reason, verifyNotification, verifyRenewalInfo, verifyTransaction, type AppleEnvironment, type RenewalInfo, type Transaction, type VerifyContext } from "./appleJws";
-import { attestPolicy, verifyAssertion, verifyAttestation } from "./appAttest";
-import { equalStrings, fromBase64, hex, randomBytes, sha256, toBase64 } from "./bytes";
-import { AUTH_HEADERS, type AttestResponse, type ChallengeResponse, type DeleteMyDataResponse, type HealthResponse, type SessionResponse } from "./contract";
+import { reason, verifyNotification, verifyRenewalInfo, verifyTransaction, type RenewalInfo, type Transaction, type VerifyContext } from "./appleJws";
+import { attestPolicy, verifyAttestation } from "./appAttest";
+import { fromBase64, hex, randomBytes, sha256, toBase64 } from "./bytes";
+import type { AttestResponse, ChallengeResponse, DeleteMyDataResponse, HealthResponse, SessionResponse } from "./contract";
 import * as db from "./db";
+import { bindSubscription, recordNotification } from "./entitlement";
 import { readSettings, type Env, type Settings } from "./env";
 import { Refusal, json, optionalStringField, problem, readJsonBody, stringField } from "./http";
+import { JwksCache, type JwksSource, type OutboundFetch } from "./idToken";
 import { logError, logEvent, shortKey } from "./log";
-import { countUsage, deleteFolder, folderFor } from "./storage";
-import { DAY_MS, accessAt, allowanceFor, applyRenewalInfo, applyTransaction, newSubscriber, subscriptionInfo, type Subscriber } from "./subscription";
+import { CHALLENGE_BYTES, authenticate, requireSession, sessionTokenField, useChallenge } from "./requestAuth";
+import { deleteFolder, emptyAccountFolders, folderFor } from "./storage";
+import { DAY_MS, accessAt, allowanceFor, primaryOf, subscriptionInfo, type Subscriber } from "./subscription";
 import { ACTIONS, createTempCredentials, type AccessMode } from "./tempCredentials";
-import { userKey } from "./userKey";
+import { currentUsage } from "./usage";
 
-/** What tests replace: the clock and the roots of trust. */
+/** What tests replace: the clock, the roots of trust, the providers' key sets and outbound requests. */
 export interface Deps {
   now(): Date;
   /** DER of the roots trusted for App Store JWS (Apple Root CA - G3). */
   appleRoots: Uint8Array[];
   /** DER of the roots trusted for App Attest (Apple App Attestation Root CA). */
   appAttestRoots: Uint8Array[];
-  /** R2 operations one delete-my-data call may spend (two per 1,000 objects). */
+  /** Apple's and Google's sign-in key sets. */
+  jwks: JwksSource;
+  /** Outbound requests to Apple's token and revoke endpoints. */
+  fetch: OutboundFetch;
+  /** R2 operations one delete-my-data or account-delete call may spend (two per 1,000 objects). */
   deleteRequestBudget?: number;
   /** R2 operations one cron run may spend. */
   cronBudget?: number;
 }
+
+const outboundFetch: OutboundFetch = (url, init) => fetch(url, init);
+/** One key-set cache per isolate, shared by its requests. */
+const sharedJwks = new JwksCache(outboundFetch);
 
 export function defaultDeps(): Deps {
   return {
     now: () => new Date(),
     appleRoots: [fromBase64(APPLE_ROOT_CA_G3)],
     appAttestRoots: [fromBase64(APPLE_APP_ATTESTATION_ROOT_CA)],
+    jwks: sharedJwks,
+    fetch: outboundFetch,
   };
 }
 
-const CHALLENGE_BYTES = 32;
 const CHALLENGE_TTL_MS = 5 * 60_000;
-/** Default R2 operations one delete-my-data call may spend: up to 100,000 objects. */
-const DELETE_REQUEST_BUDGET = 200;
+/** Default R2 operations one delete call may spend: up to 100,000 objects. */
+export const DELETE_REQUEST_BUDGET = 200;
+/** Below this a call deleting two folders might not make progress (see `emptyAccountFolders`). */
+export const MIN_DELETE_BUDGET = 3;
 /**
  * Default R2 operations one cron run may spend: up to 300,000 objects, inside even the Workers
  * Free plan's 1,000 subrequests to Cloudflare services per invocation, D1 queries included.
@@ -47,16 +62,28 @@ const DELETE_REQUEST_BUDGET = 200;
 const CRON_BUDGET = 600;
 /** Subscriptions the cron looks at per run, at most. */
 const CRON_MAX_CANDIDATES = 2000;
+/** Account deletions the cron finishes per run, at most. */
+const CRON_MAX_ACCOUNT_DELETIONS = 50;
+/** The cron leaves an account deletion this long to the app before finishing it itself. */
+const ACCOUNT_DELETION_GRACE_MS = 15 * 60_000;
 
-type Handler = (request: Request, env: Env, settings: Settings, deps: Deps) => Promise<Response>;
+export type Handler = (request: Request, env: Env, settings: Settings, deps: Deps) => Promise<Response>;
 
 const ROUTES: Record<string, Partial<Record<string, Handler>>> = {
   "/v1/health": { GET: health },
   "/v1/challenge": { POST: challenge },
   "/v1/attest": { POST: attest },
+  "/v1/auth/apple": { POST: (request, env, settings, deps) => signIn("apple", request, env, settings, deps) },
+  "/v1/auth/google": { POST: (request, env, settings, deps) => signIn("google", request, env, settings, deps) },
+  "/v1/auth/change": { POST: changeSignIn },
+  "/v1/auth/signout": { POST: signOut },
+  "/v1/auth/signout-all": { POST: signOutAll },
+  "/v1/account": { POST: getAccount },
+  "/v1/account/delete": { POST: deleteAccount },
   "/v1/session": { POST: session },
   "/v1/delete-my-data": { POST: deleteMyData },
   "/v1/apple/notifications": { POST: appleNotification },
+  "/v1/apple/signin-notifications": { POST: signInNotification },
 };
 
 export async function handle(request: Request, env: Env, deps: Deps): Promise<Response> {
@@ -135,14 +162,26 @@ async function attest(request: Request, env: Env, settings: Settings, deps: Deps
 }
 
 async function session(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
-  const { transaction, renewal } = await authenticate(request, env, settings, deps, "session");
+  const { fields, attestKeyId } = await authenticate(request, env, settings, deps, "session", (body) => {
+    const signedTransaction = optionalStringField(body, "signedTransaction", 32 * 1024);
+    const signedRenewalInfo = optionalStringField(body, "signedRenewalInfo", 32 * 1024);
+    if (signedRenewalInfo !== undefined && signedTransaction === undefined) throw new Refusal("bad-request", "renewal info without a transaction");
+    return { token: sessionTokenField(body), signedTransaction, signedRenewalInfo };
+  });
+  const { account } = await requireSession(env, deps, fields.token, attestKeyId);
   const now = deps.now().getTime();
-  const key = await userKeyFor(settings, transaction);
-  const subscriber = await recordSubscription(env.DB, key, transaction, renewal, now, settings, true);
-  if (!subscriber) throw new Error("session: subscriber not recorded");
+
+  let subscriber: Subscriber | undefined;
+  if (fields.signedTransaction !== undefined) {
+    const { transaction, renewal } = await verifySubscription(fields.signedTransaction, fields.signedRenewalInfo, settings, deps);
+    subscriber = await bindSubscription(env.DB, settings, account, transaction, renewal, now);
+  } else {
+    subscriber = primaryOf(await db.listSubscribers(env.DB, account.accountId), now, settings);
+  }
+  if (!subscriber) throw new Refusal("not-subscribed", "no entitlement");
+
   const access = accessAt(subscriber, now, settings);
   const info = subscriptionInfo(subscriber, access, settings);
-
   switch (access.kind) {
     case "revoked":
       throw new Refusal("subscription-revoked", "revoked", info);
@@ -153,11 +192,18 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
       throw new Refusal("subscription-lapsed", "lapsed", info);
   }
 
-  const folder = folderFor(key, subscriber.environment);
+  const folder = folderFor(account.folderKey, subscriber.namespace);
   const allowance = allowanceFor(subscriber, settings);
   const usage = await currentUsage(env, subscriber, folder, now, settings);
   const overAllowance = usage.bytes > allowance || !usage.complete;
   const mode: AccessMode = access.kind === "read-only" ? "read-only" : overAllowance ? "read-delete" : "read-write";
+
+  // Look again right before minting: an account deletion may have started during the steps
+  // above. From here to the credentials there is no more I/O, so any credential minted is from
+  // before the deletion started, which is what the deleted folder's purge time allows for.
+  const current = await db.getAccount(env.DB, account.accountId);
+  if (!current) throw new Refusal("session-invalid", "account removed during the request");
+  if (current.deletingSince !== null) throw new Refusal("account-deleting", "deletion started during the request");
 
   const credentials = await createTempCredentials({
     accountId: settings.r2.accountId,
@@ -170,7 +216,7 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
     ttlSeconds: settings.credentialTTLSeconds,
     now: new Date(now),
   });
-  logEvent("session", { user: shortKey(key), mode, environment: subscriber.environment });
+  logEvent("session", { account: shortKey(account.accountId), mode, environment: subscriber.environment });
   const body: SessionResponse = {
     mode,
     credentials,
@@ -193,12 +239,11 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
 }
 
 async function deleteMyData(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
-  const { transaction } = await authenticate(request, env, settings, deps, "delete-my-data");
-  const key = await userKeyFor(settings, transaction);
-  const folder = folderFor(key, transaction.environment);
-  const result = await deleteFolder(env.BUCKET, folder, { operations: deps.deleteRequestBudget ?? DELETE_REQUEST_BUDGET });
-  if (result.done) await db.deleteSubscriber(env.DB, key);
-  logEvent("delete-my-data", { user: shortKey(key), done: result.done, deleted: result.deleted });
+  const { fields, attestKeyId } = await authenticate(request, env, settings, deps, "delete-my-data", (body) => sessionTokenField(body));
+  const { account } = await requireSession(env, deps, fields, attestKeyId);
+  const result = await emptyAccountFolders(env.BUCKET, account.folderKey, deleteBudget(deps));
+  if (result.done) await db.resetUsage(env.DB, account.accountId, deps.now().getTime());
+  logEvent("delete-my-data", { account: shortKey(account.accountId), done: result.done, deleted: result.deleted });
   const body: DeleteMyDataResponse = { done: result.done, deletedObjects: result.deleted };
   return json(200, body);
 }
@@ -247,9 +292,7 @@ async function appleNotification(request: Request, env: Env, settings: Settings,
   if (renewal && (renewal.originalTransactionId !== transaction.originalTransactionId || renewal.environment !== transaction.environment)) {
     throw new Refusal("notification-invalid", "renewal info is for another subscription");
   }
-  const key = await userKeyFor(settings, transaction);
-  const now = deps.now().getTime();
-  const subscriber = await recordSubscription(env.DB, key, transaction, renewal, now, settings, false);
+  const subscriber = await recordNotification(env.DB, settings, transaction, renewal, deps.now().getTime());
   if (!subscriber) return ack("ignored-unknown-subscription");
   return ack("applied");
 }
@@ -259,6 +302,10 @@ async function appleNotification(request: Request, env: Env, settings: Settings,
 
 export interface CronResult {
   challengesRemoved: number;
+  /** Account deletions the app left unfinished, finished here. */
+  accountsRemoved: number;
+  /** Deleted accounts' folders emptied for the last time and forgotten. */
+  foldersPurged: number;
   foldersEmptied: number;
   objectsDeleted: number;
   /** True when the budget ran out with work left; the next run continues. */
@@ -268,18 +315,54 @@ export interface CronResult {
 export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
   const settings = readSettings(env);
   const now = deps.now().getTime();
-  const result: CronResult = { challengesRemoved: 0, foldersEmptied: 0, objectsDeleted: 0, unfinished: false };
+  const result: CronResult = { challengesRemoved: 0, accountsRemoved: 0, foldersPurged: 0, foldersEmptied: 0, objectsDeleted: 0, unfinished: false };
   result.challengesRemoved = await db.deleteExpiredChallenges(env.DB, now);
-
   const budget = { operations: deps.cronBudget ?? CRON_BUDGET };
+
+  // Account deletions the app started and did not finish.
+  for (const account of await db.accountsBeingDeleted(env.DB, now - ACCOUNT_DELETION_GRACE_MS, CRON_MAX_ACCOUNT_DELETIONS)) {
+    if (budget.operations < MIN_DELETE_BUDGET) {
+      result.unfinished = true;
+      break;
+    }
+    const deletion = await emptyAccountFolders(env.BUCKET, account.folderKey, budget);
+    result.objectsDeleted += deletion.deleted;
+    if (!deletion.done) {
+      result.unfinished = true;
+      break;
+    }
+    await finishAccountDeletion(env, settings, account, account.deletingSince ?? now, now, "cron");
+    result.accountsRemoved++;
+  }
+
+  // Deleted accounts' folders, once every credential minted for them has expired: emptied once
+  // more (credentials minted before the deletion may have written to them), then forgotten.
+  if (!result.unfinished) {
+    for (const folderKey of await db.foldersToPurge(env.DB, now, CRON_MAX_ACCOUNT_DELETIONS)) {
+      if (budget.operations < MIN_DELETE_BUDGET) {
+        result.unfinished = true;
+        break;
+      }
+      const purge = await emptyAccountFolders(env.BUCKET, folderKey, budget);
+      result.objectsDeleted += purge.deleted;
+      if (!purge.done) {
+        result.unfinished = true;
+        break;
+      }
+      await db.forgetDeletedFolder(env.DB, folderKey, now);
+      result.foldersPurged++;
+    }
+  }
+
+  // The lapse policy.
   const cutoff = now - settings.deleteAfterDays * DAY_MS;
-  let afterKey = "";
+  let after = { accountId: "", namespace: "" };
   let examined = 0;
-  outer: while (examined < CRON_MAX_CANDIDATES) {
-    const candidates = await db.deletionCandidates(env.DB, cutoff, afterKey, 50);
+  outer: while (!result.unfinished && examined < CRON_MAX_CANDIDATES) {
+    const candidates = await db.deletionCandidates(env.DB, cutoff, after, 50);
     if (candidates.length === 0) break;
-    for (const subscriber of candidates) {
-      afterKey = subscriber.userKey;
+    for (const { subscriber, folderKey } of candidates) {
+      after = { accountId: subscriber.accountId, namespace: subscriber.namespace };
       examined++;
       const access = accessAt(subscriber, now, settings);
       const due =
@@ -290,15 +373,15 @@ export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
         result.unfinished = true;
         break outer;
       }
-      const folder = folderFor(subscriber.userKey, subscriber.environment);
+      const folder = folderFor(folderKey, subscriber.namespace);
       const deletion = await deleteFolder(env.BUCKET, folder, budget);
       result.objectsDeleted += deletion.deleted;
       if (!deletion.done) {
         result.unfinished = true;
         break outer;
       }
-      if (await db.markDataDeleted(env.DB, subscriber.userKey, subscriber.version, now)) result.foldersEmptied++;
-      logEvent("lapsed-data-deleted", { user: shortKey(subscriber.userKey), objects: deletion.deleted });
+      if (await db.markDataDeleted(env.DB, subscriber.accountId, subscriber.namespace, subscriber.version, now)) result.foldersEmptied++;
+      logEvent("lapsed-data-deleted", { account: shortKey(subscriber.accountId), objects: deletion.deleted });
     }
   }
   if (examined >= CRON_MAX_CANDIDATES) result.unfinished = true;
@@ -309,7 +392,7 @@ export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
 // ---------------------------------------------------------------------------------------------
 // Shared steps
 
-function verifyContext(settings: Settings, deps: Deps): VerifyContext {
+export function verifyContext(settings: Settings, deps: Deps): VerifyContext {
   return {
     settings,
     trust: { appleRoots: deps.appleRoots, xcodeRoot: settings.xcodeStoreKitCert },
@@ -317,38 +400,13 @@ function verifyContext(settings: Settings, deps: Deps): VerifyContext {
   };
 }
 
-/**
- * Authenticates a request: its challenge (single use), its App Attest assertion over the exact
- * body (or, in `dev` only, the bypass secret) and its signed subscription.
- */
-async function authenticate(
-  request: Request,
-  env: Env,
+/** Verifies the app's signed transaction and, if sent, its renewal info for the same subscription. */
+async function verifySubscription(
+  signedTransaction: string,
+  signedRenewalInfo: string | undefined,
   settings: Settings,
   deps: Deps,
-  action: "session" | "delete-my-data",
 ): Promise<{ transaction: Transaction; renewal: RenewalInfo | undefined }> {
-  const { bytes, value } = await readJsonBody(request);
-  if (stringField(value, "action", 32) !== action) throw new Refusal("bad-request", "action does not match the endpoint");
-  const challengeText = stringField(value, "challenge", 64);
-  const signedTransaction = stringField(value, "signedTransaction", 32 * 1024);
-  const signedRenewalInfo = optionalStringField(value, "signedRenewalInfo", 32 * 1024);
-  await useChallenge(env, challengeText, deps);
-
-  const bypass = request.headers.get(AUTH_HEADERS.bypass);
-  // Only `dev` has a bypass secret at all (readSettings refuses one in production); check the
-  // environment again anyway so no configuration can make production honour it.
-  const bypassed =
-    settings.environment === "dev" &&
-    settings.attestBypassSecret !== undefined &&
-    bypass !== null &&
-    equalStrings(bypass, settings.attestBypassSecret);
-  if (bypassed) {
-    logEvent("attest-bypassed");
-  } else {
-    await checkAssertion(request, env, settings, bytes, deps);
-  }
-
   const context = verifyContext(settings, deps);
   const transaction = await verifyTransaction(signedTransaction, context);
   let renewal: RenewalInfo | undefined;
@@ -361,116 +419,8 @@ async function authenticate(
   return { transaction, renewal };
 }
 
-async function checkAssertion(request: Request, env: Env, settings: Settings, body: Uint8Array, deps: Deps): Promise<void> {
-  const keyIdText = request.headers.get(AUTH_HEADERS.keyId);
-  const assertionText = request.headers.get(AUTH_HEADERS.assertion);
-  if (!keyIdText || !assertionText || keyIdText.length > 64 || assertionText.length > 8192) {
-    throw new Refusal("assertion-invalid", "missing assertion headers");
-  }
-  let assertion: Uint8Array;
-  try {
-    assertion = fromBase64(assertionText);
-  } catch {
-    throw new Refusal("assertion-invalid", "assertion is not base64");
-  }
-  const device = await db.getDevice(env.DB, keyIdText);
-  if (!device) throw new Refusal("device-unknown", "no such key");
-  const policy = attestPolicy(settings.environment, settings.appId);
-  if (!policy.environments.has(device.environment)) throw new Refusal("device-unknown", "key from another App Attest environment");
-  let counter: number;
-  try {
-    ({ counter } = await verifyAssertion({ assertion, clientData: body, publicKey: device.publicKey, previousCounter: device.counter, policy }));
-  } catch (error) {
-    throw new Refusal("assertion-invalid", reason(error));
-  }
-  // Atomic: of two requests carrying the same counter, only one gets through.
-  if (!(await db.advanceCounter(env.DB, keyIdText, counter, deps.now().getTime()))) {
-    throw new Refusal("assertion-invalid", "counter already used");
-  }
-}
-
-async function useChallenge(env: Env, challengeText: string, deps: Deps): Promise<Uint8Array> {
-  let bytes: Uint8Array;
-  try {
-    bytes = fromBase64(challengeText);
-  } catch {
-    throw new Refusal("challenge-invalid", "not base64");
-  }
-  if (bytes.length !== CHALLENGE_BYTES) throw new Refusal("challenge-invalid", "wrong length");
-  if (!(await db.consumeChallenge(env.DB, hex(await sha256(bytes)), deps.now().getTime()))) {
-    throw new Refusal("challenge-invalid", "unknown, used or expired");
-  }
-  return bytes;
-}
-
-/**
- * The user's key. Production subscriptions use the documented keyed hash; sandbox and Xcode ones
- * a separately keyed one, so a test purchase can never land on a customer's row or folder.
- */
-async function userKeyFor(settings: Settings, transaction: Pick<Transaction, "originalTransactionId" | "environment">): Promise<string> {
-  return userKey(namespacedSecret(settings.userKeySecret, transaction.environment), transaction.originalTransactionId);
-}
-
-function namespacedSecret(secret: string, environment: AppleEnvironment): string {
-  return environment === "Production" ? secret : `${secret}\u0000${environment}`;
-}
-
-/**
- * Applies a verified transaction (and renewal info) to the stored subscription, newest wins.
- * `create`: whether to start a row for an unknown subscription (sessions do, notifications do
- * not). Returns the stored state, or null if unknown and not created.
- */
-async function recordSubscription(
-  database: D1Database,
-  key: string,
-  transaction: Transaction,
-  renewal: RenewalInfo | undefined,
-  now: number,
-  settings: Settings,
-  create: boolean,
-): Promise<Subscriber | null> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const existing = await db.getSubscriber(database, key);
-    if (!existing && !create) return null;
-    let next = existing ? applyTransaction(existing, transaction) : newSubscriber(key, transaction, now);
-    if (renewal) next = applyRenewalInfo(next, renewal);
-    // A resubscription after the lapse policy deleted the data starts afresh.
-    if (next.dataDeletedAt !== null && accessAt(next, now, settings).kind === "active") next = { ...next, dataDeletedAt: null };
-    if (existing && sameState(existing, next)) return existing;
-    if (await db.saveSubscriber(database, next, existing !== null, now)) {
-      return { ...next, version: next.version + 1 };
-    }
-  }
-  throw new Error("subscriber row kept changing");
-}
-
-function sameState(a: Subscriber, b: Subscriber): boolean {
-  return (
-    a.productId === b.productId &&
-    a.environment === b.environment &&
-    a.expiresAt === b.expiresAt &&
-    a.revokedAt === b.revokedAt &&
-    a.inBillingRetry === b.inBillingRetry &&
-    a.graceExpiresAt === b.graceExpiresAt &&
-    a.billingRetryEndedAt === b.billingRetryEndedAt &&
-    a.txnSignedAt === b.txnSignedAt &&
-    a.renewalSignedAt === b.renewalSignedAt &&
-    a.dataDeletedAt === b.dataDeletedAt
-  );
-}
-
-async function currentUsage(env: Env, subscriber: Subscriber, folder: string, now: number, settings: Settings): Promise<{ bytes: number; complete: boolean; countedAt: number }> {
-  if (subscriber.usageCheckedAt !== null && now - subscriber.usageCheckedAt < settings.usageCacheSeconds * 1000) {
-    return { bytes: subscriber.usageBytes, complete: true, countedAt: subscriber.usageCheckedAt };
-  }
-  const usage = await countUsage(env.BUCKET, folder);
-  if (usage.complete) {
-    await db.saveUsage(env.DB, subscriber.userKey, usage.bytes, now);
-  } else {
-    // Too many objects to count in one go: treated as over the allowance, and not cached.
-    logEvent("usage-count-incomplete", { user: shortKey(subscriber.userKey) });
-  }
-  return { bytes: usage.bytes, complete: usage.complete, countedAt: now };
+export function deleteBudget(deps: Deps): { operations: number } {
+  return { operations: Math.max(MIN_DELETE_BUDGET, deps.deleteRequestBudget ?? DELETE_REQUEST_BUDGET) };
 }
 
 function decodeBase64Field(text: string, name: string): Uint8Array {

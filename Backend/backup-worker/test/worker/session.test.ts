@@ -1,40 +1,47 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { ErrorResponse, SessionResponse } from "../../src/contract";
+import type { ErrorResponse } from "../../src/contract";
 import { ACTIONS } from "../../src/tempCredentials";
 import { DAY, renewalPayload, transactionPayload } from "../helpers/apple";
 import { ALLOWANCE, OTHER_PRODUCT, SANDBOX_ALLOWANCE } from "../helpers/settings";
-import { attestedInstall, authed, makeWorld, putObjects, sessionTokenPayload, sign, type Install, type World } from "./harness";
+import { authed, errorCode, makeWorld, putObjects, sessionOk, sessionTokenPayload, sign, signedInReader, type Reader, type World } from "./harness";
 
 let world: World;
-let install: Install;
 let nextId = 3000000000000000;
+/** Each subscription is presented by its own signed-in reader, so tests do not share accounts. */
+const readers = new Map<string, Reader>();
 
 beforeAll(async () => {
   world = await makeWorld();
-  install = await attestedInstall(world);
 });
 
-/** A fresh subscription (its own original transaction ID, so tests do not share rows). */
+/** A fresh subscription (its own original transaction ID). */
 function subscription(overrides: Record<string, unknown> = {}) {
   const id = String(nextId++);
   return transactionPayload({ originalTransactionId: id, transactionId: id, ...overrides });
 }
 
+async function readerFor(payload: Record<string, unknown>): Promise<Reader> {
+  const id = String(payload.originalTransactionId);
+  let reader = readers.get(id);
+  if (!reader) {
+    reader = await signedInReader(world);
+    readers.set(id, reader);
+  }
+  return reader;
+}
+
 async function session(payload: Record<string, unknown>, renewal?: Record<string, unknown>): Promise<Response> {
-  return authed(world, install, "session", {
+  return authed(world, await readerFor(payload), "session", {
     signedTransaction: await sign(world, payload),
     signedRenewalInfo: renewal ? await sign(world, renewal) : undefined,
   });
 }
 
-async function ok(response: Response): Promise<SessionResponse> {
-  if (response.status !== 200) throw new Error(`${response.status} ${await response.text()}`);
-  return response.json();
-}
+const ok = sessionOk;
 
 describe("a session for an active subscription", () => {
-  it("returns read-write credentials limited to exactly the caller's folder", async () => {
+  it("returns read-write credentials limited to exactly the account's folder", async () => {
     const body = await ok(await session(subscription()));
     expect(body.mode).toBe("read-write");
     expect(body.storage).toEqual({
@@ -54,32 +61,55 @@ describe("a session for an active subscription", () => {
     expect(body.usage).toMatchObject({ bytes: 0, allowanceBytes: ALLOWANCE, overAllowance: false });
   });
 
-  it("gives the same folder to the same subscription and different folders to different ones", async () => {
+  it("gives an account the same folder every time, with or without the transaction, and another account another folder", async () => {
     const mine = subscription();
     const a = await ok(await session(mine));
     const again = await ok(await session({ ...mine, transactionId: String(nextId++), expiresDate: (mine.expiresDate as number) + 30 * DAY, signedDate: (mine.signedDate as number) + DAY }));
+    const bare = await ok(await authed(world, await readerFor(mine), "session"));
     const other = await ok(await session(subscription()));
     expect(again.storage.prefix).toBe(a.storage.prefix);
+    expect(bare.storage.prefix).toBe(a.storage.prefix);
+    expect(bare.subscription.expiresAt).toBe(again.subscription.expiresAt);
     expect(other.storage.prefix).not.toBe(a.storage.prefix);
     expect(sessionTokenPayload(other.credentials.sessionToken).paths).toEqual({ prefixPaths: [other.storage.prefix], objectPaths: [] });
     expect(a.storage.prefix.startsWith(other.storage.prefix) || other.storage.prefix.startsWith(a.storage.prefix)).toBe(false);
   });
 
-  it("keeps sandbox purchases in a separate namespace with the sandbox allowance", async () => {
+  it("keeps sandbox purchases in the account's separate sandbox folder with the sandbox allowance", async () => {
     const shared = subscription();
     const production = await ok(await session(shared));
     const sandbox = await ok(await session({ ...shared, environment: "Sandbox" }));
     expect(sandbox.storage.prefix).toMatch(/^sandbox\/[0-9a-f]{64}\/$/);
-    // Even with the same transaction ID, a sandbox purchase never reaches a customer's folder.
-    expect(sandbox.storage.prefix.slice("sandbox/".length)).not.toBe(production.storage.prefix.slice("users/".length));
+    expect(sandbox.storage.prefix.slice("sandbox/".length)).toBe(production.storage.prefix.slice("users/".length));
     expect(sandbox.usage.allowanceBytes).toBe(SANDBOX_ALLOWANCE);
     expect(sandbox.subscription.environment).toBe("Sandbox");
     expect(sessionTokenPayload(sandbox.credentials.sessionToken).paths).toEqual({ prefixPaths: [sandbox.storage.prefix], objectPaths: [] });
+    // Without a transaction, the App Store subscription is the one served.
+    expect((await ok(await authed(world, await readerFor(shared), "session"))).storage.prefix).toBe(production.storage.prefix);
   });
 
   it("uses the product's allowance", async () => {
     const body = await ok(await session(subscription({ productId: OTHER_PRODUCT })));
     expect(body.usage.allowanceBytes).toBe(ALLOWANCE * 10);
+  });
+});
+
+describe("signed in without a subscription", () => {
+  it("answers not-subscribed until a transaction is presented", async () => {
+    const reader = await signedInReader(world, "google");
+    const response = await authed(world, reader, "session");
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("not-subscribed");
+    const payload = subscription();
+    readers.set(String(payload.originalTransactionId), reader);
+    expect((await ok(await session(payload))).mode).toBe("read-write");
+    expect((await ok(await authed(world, reader, "session"))).mode).toBe("read-write");
+  });
+
+  it("refuses renewal info without a transaction", async () => {
+    const reader = await signedInReader(world);
+    const response = await authed(world, reader, "session", { bodyOverrides: { signedRenewalInfo: await sign(world, renewalPayload()) } });
+    expect(await errorCode(response)).toBe("bad-request");
   });
 });
 
@@ -164,7 +194,9 @@ describe("the lapse policy, exactly at its limits", () => {
     const body = await ok(await session(resubscribed));
     expect(body.mode).toBe("read-write");
     // The old transaction no longer wins.
-    expect((await ok(await session(lapsed))).mode).toBe("read-write");
+    const again = await ok(await session(lapsed));
+    expect(again.mode).toBe("read-write");
+    expect(again.storage.prefix).toBe(body.storage.prefix);
   });
 
   it("billing retry and grace period count as active", async () => {
@@ -198,6 +230,7 @@ describe("refused subscriptions", () => {
       [{ bundleId: "com.example.other" }, 401, "transaction-invalid"],
       [{ productId: "software.tactile.texts.tip" }, 403, "product-unknown"],
       [{ environment: "Xcode" }, 401, "transaction-invalid"],
+      [{ appAccountToken: "not-a-uuid" }, 401, "transaction-invalid"],
     ];
     for (const [overrides, status, code] of cases) {
       const response = await session(subscription(overrides));
@@ -206,3 +239,4 @@ describe("refused subscriptions", () => {
     }
   });
 });
+
