@@ -104,9 +104,8 @@ struct BackupSchedulerDueRuleTests {
 
     @Test func onlyNetworkDestinationsRequireTheNetwork() {
         #expect(!BackupScheduler.requiresNetwork(destinationID: PickedFolderBackupDestination.destinationID))
-        #expect(!BackupScheduler.requiresNetwork(destinationID: ICloudBackupDestination.destinationID))
         #expect(!BackupScheduler.requiresNetwork(destinationID: "folder:/tmp/Backups"))
-        #expect(BackupScheduler.requiresNetwork(destinationID: GoogleDriveBackupDestination.destinationID))
+        #expect(BackupScheduler.requiresNetwork(destinationID: TactileCloudBackupDestination.destinationID))
         #expect(BackupScheduler.requiresNetwork(destinationID: S3BackupDestination.destinationID))
         #expect(BackupScheduler.requiresNetwork(destinationID: "something-new"))
     }

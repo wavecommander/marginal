@@ -1,7 +1,6 @@
 import Observation
 import ReaderBackup
 import SwiftUI
-import UIKit
 import UniformTypeIdentifiers
 
 /// One destination's state: availability, its backups, the last result, and the error to show.
@@ -21,7 +20,7 @@ final class BackupDestinationModel {
     private(set) var resultLine: String?
     var failure: BackupFailure?
     var pendingDelete: BackupSnapshotInfo?
-    /// Bumped after the folder or account changes (the live name and state are re-read).
+    /// Bumped after the folder changes (the live name and state are re-read).
     private(set) var revision = 0
 
     @ObservationIgnored private let environment: AppEnvironment
@@ -69,7 +68,6 @@ final class BackupDestinationModel {
         } catch {
             if let failure = BackupFailure.from(error, title: "Couldn’t List the Backups") {
                 snapshots = .unavailable(failure.message)
-                if failure.offersSignIn { self.failure = failure }
             }
         }
     }
@@ -122,38 +120,11 @@ final class BackupDestinationModel {
         }
         Task { await refresh() }
     }
-
-    func signIn(anchor: UIWindow?) {
-        guard let anchor else {
-            failure = BackupFailure(title: "Couldn’t Sign In", message: "The sign-in page can’t be shown in this window. Try again.",
-                                    offersSignIn: false)
-            return
-        }
-        Task {
-            do {
-                try await environment.googleDriveAccount.signIn(anchor: anchor)
-            } catch {
-                failure = BackupFailure.from(error, title: "Couldn’t Sign In")
-            }
-            await refresh()
-        }
-    }
-
-    func signOut() {
-        Task {
-            do {
-                try await environment.googleDriveAccount.signOut()
-            } catch {
-                failure = BackupFailure.from(error, title: "Couldn’t Sign Out")
-            }
-            await refresh()
-        }
-    }
 }
 
 /// A destination: its status, Back Up Now (with its own Include PDFs), the backups there (each
 /// opens the restore preview, or is deleted after a confirmation), and what only this
-/// destination needs (the folder's Choose Folder…, Google Drive's account).
+/// destination needs (the folder's Choose Folder…).
 struct BackupDestinationScreen: View {
     let entryID: String
     let screenModel: BackupScreenModel?
@@ -180,7 +151,6 @@ private struct BackupDestinationContent: View {
     @Bindable var model: BackupDestinationModel
 
     @Environment(AppEnvironment.self) private var environment
-    @Environment(WindowContext.self) private var window: WindowContext?
     @State private var isFolderPickerPresented = false
     @State private var restoreRequest: RestoreRequest?
 
@@ -198,7 +168,6 @@ private struct BackupDestinationContent: View {
             }
             statusSection
             if model.kind.showsFolderControls { folderSection }
-            if model.kind.showsGoogleAccount { googleSection }
             BackupDestinationBackUpSection(model: model, canBackUp: isAvailable, footer: BackupUIText.retention)
             BackupDestinationSnapshotsSection(model: model, restoreRequest: $restoreRequest)
         }
@@ -208,14 +177,11 @@ private struct BackupDestinationContent: View {
         .toolbar { BackupDoneToolbarItem() }
         .task { await model.refresh() }
         .refreshable { await model.refresh() }
-        .task(id: environment.googleDriveAccount.state) {
-            if model.kind == .googleDrive { await model.refresh() }
-        }
         .fileImporter(isPresented: $isFolderPickerPresented, allowedContentTypes: [.folder], allowsMultipleSelection: false) {
             model.chooseFolder($0)
         }
         .sheet(item: $restoreRequest, onDismiss: { Task { await model.refresh() } }) { RestoreFlowView(request: $0) }
-        .backupFailureAlert($model.failure, signIn: { model.signIn(anchor: window?.presentationAnchor) })
+        .backupFailureAlert($model.failure)
         .backupSnapshotDeleteAlert(model)
     }
 
@@ -234,35 +200,16 @@ private struct BackupDestinationContent: View {
 
     /// The folder's name is the screen's title, so the section holds only the button.
     private var folderSection: some View {
-        Section("Folder") {
+        Section {
             Button(model.hasFolder ? "Choose Another Folder…" : "Choose Folder…") { isFolderPickerPresented = true }
                 .disabled(service.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Backup.chooseFolder)
-        }
-    }
-
-    private var googleSection: some View {
-        let account = environment.googleDriveAccount
-        let presentation = GoogleAccountPresentation.make(account.state)
-        return Section {
-            Text(presentation.status)
-                .accessibilityIdentifier(AccessibilityID.Backup.googleStatus)
-            if presentation.showsSignIn {
-                Button("Sign In…") { model.signIn(anchor: window?.presentationAnchor) }
-                    .disabled(account.isSigningIn)
-                    .accessibilityIdentifier(AccessibilityID.Backup.googleSignIn)
-            }
-            if presentation.showsSignOut {
-                Button("Sign Out", role: .destructive) { model.signOut() }
-                    .disabled(service.isBusy)
-                    .accessibilityIdentifier(AccessibilityID.Backup.googleSignOut)
-            }
         } header: {
-            Text("Google Account")
+            Text("Folder")
         } footer: {
-            Text(GoogleAccountPresentation.scopeSentence)
+            Text(BackupUIText.folderFooter)
+                .accessibilityIdentifier(AccessibilityID.Backup.folderFooter)
         }
-        .task { await account.refresh() }
     }
 }
 

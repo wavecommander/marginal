@@ -237,6 +237,26 @@ final class BackupUITests: XCTestCase {
 
     // MARK: Tests
 
+    /// The app has no iCloud or Google Drive destination of its own: the folder picked in Files
+    /// is how they are reached, and its screen says so.
+    func testTheFolderPickedInFilesIsTheOnlyDestinationOfTheAppsOwn() {
+        let app = launch([])
+        openBackupScreen(app)
+        let folderRow = app.buttons["backup.destination.folder"].firstMatch
+        scrollTo(folderRow, in: app)
+        XCTAssertTrue(folderRow.waitForExistence(timeout: 5), app.debugDescription)
+        // The picked folder, and the folder this test passes with `-backupFolder`.
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'backup.destination.'"))
+        XCTAssertEqual(rows.count, 2, app.debugDescription)
+        XCTAssertFalse(app.buttons["backup.destination.icloud"].exists)
+        XCTAssertFalse(app.buttons["backup.destination.google-drive"].exists)
+
+        folderRow.tap()
+        XCTAssertTrue(app.buttons["backup.destinationScreen.chooseFolder"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(waitFor(any(app, "backup.destinationScreen.folder.footer"), "label CONTAINS 'iCloud Drive'"), app.debugDescription)
+        XCTAssertFalse(app.buttons["Sign In…"].exists)
+    }
+
     /// (a) Back up with PDFs, delete the book, restore it: the book and its note are back.
     func testBackUpDeleteAndRestoreWithPDFs() {
         let app = launch([Fixtures.small], extra: ["-openBook", "small", "-openPage", "1", "-notesPanel", "page"])

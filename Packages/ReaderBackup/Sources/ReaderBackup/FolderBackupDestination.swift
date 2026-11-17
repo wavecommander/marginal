@@ -2,8 +2,8 @@ import Foundation
 
 /// A `BackupDestination` over a directory: `<root>/<backups directory>/<snapshot>.ttbackup` and
 /// `<root>/PDFs/<sha256>.pdf` (`BackupFolderLayout`). New snapshots go in `backupsDirectory`;
-/// snapshots in any `legacyBackupsDirectories` are still listed, downloaded and deleted. The Folder destination uses it on a
-/// folder the reader picked; the iCloud destination uses it on the ubiquity container.
+/// snapshots in any `legacyBackupsDirectories` are still listed, downloaded and deleted. The
+/// app's folder destination uses it on the folder the reader picked in Files.
 ///
 /// - Every write goes to a hidden temporary name in the target folder and is renamed into place
 ///   only when complete, so other devices and file browsers never see a partial file under a

@@ -85,9 +85,7 @@ nonisolated enum AccessibilityID {
         static let backUpNow = "backup.destinationScreen.backUpNow"
         static let destinationResult = "backup.destinationScreen.result"
         static let chooseFolder = "backup.destinationScreen.chooseFolder"
-        static let googleStatus = "backup.destinationScreen.google.status"
-        static let googleSignIn = "backup.destinationScreen.google.signIn"
-        static let googleSignOut = "backup.destinationScreen.google.signOut"
+        static let folderFooter = "backup.destinationScreen.folder.footer"
         /// One row per backup at the destination: `backup.snapshot.<snapshot name>`.
         static func snapshot(_ name: String) -> String { "backup.snapshot.\(name)" }
         static let snapshotsEmpty = "backup.snapshots.empty"

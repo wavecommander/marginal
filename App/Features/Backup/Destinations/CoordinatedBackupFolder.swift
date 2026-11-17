@@ -2,8 +2,8 @@ import Foundation
 import ReaderBackup
 
 /// The folder layout over one directory, every access coordinated, with iCloud's
-/// not-yet-downloaded items handled. Both the picked-folder and the iCloud destination run their
-/// operations through one of these, built for the root they resolved for that operation.
+/// not-yet-downloaded items handled. The picked-folder destination runs its operations through
+/// one of these, built for the root it resolved for that operation.
 ///
 /// It wraps `FolderBackupDestination` (which owns the layout, atomic writes, verification and
 /// skip-if-present) and adds:
