@@ -210,7 +210,7 @@ public enum ParagraphMerge {
     }
 
     /// The paragraphs that take part in the merge: all but a final empty paragraph.
-    private static func body(of paragraphs: [String]) -> (body: [String], endsWithNewline: Bool) {
+    static func body(of paragraphs: [String]) -> (body: [String], endsWithNewline: Bool) {
         guard paragraphs.last == "" else { return (paragraphs, false) }
         return (Array(paragraphs.dropLast()), paragraphs.count > 1)
     }
