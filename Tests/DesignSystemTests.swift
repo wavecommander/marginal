@@ -86,8 +86,15 @@ struct DesignSystemTests {
         let defaults = UserDefaults(suiteName: "DesignSystemTests.accent")!
         defer { defaults.removePersistentDomain(forName: "DesignSystemTests.accent") }
         #expect(AccentChoice.stored(in: defaults) == .raspberry)
-        defaults.set(AccentChoice.teal.rawValue, forKey: AccentChoice.storageKey)
-        #expect(AccentChoice.stored(in: defaults) == .teal)
+        defaults.set(AccentChoice.onyx.rawValue, forKey: AccentChoice.storageKey)
+        #expect(AccentChoice.stored(in: defaults) == .onyx)
+        // Retired presets: Graphite became Onyx; Teal and Tobacco fall back to the default.
+        defaults.set("graphite", forKey: AccentChoice.storageKey)
+        #expect(AccentChoice.stored(in: defaults) == .onyx)
+        for retired in ["teal", "tobacco"] {
+            defaults.set(retired, forKey: AccentChoice.storageKey)
+            #expect(AccentChoice.stored(in: defaults) == .raspberry)
+        }
         defaults.set("bogus", forKey: AccentChoice.storageKey)
         #expect(AccentChoice.stored(in: defaults) == .raspberry)
     }

@@ -423,7 +423,7 @@ Added by the owner (TSOFT-215, 14 November 2026).
   `AppIcon76x76@2x~ipad.png` in the bundle.
 - **Accent.** The accent is the reader's choice, from a fixed list of presets in Settings ▸
   Appearance (`AccentChoice` in `App/DesignSystem/Accent.swift`, stored under `settings.accent`):
-  Raspberry (the default), Coral, Indigo, Viridian, Teal, Tobacco, Aubergine and Graphite. There
+  Raspberry (the default), Coral, Indigo, Viridian, Aubergine and Onyx (black in Light Mode, near-white in Dark Mode; it replaced Graphite, and Teal and Tobacco were dropped, 17 November 2026; a stored Graphite reads as Onyx, a stored Teal or Tobacco as Raspberry). There
   is no free colour picker, because each preset is a hand-checked set of accent, accent tint and
   on-accent colours in both appearances. Raspberry is `#9C3656` in Light Mode and `#F4A3BE` in
   Dark Mode. The `AccentColor` asset holds the same raspberry; it is only the default and the
