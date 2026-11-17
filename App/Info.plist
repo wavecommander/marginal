@@ -9,8 +9,14 @@
 	</array>
 	<key>BackupService</key>
 	<dict>
+		<key>AppleSignIn</key>
+		<string>$(SIGN_IN_WITH_APPLE)</string>
 		<key>AttestBypass</key>
 		<string>$(BACKUP_SERVICE_ATTEST_BYPASS)</string>
+		<key>DevSignIn</key>
+		<string>$(BACKUP_SERVICE_DEV_SIGNIN)</string>
+		<key>GoogleClientID</key>
+		<string>$(GOOGLE_SIGNIN_CLIENT_ID)</string>
 		<key>Host</key>
 		<string>$(BACKUP_SERVICE_HOST)</string>
 		<key>PrivacyURL</key>
@@ -154,6 +160,19 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>software.tactile.texts.google-signin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_SIGNIN_URL_SCHEME)</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>

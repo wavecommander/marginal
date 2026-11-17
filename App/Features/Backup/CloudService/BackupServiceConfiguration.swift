@@ -24,6 +24,9 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
     static let hostKey = "Host"
     static let productIDsKey = "ProductIDs"
     static let attestBypassKey = "AttestBypass"
+    static let appleSignInKey = "AppleSignIn"
+    static let googleClientIDKey = "GoogleClientID"
+    static let devSignInKey = "DevSignIn"
 
     /// `https://<host>[:<port>]`, or `http://` for a loopback host. No path, no trailing slash.
     let baseURL: URL
@@ -36,13 +39,23 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
     /// The development Worker's App Attest bypass secret, or `nil` (always `nil` outside debug
     /// builds). Never described.
     let attestBypassSecret: String?
+    /// Sign in with Apple is offered (`SIGN_IN_WITH_APPLE` is `YES`, set together with the
+    /// entitlements file that holds the Sign in with Apple entitlement).
+    var signInWithApple = false
+    /// The Google OAuth client ID (iOS) for Sign in with Google, or `nil` (no Google button).
+    var googleClientID: String?
+    /// The `dev` Worker's test issuer secret (`BACKUP_SERVICE_DEV_SIGNIN`), or `nil`. Debug
+    /// builds only; when set, both sign-in buttons use the test issuer. Never described.
+    var devSignInSecret: String?
 
     /// Whether the service is reached over plain HTTP on this machine (local development).
     var isLoopback: Bool { baseURL.scheme == "http" }
 
     var description: String {
         "BackupServiceConfiguration(\(baseURL.absoluteString), products: \(productIDs.joined(separator: ", "))"
-            + (attestBypassSecret == nil ? ")" : ", attest bypass: <redacted>)")
+            + (attestBypassSecret == nil ? "" : ", attest bypass: <redacted>")
+            + (signInWithApple ? ", Sign in with Apple" : "") + (googleClientID == nil ? "" : ", Sign in with Google")
+            + (devSignInSecret == nil ? ")" : ", dev sign-in: <redacted>)")
     }
 
     /// The configuration, or `nil` unless the host is a usable host (and port) and at least one
@@ -52,8 +65,14 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
         guard let values = infoDictionary?[infoKey] as? [String: Any],
               let hostValue = (values[hostKey] as? String).flatMap(setting),
               let idsValue = (values[productIDsKey] as? String).flatMap(setting) else { return nil }
-        return BackupServiceConfiguration(host: hostValue, productIDs: idsValue,
-                                          attestBypass: values[attestBypassKey] as? String ?? "")
+        guard var configuration = BackupServiceConfiguration(host: hostValue, productIDs: idsValue,
+                                                             attestBypass: values[attestBypassKey] as? String ?? "") else { return nil }
+        configuration.signInWithApple = (values[appleSignInKey] as? String).flatMap(setting)?.uppercased() == "YES"
+        configuration.googleClientID = (values[googleClientIDKey] as? String).flatMap(setting)
+        #if DEBUG
+        configuration.devSignInSecret = (values[devSignInKey] as? String).flatMap(setting)
+        #endif
+        return configuration
     }
 
     /// Parses the settings as written in the xcconfig. `nil` unless host and product IDs are

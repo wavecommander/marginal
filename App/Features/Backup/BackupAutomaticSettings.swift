@@ -52,6 +52,19 @@ final class BackupAutomaticSettings {
         lastFailureMessage = defaults.string(forKey: Key.lastFailureMessage)
     }
 
+    /// Automatic backup to `destinationID` becomes on, **only when the reader never set automatic
+    /// backups up**: never switched them on or off, and no destination chosen (owner decision,
+    /// 17 November 2026: on by default for a signed-in Tactile Texts Cloud subscriber). A
+    /// reader who turned it off, or who backs up automatically elsewhere, is left as they are.
+    /// Returns whether it changed anything.
+    @discardableResult
+    func applyDefault(destinationID id: String) -> Bool {
+        guard defaults.object(forKey: Key.isEnabled) == nil, destinationID == nil else { return false }
+        destinationID = id
+        isEnabled = true
+        return true
+    }
+
     /// The scheduler notes that the library changed.
     func recordChange(at date: Date = Date()) {
         lastChangeAt = date

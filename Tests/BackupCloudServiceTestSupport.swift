@@ -218,6 +218,8 @@ final class BackupCloudServiceFakeStore: BackupStoreKit {
     var syncResult: Result<[BackupStoreTransaction], any Error> = .success([])
     private(set) var finished: [UInt64] = []
     private(set) var purchases: [String] = []
+    /// The `appAccountToken` each purchase carried.
+    private(set) var purchaseTokens: [UUID?] = []
     private(set) var syncs = 0
     private var continuation: AsyncStream<BackupStoreTransaction>.Continuation?
     private(set) var updatesRequested = 0
@@ -227,8 +229,9 @@ final class BackupCloudServiceFakeStore: BackupStoreKit {
         return products.filter { ids.contains($0.id) }
     }
 
-    func purchase(productID: String, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
+    func purchase(productID: String, appAccountToken: UUID?, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
         purchases.append(productID)
+        purchaseTokens.append(appAccountToken)
         let result = try nextPurchase.get()
         if case .success(let transaction) = result { history.append(transaction) }
         return result

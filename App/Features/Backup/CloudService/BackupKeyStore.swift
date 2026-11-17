@@ -67,6 +67,9 @@ nonisolated enum BackupKeyStoreError: LocalizedError, Hashable, Sendable {
 ///   The `ThisDeviceOnly` classes are not allowed with synchronisation (same documentation), and
 ///   this is the background-capable class that is.
 /// - The value is the key's 32 raw bytes.
+/// - **One item per account**: the account attribute names the service's random account ID, so
+///   signing out and in to another account on the same iPad can never pair one account's key
+///   with another account's backups.
 ///
 /// iCloud Keychain may be off; the item is then kept on this device only until it is turned on.
 /// Without the app's `application-identifier` entitlement (the unsigned simulator test host)
@@ -74,16 +77,22 @@ nonisolated enum BackupKeyStoreError: LocalizedError, Hashable, Sendable {
 nonisolated struct KeychainBackupKeyStore: BackupKeyStore, CustomStringConvertible {
     /// The item's service attribute in the app.
     static let defaultService = "software.tactile.texts.cloud-backup"
-    static let account = "backup-encryption-key"
+    /// The account attribute's prefix; the account ID follows a dot.
+    static let accountPrefix = "backup-encryption-key"
     /// The accessibility class of the item.
     static var accessibility: CFString { kSecAttrAccessibleAfterFirstUnlock }
 
     let service: String
+    /// The item's `kSecAttrAccount`: `backup-encryption-key.<account ID>`.
+    let account: String
 
-    /// - Parameter service: the item's `kSecAttrService`; tests pass their own so they never touch
-    ///   the app's item.
-    init(service: String = KeychainBackupKeyStore.defaultService) {
+    /// - Parameters:
+    ///   - service: the item's `kSecAttrService`; tests pass their own so they never touch the
+    ///     app's item.
+    ///   - accountID: the service's ID of the account whose key this is.
+    init(service: String = KeychainBackupKeyStore.defaultService, accountID: String) {
         self.service = service
+        self.account = "\(Self.accountPrefix).\(accountID)"
     }
 
     var description: String { "KeychainBackupKeyStore(service: \(service))" }
@@ -161,10 +170,69 @@ nonisolated struct KeychainBackupKeyStore: BackupKeyStore, CustomStringConvertib
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: Self.account,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
         ]
     }
+}
+
+// MARK: - Per account
+
+/// Gives the key store of one account.
+nonisolated protocol BackupKeyStoreFactory: Sendable {
+    func keyStore(forAccount accountID: String) -> any BackupKeyStore
+}
+
+/// Each account's key in its own Keychain item (`KeychainBackupKeyStore`).
+nonisolated struct KeychainBackupKeyStores: BackupKeyStoreFactory {
+    let service: String
+
+    init(service: String = KeychainBackupKeyStore.defaultService) {
+        self.service = service
+    }
+
+    func keyStore(forAccount accountID: String) -> any BackupKeyStore {
+        KeychainBackupKeyStore(service: service, accountID: accountID)
+    }
+}
+
+/// Each account's key in memory, one store per account (tests).
+nonisolated final class InMemoryBackupKeyStores: BackupKeyStoreFactory, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stores: [String: InMemoryBackupKeyStore] = [:]
+
+    init(_ keys: [String: BackupEncryptionKey] = [:]) {
+        stores = keys.mapValues { InMemoryBackupKeyStore(key: $0) }
+    }
+
+    func keyStore(forAccount accountID: String) -> any BackupKeyStore {
+        lock.withLock {
+            if let store = stores[accountID] { return store }
+            let made = InMemoryBackupKeyStore()
+            stores[accountID] = made
+            return made
+        }
+    }
+}
+
+/// The key store of whichever account this device is signed in to at each call: every call asks
+/// `currentAccount` first and throws `CloudServiceError.notSignedIn` when there is none.
+nonisolated struct AccountScopedBackupKeyStore: BackupKeyStore, CustomStringConvertible {
+    let factory: any BackupKeyStoreFactory
+    let currentAccount: @Sendable () async -> String?
+
+    var description: String { "AccountScopedBackupKeyStore" }
+
+    private func store() async throws -> any BackupKeyStore {
+        guard let id = await currentAccount() else { throw CloudServiceError.notSignedIn }
+        return factory.keyStore(forAccount: id)
+    }
+
+    func load() async throws -> BackupEncryptionKey? { try await store().load() }
+    func createKey() async throws -> BackupEncryptionKey { try await store().createKey() }
+    func adoptKey(recoveryKey text: String) async throws -> BackupEncryptionKey { try await store().adoptKey(recoveryKey: text) }
+    func recoveryKey() async throws -> BackupRecoveryKey { try await store().recoveryKey() }
+    func removeKey() async throws { try await store().removeKey() }
 }
 
 // MARK: - In memory
@@ -203,4 +271,9 @@ nonisolated final class InMemoryBackupKeyStore: BackupKeyStore, CustomStringConv
     }
 
     func removeKey() async throws { lock.withLock { key = nil } }
+}
+
+/// One in-memory key standing for every account's (tests that need only one account).
+extension InMemoryBackupKeyStore: BackupKeyStoreFactory {
+    nonisolated func keyStore(forAccount accountID: String) -> any BackupKeyStore { self }
 }

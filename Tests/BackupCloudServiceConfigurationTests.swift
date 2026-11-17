@@ -94,4 +94,22 @@ struct BackupCloudServiceConfigurationTests {
         let configuration = try #require(BackupServiceConfiguration(host: "localhost:8787", productIDs: "a.monthly,b.yearly"))
         #expect("\(configuration)" == "BackupServiceConfiguration(http://localhost:8787, products: a.monthly, b.yearly)")
     }
+
+    @Test func theSignInSettingsAreReadAndTheDevSecretNeverDescribed() throws {
+        let secret = "DEV-SIGNIN-SECRET-must-not-leak-0123456789"
+        let configuration = try #require(BackupServiceConfiguration.fromInfoDictionary(["BackupService": [
+            "Host": "localhost:8787", "ProductIDs": "a.monthly", "AppleSignIn": "YES",
+            "GoogleClientID": "1-abc.apps.googleusercontent.com", "DevSignIn": secret,
+        ]]))
+        #expect(configuration.signInWithApple)
+        #expect(configuration.googleClientID == "1-abc.apps.googleusercontent.com")
+        #expect(configuration.devSignInSecret == secret, "debug builds read it")
+        #expect(!"\(configuration)".contains(secret) && !String(reflecting: configuration).contains(secret))
+        #expect("\(configuration)".contains("Sign in with Apple, Sign in with Google"))
+        let empty = try #require(BackupServiceConfiguration.fromInfoDictionary(["BackupService": [
+            "Host": "localhost:8787", "ProductIDs": "a.monthly", "AppleSignIn": "$(SIGN_IN_WITH_APPLE)",
+            "GoogleClientID": "", "DevSignIn": "$(BACKUP_SERVICE_DEV_SIGNIN)",
+        ]]))
+        #expect(!empty.signInWithApple && empty.googleClientID == nil && empty.devSignInSecret == nil)
+    }
 }

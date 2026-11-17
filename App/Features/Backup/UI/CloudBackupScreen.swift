@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Observation
 import ReaderBackup
 import StoreKit
@@ -24,12 +25,38 @@ final class CloudBackupScreenModel {
         }
     }
 
+    /// A confirmation or explanation about the account.
+    enum AccountAlert: Identifiable, Equatable {
+        case signOut
+        case signOutEverywhere
+        case change(to: CloudSignInProvider)
+        case delete
+        /// After the change: suggests Sign Out of All Devices.
+        case changed(to: CloudSignInProvider)
+        /// The change was refused: the new identity has an account of its own.
+        case identityInUse(CloudSignInProvider)
+
+        var id: String {
+            switch self {
+            case .signOut: "signOut"
+            case .signOutEverywhere: "signOutEverywhere"
+            case .change(let provider): "change.\(provider.rawValue)"
+            case .delete: "delete"
+            case .changed(let provider): "changed.\(provider.rawValue)"
+            case .identityInUse(let provider): "identityInUse.\(provider.rawValue)"
+            }
+        }
+    }
+
     let cloud: TactileCloudBackup
     let destination: BackupDestinationModel
     var failure: BackupFailure?
     var sheet: Sheet?
+    var accountAlert: AccountAlert?
     var isDeleteConfirmationPresented = false
     var isManageSubscriptionsPresented = false
+    /// Objects deleted so far while the account is being deleted.
+    private(set) var accountDeletionCount = 0
     /// Something to tell the reader (a purchase waiting for approval, nothing to restore).
     private(set) var notice: String?
     private(set) var isPurchasing = false
@@ -44,13 +71,72 @@ final class CloudBackupScreenModel {
 
     var account: CloudBackupAccount { cloud.account }
     var subscription: BackupSubscription { cloud.subscription }
+    var signIn: CloudBackupSignIn { cloud.signIn }
 
     var page: CloudBackupPage { CloudBackupPage.make(account.status, hasError: account.lastError != nil) }
 
-    /// Asks the App Store and the service again, then lists the backups.
+    /// Asks the App Store and the service again (and the account screen), then lists the backups.
     func refresh() async {
+        async let accountScreen: Void = signIn.refreshAccount()
         await account.refresh()
+        await accountScreen
         await destination.refresh()
+    }
+
+    // MARK: Signing in and the account
+
+    func signIn(with provider: CloudSignInProvider, anchor: ASPresentationAnchor?) {
+        notice = nil
+        Task {
+            do {
+                try await signIn.signIn(with: provider, anchor: anchor)
+                await destination.refresh()
+            } catch {
+                if case .cancelled = error as? CloudSignInError { return }
+                failure = BackupFailure.from(error, title: "Couldn’t Sign In")
+            }
+        }
+    }
+
+    func changeSignIn(anchor: ASPresentationAnchor?) {
+        guard let target = signIn.session?.provider.other else { return }
+        Task {
+            do {
+                try await signIn.changeSignIn(anchor: anchor)
+                accountAlert = .changed(to: target)
+            } catch CloudServiceError.identityInUse {
+                accountAlert = .identityInUse(target)
+            } catch {
+                if case .cancelled = error as? CloudSignInError { return }
+                failure = BackupFailure.from(error, title: "Couldn’t Change the Sign-In")
+            }
+        }
+    }
+
+    func signOut() {
+        Task { await signIn.signOut() }
+    }
+
+    func signOutEverywhere() {
+        Task {
+            do {
+                try await signIn.signOutEverywhere()
+            } catch {
+                failure = BackupFailure.from(error, title: "Couldn’t Sign Out Every Device")
+            }
+        }
+    }
+
+    func deleteAccount(anchor: ASPresentationAnchor?) {
+        accountDeletionCount = 0
+        Task {
+            do {
+                try await cloud.deleteAccount(anchor: anchor) { count in self.accountDeletionCount = count }
+            } catch {
+                if case .cancelled = error as? CloudSignInError { return }
+                failure = BackupFailure.from(error, title: "Couldn’t Delete Your Account")
+            }
+        }
     }
 
     // MARK: Subscribing
@@ -61,13 +147,15 @@ final class CloudBackupScreenModel {
     }
 
     func subscribe(_ productID: String, scene: UIScene?) {
-        guard !isPurchasing else { return }
+        guard !isPurchasing, signIn.isSignedIn else { return }
         notice = nil
         isPurchasing = true
         Task {
             defer { isPurchasing = false }
             do {
-                let outcome = try await subscription.purchase(productID, confirmIn: scene)
+                // The account's token, so the purchase names the account it pays for.
+                let outcome = try await subscription.purchase(productID, appAccountToken: signIn.appAccountToken,
+                                                              confirmIn: scene)
                 notice = CloudBackupOfferText.message(after: outcome)
                 if outcome == .purchased { await refresh() }
             } catch {
@@ -77,7 +165,7 @@ final class CloudBackupScreenModel {
     }
 
     func restorePurchases() {
-        guard !isRestoringPurchases else { return }
+        guard !isRestoringPurchases, signIn.isSignedIn else { return }
         notice = nil
         isRestoringPurchases = true
         Task {
@@ -169,7 +257,7 @@ private struct CloudBackupContent: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AccessibilityID.CloudBackup.checking)
             case .offer:
-                CloudBackupOfferView(model: model, scene: scene)
+                CloudBackupOfferView(model: model, scene: scene, anchor: window?.presentationAnchor)
             case .status:
                 CloudBackupStatusView(model: model, restoreRequest: $restoreRequest, scene: scene)
             }
@@ -209,6 +297,245 @@ private struct CloudBackupContent: View {
         } message: {
             Text(CloudBackupRecoveryKeyText.deleteMessage)
         }
+        // On its own view: the account's confirmations.
+        .background {
+            CloudAccountAlerts(model: model, anchor: window?.presentationAnchor)
+        }
+    }
+}
+
+/// The account's confirmations and explanations (`CloudBackupScreenModel.AccountAlert`).
+private struct CloudAccountAlerts: View {
+    @Bindable var model: CloudBackupScreenModel
+    let anchor: UIWindow?
+
+    private var current: CloudSignInProvider { model.signIn.session?.provider ?? .apple }
+
+    var body: some View {
+        Color.clear
+            .alert(title, isPresented: Binding(get: { model.accountAlert != nil }, set: { if !$0 { model.accountAlert = nil } }),
+                   presenting: model.accountAlert) { alert in
+                switch alert {
+                case .signOut:
+                    Button(CloudAccountText.signOutButton, role: .destructive) { model.signOut() }
+                    Button("Cancel", role: .cancel) {}
+                case .signOutEverywhere:
+                    Button(CloudAccountText.signOutAllButton, role: .destructive) { model.signOutEverywhere() }
+                    Button("Cancel", role: .cancel) {}
+                case .change:
+                    Button(CloudAccountText.changeButton) { model.changeSignIn(anchor: anchor) }
+                    Button("Cancel", role: .cancel) {}
+                case .delete:
+                    Button(CloudAccountText.deleteButton, role: .destructive) { model.deleteAccount(anchor: anchor) }
+                    Button("Cancel", role: .cancel) {}
+                case .changed:
+                    Button(CloudAccountText.signOutAllButton + "…") {
+                        // After this alert has gone.
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(500))
+                            model.accountAlert = .signOutEverywhere
+                        }
+                    }
+                    Button("Not Now", role: .cancel) {}
+                case .identityInUse:
+                    Button("OK", role: .cancel) {}
+                }
+            } message: { alert in
+                Text(message(alert))
+            }
+    }
+
+    private var title: String {
+        switch model.accountAlert {
+        case .signOut: CloudAccountText.signOutTitle
+        case .signOutEverywhere: CloudAccountText.signOutAllTitle
+        case .change(let provider): CloudAccountText.changeConfirmTitle(to: provider)
+        case .delete: CloudAccountText.deleteTitle
+        case .changed(let provider): CloudAccountText.changedTitle(to: provider)
+        case .identityInUse(let provider): CloudAccountText.identityInUseTitle(provider)
+        case nil: ""
+        }
+    }
+
+    private func message(_ alert: CloudBackupScreenModel.AccountAlert) -> String {
+        switch alert {
+        case .signOut: CloudAccountText.signOutMessage
+        case .signOutEverywhere: CloudAccountText.signOutAllMessage
+        case .change(let provider): CloudAccountText.changeConfirmMessage(from: current, to: provider)
+        case .delete: CloudAccountText.deleteMessage(provider: current)
+        case .changed: CloudAccountText.changedMessage
+        case .identityInUse(let provider): CloudAccountText.identityInUseMessage(provider)
+        }
+    }
+}
+
+// MARK: - Signing in and the account
+
+/// Sign in with Apple and Sign in with Google at equal weight (App Store Review Guideline 4.8):
+/// the same width and height, Apple's in the system's own button. Only the ways this build
+/// offers are shown.
+private struct CloudSignInSection: View {
+    let model: CloudBackupScreenModel
+    let anchor: UIWindow?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var signIn: CloudBackupSignIn { model.signIn }
+    private static let buttonHeight: CGFloat = 50
+
+    var body: some View {
+        Section {
+            if let reason = signIn.signedOutReason {
+                Label {
+                    Text(CloudAccountText.signedOutNotice(reason))
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Color.orange)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AccessibilityID.CloudBackup.signedOutNotice)
+            }
+            Text(CloudAccountText.signInIntro)
+                .foregroundStyle(.secondary)
+            VStack(spacing: Space.s) {
+                if signIn.availableProviders.contains(.apple) {
+                    AppleSignInButton(dark: colorScheme == .dark) { model.signIn(with: .apple, anchor: anchor) }
+                        .frame(maxWidth: .infinity, minHeight: Self.buttonHeight, maxHeight: Self.buttonHeight)
+                        .accessibilityLabel(CloudAccountText.signInTitle(.apple))
+                        .accessibilityIdentifier(AccessibilityID.CloudBackup.signInApple)
+                }
+                if signIn.availableProviders.contains(.google) {
+                    Button {
+                        model.signIn(with: .google, anchor: anchor)
+                    } label: {
+                        Text(CloudAccountText.signInTitle(.google))
+                            .font(.system(size: 19, weight: .medium))
+                            .frame(maxWidth: .infinity, minHeight: Self.buttonHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                    .background(colorScheme == .dark ? Color.white : Color.black, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.signInGoogle)
+                }
+            }
+            .disabled(signIn.activity != nil)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+            if let activity = signIn.activity {
+                HStack(spacing: Space.s) {
+                    ProgressView()
+                    Text(CloudAccountText.busy(activity)).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AccessibilityID.CloudBackup.accountBusy)
+            }
+        } header: {
+            Text(CloudAccountText.signInHeader)
+        } footer: {
+            Text(CloudAccountText.lostAccess)
+        }
+        .accessibilityIdentifier(AccessibilityID.CloudBackup.signInSection)
+    }
+}
+
+/// The system's Sign in with Apple button (`ASAuthorizationAppleIDButton`), which starts the
+/// app's own flow (the nonce comes from the service first).
+private struct AppleSignInButton: UIViewRepresentable {
+    let dark: Bool
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(authorizationButtonType: .signIn, authorizationButtonStyle: dark ? .white : .black)
+        button.cornerRadius = 8
+        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
+        context.coordinator.action = action
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(action: @escaping () -> Void) { self.action = action }
+        @objc func tapped() { action() }
+    }
+}
+
+/// The signed-in account: which sign-in (and the email it carries, from this device's sign-in
+/// only), Change to the other sign-in, the devices, Sign Out, Sign Out of All Devices and Delete
+/// Account.
+private struct CloudAccountSection: View {
+    let model: CloudBackupScreenModel
+
+    @Environment(AppEnvironment.self) private var environment
+
+    private var signIn: CloudBackupSignIn { model.signIn }
+
+    var body: some View {
+        if let session = signIn.session {
+            Section {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(CloudAccountText.signedInWith(session.provider))
+                    if let email = session.email {
+                        Text(email)
+                            .font(Typeface.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AccessibilityID.CloudBackup.accountSignIn)
+                if let activity = signIn.activity {
+                    HStack(spacing: Space.s) {
+                        ProgressView()
+                        Text(activity == .deletingAccount && model.accountDeletionCount > 0
+                             ? "\(CloudAccountText.deleting) (\(model.accountDeletionCount.formatted(.number)) items)"
+                             : CloudAccountText.busy(activity))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.accountBusy)
+                }
+                if signIn.availableProviders.contains(session.provider.other) {
+                    Button(CloudAccountText.changeTitle(to: session.provider.other)) {
+                        model.accountAlert = .change(to: session.provider.other)
+                    }
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.changeSignIn)
+                }
+            } header: {
+                Text(CloudAccountText.accountHeader)
+            }
+            .disabled(signIn.activity != nil)
+            if let devices = signIn.accountInfo?.devices, !devices.isEmpty {
+                Section {
+                    ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
+                        LabeledContent {
+                            Text(CloudAccountText.lastUsed(device.lastUsedAt) ?? "")
+                        } label: {
+                            Text(signIn.name(of: device) + (device.isCurrent && signIn.name(of: device) != "This iPad" ? " (this iPad)" : ""))
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(AccessibilityID.CloudBackup.device(index))
+                    }
+                } header: {
+                    Text(CloudAccountText.devicesHeader)
+                }
+            }
+            Section {
+                Button("Sign Out…") { model.accountAlert = .signOut }
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.signOut)
+                Button("Sign Out of All Devices…") { model.accountAlert = .signOutEverywhere }
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.signOutAll)
+                Button("Delete Account…", role: .destructive) { model.accountAlert = .delete }
+                    .accessibilityIdentifier(AccessibilityID.CloudBackup.deleteAccount)
+            } footer: {
+                Text(CloudAccountText.accountFooter)
+            }
+            // A backup or restore under way finishes first.
+            .disabled(signIn.activity != nil || environment.backupService.isBusy)
+        }
     }
 }
 
@@ -217,8 +544,10 @@ private struct CloudBackupContent: View {
 private struct CloudBackupOfferView: View {
     let model: CloudBackupScreenModel
     let scene: UIScene?
+    let anchor: UIWindow?
 
     private var subscription: BackupSubscription { model.subscription }
+    private var isSignedIn: Bool { model.signIn.isSignedIn }
     private let links = CloudBackupLinks.fromInfoDictionary()
 
     var body: some View {
@@ -238,17 +567,27 @@ private struct CloudBackupOfferView: View {
                 }
                 .padding(.vertical, Space.xs)
             }
-            // The price and Subscribe come first, where they can be seen without scrolling.
-            subscribeSection
+            // Signing in, then the price and Subscribe, come first, where they can be seen
+            // without scrolling. Subscribing needs an account to pay for.
+            if isSignedIn {
+                subscribeSection
+            } else {
+                CloudSignInSection(model: model, anchor: anchor)
+            }
             Section {
                 point(CloudBackupOfferText.encryptedTitle, CloudBackupOfferText.encrypted, image: "lock.shield")
                 point(CloudBackupOfferText.recoveryKeyTitle, CloudBackupOfferText.recoveryKey, image: "key")
                 point(CloudBackupOfferText.endingTitle, CloudBackupOfferText.ending, image: "calendar.badge.clock")
             }
+            if isSignedIn {
+                CloudAccountSection(model: model)
+            }
             Section {
-                Button("Restore Purchases") { model.restorePurchases() }
-                    .disabled(model.isRestoringPurchases || model.isPurchasing)
-                    .accessibilityIdentifier(AccessibilityID.CloudBackup.restorePurchases)
+                if isSignedIn {
+                    Button("Restore Purchases") { model.restorePurchases() }
+                        .disabled(model.isRestoringPurchases || model.isPurchasing)
+                        .accessibilityIdentifier(AccessibilityID.CloudBackup.restorePurchases)
+                }
                 if let terms = links.terms {
                     Link("Terms of Use", destination: terms)
                         .accessibilityIdentifier(AccessibilityID.CloudBackup.terms)
@@ -357,6 +696,7 @@ private struct CloudBackupStatusView: View {
             if capabilities.canDeleteEverything || model.isDeleting {
                 deleteSection
             }
+            CloudAccountSection(model: model)
             if let notice = model.notice {
                 Section {
                     Text(notice)
