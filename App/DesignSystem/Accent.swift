@@ -172,3 +172,27 @@ private struct AccentProbe: UIViewRepresentable {
     }
 }
 #endif
+
+/// Toolbar glyphs in the label colour (design, "Accent"). On iPadOS 26 and later the Liquid Glass
+/// capsule already marks a bar item as a button, so the accent is kept for state (the Markup
+/// toggle while on) and a screen's one main action. Earlier systems have no capsule, and bar
+/// items keep the accent there. The one availability check for toolbar colour.
+struct ToolbarGlyphTint: ViewModifier {
+    /// True keeps the accent: a selected state or a screen's main action.
+    var emphasised = false
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !emphasised {
+            content.tint(Color.primary)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// See `ToolbarGlyphTint`.
+    func toolbarGlyph(emphasised: Bool = false) -> some View {
+        modifier(ToolbarGlyphTint(emphasised: emphasised))
+    }
+}

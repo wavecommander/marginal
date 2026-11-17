@@ -436,11 +436,13 @@ private struct NotebookContent: View {
                 }
                 .accessibilityLabel("Heading: \(currentScopeTitle)")
                 .accessibilityIdentifier(NotebookAccessibilityID.scopeMenu)
+                .toolbarGlyph()
             }
             if isSelecting {
                 Button(allShownAreSelected ? "Deselect All" : "Select All") { toggleAllShown() }
                     .disabled(rows.isEmpty)
                     .accessibilityIdentifier(NotebookAccessibilityID.selectAll)
+                    .toolbarGlyph()
             } else {
                 Button {
                     window.openReader(bookID: model.bookID)
@@ -449,10 +451,12 @@ private struct NotebookContent: View {
                 }
                 .disabled(model.phase == .missing)
                 .accessibilityIdentifier(NotebookAccessibilityID.openBook)
+                .toolbarGlyph()
                 Button("Select") { setSelecting(true) }
                     .disabled(model.notebook.map { NotebookFeed.itemCount($0) == 0 } ?? (model.phase == .missing))
                     .accessibilityHint("Choose which notes to export")
                     .accessibilityIdentifier(NotebookAccessibilityID.select)
+                    .toolbarGlyph()
             }
             Menu {
                 Section(isSelecting ? "Export \(selection.count) Selected" : "Export Whole Notebook") {
@@ -476,6 +480,7 @@ private struct NotebookContent: View {
             }
             .disabled(model.phase == .missing || export.state != .idle || (isSelecting && selection.isEmpty))
             .accessibilityIdentifier(NotebookAccessibilityID.exportMenu)
+            .toolbarGlyph()
             if isSelecting {
                 Button("Done") { setSelecting(false) }
                     .fontWeight(.semibold)

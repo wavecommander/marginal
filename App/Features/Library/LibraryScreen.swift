@@ -333,6 +333,7 @@ struct LibraryScreen: View {
                 Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
             }
             .accessibilityIdentifier(AccessibilityID.Settings.openButton)
+            .toolbarGlyph()
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -346,6 +347,7 @@ struct LibraryScreen: View {
             }
             .accessibilityLabel("Sort by \(sort.label)")
             .accessibilityIdentifier("library.sortMenu")
+            .toolbarGlyph()
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
