@@ -52,6 +52,13 @@ describe("verifyTransaction", () => {
     expect(await refusal(verifyTransaction(await signWithChain(transactionPayload({ type: "Non-Renewing Subscription" }), chain), context()))).toMatch(/^product-unknown/);
   });
 
+  it("reads the appAccountToken in lower case, and refuses one that is not a UUID", async () => {
+    const tokened = await verifyTransaction(await signWithChain(transactionPayload({ appAccountToken: "6F9619FF-8B86-D011-B42D-00C04FC964FF" }), chain), context());
+    expect(tokened.appAccountToken).toBe("6f9619ff-8b86-d011-b42d-00c04fc964ff");
+    expect((await verifyTransaction(await signWithChain(transactionPayload(), chain), context())).appAccountToken).toBeUndefined();
+    expect(await refusal(verifyTransaction(await signWithChain(transactionPayload({ appAccountToken: 7 }), chain), context()))).toMatch(/^transaction-invalid: app account token/);
+  });
+
   it("passes the revocation date on (the session refuses it)", async () => {
     const revokedAt = Date.parse("2026-11-10T00:00:00Z");
     const transaction = await verifyTransaction(await signWithChain(transactionPayload({ revocationDate: revokedAt, revocationReason: 0 }), chain), context());

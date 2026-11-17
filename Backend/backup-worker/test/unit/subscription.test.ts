@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RenewalInfo, Transaction } from "../../src/appleJws";
 import { readSettings } from "../../src/env";
-import { BILLING_RETRY_MAX_MS, DAY_MS, accessAt, applyRenewalInfo, applyTransaction, newSubscriber, subscriptionInfo, type Subscriber } from "../../src/subscription";
+import { BILLING_RETRY_MAX_MS, DAY_MS, accessAt, applyRenewalInfo, applyTransaction, detached, newSubscriber, primaryOf, subscriptionInfo, type Subscriber } from "../../src/subscription";
 import { testEnv } from "../helpers/settings";
 
 const settings = readSettings(testEnv()); // READ_ONLY_DAYS 30, DELETE_AFTER_DAYS 60
@@ -17,6 +17,7 @@ function transaction(overrides: Partial<Transaction> = {}): Transaction {
     signedDate: EXPIRES - 30 * DAY_MS,
     expiresDate: EXPIRES,
     revocationDate: undefined,
+    appAccountToken: undefined,
     ...overrides,
   };
 }
@@ -26,7 +27,7 @@ function renewal(overrides: Partial<RenewalInfo> = {}): RenewalInfo {
 }
 
 function subscriber(overrides: Partial<Subscriber> = {}): Subscriber {
-  return { ...newSubscriber(KEY, transaction(), 0), ...overrides };
+  return { ...newSubscriber("account-1", KEY, transaction(), 0), ...overrides };
 }
 
 describe("the lapse policy, exactly at its limits", () => {
@@ -119,5 +120,33 @@ describe("newest wins", () => {
   it("older renewal info is ignored", () => {
     const sub = applyRenewalInfo(subscriber(), renewal({ signedDate: EXPIRES + 5 * DAY_MS }));
     expect(applyRenewalInfo(sub, renewal({ isInBillingRetryPeriod: true, signedDate: EXPIRES }))).toBe(sub);
+  });
+});
+
+describe("accounts", () => {
+  it("a transaction's appAccountToken follows the newest transaction", () => {
+    const tokened = applyTransaction(subscriber(), transaction({ signedDate: EXPIRES - DAY_MS, appAccountToken: "6f9619ff-8b86-d011-b42d-00c04fc964ff" }));
+    expect(tokened.appAccountToken).toBe("6f9619ff-8b86-d011-b42d-00c04fc964ff");
+    // An older transaction without the token changes nothing.
+    expect(applyTransaction(tokened, transaction()).appAccountToken).toBe("6f9619ff-8b86-d011-b42d-00c04fc964ff");
+  });
+
+  it("a detached entitlement ends at the move if it still gave access, and keeps an earlier end", () => {
+    const active = { ...subscriber(), inBillingRetry: true, graceExpiresAt: EXPIRES + DAY_MS };
+    const moved = detached(active, EXPIRES - 10 * DAY_MS, settings);
+    expect(moved.subscriptionKey).toBeNull();
+    expect(accessAt(moved, EXPIRES - 10 * DAY_MS, settings)).toEqual({ kind: "read-only", endedAt: EXPIRES - 10 * DAY_MS });
+    const ended = detached(subscriber(), EXPIRES + DAY_MS, settings);
+    expect(ended.expiresAt).toBe(EXPIRES);
+    expect(ended.subscriptionKey).toBeNull();
+  });
+
+  it("serves the best entitlement, the App Store one on a tie", () => {
+    const users = subscriber();
+    const sandbox = { ...subscriber(), namespace: "sandbox" as const, environment: "Sandbox" as const };
+    expect(primaryOf([sandbox, users], EXPIRES - DAY_MS, settings)).toBe(users);
+    const better = { ...sandbox, expiresAt: EXPIRES + 30 * DAY_MS };
+    expect(primaryOf([users, better], EXPIRES + DAY_MS, settings)).toBe(better);
+    expect(primaryOf([], EXPIRES, settings)).toBeUndefined();
   });
 });

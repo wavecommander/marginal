@@ -29,7 +29,7 @@ export default defineConfig({
                 APPLE_TEAM_ID: "TEAMID1234",
                 R2_PARENT_ACCESS_KEY_ID: "test-parent-access-key-id",
                 R2_PARENT_SECRET_ACCESS_KEY: "test-parent-secret-access-key-not-real",
-                USER_KEY_SECRET: "test-user-key-secret-0123456789abcdef-not-real",
+                IDENTITY_KEY_SECRET: "test-identity-key-secret-0123456789abcdef-not-real",
               },
             },
           })),
@@ -38,6 +38,8 @@ export default defineConfig({
           name: "worker",
           include: ["test/worker/**/*.test.ts"],
           setupFiles: ["./test/worker/applyMigrations.ts"],
+          // A few tests write thousands of objects to the local bucket; give them room under load.
+          testTimeout: 30_000,
         },
       },
     ],

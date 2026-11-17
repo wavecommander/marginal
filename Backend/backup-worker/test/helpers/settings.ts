@@ -1,6 +1,7 @@
 // Made-up settings for tests. None of these values opens anything real.
 
 import type { Env } from "../../src/env";
+import { GOOGLE_CLIENT_ID } from "./oidc";
 
 export const BUNDLE_ID = "software.tactile.texts";
 export const PRODUCT = "software.tactile.texts.backup.standard";
@@ -11,9 +12,10 @@ export const APP_APPLE_ID = 1234567890;
 export const ALLOWANCE = 10_000;
 export const SANDBOX_ALLOWANCE = 1_000;
 export const BYPASS_SECRET = "dev-bypass-secret-0123456789abcdef-not-real";
+export const SIWA_KEY_ID = "SIWAKEY123";
 export const SECRET_VALUES = [
   "test-parent-secret-access-key-not-real",
-  "test-user-key-secret-0123456789abcdef-not-real",
+  "test-identity-key-secret-0123456789abcdef-not-real",
   BYPASS_SECRET,
 ];
 
@@ -36,7 +38,9 @@ export function testVars(overrides: Partial<Record<keyof Env, unknown>> = {}): O
     XCODE_STOREKIT_CERT: "",
     R2_PARENT_ACCESS_KEY_ID: "test-parent-access-key-id",
     R2_PARENT_SECRET_ACCESS_KEY: SECRET_VALUES[0]!,
-    USER_KEY_SECRET: SECRET_VALUES[1]!,
+    IDENTITY_KEY_SECRET: SECRET_VALUES[1]!,
+    GOOGLE_CLIENT_IDS: GOOGLE_CLIENT_ID,
+    SUBSCRIPTION_MOVE_DAYS: "30",
     ...overrides,
   } as Omit<Env, "DB" | "BUCKET">;
 }

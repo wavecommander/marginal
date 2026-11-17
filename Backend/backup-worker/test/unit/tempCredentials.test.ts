@@ -1,7 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ACTIONS, MAX_TTL_SECONDS, createTempCredentials, userPrefix, type TempCredentialRequest } from "../../src/tempCredentials";
-import { userKey } from "../../src/userKey";
 
 const USER = "a".repeat(64);
 const NOW = new Date("2026-11-15T12:00:00Z");
@@ -126,31 +125,6 @@ describe("userPrefix", () => {
   it("accepts only a user key", () => {
     for (const bad of ["", "abc", "A".repeat(64), `${"a".repeat(63)}/`, "../" + "a".repeat(61)]) {
       expect(() => userPrefix(bad)).toThrow();
-    }
-  });
-});
-
-describe("userKey", () => {
-  const secret = "s".repeat(40);
-
-  it("is a keyed hash of the subscription's original transaction ID", async () => {
-    const key = await userKey(secret, "2000000123456789");
-    const expected = createHmac("sha256", secret).update("tactile-backup-user-v1\0" + "2000000123456789").digest("hex");
-    expect(key).toBe(expected);
-    expect(userPrefix(key)).toBe(`users/${expected}/`);
-  });
-
-  it("is stable for one subscription and different for another, and for another secret", async () => {
-    const a = await userKey(secret, "2000000123456789");
-    expect(await userKey(secret, "2000000123456789")).toBe(a);
-    expect(await userKey(secret, "2000000123456780")).not.toBe(a);
-    expect(await userKey("t".repeat(40), "2000000123456789")).not.toBe(a);
-  });
-
-  it("refuses a weak secret and anything that is not a transaction ID", async () => {
-    await expect(userKey("short", "2000000123456789")).rejects.toThrow(/USER_KEY_SECRET/);
-    for (const bad of ["", "abc", "12 34", "123/../456", "1".repeat(41)]) {
-      await expect(userKey(secret, bad)).rejects.toThrow(/transaction ID/);
     }
   });
 });

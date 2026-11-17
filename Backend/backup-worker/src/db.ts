@@ -2,7 +2,8 @@
 
 import type { AppleEnvironment } from "./appleJws";
 import type { AttestEnvironment } from "./appAttest";
-import type { Subscriber } from "./subscription";
+import type { Provider } from "./identity";
+import type { Namespace, Subscriber } from "./subscription";
 
 // ---------------------------------------------------------------------------------------------
 // Challenges
@@ -68,10 +69,214 @@ export async function advanceCounter(db: D1Database, keyId: string, counter: num
 }
 
 // ---------------------------------------------------------------------------------------------
-// Subscribers
+// Accounts
+
+export interface Account {
+  accountId: string;
+  folderKey: string;
+  provider: Provider;
+  identityHash: string;
+  appAccountToken: string;
+  createdAt: number;
+  identityChangedAt: number;
+  deletingSince: number | null;
+}
+
+interface AccountRow {
+  account_id: string;
+  folder_key: string;
+  identity_provider: string;
+  identity_hash: string;
+  app_account_token: string;
+  created_at: number;
+  identity_changed_at: number;
+  deleting_since: number | null;
+}
+
+function accountFromRow(row: AccountRow): Account {
+  return {
+    accountId: row.account_id,
+    folderKey: row.folder_key,
+    provider: row.identity_provider === "google" ? "google" : "apple",
+    identityHash: row.identity_hash,
+    appAccountToken: row.app_account_token,
+    createdAt: row.created_at,
+    identityChangedAt: row.identity_changed_at,
+    deletingSince: row.deleting_since,
+  };
+}
+
+async function accountWhere(db: D1Database, column: "account_id" | "identity_hash" | "app_account_token", value: string): Promise<Account | null> {
+  const row = await db.prepare(`SELECT * FROM accounts WHERE ${column} = ?`).bind(value).first<AccountRow>();
+  return row ? accountFromRow(row) : null;
+}
+
+export function getAccount(db: D1Database, accountId: string): Promise<Account | null> {
+  return accountWhere(db, "account_id", accountId);
+}
+
+export function getAccountByIdentity(db: D1Database, identityHash: string): Promise<Account | null> {
+  return accountWhere(db, "identity_hash", identityHash);
+}
+
+export function getAccountByAppAccountToken(db: D1Database, token: string): Promise<Account | null> {
+  return accountWhere(db, "app_account_token", token);
+}
+
+/** Creates the account; false if one already has this identity (another request just made it). */
+export async function insertAccount(db: D1Database, account: Account): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO accounts (account_id, folder_key, identity_provider, identity_hash, app_account_token, created_at, identity_changed_at, deleting_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(account.accountId, account.folderKey, account.provider, account.identityHash, account.appAccountToken, account.createdAt, account.identityChangedAt)
+    .run();
+  return (result.meta.changes ?? 0) === 1;
+}
+
+/**
+ * Replaces the account's one identity with another, in one statement: it applies only if the
+ * account still has `oldHash`, is not being deleted, and no account has `newHash`. The unique
+ * index on the hash backs that last check against a concurrent sign-in.
+ */
+export async function changeIdentity(
+  db: D1Database,
+  accountId: string,
+  oldHash: string,
+  provider: Provider,
+  newHash: string,
+  now: number,
+): Promise<"changed" | "in-use" | "stale"> {
+  try {
+    const result = await db
+      .prepare(
+        `UPDATE accounts SET identity_provider = ?, identity_hash = ?, identity_changed_at = ?
+         WHERE account_id = ? AND identity_hash = ? AND deleting_since IS NULL
+           AND NOT EXISTS (SELECT 1 FROM accounts WHERE identity_hash = ?)`,
+      )
+      .bind(provider, newHash, now, accountId, oldHash, newHash)
+      .run();
+    if ((result.meta.changes ?? 0) === 1) return "changed";
+  } catch (error) {
+    if (error instanceof Error && /UNIQUE/i.test(error.message)) return "in-use";
+    throw error;
+  }
+  return (await getAccountByIdentity(db, newHash)) ? "in-use" : "stale";
+}
+
+/** Marks deletion as started (once; a later call keeps the first time). */
+export async function markAccountDeleting(db: D1Database, accountId: string, now: number): Promise<void> {
+  await db.prepare("UPDATE accounts SET deleting_since = COALESCE(deleting_since, ?) WHERE account_id = ?").bind(now, accountId).run();
+}
+
+/** Removes everything D1 holds for the account, in one transaction. */
+export async function removeAccount(db: D1Database, accountId: string): Promise<void> {
+  await db.batch([
+    db.prepare("DELETE FROM device_sessions WHERE account_id = ?").bind(accountId),
+    db.prepare("DELETE FROM subscribers WHERE account_id = ?").bind(accountId),
+    db.prepare("DELETE FROM accounts WHERE account_id = ?").bind(accountId),
+  ]);
+}
+
+/** Accounts whose deletion started at or before `before`, oldest first. */
+export async function accountsBeingDeleted(db: D1Database, before: number, limit: number): Promise<Account[]> {
+  const result = await db
+    .prepare("SELECT * FROM accounts WHERE deleting_since IS NOT NULL AND deleting_since <= ? ORDER BY deleting_since, account_id LIMIT ?")
+    .bind(before, limit)
+    .all<AccountRow>();
+  return result.results.map(accountFromRow);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Device sessions
+
+export interface DeviceSession {
+  sessionId: string;
+  accountId: string;
+  attestKeyId: string | null;
+  label: string | null;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+interface SessionRow {
+  session_id: string;
+  account_id: string;
+  attest_key_id: string | null;
+  label: string | null;
+  created_at: number;
+  last_used_at: number;
+}
+
+function sessionFromRow(row: SessionRow): DeviceSession {
+  return {
+    sessionId: row.session_id,
+    accountId: row.account_id,
+    attestKeyId: row.attest_key_id,
+    label: row.label,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+  };
+}
+
+export async function insertSession(db: D1Database, session: DeviceSession, tokenHash: string): Promise<void> {
+  await db
+    .prepare(
+      "INSERT INTO device_sessions (session_id, token_hash, account_id, attest_key_id, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(session.sessionId, tokenHash, session.accountId, session.attestKeyId, session.label, session.createdAt, session.lastUsedAt)
+    .run();
+}
+
+export async function getSessionByTokenHash(db: D1Database, tokenHash: string): Promise<DeviceSession | null> {
+  const row = await db
+    .prepare("SELECT session_id, account_id, attest_key_id, label, created_at, last_used_at FROM device_sessions WHERE token_hash = ?")
+    .bind(tokenHash)
+    .first<SessionRow>();
+  return row ? sessionFromRow(row) : null;
+}
+
+export async function touchSession(db: D1Database, sessionId: string, now: number): Promise<void> {
+  await db.prepare("UPDATE device_sessions SET last_used_at = ? WHERE session_id = ?").bind(now, sessionId).run();
+}
+
+export async function setSessionLabel(db: D1Database, sessionId: string, label: string): Promise<void> {
+  await db.prepare("UPDATE device_sessions SET label = ? WHERE session_id = ?").bind(label, sessionId).run();
+}
+
+export async function listSessions(db: D1Database, accountId: string): Promise<DeviceSession[]> {
+  const result = await db
+    .prepare("SELECT session_id, account_id, attest_key_id, label, created_at, last_used_at FROM device_sessions WHERE account_id = ? ORDER BY created_at, rowid")
+    .bind(accountId)
+    .all<SessionRow>();
+  return result.results.map(sessionFromRow);
+}
+
+export async function deleteSession(db: D1Database, sessionId: string): Promise<number> {
+  const result = await db.prepare("DELETE FROM device_sessions WHERE session_id = ?").bind(sessionId).run();
+  return result.meta.changes ?? 0;
+}
+
+/** Ends every session of the account, except `keep` if given. Returns how many ended. */
+export async function deleteAccountSessions(db: D1Database, accountId: string, keep?: string): Promise<number> {
+  const result = await db
+    .prepare("DELETE FROM device_sessions WHERE account_id = ? AND session_id != ?")
+    .bind(accountId, keep ?? "")
+    .run();
+  return result.meta.changes ?? 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Subscribers: the entitlement of each of an account's folders
 
 interface SubscriberRow {
-  user_key: string;
+  account_id: string;
+  namespace: string;
+  subscription_key: string | null;
+  bound_at: number;
+  app_account_token: string | null;
   product_id: string;
   environment: string;
   expires_at: number | null;
@@ -90,7 +295,11 @@ interface SubscriberRow {
 
 function fromRow(row: SubscriberRow): Subscriber {
   return {
-    userKey: row.user_key,
+    accountId: row.account_id,
+    namespace: row.namespace as Namespace,
+    subscriptionKey: row.subscription_key,
+    boundAt: row.bound_at,
+    appAccountToken: row.app_account_token,
     productId: row.product_id,
     environment: row.environment as AppleEnvironment,
     expiresAt: row.expires_at,
@@ -108,18 +317,28 @@ function fromRow(row: SubscriberRow): Subscriber {
   };
 }
 
-export async function getSubscriber(db: D1Database, userKey: string): Promise<Subscriber | null> {
-  const row = await db.prepare("SELECT * FROM subscribers WHERE user_key = ?").bind(userKey).first<SubscriberRow>();
+/** The entitlement the subscription currently pays for, whichever account it is. */
+export async function getSubscriberByKey(db: D1Database, subscriptionKey: string): Promise<Subscriber | null> {
+  const row = await db.prepare("SELECT * FROM subscribers WHERE subscription_key = ?").bind(subscriptionKey).first<SubscriberRow>();
   return row ? fromRow(row) : null;
 }
 
-/**
- * Writes the subscription state (not the usage cache) if nobody changed the row since it was
- * read (`existing` false: the row must not exist yet). Returns false on a conflict; the caller
- * reads again and retries.
- */
-export async function saveSubscriber(db: D1Database, subscriber: Subscriber, existing: boolean, now: number): Promise<boolean> {
-  const values = [
+export async function getSubscriber(db: D1Database, accountId: string, namespace: Namespace): Promise<Subscriber | null> {
+  const row = await db.prepare("SELECT * FROM subscribers WHERE account_id = ? AND namespace = ?").bind(accountId, namespace).first<SubscriberRow>();
+  return row ? fromRow(row) : null;
+}
+
+export async function listSubscribers(db: D1Database, accountId: string): Promise<Subscriber[]> {
+  const result = await db.prepare("SELECT * FROM subscribers WHERE account_id = ? ORDER BY namespace").bind(accountId).all<SubscriberRow>();
+  return result.results.map(fromRow);
+}
+
+/** The state columns, in the order the statements below bind them. */
+function stateValues(subscriber: Subscriber): (string | number | null)[] {
+  return [
+    subscriber.subscriptionKey,
+    subscriber.boundAt,
+    subscriber.appAccountToken,
     subscriber.productId,
     subscriber.environment,
     subscriber.expiresAt,
@@ -131,65 +350,138 @@ export async function saveSubscriber(db: D1Database, subscriber: Subscriber, exi
     subscriber.renewalSignedAt,
     subscriber.dataDeletedAt,
   ];
-  if (!existing) {
-    const result = await db
-      .prepare(
-        `INSERT INTO subscribers (product_id, environment, expires_at, revoked_at, in_billing_retry, grace_expires_at,
-           billing_retry_ended_at, txn_signed_at, renewal_signed_at, data_deleted_at,
-           user_key, status_checked_at, usage_bytes, usage_checked_at, created_at, updated_at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, 1)
-         ON CONFLICT (user_key) DO NOTHING`,
-      )
-      .bind(...values, subscriber.userKey, now, now, now)
-      .run();
-    return (result.meta.changes ?? 0) === 1;
-  }
-  const result = await db
+}
+
+function insertStatement(db: D1Database, subscriber: Subscriber, now: number): D1PreparedStatement {
+  return db
     .prepare(
-      `UPDATE subscribers SET product_id = ?, environment = ?, expires_at = ?, revoked_at = ?, in_billing_retry = ?,
-         grace_expires_at = ?, billing_retry_ended_at = ?, txn_signed_at = ?, renewal_signed_at = ?, data_deleted_at = ?,
+      `INSERT INTO subscribers (subscription_key, bound_at, app_account_token, product_id, environment, expires_at, revoked_at,
+         in_billing_retry, grace_expires_at, billing_retry_ended_at, txn_signed_at, renewal_signed_at, data_deleted_at,
+         account_id, namespace, status_checked_at, usage_bytes, usage_checked_at, created_at, updated_at, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT (account_id, namespace) DO NOTHING`,
+    )
+    .bind(...stateValues(subscriber), subscriber.accountId, subscriber.namespace, now, subscriber.usageBytes, subscriber.usageCheckedAt, now, now);
+}
+
+function updateStatement(db: D1Database, subscriber: Subscriber, now: number): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE subscribers SET subscription_key = ?, bound_at = ?, app_account_token = ?, product_id = ?, environment = ?,
+         expires_at = ?, revoked_at = ?, in_billing_retry = ?, grace_expires_at = ?, billing_retry_ended_at = ?,
+         txn_signed_at = ?, renewal_signed_at = ?, data_deleted_at = ?,
          status_checked_at = ?, updated_at = ?, version = version + 1
-       WHERE user_key = ? AND version = ?`,
+       WHERE account_id = ? AND namespace = ? AND version = ?`,
     )
-    .bind(...values, now, now, subscriber.userKey, subscriber.version)
-    .run();
-  return (result.meta.changes ?? 0) === 1;
-}
-
-export async function saveUsage(db: D1Database, userKey: string, bytes: number, at: number): Promise<void> {
-  await db.prepare("UPDATE subscribers SET usage_bytes = ?, usage_checked_at = ? WHERE user_key = ?").bind(bytes, at, userKey).run();
-}
-
-/** Marks the data deleted, unless the row changed since `version` (for example, a resubscription). */
-export async function markDataDeleted(db: D1Database, userKey: string, version: number, now: number): Promise<boolean> {
-  const result = await db
-    .prepare(
-      `UPDATE subscribers SET data_deleted_at = ?, usage_bytes = 0, usage_checked_at = ?, updated_at = ?, version = version + 1
-       WHERE user_key = ? AND version = ?`,
-    )
-    .bind(now, now, now, userKey, version)
-    .run();
-  return (result.meta.changes ?? 0) === 1;
-}
-
-export async function deleteSubscriber(db: D1Database, userKey: string): Promise<void> {
-  await db.prepare("DELETE FROM subscribers WHERE user_key = ?").bind(userKey).run();
+    .bind(...stateValues(subscriber), now, now, subscriber.accountId, subscriber.namespace, subscriber.version);
 }
 
 /**
- * Subscriptions that may be due for deletion: data still there, and expired or revoked at or
- * before `cutoff` (now minus DELETE_AFTER_DAYS). A necessary condition only: the caller works out
- * the exact end (billing retry, grace) for each. Keyset pages by user key.
+ * Writes the entitlement (not the usage cache) if nobody changed the row since it was read
+ * (`existing` false: the row must not exist yet). Returns false on a conflict; the caller reads
+ * again and retries.
  */
-export async function deletionCandidates(db: D1Database, cutoff: number, afterKey: string, limit: number): Promise<Subscriber[]> {
+export async function saveSubscriber(db: D1Database, subscriber: Subscriber, existing: boolean, now: number): Promise<boolean> {
+  try {
+    const result = await (existing ? updateStatement(db, subscriber, now) : insertStatement(db, subscriber, now)).run();
+    return (result.meta.changes ?? 0) === 1;
+  } catch (error) {
+    // Another row took the subscription meanwhile.
+    if (error instanceof Error && /UNIQUE/i.test(error.message)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Binds a subscription to an account's folder, and (`from`) detaches it from the folder of the
+ * account that held it, all in one transaction that applies completely or not at all:
+ * - if `from` changed since it was read and still holds the subscription, the attach breaks the
+ *   unique subscription key and the batch rolls back;
+ * - if `to` changed since it was read, the guard statement breaks a CHECK constraint and the
+ *   batch rolls back.
+ * Returns false when it rolled back; the caller reads again and retries.
+ */
+export async function attachSubscription(db: D1Database, to: Subscriber, toExisting: boolean, from: Subscriber | null, now: number): Promise<boolean> {
+  const statements: D1PreparedStatement[] = [];
+  if (from) {
+    statements.push(
+      db
+        .prepare(
+          `UPDATE subscribers SET subscription_key = NULL, expires_at = ?, in_billing_retry = ?, grace_expires_at = ?,
+             billing_retry_ended_at = ?, status_checked_at = ?, updated_at = ?, version = version + 1
+           WHERE account_id = ? AND namespace = ? AND version = ?`,
+        )
+        .bind(from.expiresAt, from.inBillingRetry ? 1 : 0, from.graceExpiresAt, from.billingRetryEndedAt, now, now, from.accountId, from.namespace, from.version),
+    );
+  }
+  statements.push(toExisting ? updateStatement(db, to, now) : insertStatement(db, to, now));
+  const expectedVersion = toExisting ? to.version + 1 : 1;
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO subscribers (account_id, namespace, bound_at, product_id, environment, status_checked_at, created_at, updated_at)
+         SELECT 'guard', 'guard', 0, '', '', 0, 0, 0
+         WHERE NOT EXISTS (SELECT 1 FROM subscribers WHERE account_id = ? AND namespace = ? AND subscription_key = ? AND version = ?)`,
+      )
+      .bind(to.accountId, to.namespace, to.subscriptionKey, expectedVersion),
+  );
+  try {
+    await db.batch(statements);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && /UNIQUE|CHECK|FOREIGN KEY|constraint/i.test(error.message)) return false;
+    throw error;
+  }
+}
+
+export async function saveUsage(db: D1Database, accountId: string, namespace: Namespace, bytes: number, at: number): Promise<void> {
+  await db
+    .prepare("UPDATE subscribers SET usage_bytes = ?, usage_checked_at = ? WHERE account_id = ? AND namespace = ?")
+    .bind(bytes, at, accountId, namespace)
+    .run();
+}
+
+/** After the account emptied its own folders: every folder counts zero, as of now. */
+export async function resetUsage(db: D1Database, accountId: string, at: number): Promise<void> {
+  await db.prepare("UPDATE subscribers SET usage_bytes = 0, usage_checked_at = ? WHERE account_id = ?").bind(at, accountId).run();
+}
+
+/** Marks the data deleted, unless the row changed since `version` (for example, a resubscription). */
+export async function markDataDeleted(db: D1Database, accountId: string, namespace: Namespace, version: number, now: number): Promise<boolean> {
   const result = await db
     .prepare(
-      `SELECT * FROM subscribers
-       WHERE data_deleted_at IS NULL AND user_key > ?
-         AND ((revoked_at IS NOT NULL AND revoked_at <= ?) OR (revoked_at IS NULL AND expires_at <= ?))
-       ORDER BY user_key LIMIT ?`,
+      `UPDATE subscribers SET data_deleted_at = ?, usage_bytes = 0, usage_checked_at = ?, updated_at = ?, version = version + 1
+       WHERE account_id = ? AND namespace = ? AND version = ?`,
     )
-    .bind(afterKey, cutoff, cutoff, limit)
-    .all<SubscriberRow>();
-  return result.results.map(fromRow);
+    .bind(now, now, now, accountId, namespace, version)
+    .run();
+  return (result.meta.changes ?? 0) === 1;
+}
+
+export interface DeletionCandidate {
+  subscriber: Subscriber;
+  folderKey: string;
+}
+
+/**
+ * Entitlements whose folder may be due for deletion: data still there, and expired or revoked
+ * at or before `cutoff` (now minus DELETE_AFTER_DAYS). A necessary condition only: the caller
+ * works out the exact end (billing retry, grace) for each. Keyset pages by account and namespace.
+ */
+export async function deletionCandidates(
+  db: D1Database,
+  cutoff: number,
+  after: { accountId: string; namespace: string },
+  limit: number,
+): Promise<DeletionCandidate[]> {
+  const result = await db
+    .prepare(
+      `SELECT s.*, a.folder_key AS folder_key FROM subscribers s JOIN accounts a ON a.account_id = s.account_id
+       WHERE s.data_deleted_at IS NULL AND (s.account_id, s.namespace) > (?, ?)
+         AND ((s.revoked_at IS NOT NULL AND s.revoked_at <= ?) OR (s.revoked_at IS NULL AND s.expires_at <= ?))
+       ORDER BY s.account_id, s.namespace LIMIT ?`,
+    )
+    .bind(after.accountId, after.namespace, cutoff, cutoff, limit)
+    .all<SubscriberRow & { folder_key: string }>();
+  return result.results.map((row) => ({ subscriber: fromRow(row), folderKey: row.folder_key }));
 }
