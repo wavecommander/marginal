@@ -79,6 +79,28 @@ export function idTokenClaims(provider: Provider, subject: string, nonce: string
   };
 }
 
+/**
+ * Claims of a dev test issuer token (README, "The dev test issuer"): issuer
+ * `tactile-texts-dev-test`, audience the bundle ID, 10 minutes' life.
+ */
+export function devTestClaims(subject: string, nonce: string, now: Date, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const iat = Math.floor(now.getTime() / 1000);
+  return { iss: "tactile-texts-dev-test", aud: "software.tactile.texts", sub: subject, nonce, iat, exp: iat + 600, email: "tester@example.com", ...overrides };
+}
+
+/**
+ * A dev test issuer token as the app's debug build mints it: header {"alg":"HS256","typ":"JWT"},
+ * HMAC-SHA256 over `<header>.<payload>` keyed with the UTF-8 bytes of `secret`.
+ */
+export async function signDevTestToken(claims: Record<string, unknown>, secret: string, header: Record<string, unknown> = {}): Promise<string> {
+  const encoder = new TextEncoder();
+  const head = base64url(encoder.encode(JSON.stringify({ alg: "HS256", typ: "JWT", ...header })));
+  const body = base64url(encoder.encode(JSON.stringify(claims)));
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(`${head}.${body}`)));
+  return `${head}.${body}.${base64url(signature)}`;
+}
+
 /** Key sets the test controls. Keys in `pending` appear only when the verifier asks for a refresh. */
 export class TestJwks implements JwksSource {
   readonly visible: Record<Provider, Jwk[]> = { apple: [], google: [] };

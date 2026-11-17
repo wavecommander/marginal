@@ -37,6 +37,12 @@ APPLE_TEAM_ID=
 # this value in the `X-App-Attest-Bypass` header. At least 32 characters. Never in production.
 APP_ATTEST_BYPASS_SECRET=
 
+# Optional, `dev` only: turns on the dev test issuer, so the simulator and the app's end-to-end
+# test can sign in without Apple or Google by minting HS256 tokens keyed with this value (README,
+# "The dev test issuer"). At least 32 characters (`openssl rand -hex 24`). Never in production:
+# there, its mere presence stops the Worker.
+DEV_TEST_SIGNIN_SECRET=
+
 # Optional, `dev` only: base64 DER of Xcode's StoreKit test certificate, so purchases made with
 # StoreKit Testing in Xcode are accepted (environment `Xcode`). Never in production.
 XCODE_STOREKIT_CERT=

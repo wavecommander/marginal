@@ -8,7 +8,10 @@
 //                        "tactile-identity-v1\0" || provider || "\0" || subject))
 //
 // so a database row cannot be worked back to an Apple or Google account without the Worker's
-// secret. Subscriptions are found the same way, in their own domain:
+// secret. `provider` there is the identity's namespace: `apple` or `google` for the real
+// providers, and `dev-test:apple` or `dev-test:google` for identities from the `dev`
+// deployment's test issuer (see idToken.ts), so a test token can never reach, prove or take over
+// an account made with a real Apple or Google sign-in, whatever its subject. Subscriptions are found the same way, in their own domain:
 //
 //     subscriptionKey = hex(HMAC-SHA256(IDENTITY_KEY_SECRET,
 //                           "tactile-subscription-v1\0" || environment || "\0" || originalTransactionId))
@@ -22,6 +25,19 @@ import { fromBase64Url, hex, randomBytes, sha256, toBase64Url } from "./bytes";
 
 export type Provider = "apple" | "google";
 
+/**
+ * The namespace an identity is hashed in: the real provider's, or the dev test issuer's
+ * stand-in for it. Never stored; only the hash is.
+ */
+export type IdentityNamespace = Provider | "dev-test:apple" | "dev-test:google";
+
+const NAMESPACES: ReadonlySet<string> = new Set<IdentityNamespace>(["apple", "google", "dev-test:apple", "dev-test:google"]);
+
+/** The namespace of identities from the dev test issuer standing in for `provider`. */
+export function devTestNamespace(provider: Provider): IdentityNamespace {
+  return provider === "apple" ? "dev-test:apple" : "dev-test:google";
+}
+
 const IDENTITY_DOMAIN = "tactile-identity-v1\0";
 const SUBSCRIPTION_DOMAIN = "tactile-subscription-v1\0";
 
@@ -32,10 +48,10 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message))));
 }
 
-export async function identityHash(secret: string, provider: Provider, subject: string): Promise<string> {
-  if (provider !== "apple" && provider !== "google") throw new Error("identityHash: unknown provider");
+export async function identityHash(secret: string, namespace: IdentityNamespace, subject: string): Promise<string> {
+  if (!NAMESPACES.has(namespace)) throw new Error("identityHash: unknown namespace");
   if (subject.length === 0 || subject.length > 255 || subject.includes("\0")) throw new Error("identityHash: not a subject");
-  return hmacHex(secret, `${IDENTITY_DOMAIN}${provider}\0${subject}`);
+  return hmacHex(secret, `${IDENTITY_DOMAIN}${namespace}\0${subject}`);
 }
 
 export async function subscriptionKey(secret: string, environment: AppleEnvironment, originalTransactionId: string): Promise<string> {

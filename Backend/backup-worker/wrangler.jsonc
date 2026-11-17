@@ -18,6 +18,9 @@
 //   APP_ATTEST_BYPASS_SECRET                               `dev` only, optional: lets the simulator
 //                                                          through without App Attest. If it exists
 //                                                          in production the Worker refuses to serve.
+//   DEV_TEST_SIGNIN_SECRET                                 `dev` only, optional: the dev test issuer's
+//                                                          key, so the simulator can sign in without
+//                                                          Apple or Google. Same production refusal.
 //
 // The Worker makes outbound requests to four fixed addresses only: Apple's and Google's sign-in
 // key sets, and Apple's token and revoke endpoints (see README, "Configuration").

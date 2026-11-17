@@ -47,6 +47,11 @@ export interface Env {
   APPLE_SIWA_PRIVATE_KEY?: string;
   /** `dev` only: lets the simulator (which has no App Attest) through. Must not exist in production. */
   APP_ATTEST_BYPASS_SECRET?: string;
+  /**
+   * `dev` only: keys the dev test issuer's HS256 sign-in tokens, so the simulator and end-to-end
+   * tests can sign in without Apple or Google (see idToken.ts). Must not exist in production.
+   */
+  DEV_TEST_SIGNIN_SECRET?: string;
 }
 
 /** Settings parsed and checked; `readSettings` throws a plain message naming what is wrong. */
@@ -80,6 +85,8 @@ export interface Settings {
   siwa: { keyId: string; privateKeyPkcs8: Uint8Array } | undefined;
   /** Only ever set in `dev`. */
   attestBypassSecret: string | undefined;
+  /** Only ever set in `dev`: the dev test issuer's key; undefined when the issuer is off. */
+  devTestSigninSecret: string | undefined;
   /** Only ever set in `dev`. */
   xcodeStoreKitCert: Uint8Array | undefined;
 }
@@ -170,13 +177,17 @@ function parseSettings(env: Env): Settings {
   }
   const siwa = readSiwaKey(env);
 
-  // The two development-only switches cannot be turned on in production: if either is present
-  // there, the Worker refuses to serve at all, so the mistake is loud rather than silent.
+  // The development-only switches cannot be turned on in production: if any is present there,
+  // the Worker refuses to serve at all, so the mistake is loud rather than silent.
   let attestBypassSecret: string | undefined;
+  let devTestSigninSecret: string | undefined;
   let xcodeStoreKitCert: Uint8Array | undefined;
   if (production) {
     if (env.APP_ATTEST_BYPASS_SECRET !== undefined) {
       throw new Error("APP_ATTEST_BYPASS_SECRET must not exist in production: delete it");
+    }
+    if (env.DEV_TEST_SIGNIN_SECRET !== undefined) {
+      throw new Error("DEV_TEST_SIGNIN_SECRET must not exist in production: delete it");
     }
     if (env.XCODE_STOREKIT_CERT) throw new Error("XCODE_STOREKIT_CERT must not be set in production");
   } else {
@@ -185,6 +196,12 @@ function parseSettings(env: Env): Settings {
         throw new Error("APP_ATTEST_BYPASS_SECRET must be at least 32 characters");
       }
       attestBypassSecret = env.APP_ATTEST_BYPASS_SECRET;
+    }
+    if (env.DEV_TEST_SIGNIN_SECRET !== undefined && env.DEV_TEST_SIGNIN_SECRET !== "") {
+      if (env.DEV_TEST_SIGNIN_SECRET.length < 32) {
+        throw new Error("DEV_TEST_SIGNIN_SECRET must be at least 32 characters");
+      }
+      devTestSigninSecret = env.DEV_TEST_SIGNIN_SECRET;
     }
     if (env.XCODE_STOREKIT_CERT) {
       try {
@@ -220,6 +237,7 @@ function parseSettings(env: Env): Settings {
     subscriptionMoveDays,
     siwa,
     attestBypassSecret,
+    devTestSigninSecret,
     xcodeStoreKitCert,
   };
 }

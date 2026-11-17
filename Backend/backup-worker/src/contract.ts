@@ -59,10 +59,18 @@ export interface SignedInRequest extends AttestedRequest {
 /**
  * `POST /v1/auth/apple` and `POST /v1/auth/google`. The ID token's `nonce` must be the
  * lower-case hex SHA-256 of the challenge's base64-decoded bytes.
+ *
+ * Every ID token field in this contract (`idToken`, `currentIdToken`, `newIdToken`) may instead
+ * be a dev test issuer token (README, "The dev test issuer"), on the `dev` deployment only and
+ * only when DEV_TEST_SIGNIN_SECRET is set. It stands in for the provider the endpoint names, in
+ * an identity namespace of its own, so it never reaches an account made with a real sign-in.
  */
 export interface SignInRequest extends AttestedRequest {
   action: "auth-apple" | "auth-google";
-  /** Apple: `ASAuthorizationAppleIDCredential.identityToken` (UTF-8). Google: the `id_token`. */
+  /**
+   * Apple: `ASAuthorizationAppleIDCredential.identityToken` (UTF-8). Google: the `id_token`.
+   * `dev` with the test issuer on: or a dev test token.
+   */
   idToken: string;
   /** Apple only, optional: `authorizationCode`. Accepted and not used at sign-in. */
   authorizationCode?: string;
@@ -76,13 +84,17 @@ export interface SignInRequest extends AttestedRequest {
  */
 export interface ChangeSignInRequest extends SignedInRequest {
   action: "auth-change";
-  /** A fresh ID token from the account's current sign-in: the proof. */
+  /**
+   * A fresh ID token from the account's current sign-in: the proof. For an account made with
+   * dev test tokens, a dev test token for the same subject (a real token is `identity-mismatch`,
+   * and the other way round).
+   */
   currentIdToken: string;
   /** Required when the current sign-in is Apple: that sign-in's `authorizationCode`, to revoke it after the change. */
   currentAuthorizationCode?: string;
   /** The provider to change to; must differ from the current one. */
   newProvider: "apple" | "google";
-  /** A fresh ID token from the new provider. */
+  /** A fresh ID token from the new provider (`dev` with the test issuer on: or a dev test token). */
   newIdToken: string;
 }
 
@@ -104,6 +116,7 @@ export interface AccountRequest extends SignedInRequest {
  */
 export interface DeleteAccountRequest extends SignedInRequest {
   action: "account-delete";
+  /** The proof, as `ChangeSignInRequest.currentIdToken`. */
   idToken?: string;
   authorizationCode?: string;
 }

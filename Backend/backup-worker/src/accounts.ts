@@ -9,7 +9,7 @@ import * as db from "./db";
 import type { Env, Settings } from "./env";
 import { Refusal, json, optionalStringField, readJsonBody, stringField } from "./http";
 import { identityHash, newAccountId, newFolderKey, newSessionId, newSessionToken, sessionTokenHash, type Provider } from "./identity";
-import { audiencesFor, nonceFor, verifyAppleSignInNotification, verifyIdToken } from "./idToken";
+import { checkProviderEnabled, nonceFor, verifyAppleSignInNotification, verifyIdToken } from "./idToken";
 import { logEvent, shortKey } from "./log";
 import { authenticate, requireSession, sessionTokenField } from "./requestAuth";
 import { deleteBudget, type Deps } from "./service";
@@ -27,16 +27,16 @@ const MAX_DEVICE_LABEL = 1024;
 
 export async function signIn(provider: Provider, request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
   const { fields, challenge, attestKeyId } = await authenticate(request, env, settings, deps, provider === "apple" ? "auth-apple" : "auth-google", (body) => {
-    // Google not configured: refuse before the challenge is spent.
-    audiencesFor(provider, settings);
+    // Google not configured (and no dev test issuer to stand in): refuse before the challenge is spent.
+    checkProviderEnabled(provider, settings);
     return {
       idToken: stringField(body, "idToken", MAX_ID_TOKEN),
       authorizationCode: provider === "apple" ? optionalStringField(body, "authorizationCode", MAX_AUTHORIZATION_CODE) : undefined,
       deviceLabel: deviceLabelField(body),
     };
   });
-  const { subject } = await verifyIdToken(fields.idToken, provider, await nonceFor(challenge), settings, { jwks: deps.jwks, now: deps.now() });
-  const hash = await identityHash(settings.identityKeySecret, provider, subject);
+  const verified = await verifyIdToken(fields.idToken, provider, await nonceFor(challenge), settings, { jwks: deps.jwks, now: deps.now() });
+  const hash = await identityHash(settings.identityKeySecret, verified.namespace, verified.subject);
   const now = deps.now().getTime();
 
   let account = await db.getAccountByIdentity(env.DB, hash);
@@ -62,7 +62,7 @@ export async function signIn(provider: Provider, request: Request, env: Env, set
   const token = newSessionToken();
   const session: db.DeviceSession = { sessionId: newSessionId(), accountId: account.accountId, attestKeyId, label: fields.deviceLabel ?? null, createdAt: now, lastUsedAt: now };
   await db.insertSession(env.DB, session, await sessionTokenHash(token));
-  logEvent("signed-in", { provider, account: shortKey(account.accountId), newAccount });
+  logEvent("signed-in", { provider, account: shortKey(account.accountId), newAccount, ...(verified.issuer === "dev-test" ? { issuer: "dev-test" } : {}) });
   const body: SignInResponse = {
     deviceSessionToken: token,
     sessionId: session.sessionId,
@@ -97,12 +97,12 @@ export async function changeSignIn(request: Request, env: Env, settings: Setting
 
   // 1. Proof from the current sign-in.
   const current = await verifyIdToken(fields.currentIdToken, account.provider, nonce, settings, context);
-  if ((await identityHash(settings.identityKeySecret, account.provider, current.subject)) !== account.identityHash) {
+  if ((await identityHash(settings.identityKeySecret, current.namespace, current.subject)) !== account.identityHash) {
     throw new Refusal("identity-mismatch", "current ID token is not this account's");
   }
   // 2. The new sign-in.
   const next = await verifyIdToken(fields.newIdToken, fields.newProvider, nonce, settings, context);
-  const nextHash = await identityHash(settings.identityKeySecret, fields.newProvider, next.subject);
+  const nextHash = await identityHash(settings.identityKeySecret, next.namespace, next.subject);
   if (await db.getAccountByIdentity(env.DB, nextHash)) throw new Refusal("identity-in-use", "new identity has an account");
 
   // 3. The swap, in one statement: never two identities, never none.
@@ -200,7 +200,7 @@ export async function deleteAccount(request: Request, env: Env, settings: Settin
     if (fields.idToken === undefined) throw new Refusal("bad-request", "field idToken");
     if (account.provider === "apple" && fields.authorizationCode === undefined) throw new Refusal("bad-request", "field authorizationCode");
     const proof = await verifyIdToken(fields.idToken, account.provider, await nonceFor(challenge), settings, { jwks: deps.jwks, now: deps.now() });
-    if ((await identityHash(settings.identityKeySecret, account.provider, proof.subject)) !== account.identityHash) {
+    if ((await identityHash(settings.identityKeySecret, proof.namespace, proof.subject)) !== account.identityHash) {
       throw new Refusal("identity-mismatch", "ID token is not this account's");
     }
     deletingSince = deps.now().getTime();
