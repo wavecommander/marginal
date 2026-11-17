@@ -266,7 +266,12 @@ struct ReaderScreen: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
-            contentsToggle
+            Button {
+                withAnimation { session.toggleContents() }
+            } label: {
+                Label(session.isContentsShown ? "Hide Contents" : "Show Contents", systemImage: "sidebar.leading")
+            }
+            .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
             SectionHistoryButton(session: session, direction: .back)
             SectionHistoryButton(session: session, direction: .forward)
         }
@@ -342,23 +347,6 @@ struct ReaderScreen: View {
             session.isSearchVisible = true
             isRepresentingSearch = false
         }
-    }
-
-    /// Shows and hides the Contents sidebar: outlined while hidden, filled (and selected) while
-    /// shown. A button-style `Toggle` for the selection state, as `markupToggle` explains.
-    /// `sidebar.leading` has no filled variant; `rectangle.leadinghalf.inset.filled` is the same
-    /// shape with the sidebar half filled.
-    private var contentsToggle: some View {
-        let isOn = session.isContentsShown
-        return Toggle(isOn: Binding(get: { session.isContentsShown },
-                                    set: { on in
-                                        if on != session.isContentsShown { withAnimation { session.toggleContents() } }
-                                    })) {
-            Label(isOn ? "Hide Contents" : "Show Contents",
-                  systemImage: isOn ? "rectangle.leadinghalf.inset.filled" : "sidebar.leading")
-        }
-        .toggleStyle(.button)
-        .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
     }
 
     /// Shows and hides the notes pane, selected while shown (a button-style `Toggle`, as
