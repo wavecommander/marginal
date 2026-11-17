@@ -256,6 +256,25 @@ struct EncryptedBackupDestinationTests {
                 != ObjectNames(key: sequentialKey).snapshotObjectName(createdAt: Self.olderDate, deviceName: "iPad"))
     }
 
+    @Test func thePublicPDFNameAndMetadataAreWhatTheDestinationWrites() async throws {
+        let f = try EncryptedFixture()
+        let source = try f.dir.file("book.pdf", Data("%PDF-1.7 shared with sync".utf8))
+        let digest = try ContentHash.digest(ofFileAt: source)
+        try await f.destination().uploadPDF(from: source, sha256: digest.sha256, size: digest.size, progress: nil)
+        let name = try EncryptedBackupDestination.pdfObjectName(sha256: digest.sha256.uppercased(), key: sequentialKey)
+        #expect(f.storePaths("PDFs") == [name])
+        #expect(name == ObjectNames(key: sequentialKey).pdfObjectName(sha256: digest.sha256))
+        let stored = f.dir.url.appendingPathComponent("store/PDFs/\(name)")
+        let opened = try BackupFileEncryption.decrypt(stored, to: f.dir.url.appendingPathComponent("opened.pdf"),
+                                                      key: sequentialKey)
+        #expect(opened.metadata == EncryptedBackupDestination.pdfObjectMetadata(sha256: digest.sha256, size: digest.size,
+                                                                                objectName: name))
+        #expect(opened.metadata == ["kind": "pdf", "object": name, "sha256": digest.sha256, "size": String(digest.size)])
+        #expect(throws: BackupError.pdfNotAtDestination(sha256: "abc")) {
+            try EncryptedBackupDestination.pdfObjectName(sha256: "abc", key: sequentialKey)
+        }
+    }
+
     @Test func damagedAndSwappedObjectsAreRefused() async throws {
         let f = try EncryptedFixture()
         let destination = f.destination()

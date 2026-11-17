@@ -33,6 +33,25 @@ struct EncryptionKeyTests {
         #expect(subkeys[0] == okm)
     }
 
+    @Test func derivedKeysForOtherPackagesAreHKDFWithTheirOwnInfo() {
+        // HKDF-SHA256(IKM = 00…1f, salt = empty, info = "tactile-texts.sync.v1.content", L = 32),
+        // computed independently from the extract and expand steps.
+        let info = "tactile-texts.sync.v1.content"
+        let prk = HMAC<SHA256>.authenticationCode(for: rawBytes(sequentialKey), using: SymmetricKey(data: [UInt8](repeating: 0, count: 32)))
+        var block = Data(info.utf8)
+        block.append(1)
+        let okm = Data(HMAC<SHA256>.authenticationCode(for: block, using: SymmetricKey(data: Data(prk))))
+        let derived = sequentialKey.derivedKey(info: info).withUnsafeBytes { Data($0) }
+        #expect(derived == okm)
+        let other = sequentialKey.derivedKey(info: "tactile-texts.sync.v1.blob-name").withUnsafeBytes { Data($0) }
+        #expect(other != derived)
+        // Nothing a caller can ask for is one of the backup sub-keys.
+        for purpose in BackupEncryptionKey.Purpose.allCases {
+            #expect(purpose.rawValue.hasPrefix(BackupEncryptionKey.reservedInfoPrefix))
+            #expect(sequentialKey.subkey(purpose).withUnsafeBytes { Data($0) } != derived)
+        }
+    }
+
     @Test func recoveryKeyRoundTripsExactly() throws {
         for _ in 0..<50 {
             let key = BackupEncryptionKey.generate()
