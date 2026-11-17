@@ -65,7 +65,8 @@ struct LibraryScreen: View {
                                environment: environment)
     }
 
-    private var screen: some View {
+    /// The page with its title, search field and toolbar; `screen` adds the sheets and alerts.
+    private var titledPage: some View {
         ZStack {
             Color(.systemGroupedBackground).ignoresSafeArea()
             if let model {
@@ -75,7 +76,12 @@ struct LibraryScreen: View {
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $query, prompt: "Search titles and notes")
+        .modifier(LibrarySearchPresentation())
         .toolbar { toolbar }
+    }
+
+    private var screen: some View {
+        titledPage
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task { await considerWelcome() }
         .sheet(isPresented: welcomeBinding) {
@@ -559,5 +565,18 @@ struct LibraryScreen: View {
 
     private var errorBinding: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+}
+
+/// Keeps the large "Library" title where it is while the search field is active. Without it,
+/// focusing search on iPad drops the title's leading margin and it jumps to the window's edge.
+/// iPadOS 17.0 has no such switch and keeps the system's default search presentation.
+private struct LibrarySearchPresentation: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.1, *) {
+            content.searchPresentationToolbarBehavior(.avoidHidingContent)
+        } else {
+            content
+        }
     }
 }
