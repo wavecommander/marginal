@@ -287,8 +287,9 @@ ones even where the mockup draws an approximation.
   note it is showing, page note or section note: a Delete Note action in the note's header,
   disabled while the note is empty. It asks for confirmation, saying what will go (the typed
   text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
-  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
-  note's row in the Notebook. The change shows in every
+  removes the note and its ink and leaves the empty placeholder, and shows a brief Undo pill
+  button that restores the note and its ink. The same action and Undo pill are offered on a
+  note's row in the Notebook and Library search results. The change shows in every
   window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a

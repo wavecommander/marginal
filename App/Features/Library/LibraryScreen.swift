@@ -35,6 +35,8 @@ struct LibraryScreen: View {
     /// A book without its PDF the reader tried to open: offers Locate PDF… and the Notebook.
     @State private var missingPrompt: Book?
     @State private var linker = PDFLinker()
+    /// Undo pill state after deleting a note from Library search results.
+    @State private var undoController = DeletedNoteUndoController()
 
     init() {}
 
@@ -83,6 +85,16 @@ struct LibraryScreen: View {
         .searchable(text: $query, prompt: "Search titles and notes")
         .modifier(LibrarySearchPresentation())
         .toolbar { toolbar }
+        .overlay(alignment: .bottom) {
+            DeletedNoteUndoPill(controller: undoController)
+                .padding(.bottom, Space.l)
+                .padding(.horizontal, Space.m)
+        }
+        .onChange(of: model?.books.map(\.id) ?? []) { _, ids in
+            if let bookID = undoController.pending?.note.bookID, !ids.contains(bookID) {
+                undoController.dismiss()
+            }
+        }
     }
 
     private var screen: some View {
@@ -267,7 +279,12 @@ struct LibraryScreen: View {
                 openInNewWindow: { book, page, heading in
                     window.openReaderInNewWindow(bookID: book.id, pageIndex: page, notesHeading: heading)
                 },
-                openNotebook: { window.openNotebook(bookID: $0.id) })
+                openNotebook: { window.openNotebook(bookID: $0.id) },
+                onDeleteNote: { snapshot in
+                    undoController.offer(snapshot) { [store = environment.store] item in
+                        (try? await NoteRestore.restore(item, to: store, origin: nil)) != nil
+                    }
+                })
         }
     }
 

@@ -95,6 +95,8 @@ private struct NotebookContent: View {
     @State private var export = NotebookExportController()
     /// The note whose deletion is being confirmed.
     @State private var deleteCandidate: Note?
+    /// Undo pill state after deleting a note from this Notebook.
+    @State private var undoController = DeletedNoteUndoController()
     /// Choosing what to export: rows show checkboxes and tapping one ticks it.
     @State private var isSelecting = false
     /// The ticked items (kept across filter changes; items that no longer exist are dropped).
@@ -163,11 +165,26 @@ private struct NotebookContent: View {
                                                          set: { if !$0 { deleteCandidate = nil } }),
                presenting: deleteCandidate) { note in
             Button("Delete", role: .destructive) {
-                Task { await model.deleteNote(note) }
+                Task {
+                    let result = await model.deleteNoteResult(note)
+                    if result.deleted, let snapshot = result.snapshot {
+                        undoController.offer(snapshot) { item in
+                            await model.restoreDeletedNote(item)
+                        }
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: { note in
             Text(NotesPanel.deleteMessage(hasInk: note.hasInk))
+        }
+        .onChange(of: model.phase) { _, phase in
+            if phase == .missing { undoController.dismiss() }
+        }
+        .overlay(alignment: .bottom) {
+            DeletedNoteUndoPill(controller: undoController)
+                .padding(.bottom, Space.l)
+                .padding(.horizontal, Space.m)
         }
         .overlay(alignment: .topTrailing) {
             NotebookShareSheetAnchor(item: export.sharedResult?.fileURL, onFinish: export.shareDidFinish)

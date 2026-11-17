@@ -90,6 +90,22 @@ struct NotesPanel: View {
         } message: { model in
             Text(Self.deleteMessage(hasInk: model.hasInk))
         }
+        .onChange(of: controller.model?.revision) { _, _ in
+            if let pending = controller.undoController.pending,
+               let model = controller.model,
+               model.target == pending.note.target,
+               !NotesPanelController.isEmpty(model) {
+                controller.undoController.dismiss()
+            }
+        }
+        .onChange(of: session.saveToken.isRevoked) { _, revoked in
+            if revoked { controller.undoController.dismiss() }
+        }
+        .overlay(alignment: .bottom) {
+            DeletedNoteUndoPill(controller: controller.undoController)
+                .padding(.bottom, Space.l)
+                .padding(.horizontal, Space.m)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(NotesPanelAccessibilityID.panel)
     }

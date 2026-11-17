@@ -40,6 +40,8 @@ nonisolated enum NotesPanelAccessibilityID {
     static let addHeading = "notesPanel.addHeading"
     /// Delete Note (the header button).
     static let deleteNote = "notes.deleteNote"
+    /// Undo Delete pill button shown after deleting a note.
+    static let undoDelete = "notes.undoDelete"
     /// "Open in Notebook".
     static let openNotebook = "notesPanel.openNotebook"
 }

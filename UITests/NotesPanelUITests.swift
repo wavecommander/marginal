@@ -392,6 +392,32 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual((textView(again).value as? String) ?? "", "")
     }
 
+    /// Deleting a note from the header shows the Undo pill; tapping it restores the note.
+    func testDeleteNoteUndoPillRestoresDeletedNote() {
+        let app = launch(fresh: true, page: 3)
+        let delete = app.buttons["notes.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 10))
+        type(app, "Keep me")
+        XCTAssertTrue(waitForEnabled(delete))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "cleared on delete")
+
+        let undoPill = app.buttons["notes.undoDelete"].firstMatch
+        XCTAssertTrue(undoPill.waitForExistence(timeout: 5), "Undo pill appears after delete")
+        undoPill.tap()
+
+        XCTAssertTrue(wait(textView(app), "value == %@", "Keep me"), "note text restored")
+        XCTAssertTrue(wait(status(app), "label == %@", "Saved"), "restored note is saved")
+        XCTAssertFalse(undoPill.exists, "Undo pill goes away once tapped")
+
+        app.terminate()
+        let again = launch(fresh: false, page: 3)
+        XCTAssertTrue(wait(textView(again), "value == %@", "Keep me"), "still restored after relaunch")
+    }
+
     /// Swiping right on the notes pane (its header, the note page), as when a drag meant for the
     /// divider's pill misses it, never goes back to the Library: on iPadOS 26+ the navigation
     /// stack's full-width back swipe must not start there (TSOFT-225).

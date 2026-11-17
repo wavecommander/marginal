@@ -282,6 +282,28 @@ final class NotebookUITests: XCTestCase {
         XCTAssertTrue(row(app, ID.pageNote(1)).exists, "other notes stay")
     }
 
+    /// Deleting a note row in the Notebook shows the Undo pill; tapping it brings the row back.
+    func testDeleteNoteFromARowUndoPillRestoresNote() {
+        let app = launch()
+        let note = row(app, ID.pageNote(5))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.press(forDuration: 1.0)
+        let delete = app.buttons["notebook.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        let alert = app.alerts["Delete This Note?"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(waitForAbsence(note, timeout: 10), "row removed")
+
+        let undoPill = app.buttons["notes.undoDelete"].firstMatch
+        XCTAssertTrue(undoPill.waitForExistence(timeout: 5), "Undo pill appears after delete")
+        undoPill.tap()
+
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "row restored")
+        XCTAssertFalse(undoPill.exists, "Undo pill goes away once tapped")
+    }
+
     func testExportMarkdownAndPDFPresentTheShareSheet() {
         let app = launch()
         export(app, "Markdown")

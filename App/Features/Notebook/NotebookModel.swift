@@ -155,9 +155,40 @@ final class NotebookModel {
     /// `false` when the store failed.
     @discardableResult
     func deleteNote(_ note: Note) async -> Bool {
+        await deleteNoteResult(note).deleted
+    }
+
+    /// Deletes a note and its ink, returning whether it succeeded and a snapshot for undoing.
+    func deleteNoteResult(_ note: Note) async -> (deleted: Bool, snapshot: DeletedNoteSnapshot?) {
+        await NoteSaveQueue.shared.run(bookID: note.bookID, target: note.target) {
+            do {
+                let inkData: Data? = note.hasInk ? (try? await self.store.noteInk(bookID: note.bookID, noteID: note.id)) : nil
+                try await self.store.deleteNote(id: note.id, origin: nil)
+                let hasInk = inkData != nil
+                let capturedNote = Note(
+                    id: note.id,
+                    bookID: note.bookID,
+                    target: note.target,
+                    text: note.text,
+                    hasInk: hasInk,
+                    bandLayout: hasInk ? note.bandLayout : nil,
+                    createdAt: note.createdAt,
+                    modifiedAt: note.modifiedAt
+                )
+                let snapshot: DeletedNoteSnapshot? = capturedNote.isEmpty ? nil : DeletedNoteSnapshot(note: capturedNote, inkData: inkData)
+                return (true, snapshot)
+            } catch {
+                return (false, nil)
+            }
+        }
+    }
+
+    /// Restores a previously deleted note (the Undo pill).
+    @discardableResult
+    func restoreDeletedNote(_ snapshot: DeletedNoteSnapshot) async -> Bool {
+        guard phase != .missing, snapshot.note.bookID == bookID else { return false }
         do {
-            try await store.deleteNote(id: note.id, origin: nil)
-            return true
+            return try await NoteRestore.restore(snapshot, to: store, origin: nil) != nil
         } catch {
             return false
         }

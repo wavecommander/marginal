@@ -75,6 +75,7 @@ struct LibrarySearchResultsView: View {
     let openAt: (Book, Int, HeadingAnchor?) -> Void
     let openInNewWindow: (Book, Int, HeadingAnchor?) -> Void
     let openNotebook: (Book) -> Void
+    var onDeleteNote: ((DeletedNoteSnapshot) -> Void)? = nil
 
     @Environment(\.accentTheme) private var accentTheme
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -129,7 +130,12 @@ struct LibrarySearchResultsView: View {
                presenting: deleteCandidate) { candidate in
             Button("Delete", role: .destructive) {
                 if let model = notebooks.models[candidate.bookID] {
-                    Task { await model.deleteNote(candidate.note) }
+                    Task {
+                        let result = await model.deleteNoteResult(candidate.note)
+                        if result.deleted, let snapshot = result.snapshot {
+                            onDeleteNote?(snapshot)
+                        }
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}

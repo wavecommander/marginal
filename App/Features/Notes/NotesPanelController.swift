@@ -65,6 +65,8 @@ final class NotesPanelController {
     private(set) var repairedAnchorCount = 0
     /// Whether the anchor repair has run for this window's outline load.
     private(set) var didRepairAnchors = false
+    /// Undo pill state after deleting a note from this panel.
+    let undoController = DeletedNoteUndoController()
 
     // MARK: Private
 
@@ -137,7 +139,30 @@ final class NotesPanelController {
     @discardableResult
     func delete(_ model: NotePageModel) async -> Bool {
         do {
-            try await model.deleteNote()
+            if let snapshot = try await model.deleteNote() {
+                undoController.offer(snapshot) { [weak self] item in
+                    await self?.restoreDeletedNote(item) ?? false
+                }
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Restores a deleted note from the Undo pill, updating any cached live model for its target.
+    @discardableResult
+    func restoreDeletedNote(_ snapshot: DeletedNoteSnapshot) async -> Bool {
+        guard let session, !session.saveToken.isRevoked else { return false }
+        let target = snapshot.note.target
+        do {
+            if let cached = cache[target] {
+                try await cached.restoreNote(snapshot)
+            } else {
+                guard try await NoteRestore.restore(snapshot, to: session.store, origin: session.origin,
+                                                    saveToken: session.saveToken) != nil else { return false }
+                refresh(explicit: true)
+            }
             return true
         } catch {
             return false

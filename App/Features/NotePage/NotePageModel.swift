@@ -319,60 +319,131 @@ final class NotePageModel {
     /// (`LibraryStore.deleteNote`, attributed to `origin`) and resets this model to the empty
     /// placeholder of the same target, discarding unsaved text and strokes. The editor showing it
     /// is told to show the empty page and stays ready for a new note. A note never saved is simply
-    /// cleared. Added for the notes panel.
+    /// cleared. Returns a snapshot of the deleted note when it was non-empty so an undo action can
+    /// restore it.
     /// - Throws: the store's error; the model then keeps its content and shows "Not saved".
-    func deleteNote() async throws {
+    @discardableResult
+    func deleteNote() async throws -> DeletedNoteSnapshot? {
         debounceTask?.cancel()
         debounceTask = nil
         var failure: (any Error)?
+        var snapshot: DeletedNoteSnapshot?
         await enqueue {
             guard !self.saveToken.isRevoked else { return }
+            let localText = self.text
+            let localInk = self.ink
+            let localUnreadableInk = self.hasUnreadableInk
+            let localBaseInkData = self.baseInkData
+            let localNoteID = self.noteID
+            let localCreatedAt = self.createdAt
             do {
-                let ran: Bool? = try await BookWriteGate.shared.performSave(bookID: self.bookID, token: self.saveToken) {
+                let captured: DeletedNoteSnapshot?? = try await BookWriteGate.shared.performSave(
+                    bookID: self.bookID, token: self.saveToken) {
                     // In the note's queue, so it never lands in the middle of another window's save.
-                    let deleted: Result<Bool, any Error> = await NoteSaveQueue.shared.run(
+                    let deleted: Result<DeletedNoteSnapshot?, any Error> = await NoteSaveQueue.shared.run(
                         bookID: self.bookID, target: self.target) {
                         do {
-                            if let record = try self.store.notes.note(bookID: self.bookID, target: self.target) {
+                            let record = try self.store.notes.note(bookID: self.bookID, target: self.target)
+                            let inkData: Data?
+                            if localUnreadableInk {
+                                if let localBaseInkData {
+                                    inkData = localBaseInkData
+                                } else if let record {
+                                    inkData = try? await self.store.noteInk(bookID: self.bookID, noteID: record.id)
+                                } else {
+                                    inkData = nil
+                                }
+                            } else if !localInk.isEmpty {
+                                inkData = try? NoteInkArchive.encode(localInk)
+                            } else {
+                                inkData = nil
+                            }
+                            let hasInk = inkData != nil
+                            let bandLayout = localUnreadableInk ? record?.bandLayout : (hasInk ? localInk.layout : nil)
+                            let note = Note(
+                                id: record?.id ?? localNoteID ?? UUID(),
+                                bookID: self.bookID,
+                                target: self.target,
+                                text: localText,
+                                hasInk: hasInk,
+                                bandLayout: bandLayout,
+                                createdAt: record?.createdAt ?? localCreatedAt ?? Date(),
+                                modifiedAt: Date()
+                            )
+                            let result: DeletedNoteSnapshot? = note.isEmpty ? nil : DeletedNoteSnapshot(note: note, inkData: inkData)
+                            if let record {
                                 try await self.store.deleteNote(id: record.id, origin: self.origin)
                             }
-                            return .success(true)
+                            return .success(result)
                         } catch {
                             return .failure(error)
                         }
                     }
                     return try deleted.get()
                 }
-                if ran == nil { return }
+                guard let captured else { return }
+                snapshot = captured
             } catch {
                 failure = error
                 self.saveState = .failed(String(describing: error))
                 return
             }
-            self.debounceTask?.cancel()
-            self.debounceTask = nil
-            let empty = NoteInk(layout: self.layout(for: ""))
-            self.text = ""
-            self.ink = empty
-            self.strokeCount = 0
-            self.noteID = nil
-            self.createdAt = nil
-            self.isStored = false
-            self.hasUnreadableInk = false
-            self.remoteChangePending = false
-            self.baseText = ""
-            self.baseInk = empty
-            self.baseInkData = nil
-            self.baseRecordID = nil
-            self.inkGeneration += 1
-            self.baseInkGeneration = self.inkGeneration
-            self.undoManager.removeAllActions()
-            self.revision += 1
-            self.saveState = .empty
-            self.editor?.noteModelDidReplaceText(self)
-            self.editor?.noteModelDidChangeInk(self)
+            self.clearAfterDelete()
         }
         if let failure { throw failure }
+        return snapshot
+    }
+
+    /// Restores a previously deleted note (the Undo pill after Delete Note): writes the note and
+    /// its ink back to the store and updates this model to show it.
+    func restoreNote(_ snapshot: DeletedNoteSnapshot) async throws {
+        guard snapshot.note.bookID == bookID, snapshot.note.target == target else { return }
+        debounceTask?.cancel()
+        debounceTask = nil
+        var failure: (any Error)?
+        await enqueue {
+            guard !self.saveToken.isRevoked else { return }
+            let restoredRecord: Note?
+            do {
+                guard let saved = try await NoteRestore.restore(snapshot, to: self.store, origin: self.origin,
+                                                                saveToken: self.saveToken) else { return }
+                restoredRecord = saved
+            } catch {
+                failure = error
+                self.saveState = .failed(String(describing: error))
+                return
+            }
+            self.remoteChangePending = false
+            self.reconcile(record: restoredRecord, inkData: snapshot.inkData, initial: true)
+            self.isLoaded = true
+            self.refreshSaveState()
+        }
+        if let failure { throw failure }
+    }
+
+    private func clearAfterDelete() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        let empty = NoteInk(layout: layout(for: ""))
+        text = ""
+        ink = empty
+        strokeCount = 0
+        noteID = nil
+        createdAt = nil
+        isStored = false
+        hasUnreadableInk = false
+        remoteChangePending = false
+        baseText = ""
+        baseInk = empty
+        baseInkData = nil
+        baseRecordID = nil
+        inkGeneration += 1
+        baseInkGeneration = inkGeneration
+        undoManager.removeAllActions()
+        revision += 1
+        saveState = .empty
+        editor?.noteModelDidReplaceText(self)
+        editor?.noteModelDidChangeInk(self)
     }
 
     /// `true` while text or ink differ from what was last stored.
