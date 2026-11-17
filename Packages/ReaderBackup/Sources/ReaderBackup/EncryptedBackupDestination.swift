@@ -135,6 +135,15 @@ public struct EncryptedBackupDestination: BackupDestination, CustomStringConvert
         return result
     }
 
+    /// Makes sure the store may be written with `key`: the key check matches, or, with nothing
+    /// stored, a key check is written and read back (what the first upload does). Sync calls
+    /// this before its first write, so that another device can tell a wrong key from damage even
+    /// when the account holds only sync objects. Throws `wrongEncryptionKey` for another key, the
+    /// store's errors, `newerFormatVersion` for a key check from a newer app.
+    public func prepareForWriting() async throws {
+        try await requireKey(forWriting: true)
+    }
+
     public func availability() async -> BackupDestinationAvailability {
         let storeAvailability = await store.availability()
         guard storeAvailability.isAvailable else { return storeAvailability }

@@ -212,7 +212,7 @@ extension BackupService {
         let changed = BackupServiceError.libraryChanged(bookTitle: title).localizedDescription
 
         // The Library still holds the books the preview saw, and the local book.
-        let current = currentMatches(for: item.entry.book)
+        let current = currentMatches(for: item.entry)
         guard current.contains(localID), Set(current).isSubset(of: Set(item.replacedBookIDs)),
               let localNow = try? store.archive(bookID: localID) else { return fail(changed) }
 
