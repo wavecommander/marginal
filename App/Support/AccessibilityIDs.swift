@@ -212,11 +212,8 @@ nonisolated enum AccessibilityID {
         static let markupToggle = "reader.toolbar.markup"
         static let notesToggle = "reader.toolbar.notes"
         static let more = "reader.toolbar.more"
-        /// Maximizes the page (hides the toolbar and the panes).
-        static let maximize = "reader.toolbar.maximize"
-        /// The floating button that ends a maximized page, and the ink Undo / Redo beside it
-        /// (markup mode at compact width, as in the toolbar).
-        static let exitMaximize = "reader.maximized.exit"
+        /// The ink Undo / Redo over a maximized page (markup mode at compact width, as in the
+        /// toolbar).
         static let maximizedUndo = "reader.maximized.undo"
         static let maximizedRedo = "reader.maximized.redo"
         /// Undo / Redo of ink: only in markup mode at compact width (elsewhere the tool picker has them).

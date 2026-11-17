@@ -147,8 +147,8 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
-        // A maximized page has the whole window: no toolbar, no status bar. The way back is
-        // `MaximizedPageControls`, over the page.
+        // A maximized page has the whole window: no toolbar, no status bar. The way back is a
+        // finger tap on the page (`ReaderPDFController`), Escape or View ▸ Exit Maximized Page.
         .toolbar(session.isMaximized ? .hidden : .visible, for: .navigationBar)
         .statusBarHidden(session.isMaximized)
         .animation(.default, value: session.isMaximized)
@@ -241,8 +241,13 @@ struct ReaderScreen: View {
                 // Offers Locate PDF… and the Notebook when the book's PDF is missing.
                 ReaderUnavailableView(book: session.book, message: message)
             case .ready:
-                PagePill(session: session)
-                    .padding(pillAtTop ? .top : .bottom, 14)
+                // A maximized page has the whole window, without the pill (owner decision,
+                // 17 November 2026).
+                if !session.isMaximized {
+                    PagePill(session: session)
+                        .padding(pillAtTop ? .top : .bottom, 14)
+                        .transition(.opacity)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -310,7 +315,6 @@ struct ReaderScreen: View {
                     .toolbarGlyph()
             }
             notesToggle.toolbarGlyph()
-            maximizeButton.toolbarGlyph()
             // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
             markupToggle.toolbarGlyph()
             if !session.isNarrowLayout {
@@ -337,15 +341,6 @@ struct ReaderScreen: View {
                   systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
         }
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
-    }
-
-    /// Gives the page the whole window (design, "Maximized page"). The toolbar goes with
-    /// everything else, so the way back is `MaximizedPageControls`.
-    private var maximizeButton: some View {
-        Button { session.setMaximized(true) } label: {
-            Label("Maximize Page", systemImage: "arrow.up.left.and.arrow.down.right")
-        }
-        .accessibilityIdentifier(AccessibilityID.Reader.maximize)
     }
 
     /// The search button, in both modes. The search popover points at it but is not attached to
@@ -440,8 +435,10 @@ struct ReaderScreen: View {
 }
 
 /// What a maximized page keeps on screen besides the page (and, in markup mode, the system tool
-/// picker): a button that ends it, at the top trailing corner, and the ink Undo / Redo the
-/// toolbar shows in markup mode at compact width, where the tool picker has none.
+/// picker): the ink Undo / Redo the toolbar shows in markup mode at compact width, where the
+/// tool picker has none, at the top trailing corner. There is no exit button (owner decision,
+/// 17 November 2026): a finger tap on the page ends it, and so does Escape, kept here on an
+/// invisible button.
 private struct MaximizedPageControls: View {
     let session: ReaderSession
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -458,11 +455,11 @@ private struct MaximizedPageControls: View {
                 }
                 .disabled(!session.markup.canRedo)
             }
-            control("Exit Maximized Page", systemImage: "arrow.down.right.and.arrow.up.left",
-                    id: AccessibilityID.Reader.exitMaximize) {
-                session.setMaximized(false)
-            }
-            .keyboardShortcut(.cancelAction)
+            Button("Exit Maximized Page") { session.setMaximized(false) }
+                .keyboardShortcut(.cancelAction)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
         }
         .padding(Space.s)
     }

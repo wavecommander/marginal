@@ -48,6 +48,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// The exact place and zoom to show with the keeper's pending page (first positioning only).
     private var pendingPosition: ReaderPosition?
     private let tapDelegate = SimultaneousGestureDelegate()
+    private let maximizeTapDelegate = MaximizeTapGestureDelegate()
     private var offsetObservation: NSKeyValueObservation?
 
     /// Test hook (`-exposeViewportAnchor`): an accessibility element whose value is the current
@@ -634,10 +635,63 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         tap.delegate = tapDelegate
         view.addGestureRecognizer(tap)
 
-        let touchDown = TouchDownObserver { [weak self] in self?.readerDidZoom() }
+        // One finger tap on a page maximizes the page or ends that (owner decision, 17 November
+        // 2026). It waits for PDFKit's double tap to fail, so a double tap only zooms.
+        let maximizeTap = UITapGestureRecognizer(target: self, action: #selector(handleMaximizeTap(_:)))
+        maximizeTap.numberOfTapsRequired = 1
+        maximizeTap.numberOfTouchesRequired = 1
+        maximizeTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        maximizeTap.cancelsTouchesInView = false
+        maximizeTap.delegate = maximizeTapDelegate
+        view.addGestureRecognizer(maximizeTap)
+
+        let touchDown = TouchDownObserver { [weak self] in
+            self?.readerDidZoom()
+            self?.noteTouchDownForMaximizeTap()
+        }
         touchDown.delegate = tapDelegate
         view.addGestureRecognizer(touchDown)
         return view
+    }
+
+    /// What was true when the last touch came down, before PDFKit or the features reacted to it:
+    /// a tap that clears a selection or a search mark, or stops a scroll, does only that.
+    private var touchDownBlocksMaximizeTap = false
+
+    private func noteTouchDownForMaximizeTap() {
+        let hadSelection = view.currentSelection.map { !$0.pages.isEmpty } ?? false
+        let wasScrolling = scrollView.map { $0.isDecelerating || $0.isDragging || $0.isZooming } ?? false
+        touchDownBlocksMaximizeTap = hadSelection || wasScrolling || session?.searchModelIfCreated?.hasMark == true
+    }
+
+    /// Whether a finger on the page inks in markup mode (Draw with Finger, no Pencil in use, or
+    /// `-inkAnyInput`). Then a finger tap is a dot of ink, not maximize.
+    private var fingerDrawsOnPage: Bool {
+        guard let session, session.isMarkupMode else { return false }
+        switch session.drawingPolicy {
+        case .anyInput: return true
+        case .pencilOnly: return false
+        default: return !UIPencilInteraction.prefersPencilOnlyDrawing
+        }
+    }
+
+    /// A single finger tap on a page, not taken by anything else: maximizes the page, or ends
+    /// a maximized page. A tap on a link, on a highlight (its menu), one that clears a selection
+    /// or a search mark, or one that stops a scroll does not.
+    @objc private func handleMaximizeTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, let session, !touchDownBlocksMaximizeTap, !fingerDrawsOnPage,
+              !session.isSearchVisible else { return }
+        let point = recognizer.location(in: view)
+        guard let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
+        let pointInPage = view.convert(point, to: page)
+        if let annotation = page.annotation(at: pointInPage), !(annotation is HighlightAnnotation),
+           annotation.action != nil || annotation.url != nil || annotation.destination != nil {
+            return
+        }
+        if !session.isMarkupMode, session.highlights?.highlight(atPageIndex: index, point: pointInPage) != nil {
+            return
+        }
+        session.toggleMaximized()
     }
 
     private func applyPendingPageIfPossible() {
@@ -947,6 +1001,21 @@ final class SimultaneousGestureDelegate: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
+    }
+}
+
+/// The maximize tap runs alongside PDFKit's own gestures but waits for any double (or more)
+/// tap to fail, so a double tap zooms without maximizing. The test is made per gesture, so
+/// recognisers PDFKit adds later are covered too.
+final class MaximizeTapGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        (other as? UITapGestureRecognizer).map { $0.numberOfTapsRequired > 1 } ?? false
     }
 }
 

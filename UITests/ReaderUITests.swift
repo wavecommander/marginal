@@ -182,10 +182,11 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(navigationBarShows(app, "12.4.1 Definitions"))
     }
 
-    /// Markup on, maximize, back, markup off: the page takes the window (no toolbar, no panes)
-    /// with markup still on and the tool picker still up, and the panes and the Markup toggle
-    /// are back as they were afterwards.
-    func testMaximizeHidesChromeAndKeepsMarkupOn() {
+    /// A finger tap on the page maximizes it (no toolbar, no panes); markup can be turned on
+    /// while maximized (⇧⌘A) and carries on with the tool picker up; Escape ends it, and the
+    /// panes and the Markup toggle are back as they were. A tap on the page in markup mode
+    /// with finger drawing (`-inkAnyInput`) is ink, so it does not end it.
+    func testTapMaximizesAndKeepsMarkupOn() {
         let app = openSmall(["-notesPanel", "page", "-exposeMarkupState", "-inkAnyInput"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let contents = element(app, ReaderID.contentsPane)
@@ -194,28 +195,33 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(notes.exists)
         let state = app.buttons["reader.markupState"].firstMatch
         let markup = app.buttons[ReaderID.markupToggle].firstMatch
-        let maximize = app.buttons[ReaderID.maximize].firstMatch
-        let exit = app.buttons[ReaderID.exitMaximize].firstMatch
+        let page = element(app, ReaderID.pdfView)
 
-        markup.tap()
-        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 10))
-        XCTAssertFalse(exit.exists)
-        maximize.tap()
-        XCTAssertTrue(exit.waitForExistence(timeout: 5), "the way back is on the page")
-        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "the toolbar is hidden")
+        page.tap()
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "a tap on the page hides the toolbar")
         XCTAssertTrue(contents.waitForNonExistence(timeout: 5))
         XCTAssertTrue(notes.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5),
-                      "markup carries on while the page is maximized")
+        XCTAssertTrue(pill(app).waitForNonExistence(timeout: 5), "the page pill is hidden")
 
-        exit.tap()
+        app.typeKey("a", modifierFlags: [.command, .shift])
+        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 10),
+                      "markup comes on while the page is maximized")
+        page.tap()
+        XCTAssertFalse(markup.waitForExistence(timeout: 2), "a finger that draws does not end it")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
-        XCTAssertTrue(exit.waitForNonExistence(timeout: 5))
         XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
         XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 5), "the page pill is back")
         XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
         markup.tap()
         XCTAssertTrue(waitForValue(state, containing: "markup=off", timeout: 10), "markup can be left")
+
+        page.tap()
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "a tap maximizes again")
+        page.tap()
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "and a tap on the maximized page ends it")
     }
 
     func testContentsAndNotesTogglesInWideLayout() {
@@ -740,8 +746,6 @@ enum ReaderID {
     static let bookmark = "reader.toolbar.bookmark"
     static let search = "reader.toolbar.search"
     static let more = "reader.toolbar.more"
-    static let maximize = "reader.toolbar.maximize"
-    static let exitMaximize = "reader.maximized.exit"
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
     static let contentsPane = "reader.pane.contents"
