@@ -1,38 +1,25 @@
 import Foundation
-import GoogleDriveKit
 import ReaderBackup
 import S3Kit
 
-/// Failures of the cloud backup destinations (Google Drive, S3-compatible storage) that
-/// `BackupError` has no case for. `errorDescription` is reader-facing and can be shown as is.
+/// Failures of the destinations that store backups in S3-compatible storage (the developer's
+/// bucket, Tactile Texts Cloud) that `BackupError` has no case for. `errorDescription` is
+/// reader-facing and can be shown as is.
 ///
 /// The destinations throw:
 /// - `CancellationError` when the calling task is cancelled;
 /// - `BackupError` for what every destination shares (a snapshot or PDF that is not there,
 ///   content that does not match its hash, an invalid snapshot name, local file failures);
-/// - `CloudBackupError` for the rest: signing in, the account's storage, the network, the
-///   service's configuration. The cases the UI acts on differently stay distinct:
-///   `needsSignInAgain` (offer Sign In), `storageFull` (free up space), `noNetwork` (try later).
+/// - `CloudBackupError` for the rest: the storage's space, the network, the service's
+///   configuration and the access this device was given.
 ///
 /// No case holds a token, key or secret: `diagnostic` carries only HTTP statuses and the
 /// service's error codes (for logs), never a message body.
 nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
-    /// This build has no credentials for the service (`destination` is its display name).
-    case notSetUp(destination: String)
-    /// No Google account is connected.
-    case notSignedIn
-    /// Google no longer accepts the saved sign-in; the reader must sign in again.
-    case needsSignInAgain
-    /// Google's sign-in could not be completed (a bad redirect, a state mismatch, a refused code).
-    case signInFailed
-    /// The reader signed in but did not allow access to the files this app creates.
-    case driveAccessNotGranted
-    /// The account or bucket has no room left (or hit a quota).
+    /// The bucket has no room left (or hit a quota). `destination` is its display name.
     case storageFull(destination: String)
     /// The service could not be reached.
     case noNetwork(destination: String)
-    /// The service asked the app to slow down and kept doing so.
-    case busy(destination: String)
     /// The storage service rejected the build's credentials.
     case credentialsRejected(destination: String)
     /// The storage service rejected the request because the device clock is wrong.
@@ -57,22 +44,10 @@ nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .notSetUp(let destination):
-            "\(destination) isn’t set up in this build of Tactile Texts."
-        case .notSignedIn:
-            "Sign in to Google Drive to back up there."
-        case .needsSignInAgain:
-            "Google Drive needs you to sign in again."
-        case .signInFailed:
-            "Google sign-in didn’t finish. Try signing in again."
-        case .driveAccessNotGranted:
-            "Tactile Texts wasn’t allowed to use Google Drive. Sign in again and allow access to the files Tactile Texts creates."
         case .storageFull(let destination):
             "There isn’t enough space in \(destination). Free up space or add storage, then try again."
         case .noNetwork(let destination):
             "Couldn’t reach \(destination). Check your internet connection and try again."
-        case .busy(let destination):
-            "\(destination) is busy right now. Try again in a few minutes."
         case .credentialsRejected(let destination):
             "\(destination) didn’t accept the credentials this build of Tactile Texts was made with."
         case .clockWrong(let destination):
@@ -87,14 +62,6 @@ nonisolated enum CloudBackupError: LocalizedError, Hashable, Sendable {
             "\(destination) didn’t allow this change. Your backups there may be read-only for now, or over your plan’s storage allowance."
         case .accessNeedsRenewal(let destination):
             "\(destination) didn’t accept this iPad’s access, even after renewing it. Try again in a few minutes."
-        }
-    }
-
-    /// `true` for the cases the reader fixes by signing in to Google again.
-    var needsSignIn: Bool {
-        switch self {
-        case .notSignedIn, .needsSignInAgain, .driveAccessNotGranted, .signInFailed: true
-        default: false
         }
     }
 }
@@ -120,27 +87,6 @@ nonisolated enum CloudErrorSubject: Sendable {
 }
 
 nonisolated extension CloudBackupError {
-    /// Maps anything a Google Drive call threw. `BackupError`, `CloudBackupError` and
-    /// `CancellationError` pass through.
-    static func mapping(google error: any Error, subject: CloudErrorSubject) -> any Error {
-        let destination = GoogleDriveBackupDestination.name
-        guard let drive = error as? GoogleDriveError else { return mapping(other: error, subject: subject) }
-        switch drive {
-        case .notSignedIn: return CloudBackupError.notSignedIn
-        case .needsSignInAgain: return CloudBackupError.needsSignInAgain
-        case .signInCancelled, .signInFailed: return CloudBackupError.signInFailed
-        case .driveAccessNotGranted: return CloudBackupError.driveAccessNotGranted
-        case .noNetwork: return CloudBackupError.noNetwork(destination: destination)
-        case .storageFull: return CloudBackupError.storageFull(destination: destination)
-        case .rateLimited: return CloudBackupError.busy(destination: destination)
-        case .notFound: return notFound(subject, destination: destination)
-        case .checksumMismatch: return BackupError.contentMismatch(name: subject.fileName)
-        case .unexpectedResponse(let status, let reason):
-            return CloudBackupError.serviceError(destination: destination,
-                                                 diagnostic: diagnostic(status: status, code: reason))
-        }
-    }
-
     /// Maps anything an S3 call threw, for the destination named `destination`.
     ///
     /// The two outcomes of temporary credentials keep their own cases: a refusal of the key or

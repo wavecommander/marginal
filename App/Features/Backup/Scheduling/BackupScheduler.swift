@@ -308,10 +308,10 @@ final class BackupScheduler {
     }
 
     /// Whether automatic backups to this destination need the network: everything except the
-    /// picked folder, a folder by path, and iCloud (which writes locally; the system uploads).
+    /// picked folder and a folder by path (a folder in iCloud Drive or another provider is
+    /// written locally; the system uploads it).
     nonisolated static func requiresNetwork(destinationID: String) -> Bool {
         let local = destinationID == PickedFolderBackupDestination.destinationID
-            || destinationID == ICloudBackupDestination.destinationID
             || destinationID.hasPrefix("folder:")
         return !local
     }

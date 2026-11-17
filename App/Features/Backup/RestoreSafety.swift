@@ -45,7 +45,7 @@ nonisolated struct RestoreSafetyRecord: Codable, Equatable, Sendable, Identifiab
     var id: UUID
     /// When the restore ran.
     var createdAt: Date
-    /// The backup the restore read, for display ("2026-11-15… iPad.ttbackup", "iCloud: …").
+    /// The backup the restore read, for display ("2026-11-15… iPad.ttbackup", "My Backups: …").
     var sourceName: String
     var changed: [ChangedBook]
     var added: [AddedBook]

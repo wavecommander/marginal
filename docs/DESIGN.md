@@ -499,10 +499,10 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
   when present. The newest 10 snapshots are kept; PDFs are never removed automatically. In a
-  folder the reader picked and in the iCloud container the snapshot folder is `Tactile Texts
-  Backups/` (owner decision, 16 November 2026), so it reads as the app's in Files; snapshots
-  already in `Backups/` there still list, restore and delete, and new ones are never written
-  to it. Google Drive, S3 and Tactile Texts Cloud keep `Backups/`.
+  folder the reader picked the snapshot folder is `Tactile Texts Backups/` (owner decision,
+  16 November 2026), so it reads as the app's in Files; snapshots already in `Backups/` there
+  still list, restore and delete, and new ones are never written to it. S3 and Tactile Texts
+  Cloud keep `Backups/`.
 - **Include PDFs is one choice** (owner decision, 15 November 2026). The backup-file switch,
   each destination's switch and the automatic backup's switch all show and change the same
   stored value, in every window at once, so a reader who has decided once is never caught out
@@ -511,14 +511,21 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
   the app, except those to Tactile Texts Cloud (encrypted on the iPad; see below), and the
   Backup screen's footnote says which.
-- **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
-  remembered across launches, which Choose Another Folder… replaces but nothing clears (owner
-  decision, 16 November 2026: no Stop Using This Folder); the app's own iCloud container; Google Drive (the app can see only
-  the files it creates); and an S3-compatible bucket the developer configures at build time (for
-  example Cloudflare R2). The last three are switched on from `Config/Local.xcconfig` and are
-  off, or reported as not available, in a build without them. **S3 credentials set at build
-  time are compiled into the app and can be read out of it**: such a build is for the
-  developer's own devices, with a token limited to one bucket, and is never distributed.
+- **Destinations.** A file; a folder the reader picks in Files, remembered across launches,
+  which Choose Another Folder… replaces but nothing clears (owner decision, 16 November 2026:
+  no Stop Using This Folder); and an S3-compatible bucket the developer configures at build
+  time (for example Cloudflare R2), switched on from `Config/Local.xcconfig` and left out of a
+  build without it. **S3 credentials set at build time are compiled into the app and can be
+  read out of it**: such a build is for the developer's own devices, with a token limited to
+  one bucket, and is never distributed.
+- **iCloud Drive, Google Drive and other storage go through Files** (owner decision,
+  17 November 2026). The app has no iCloud container and no Google sign-in of its own: the
+  system's pickers already reach every location Files shows, so the reader saves or opens a
+  backup file there, or chooses a folder there as the folder destination (its screen says so
+  under Choose Folder…). A folder in iCloud Drive gets what the app can do for it: every
+  access is coordinated, and a backup that is in iCloud but not on this iPad is listed and
+  downloaded before it is read. Whether a folder can be chosen in another app's location is
+  up to that app's Files extension; a backup file can be saved to and opened from any of them.
 - **Linking PDFs by hash.** A book's identity is its sampled fingerprint, as before. A backup
   also records the SHA-256 of the whole PDF, kept beside the book in `document.sha256`. A book
   restored without its PDF is an ordinary book whose file is absent: the Library marks it
@@ -849,7 +856,7 @@ switching between development branches).
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub (`StoreChangeHub`, one per `LibraryStore`) announces every committed change, to records and to ink files alike (what changed and the book, page or note it concerns, never the new value), and other windows re-read what they show through `LibraryStore`. Nothing relies on SwiftData observation or `@Query` | One signal for structured data and for ink, which lives in files; each change carries its origin (the window or job that made it), so a window can tell its own changes from another window's. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
-| Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
+| Backup format and network code | Two Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan) and `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
 | Cloud backup service | A Cloudflare Worker (TypeScript, D1, a daily cron) that verifies the App Store subscription and App Attest and issues 15-minute R2 credentials limited to one user's folder; the iPad talks to R2 directly with `S3Kit` and encrypts with `ReaderBackup` | The only server code is the part that must hold a secret. File data never passes through it, so it stays small and cheap, and the storage holds nothing readable. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
 | Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
@@ -952,8 +959,8 @@ is never written to, and no text layer is added to it.
 
 ## Not in version 1
 
-iCloud sync (backup and restore to iCloud exist, see "Backup and restore"; keeping two devices in
-step does not), collections or tags in the Library, for scanned books: writing a text layer into
+iCloud sync (a backup can be kept in iCloud Drive and restored from it, see "Backup and restore";
+keeping two devices in step does not exist), collections or tags in the Library, for scanned books: writing a text layer into
 the PDF, recognition while the app is suspended and a choice of recognition language (see
 "Scanned books" for what exists), handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two

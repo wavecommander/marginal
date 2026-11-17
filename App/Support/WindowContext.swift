@@ -173,7 +173,8 @@ final class WindowContext {
         }
     }
 
-    /// The window the system sign-in sheet presents over (Google Drive).
+    /// This scene's window, for system sheets that need one (Tactile Texts Cloud's subscription
+    /// management).
     var presentationAnchor: UIWindow? {
         scene?.keyWindow ?? scene?.windows.first
     }

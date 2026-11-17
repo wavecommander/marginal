@@ -1,26 +1,18 @@
 import Foundation
 import ReaderBackup
 
-/// The folder and iCloud destinations the app offers, built once by the composition root.
-nonisolated struct FolderAndICloudDestinations: Sendable {
-    /// Remembers the picked folder; the UI calls `setFolder(_:)` with the document picker's URL.
-    let folderStore: BackupFolderStore
-    let folder: PickedFolderBackupDestination
-    let iCloud: ICloudBackupDestination
-
-    /// Both, in the order they are listed: always offered, each reporting itself unavailable
-    /// (no folder chosen yet; no iCloud in this build or no account) when it is.
-    var all: [any BackupDestination] { [folder, iCloud] }
-}
-
-/// Builds the folder and iCloud destinations.
+/// Builds the destinations that depend on how the app was built.
+///
+/// The app has no destination of its own for iCloud Drive, Google Drive or any other storage
+/// that Files shows: the reader picks a folder there with the system's picker
+/// (`PickedFolderBackupDestination`), and saves or opens a single backup file the same way.
 nonisolated enum BackupDestinationFactory {
-    /// The destinations with the system's bookmarks, file coordination and iCloud. `defaults`
-    /// holds the picked folder's bookmark.
-    static func folderAndICloud(defaults: UserDefaults = .standard) -> FolderAndICloudDestinations {
-        let store = BackupFolderStore(defaults: defaults)
-        return FolderAndICloudDestinations(folderStore: store,
-                                           folder: PickedFolderBackupDestination(store: store),
-                                           iCloud: ICloudBackupDestination())
+    /// The developer's S3-compatible bucket, or `nil` unless the build names one with its keys
+    /// (`S3BackupConfiguration`).
+    static func s3(infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
+                   urlSession: URLSession = .shared) -> S3BackupDestination? {
+        S3BackupConfiguration.fromInfoDictionary(infoDictionary).map {
+            S3BackupDestination(configuration: $0, urlSession: urlSession)
+        }
     }
 }

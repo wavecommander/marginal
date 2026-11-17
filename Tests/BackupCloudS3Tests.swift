@@ -1,5 +1,4 @@
 import Foundation
-import GoogleDriveKit
 import ReaderBackup
 import S3Kit
 import Testing
@@ -328,26 +327,17 @@ struct BackupCloudS3Tests {
     }
 }
 
-/// `CloudBackupDestinations.make`, the composition root's factory.
-@MainActor
+/// `BackupDestinationFactory.s3`, which the composition root registers when it returns one.
 struct BackupCloudFactoryTests {
-    @Test func thisBuildOffersOnlyGoogleDriveNotSetUp() async {
-        let made = CloudBackupDestinations.make(tokenStore: InMemoryGoogleTokenStore())
-        #expect(made.s3 == nil)
-        #expect(made.all.map(\.id) == ["google-drive"])
-        #expect(made.googleDriveAccount.state == .notSetUp)
-        #expect(await made.googleDrive.availability() == .unavailable(reason: "Google Drive isn’t set up in this build of Tactile Texts."))
+    @Test func thisBuildOffersNoBucket() {
+        #expect(BackupDestinationFactory.s3() == nil)
+        #expect(BackupDestinationFactory.s3(infoDictionary: [:]) == nil)
     }
 
-    @Test func configuredBuildOffersBoth() async {
-        var info = BackupCloudS3Tests.info(displayName: "Cloudflare R2")
-        info["GoogleDriveClientID"] = BackupCloudGoogleHarness.clientID
-        let made = CloudBackupDestinations.make(infoDictionary: info, tokenStore: InMemoryGoogleTokenStore())
-        #expect(made.all.map(\.id) == ["google-drive", "s3"])
-        #expect(made.all.map(\.displayName) == ["Google Drive", "Cloudflare R2"])
-        #expect(made.googleDriveAccount.state == .signedOut)
-        #expect(made.googleDrive.account === made.googleDriveAccount)
-        #expect(await made.googleDrive.availability() == .unavailable(reason: "Sign in to Google Drive to back up there."))
-        #expect(await made.s3?.availability() == .available)
+    @Test func configuredBuildOffersTheBucket() async {
+        let made = BackupDestinationFactory.s3(infoDictionary: BackupCloudS3Tests.info(displayName: "Cloudflare R2"))
+        #expect(made?.id == "s3")
+        #expect(made?.displayName == "Cloudflare R2")
+        #expect(await made?.availability() == .available)
     }
 }

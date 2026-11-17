@@ -33,8 +33,6 @@ final class AppEnvironment {
     @ObservationIgnored let backupDestinations: BackupDestinationRegistry
     /// The folder the reader picked in Files to back up to (the Backup screen sets and clears it).
     @ObservationIgnored let backupFolderStore: BackupFolderStore
-    /// The Google Drive connection (sign in, sign out, state) behind the Google Drive destination.
-    @ObservationIgnored let googleDriveAccount: GoogleDriveAccount
     /// Tactile Texts Cloud (subscription, account, destination); `nil` unless the build sets
     /// `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` (empty by default).
     @ObservationIgnored let cloudBackup: TactileCloudBackup?
@@ -91,18 +89,17 @@ final class AppEnvironment {
         self.backupScheduler = BackupScheduler(settings: backupAutomaticSettings, service: backupService,
                                                destinations: backupDestinations,
                                                armed: !launchOptions.resetState && libraryRecovery == nil)
-        let local = BackupDestinationFactory.folderAndICloud()
-        let cloud = CloudBackupDestinations.make()
-        self.backupFolderStore = local.folderStore
-        self.googleDriveAccount = cloud.googleDriveAccount
+        let backupFolderStore = BackupFolderStore()
+        self.backupFolderStore = backupFolderStore
         if let folder = launchOptions.backupFolder {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             backupDestinations.register(FolderBackupDestination(root: folder))
         }
-        // Listed in this order: the picked folder, iCloud, Google Drive, then the developer's
-        // S3-compatible bucket when the build is configured for one. Each reports itself
-        // unavailable (no folder chosen, no iCloud in this build, not signed in) when it is.
-        for destination in local.all + cloud.all { backupDestinations.register(destination) }
+        // The folder picked in Files (which is how iCloud Drive, Google Drive and other
+        // providers are reached; it reports itself unavailable until a folder is chosen), then
+        // the developer's S3-compatible bucket when the build is configured for one.
+        backupDestinations.register(PickedFolderBackupDestination(store: backupFolderStore))
+        if let s3 = BackupDestinationFactory.s3() { backupDestinations.register(s3) }
         // Tactile Texts Cloud, last, only when the build is configured for the service.
         var cloudBackup: TactileCloudBackup?
         #if DEBUG
