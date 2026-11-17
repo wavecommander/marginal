@@ -158,6 +158,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         position.setPendingPage(initialPageIndex)
         pendingPosition = startPosition
         view.document = document
+        // PDFKit drops `autoScales` while the view has no document and resets the scale limits
+        // when one is assigned (seen on iOS 27: a new book opened at 100%, not fitted, with a
+        // maximum of 5). Set both again; a saved zoom is applied after this, when the pending
+        // page is positioned.
+        view.maxScaleFactor = Self.maximumScale
+        view.autoScales = true
         view.applyPDFKitPolicies()
         observeScrollViewIfNeeded()
         applyPendingPageIfPossible()
@@ -595,6 +601,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
 
     // MARK: Private
 
+    /// The furthest the reader can zoom in.
+    private static let maximumScale: CGFloat = 8
+
     private func makeView() -> ReaderPDFView {
         let view = ReaderPDFView(frame: .zero)
         view.controller = self
@@ -606,7 +615,7 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         view.displaysPageBreaks = true
         view.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.autoScales = true
-        view.maxScaleFactor = 8
+        view.maxScaleFactor = Self.maximumScale
         view.backgroundColor = UIColor { traits in
             traits.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : UIColor(red: 0.902, green: 0.902, blue: 0.918, alpha: 1)
         }

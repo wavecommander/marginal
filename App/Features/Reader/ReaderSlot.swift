@@ -84,6 +84,7 @@ final class ReaderSlot {
         if let overrides {
             configuration.initialPageIndex = overrides.pageIndex
             configuration.startInMarkup = overrides.startInMarkup
+            configuration.startMaximized = overrides.startMaximized
             configuration.openNotesTab = overrides.notesTab
         }
         PerfMarks.mark("readerHost")

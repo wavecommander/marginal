@@ -137,6 +137,7 @@ final class AppEnvironment {
         if launchOptions.resetState {
             // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
             UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
+            UserDefaults.standard.removeObject(forKey: NotesPanelRegions.collapsedKey)
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
             // A fresh state has no backup folder chosen and automatic backups off.
             UserDefaults.standard.removeObject(forKey: BackupFolderStore.defaultKey)
@@ -256,6 +257,7 @@ final class AppEnvironment {
                 plan.readerOverrides = ReaderOverrides(
                     pageIndex: launchOptions.openPage.map(PageNumbering.pageIndex(forDisplayNumber:)),
                     startInMarkup: launchOptions.markup,
+                    startMaximized: launchOptions.maximized,
                     notesTab: launchOptions.notesPanel.flatMap { ReaderSession.NotesTab(rawValue: $0.rawValue) })
             case .notebook:
                 plan.path = [.notebook(bookID: target.id)]
@@ -286,6 +288,7 @@ final class AppEnvironment {
 nonisolated struct ReaderOverrides: Sendable, Equatable {
     var pageIndex: Int?
     var startInMarkup = false
+    var startMaximized = false
     var notesTab: ReaderSession.NotesTab?
     /// A heading whose note the notes panel shows on the Section tab (a Notebook heading-note
     /// row); applied with `ReaderSession.showNotes(.section, heading:)`.

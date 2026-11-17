@@ -622,6 +622,71 @@ struct ReaderSessionTests {
         #expect(session.requestedSectionHeading == nil && session.notesTab == .page)
     }
 
+    @Test func maximizingHidesThePanesWithoutChangingThemAndLeavesTheMode() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        session.isNotesVisible = true
+        session.setMode(.markup)
+        session.setMaximized(true)
+        #expect(session.isMaximized && session.isMarkupMode, "markup carries on")
+        #expect(!session.isContentsShown && !session.isNotesShown)
+        #expect(session.isContentsVisible && session.isNotesVisible, "the panes' own state is kept")
+        #expect(session.restorableState.isContentsVisible && session.restorableState.isNotesVisible)
+        session.setMaximized(false)
+        #expect(session.isContentsShown && session.isNotesShown && session.isMarkupMode)
+
+        // The narrow Contents overlay is closed, not kept.
+        session.isNarrowLayout = true
+        session.isContentsOverlayVisible = true
+        session.setMaximized(true)
+        #expect(!session.isContentsOverlayVisible)
+        session.setMaximized(false)
+        #expect(!session.isContentsShown)
+    }
+
+    @Test func askingForAPaneOrSearchEndsAMaximizedPage() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) { $0.installsFeatures = false }
+        session.isContentsVisible = false
+
+        session.setMaximized(true)
+        session.toggleNotes()
+        #expect(!session.isMaximized && session.isNotesShown, "Show Notes shows them")
+
+        session.setMaximized(true)
+        session.toggleNotes()
+        #expect(!session.isMaximized && session.isNotesShown, "hidden by maximize is not shown: it stays on")
+
+        session.setMaximized(true)
+        session.toggleContents()
+        #expect(!session.isMaximized && session.isContentsShown)
+
+        session.setMaximized(true)
+        session.showNotes(.section)
+        #expect(!session.isMaximized && session.notesTab == .section)
+
+        session.setMaximized(true)
+        session.showSearch()
+        #expect(!session.isMaximized && session.isSearchVisible)
+
+        session.isSearchVisible = false
+        session.setMaximized(true)
+        session.requestAddHeading()
+        #expect(!session.isMaximized && session.isContentsShown)
+    }
+
+    @Test func aReaderCanStartMaximized() throws {
+        let fixture = try makeFixture()
+        defer { cleanUp(fixture) }
+        let session = makeSession(fixture) {
+            $0.installsFeatures = false
+            $0.startMaximized = true
+        }
+        #expect(session.isMaximized)
+    }
+
     @Test func addHeadingRequestCarriesPageAndTitleAndShowsContents() throws {
         let fixture = try makeFixture()
         defer { cleanUp(fixture) }

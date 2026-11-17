@@ -174,6 +174,17 @@ ones even where the mockup draws an approximation.
   and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
   they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
   system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.
+- **Maximized page.** The toolbar's Maximize Page button (trailing group, before Markup) gives
+  the page the whole window: the toolbar, the status bar, Contents and the notes panel go off
+  screen (owner decision, 17 November 2026). What stays is the page, the page pill and a small
+  round Exit Maximized Page button at the top trailing corner; Escape and View ▸ Exit Maximized
+  Page end it too. It is not a mode: markup is left as it is, so the reader can turn markup on,
+  maximize, write with the tool picker still up, come back, and turn markup off from the toolbar.
+  Where the toolbar would show ink Undo and Redo (markup mode at compact width) they sit beside
+  the exit button. The panes are hidden, not closed: they are back as they were when it ends, and
+  their saved state does not change (the narrow Contents overlay is the exception; it is closed).
+  Anything that needs a pane or the toolbar ends it first: Show Contents, Show Notes, opening a
+  note, Find, and adding a heading. It is per window and is not restored.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in
@@ -207,6 +218,16 @@ ones even where the mockup draws an approximation.
   - *Header:* the Page note / Section note tabs, Delete Note, the shrink control when the pane
     is widened, then the title (the page number, or the heading's title and page range) and the
     save status. No zoom button, and no level picker here.
+  - *Header, narrow panel on a compact screen* (an iPhone, or a compact-width iPad window;
+    owner decision, 17 November 2026): the sheet can cover the toolbar (in landscape on an
+    iPhone it takes the whole screen) or sit under a toolbar whose Markup button is in the
+    overflow menu, so the header also has the Markup switch and, while markup is on, ink Undo
+    and Redo. They do what the toolbar's do. The toolbar's Markup button is otherwise still the
+    only switch for the mode.
+  - *Hiding the lists* (narrow panels; owner decision, 17 November 2026): when there is
+    anything under or beside the note, a header button hides it and shows it again, and the
+    choice is remembered. Hidden in a two-column sheet, the note has the whole width and its
+    page widens to fill it at the same zoom (the text re-wraps, as in a widened pane).
   - *Page note tab, under the note:* "Highlights on this page", only while the page has any.
     There is no "This page is in" list: the toolbar subtitle, the Contents sidebar and the
     Section note tab already say where the page sits.

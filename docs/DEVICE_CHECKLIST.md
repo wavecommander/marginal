@@ -13,6 +13,9 @@ Scribble **on**, double-tap and squeeze set to their defaults.
 
 - [ ] **Pressure.** In markup mode, a pen stroke pressed lightly then hard gets visibly thicker.
 - [ ] **Tilt.** The pencil tool shades wider when the Pencil is tilted.
+- [ ] **Maximized page.** In markup mode, tap Maximize Page: the toolbar and panes go, the tool
+      picker stays and the Pencil still draws. A stroke that starts on the exit button does not
+      draw. Exit, and the Markup button turns markup off.
 - [ ] **Hover** (Pencil 2 / Pro on a supported iPad). Holding the Pencil just above the page in
       markup mode shows the tool's hover preview; nothing is drawn until the tip touches.
 - [ ] **Double-tap / squeeze.** Double-tap (or squeeze on Pencil Pro) does what Settings says
