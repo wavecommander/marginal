@@ -37,6 +37,7 @@ struct ReaderScreen: View {
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     /// Search panels on screen (each counts from its appearance until its dismissal has
     /// finished). A count, not a flag: when search reopens while the last panel is still going,
     /// the new panel's appearance and the old one's disappearance can come in either order.
@@ -395,14 +396,18 @@ struct ReaderScreen: View {
             Button { session.requestAddHeading() } label: {
                 Label("Add Heading at This Page…", systemImage: "text.badge.plus")
             }
-            Button { window.openReaderInNewWindow(bookID: session.book.id) } label: {
-                Label("Open in New Window", systemImage: "macwindow.badge.plus")
+            if supportsMultipleWindows {
+                Button { window.openReaderInNewWindow(bookID: session.book.id) } label: {
+                    Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                }
             }
             Button { window.openNotebook(bookID: session.book.id) } label: {
                 Label("Notebook", systemImage: "book.pages")
             }
-            Button { window.openNotebookInNewWindow(bookID: session.book.id) } label: {
-                Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
+            if supportsMultipleWindows {
+                Button { window.openNotebookInNewWindow(bookID: session.book.id) } label: {
+                    Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
+                }
             }
             MarkedUpExportMenu(session: session)
             Divider()

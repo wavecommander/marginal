@@ -733,6 +733,22 @@ final class ReaderUITests: XCTestCase {
         app.typeText("7")
         XCTAssertEqual(field.value as? String, "7", "⌘A in the go-to-page field")
     }
+
+    func testMoreMenuNewWindowOptionsFollowMultiWindowSupport() {
+        let app = openSmall()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        app.buttons[ReaderID.more].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Notebook"].firstMatch.waitForExistence(timeout: 5), "Notebook in the More menu")
+        let openInNewWindow = app.buttons["Open in New Window"].firstMatch
+        let openNotebookInNewWindow = app.buttons["Open Notebook in New Window"].firstMatch
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(openInNewWindow.exists, "Open in New Window is hidden on iPhone")
+            XCTAssertFalse(openNotebookInNewWindow.exists, "Open Notebook in New Window is hidden on iPhone")
+        } else {
+            XCTAssertTrue(openInNewWindow.exists, "Open in New Window is shown on iPad")
+            XCTAssertTrue(openNotebookInNewWindow.exists, "Open Notebook in New Window is shown on iPad")
+        }
+    }
 }
 
 /// Mirrors `AccessibilityID.Reader` in the app (the test target cannot import it).
