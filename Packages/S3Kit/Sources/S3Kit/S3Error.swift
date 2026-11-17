@@ -13,6 +13,11 @@ import Foundation
 /// `authenticationFailed(code: S3Error.temporaryCredentialsRejectedCode, …)` and
 /// `accessDenied(code: S3Error.notAllowedByCredentialsCode)`; test for them with
 /// `isTemporaryCredentialsRejected` and `isNotAllowedByCredentials`.
+///
+/// Two outcomes of the conditional and in-memory operations are reserved values of
+/// `unexpectedResponse`, for the same reason: `S3Error.preconditionFailed` (HTTP 412 on a
+/// conditional put; test with `isPreconditionFailed` or compare with `==`) and a small-object read
+/// that is larger than the caller allowed (`objectTooLargeCode`; test with `isObjectTooLarge`).
 public enum S3Error: Error, LocalizedError, Sendable, Equatable {
     /// The service rejected the access key or the request signature (`SignatureDoesNotMatch`,
     /// `InvalidAccessKeyId`, `AuthorizationHeaderMalformed`, R2's `Unauthorized`, ...).
@@ -60,6 +65,10 @@ public enum S3Error: Error, LocalizedError, Sendable, Equatable {
         case .accessDenied(Self.notAllowedByCredentialsCode):
             return "The storage service didn't allow this: the access this device was given doesn't cover this "
                 + "file or this change. The backup may be read-only at the moment."
+        case .unexpectedResponse(412, Self.preconditionFailedCode, _):
+            return "Someone else changed the file in the storage bucket first. Try again."
+        case .unexpectedResponse(_, Self.objectTooLargeCode, _):
+            return "The file in the storage bucket is larger than expected, so it wasn't read."
         case .authenticationFailed(_, true):
             return "The storage service rejected the request because this device's clock is too far from the "
                 + "correct time. Turn on Set Automatically in Settings > General > Date & Time, then try again."
@@ -115,6 +124,30 @@ public enum S3Error: Error, LocalizedError, Sendable, Equatable {
     public static let temporaryCredentialsRejectedCode = "TemporaryCredentialsRejected"
     /// The code of `accessDenied` when temporary credentials don't allow the key or the action.
     public static let notAllowedByCredentialsCode = "NotAllowedByCredentials"
+
+    /// The code of `unexpectedResponse` for a conditional put the service refused with HTTP 412
+    /// (`If-Match` named an ETag that is no longer the object's, or `If-None-Match: *` found an
+    /// object already there).
+    public static let preconditionFailedCode = "PreconditionFailed"
+    /// What a conditional put refused with HTTP 412 throws, always exactly this value (the
+    /// service's message is not kept), so callers can match it with `==` or `isPreconditionFailed`.
+    public static let preconditionFailed = S3Error.unexpectedResponse(status: 412, code: preconditionFailedCode,
+                                                                     message: nil)
+    /// The code of `unexpectedResponse` (status 200) when a small-object read found more bytes
+    /// than the caller's limit.
+    public static let objectTooLargeCode = "ObjectTooLarge"
+
+    /// A conditional put was refused because its condition did not hold (HTTP 412).
+    public var isPreconditionFailed: Bool {
+        if case .unexpectedResponse(412, Self.preconditionFailedCode, _) = self { return true }
+        return false
+    }
+
+    /// A small-object read found more bytes than the caller's limit.
+    public var isObjectTooLarge: Bool {
+        if case .unexpectedResponse(_, Self.objectTooLargeCode, _) = self { return true }
+        return false
+    }
 
     /// Temporary credentials were rejected as expired or invalid, and so were fresh ones.
     public var isTemporaryCredentialsRejected: Bool {
