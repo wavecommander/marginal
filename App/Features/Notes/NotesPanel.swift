@@ -54,8 +54,10 @@ struct NotesPanel: View {
 
     var body: some View {
         GeometryReader { proxy in
+            // No lists to show (a page without highlights) counts as hidden: the note has the
+            // whole width either way, so its page widens to fill it the same.
             let metrics = NotesPanelMetrics(presentation: session.isNarrowLayout ? .narrow : .pane, size: proxy.size,
-                                            listsHidden: session.isNarrowLayout && hasLowerRegion && isLowerRegionCollapsed)
+                                            listsHidden: session.isNarrowLayout && (!hasLowerRegion || isLowerRegionCollapsed))
             VStack(alignment: .leading, spacing: 0) {
                 header(metrics)
                     .padding(.horizontal, 14)

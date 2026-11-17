@@ -185,6 +185,12 @@ ones even where the mockup draws an approximation.
   their saved state does not change (the narrow Contents overlay is the exception; it is closed).
   Anything that needs a pane or the toolbar ends it first: Show Contents, Show Notes, opening a
   note, Find, and adding a heading. It is per window and is not restored.
+  A single finger tap on a page (no drag) maximizes it, and on a maximized page ends that
+  (owner decision, 17 November 2026). The tap waits out a double tap, so double-tap zoom never
+  maximizes. It does nothing else when the tap has another job: following a link, opening a
+  highlight's menu, clearing a text selection or a search mark, or stopping a scroll; nor while
+  the Find panel is open, nor in markup mode when the finger draws (Draw with Finger, or no
+  Pencil in use). Pencil taps never maximize.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in
@@ -230,7 +236,8 @@ ones even where the mockup draws an approximation.
   - *Hiding the lists* (narrow panels; owner decision, 17 November 2026): when there is
     anything under or beside the note, a header button hides it and shows it again, and the
     choice is remembered. Hidden in a two-column sheet, the note has the whole width and its
-    page widens to fill it at the same zoom (the text re-wraps, as in a widened pane).
+    page widens to fill it at the same zoom (the text re-wraps, as in a widened pane). A page
+    note with no highlights has nothing beside it and widens the same way (17 November 2026).
   - *Page note tab, under the note:* "Highlights on this page", only while the page has any.
     There is no "This page is in" list: the toolbar subtitle, the Contents sidebar and the
     Section note tab already say where the page sits.
