@@ -10,7 +10,8 @@
     "deploy:production": "wrangler deploy --env production",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "test": "vitest run",
-    "prove": "node scripts/prove-scoped-credentials.ts"
+    "prove": "node scripts/prove-scoped-credentials.ts",
+    "prove:conditional": "node scripts/prove-conditional-writes.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.8.2",
