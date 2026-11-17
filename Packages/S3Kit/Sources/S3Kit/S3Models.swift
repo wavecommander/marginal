@@ -76,3 +76,39 @@ public struct S3RetryPolicy: Sendable {
         return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 }
+
+/// The condition of a conditional `PutObject` (`S3Client.putObject(data:key:metadata:condition:)`).
+public enum S3PutCondition: Sendable, Hashable {
+    /// `If-Match: <eTag>`: replace the object only while its ETag is still `eTag` (as the service
+    /// sent it, quotes included). Refused when the object changed or does not exist.
+    case ifMatch(eTag: String)
+    /// `If-None-Match: *`: create the object only if there is none with that key.
+    case ifAbsent
+}
+
+/// A small object read into memory by `S3Client.getObject(key:maxBytes:)`.
+public struct S3Object: Sendable, Hashable {
+    public var data: Data
+    /// As the service sent it, quotes included.
+    public var eTag: String?
+    /// User metadata (`x-amz-meta-*`), names lowercased and without the prefix.
+    public var metadata: [String: String]
+    public var lastModified: Date?
+
+    public init(data: Data, eTag: String?, metadata: [String: String], lastModified: Date?) {
+        self.data = data
+        self.eTag = eTag
+        self.metadata = metadata
+        self.lastModified = lastModified
+    }
+}
+
+/// What a conditional small-object read (`S3Client.getObject(key:maxBytes:ifNoneMatch:)`) found.
+public enum S3ObjectRead: Sendable, Hashable {
+    /// The object, which differs from the ETag given (or no ETag was given).
+    case found(S3Object)
+    /// The object's ETag is still the one given (HTTP 304); nothing was transferred.
+    case notModified
+    /// There is no object with that key.
+    case notFound
+}

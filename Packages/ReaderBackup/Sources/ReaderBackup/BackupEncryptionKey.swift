@@ -15,6 +15,10 @@ import CryptoKit
 /// | PDF object names                         | `tactile-texts.backup.v1.pdf-name`                 |
 /// | Key check object                         | `tactile-texts.backup.v1.key-check`                |
 ///
+/// Other packages derive their own sub-keys the same way with `derivedKey(info:)` and info
+/// strings of their own (sync uses `tactile-texts.sync.v1.*`); the `tactile-texts.backup.`
+/// strings stay this package's.
+///
 /// The key never appears in a description, debug description, mirror (`dump`) or error: they
 /// all print `BackupEncryptionKey(redacted)`. Use `recoveryKey` to show it to the reader and
 /// `withUnsafeBytes` to store it (the Keychain code, in another package).
@@ -79,7 +83,29 @@ public struct BackupEncryptionKey: Sendable, Equatable, CustomStringConvertible,
 
     /// The 256-bit sub-key for `purpose`.
     func subkey(_ purpose: Purpose) -> SymmetricKey {
-        HKDF<SHA256>.deriveKey(inputKeyMaterial: master, salt: Data(), info: Data(purpose.rawValue.utf8), outputByteCount: 32)
+        derive(info: purpose.rawValue)
+    }
+
+    /// The info strings reserved for this package's own sub-keys.
+    static let reservedInfoPrefix = "tactile-texts.backup."
+
+    /// A 256-bit sub-key for a purpose outside this package: HKDF-SHA256 of this key with an
+    /// empty salt and `info` (UTF-8) as the HKDF info, exactly as this package's own sub-keys
+    /// are made, so a sub-key made with one info string reveals nothing about any other.
+    ///
+    /// `info` must be a distinct, versioned ASCII string owned by the caller, such as
+    /// `tactile-texts.sync.v1.content`, and must never change once data is written with it.
+    /// Strings beginning `tactile-texts.backup.` are this package's and are refused (a
+    /// precondition), so no other code can obtain the backup sub-keys. The result is key
+    /// material: never log or describe it.
+    public func derivedKey(info: String) -> SymmetricKey {
+        precondition(!info.isEmpty && !info.hasPrefix(Self.reservedInfoPrefix),
+                     "derivedKey(info:) needs an info string of the caller's own")
+        return derive(info: info)
+    }
+
+    private func derive(info: String) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: master, salt: Data(), info: Data(info.utf8), outputByteCount: 32)
     }
 }
 
