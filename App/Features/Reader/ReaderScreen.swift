@@ -187,12 +187,17 @@ struct ReaderScreen: View {
                     .ignoresSafeArea()
                     .onTapGesture { session.isContentsOverlayVisible = false }
                     .accessibilityHidden(true)
+                    // Explicit z-order: a view being removed from a ZStack otherwise drops
+                    // behind its siblings for its removal transition, and the Contents pane
+                    // would slide out underneath the page.
+                    .zIndex(1)
                 ContentsSidebar(session: session)
                     .frame(width: min(320, ReaderSession.contentsSidebarWidth + 20))
                     .background(Color(uiColor: .systemGroupedBackground))
                     .shadow(radius: 12)
                     .paneContainer(AccessibilityID.Reader.contentsOverlay)
                     .transition(.move(edge: .leading))
+                    .zIndex(2)
                     .onChange(of: session.currentPageIndex) { _, _ in session.isContentsOverlayVisible = false }
             }
         }
