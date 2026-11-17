@@ -78,6 +78,7 @@ struct NotebookRowView: View {
     var toggle: () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @ScaledMetric(relativeTo: .footnote) private var labelWidth: CGFloat = 62
 
     var body: some View {
@@ -108,7 +109,9 @@ struct NotebookRowView: View {
                 // Choosing what to export: no row actions.
             } else if let target {
                 Button("Open", systemImage: "book") { actions.open(target, heading) }
-                Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target, heading) }
+                if supportsMultipleWindows {
+                    Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target, heading) }
+                }
             }
             if selection == nil, let note = row.note {
                 Divider()

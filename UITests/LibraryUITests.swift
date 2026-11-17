@@ -207,6 +207,23 @@ final class LibraryUITests: XCTestCase {
         sleep(2)
     }
 
+    func testContextMenuNewWindowOptionsFollowMultiWindowSupport() {
+        let app = launch([Fixtures.small])
+        XCTAssertTrue(book(app, "small").waitForExistence(timeout: 20))
+        openContextMenu(app, of: "small")
+        XCTAssertTrue(menuItem(app, "Open").waitForExistence(timeout: 5))
+        XCTAssertTrue(menuItem(app, "Open Notebook").exists)
+        let openInNewWindow = menuItem(app, "Open in New Window")
+        let openNotebookInNewWindow = menuItem(app, "Open Notebook in New Window")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(openInNewWindow.exists, "Open in New Window is hidden on iPhone")
+            XCTAssertFalse(openNotebookInNewWindow.exists, "Open Notebook in New Window is hidden on iPhone")
+        } else {
+            XCTAssertTrue(openInNewWindow.exists, "Open in New Window is shown on iPad")
+            XCTAssertTrue(openNotebookInNewWindow.exists, "Open Notebook in New Window is shown on iPad")
+        }
+    }
+
     func testImportButtonPresentsTheFilesPicker() {
         let app = launch()
         let button = app.buttons["library.importButton"]
