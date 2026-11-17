@@ -518,14 +518,16 @@ Added by the owner (TSOFT-215, 14 November 2026).
 - **Settings.** iPadOS has no system Settings entry for Tactile Texts and there is no
   `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
   Library's gear button and from "Settings…" (⌘,) in any window.
-- **Settings ▸ About** says which build this is: the version and build number, the git branch
+- **Settings ▸ About** says which build this is and who makes it. Every build shows the version
+  and build number, and "Made by Tactile Software Ltd.", the name linking to
+  https://tactile.software. Development (Debug) builds also show the git branch
   ("Detached" on a detached HEAD), the short commit (with "with uncommitted changes" when the
   checkout had any, untracked files included) and the build time in the iPad's time zone. Copy
   Build Details puts all of it on one line for a bug report. `scripts/stamp-build-info.sh`, a
-  build phase that runs on every build, writes the values into the built Info.plist
-  (`TactileTextsBuild`); the committed `App/Info.plist` never has them. A build made without git
-  shows "Unknown". (2026-11-16: shown in every build, Release included, while the app is
-  pre-release; decide before the App Store whether customers see the branch and commit.)
+  build phase, writes the values into the built Info.plist (`TactileTextsBuild`) of Debug builds
+  only; the committed `App/Info.plist` never has them. A Debug build made without git shows
+  "Unknown". (2026-11-17, owner: Release builds, App Store builds included, show only the version
+  and the Made by line; the branch, commit, build time and Copy Build Details are development-only.)
 - **Text and icons on an accent fill use `accentTheme.onAccent`** (white in Light Mode, a deep
   shade of the accent's hue in Dark Mode, where every accent is light). This applies to
   `.borderedProminent` buttons, whose label the system draws white on any tint, and to the Pages

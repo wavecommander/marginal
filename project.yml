@@ -53,7 +53,8 @@ targets:
         # Info.plist, neither of which a sandboxed script phase may do.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     # Writes the branch, commit and build time into the built Info.plist (`TactileTextsBuild`) for
-    # Settings ▸ About. Runs on every build; the committed App/Info.plist is not touched.
+    # Settings ▸ About. Runs on every build but stamps Debug builds only; the committed App/Info.plist
+    # is not touched.
     postBuildScripts:
       - name: Stamp Build Info
         script: '"$SRCROOT/scripts/stamp-build-info.sh"'

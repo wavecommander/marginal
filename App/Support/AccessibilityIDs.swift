@@ -241,6 +241,7 @@ nonisolated enum AccessibilityID {
         static let aboutCommit = "settings.about.commit"
         static let aboutBuilt = "settings.about.built"
         static let aboutCopy = "settings.about.copy"
+        static let aboutMadeBy = "settings.about.madeBy"
     }
 
     /// The reader's "Export Marked-Up PDF" (More menu) and its progress card.

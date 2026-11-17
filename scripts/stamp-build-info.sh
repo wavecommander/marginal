@@ -7,8 +7,15 @@
 # App/Info.plist never carries these values. Never fails the build: without git, or outside a
 # repository, the git values are written empty and the app shows "Unknown".
 #
-# Env (set by Xcode): SRCROOT, TARGET_BUILD_DIR, INFOPLIST_PATH.
+# Only Debug (development) builds are stamped: Release builds, App Store builds included, carry no
+# branch, commit or build time, and About shows just the version.
+#
+# Env (set by Xcode): SRCROOT, TARGET_BUILD_DIR, INFOPLIST_PATH, CONFIGURATION.
 set -uo pipefail
+
+if [[ "${CONFIGURATION:-}" != "Debug" ]]; then
+  exit 0
+fi
 
 PLIST="${TARGET_BUILD_DIR:?}/${INFOPLIST_PATH:?}"
 if [[ ! -f "$PLIST" ]]; then
