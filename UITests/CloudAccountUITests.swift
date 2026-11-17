@@ -5,7 +5,7 @@ import XCTest
 /// Apple, Google or Cloudflare account is needed.
 ///
 /// The rule under every test (owner decision 7): signing out, signing out everywhere, changing
-/// the sign-in, an ended session and a deleted account leave the library on the iPad exactly as
+/// the sign-in, an ended session and a deleted account leave the library on the device exactly as
 /// it was. After each, a book is opened and its note edited.
 @MainActor
 final class CloudAccountUITests: XCTestCase {
@@ -205,7 +205,7 @@ final class CloudAccountUITests: XCTestCase {
 
         signIn(app, ID.signInApple)
         XCTAssertTrue(waitFor(accountRow(app), "label CONTAINS 'Signed in with Apple'"), app.debugDescription)
-        XCTAssertTrue(any(app, ID.accountSignIn).label.contains("reader@privaterelay.appleid.com"), "the email, on this iPad")
+        XCTAssertTrue(any(app, ID.accountSignIn).label.contains("reader@privaterelay.appleid.com"), "the email, on this device")
         scrollToTop(app)
         tap(ID.subscribe, in: app)
         backUpNow(app)
@@ -215,9 +215,13 @@ final class CloudAccountUITests: XCTestCase {
         let device = any(app, ID.device0)
         scrollTo(device, in: app)
         XCTAssertTrue(device.waitForExistence(timeout: 10), "the devices are listed: \(app.debugDescription)")
+        XCTAssertTrue(device.label.hasPrefix("This \(Fixtures.deviceName)"), "this device by its kind: \(device.label)")
+        let other = any(app, "cloud.account.device.1")
+        scrollTo(other, in: app)
+        XCTAssertTrue(other.label.hasPrefix("Another device"), "a device whose label can't be opened: \(other.label)")
 
         tap(ID.signOut, in: app)
-        confirm(app, "Sign Out", saying: ["stay on this iPad", "won’t be backed up"])
+        confirm(app, "Sign Out", saying: ["stay on this \(Fixtures.deviceName)", "won’t be backed up"])
         expectSignedOut(app)
         closeSettings(app)
         editNote(app, "Signed out ")
@@ -231,7 +235,7 @@ final class CloudAccountUITests: XCTestCase {
         XCTAssertFalse(any(app, ID.signedOutNotice).exists)
     }
 
-    /// Sign Out of All Devices: this iPad is signed out too, and keeps its library.
+    /// Sign Out of All Devices: this device is signed out too, and keeps its library.
     func testSignOutOfAllDevicesKeepsTheLibrary() {
         let app = launch("active")
         openCloud(app)
@@ -251,7 +255,7 @@ final class CloudAccountUITests: XCTestCase {
         XCTAssertTrue(any(app, ID.status).waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(waitFor(accountRow(app), "label CONTAINS 'Signed in with Apple'", timeout: 15), app.debugDescription)
         tap(ID.changeSignIn, in: app)
-        confirm(app, "Continue", saying: ["First confirm with Apple, then sign in with Google", "books on this iPad aren’t touched"],
+        confirm(app, "Continue", saying: ["First confirm with Apple, then sign in with Google", "books on this \(Fixtures.deviceName) aren’t touched"],
                 thenAnotherAlert: true)
         let changed = app.alerts.firstMatch
         XCTAssertTrue(changed.buttons["Sign Out of All Devices…"].waitForExistence(timeout: 15),
@@ -285,7 +289,7 @@ final class CloudAccountUITests: XCTestCase {
     }
 
     /// Delete Account: the confirmation says the books stay and the subscription isn't
-    /// cancelled; afterwards the iPad is signed out with the library intact.
+    /// cancelled; afterwards the device is signed out with the library intact.
     func testDeletingTheAccountKeepsTheLibrary() {
         let app = launch("active")
         openCloud(app)

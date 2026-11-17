@@ -10,7 +10,7 @@ import UIKit
 /// or everywhere, delete the account, a session that has ended).
 ///
 /// **None of it touches the library** (owner decision 7, 17 November 2026). The books, notes and
-/// ink on the iPad are ordinary local data; signing out, a session that ended, a revoked Apple
+/// ink on the device are ordinary local data; signing out, a session that ended, a revoked Apple
 /// authorization or a deleted account only stop the service (automatic cloud backup stops and
 /// the page says the books are no longer backed up).
 ///
@@ -40,9 +40,9 @@ final class CloudBackupSignIn {
     private(set) var session: CloudDeviceSession?
     /// The account as the service last described it (devices, subscription); `nil` until asked.
     private(set) var accountInfo: BackupServiceAccountInfo?
-    /// The devices' names opened with the account's backup key, by session ID. A device whose
-    /// label can't be opened (no key here yet, or none sent) is missing.
-    private(set) var deviceNames: [String: String] = [:]
+    /// The devices' labels (name and kind) opened with the account's backup key, by session ID.
+    /// A device whose label can't be opened (no key here yet, or none sent) is missing.
+    private(set) var deviceLabels: [String: CloudDeviceLabel] = [:]
     /// The last failure to fetch the account screen (cleared by the next success).
     private(set) var accountError: (any Error)?
     private(set) var activity: Activity?
@@ -55,6 +55,7 @@ final class CloudBackupSignIn {
     @ObservationIgnored private let store: any CloudDeviceSessionStore
     @ObservationIgnored private let keyStores: any BackupKeyStoreFactory
     @ObservationIgnored private let deviceName: () -> String
+    @ObservationIgnored private let deviceKind: DeviceKind
     /// Called after every sign-in and sign-out, synchronously (the account resets its state).
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var deletionStarted = false
@@ -64,12 +65,14 @@ final class CloudBackupSignIn {
     static let maxDeletionRounds = 200
 
     init(client: BackupServiceClient, identity: any CloudIdentityProviding, store: any CloudDeviceSessionStore,
-         keyStores: any BackupKeyStoreFactory, deviceName: @escaping () -> String = { UIDevice.current.name }) {
+         keyStores: any BackupKeyStoreFactory, deviceName: @escaping () -> String = { UIDevice.current.name },
+         deviceKind: DeviceKind = .current) {
         self.client = client
         self.identity = identity
         self.store = store
         self.keyStores = keyStores
         self.deviceName = deviceName
+        self.deviceKind = deviceKind
         session = try? store.load()
     }
 
@@ -82,12 +85,17 @@ final class CloudBackupSignIn {
     /// The account's StoreKit token, passed on every purchase.
     var appAccountToken: UUID? { session?.appAccountToken ?? accountInfo?.appAccountToken }
 
-    /// What the account screen calls a device: its name when its label opens with this account's
-    /// key, otherwise "This iPad" or "Another device".
+    /// What the account screen calls a device: "This iPhone" or "This iPad" for the one asking;
+    /// another by the name and kind in its label when that opens with this account's key
+    /// ("Reading Phone (iPhone)", "Ben’s iPad", "iPad"); otherwise "Another device".
     func name(of device: BackupServiceDevice) -> String {
-        if let name = deviceNames[device.sessionID], !name.isEmpty { return name }
-        return device.isCurrent ? "This iPad" : "Another device"
+        if device.isCurrent { return CloudAccountText.thisDevice(deviceKind) }
+        guard let label = deviceLabels[device.sessionID] else { return CloudAccountText.anotherDevice }
+        return CloudAccountText.otherDevice(name: label.name, kind: label.kind)
     }
+
+    /// This device's label: its name and kind.
+    var ownLabel: CloudDeviceLabel { CloudDeviceLabel(name: deviceName(), kind: deviceKind) }
 
     // MARK: Launch
 
@@ -149,13 +157,14 @@ final class CloudBackupSignIn {
             let key = try? await keyStores.keyStore(forAccount: session.accountID).load()
             var info = try await client.account(sessionToken: session.deviceSessionToken)
             guard self.session?.accountID == info.accountID else { return }
+            // Sent again when it can't be opened, or is an older label without the kind.
             if let key, let current = info.devices.first(where: \.isCurrent),
-               current.label.flatMap({ SyncKeys(key: key).openDeviceLabel($0) }) == nil {
+               current.label.flatMap({ CloudDeviceLabel.open($0, with: SyncKeys(key: key)) }) != ownLabel {
                 info = try await client.account(sessionToken: session.deviceSessionToken,
-                                                deviceLabel: SyncKeys(key: key).sealDeviceLabel(deviceName()))
+                                                deviceLabel: ownLabel.sealed(with: SyncKeys(key: key)))
             }
             apply(info)
-            deviceNames = Self.open(info.devices, key: key)
+            deviceLabels = Self.open(info.devices, key: key)
             accountError = nil
         } catch CloudServiceError.sessionInvalid {
             endLocally(.sessionEnded)
@@ -187,14 +196,14 @@ final class CloudBackupSignIn {
         }
     }
 
-    private static func open(_ devices: [BackupServiceDevice], key: BackupEncryptionKey?) -> [String: String] {
+    private static func open(_ devices: [BackupServiceDevice], key: BackupEncryptionKey?) -> [String: CloudDeviceLabel] {
         guard let key else { return [:] }
         let keys = SyncKeys(key: key)
-        var names: [String: String] = [:]
+        var labels: [String: CloudDeviceLabel] = [:]
         for device in devices {
-            if let label = device.label, let name = keys.openDeviceLabel(label) { names[device.sessionID] = name }
+            if let sealed = device.label, let label = CloudDeviceLabel.open(sealed, with: keys) { labels[device.sessionID] = label }
         }
-        return names
+        return labels
     }
 
     // MARK: Changing the sign-in
@@ -257,13 +266,13 @@ final class CloudBackupSignIn {
     }
 
     /// Becomes signed out here without asking the service (it ended the session, or Apple ended
-    /// the authorization). Nothing else on the iPad changes.
+    /// the authorization). Nothing else on the device changes.
     func endLocally(_ reason: SignedOutReason?) {
         guard session != nil else { return }
         try? store.remove()
         session = nil
         accountInfo = nil
-        deviceNames = [:]
+        deviceLabels = [:]
         accountError = nil
         signedOutReason = reason
         deletionStarted = false
@@ -311,5 +320,86 @@ final class CloudBackupSignIn {
     private func changed() {
         generation += 1
         onChange?()
+    }
+}
+
+/// What a device's sealed label holds: its name and its kind (iPhone or iPad), so the account's
+/// device list tells them apart. Sealed with the account's backup key (`SyncKeys`), so the
+/// service can't read it.
+///
+/// `SyncKeys` seals at most 64 bytes of UTF-8, so the form is compact: U+001E (a control
+/// character no device name starts with), one character for the kind (`1` iPhone, `2` iPad),
+/// then the name cut to the bytes left. A label written before the kind was added is the bare
+/// name; it still opens, as a name with no kind. A kind character this version doesn't know
+/// reads as no kind.
+nonisolated struct CloudDeviceLabel: Hashable, Sendable, CustomStringConvertible {
+    /// The device's name (`UIDevice.name`: often just "iPhone" or "iPad"); `nil` when none.
+    var name: String?
+    /// `nil` for an older label that carried only the name.
+    var kind: DeviceKind?
+
+    static let marker: Character = "\u{1E}"
+    /// The UTF-8 bytes left for the name after the marker and the kind.
+    static let maxNameBytes = SyncKeys.deviceLabelNameBytes - 2
+
+    var description: String { "CloudDeviceLabel(kind: \(kind?.rawValue ?? "unknown"))" }
+
+    init(name: String?, kind: DeviceKind?) {
+        self.name = name.map(Self.cut).flatMap { $0.isEmpty ? nil : $0 }
+        self.kind = kind
+    }
+
+    private init(uncut name: String?) {
+        self.name = name
+        kind = nil
+    }
+
+    /// The text that is sealed.
+    var plaintext: String {
+        guard let kind else { return name ?? "" }
+        return "\(Self.marker)\(Self.code(kind))\(name ?? "")"
+    }
+
+    /// The label a sealed text stands for: the marked form, or (an older label) the bare name.
+    init(plaintext text: String) {
+        guard text.first == Self.marker else {
+            // An older label: the name as it was sealed, not cut again.
+            self.init(uncut: text.isEmpty ? nil : text)
+            return
+        }
+        let rest = text.dropFirst()
+        let kind: DeviceKind? = switch rest.first {
+        case "1": .iPhone
+        case "2": .iPad
+        default: nil
+        }
+        self.init(name: String(rest.dropFirst()), kind: kind)
+    }
+
+    /// Sealed with the account's keys, for the service (base64url).
+    func sealed(with keys: SyncKeys) -> String {
+        keys.sealDeviceLabel(plaintext)
+    }
+
+    /// The label in `sealed`, or `nil` when these keys don't open it.
+    static func open(_ sealed: String, with keys: SyncKeys) -> CloudDeviceLabel? {
+        keys.openDeviceLabel(sealed).map { CloudDeviceLabel(plaintext: $0) }
+    }
+
+    private static func code(_ kind: DeviceKind) -> Character {
+        switch kind {
+        case .iPhone: "1"
+        case .iPad: "2"
+        }
+    }
+
+    /// `name` cut at a character boundary to at most `maxNameBytes` of UTF-8.
+    private static func cut(_ name: String) -> String {
+        var result = ""
+        for character in name {
+            if result.utf8.count + String(character).utf8.count > maxNameBytes { break }
+            result.append(character)
+        }
+        return result
     }
 }

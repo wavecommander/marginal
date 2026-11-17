@@ -342,7 +342,8 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
         case .attestationInvalid, .assertionInvalid:
             return "\(name) couldn’t confirm that this is the genuine Tactile Texts app. Try again later."
         case .deviceAlreadyAttested, .deviceUnknown:
-            return "This iPad needs to register with \(name) again. Try again."
+            return DeviceKind.current.pick(iPad: "This iPad needs to register with \(name) again. Try again.",
+                                           iPhone: "This iPhone needs to register with \(name) again. Try again.")
         case .transactionInvalid:
             return "\(name) couldn’t verify your subscription. Try Restore Purchases, or try again later."
         case .productUnknown:
@@ -380,7 +381,9 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
         case .providerUnreachable:
             return "\(name) couldn’t reach Apple or Google to check your sign-in. Try again later."
         case .sessionInvalid:
-            return "You’ve been signed out of \(name). The books on this iPad are just as they were, but they aren’t backed up there until you sign in again."
+            return DeviceKind.current.pick(
+                iPad: "You’ve been signed out of \(name). The books on this iPad are just as they were, but they aren’t backed up there until you sign in again.",
+                iPhone: "You’ve been signed out of \(name). The books on this iPhone are just as they were, but they aren’t backed up there until you sign in again.")
         case .identityMismatch:
             return "That isn’t the sign-in your \(name) account uses now. Confirm with the account’s current sign-in."
         case .identityInUse:

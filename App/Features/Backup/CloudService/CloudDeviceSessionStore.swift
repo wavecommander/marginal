@@ -4,7 +4,7 @@ import Security
 /// What this device keeps about its sign-in to Tactile Texts Cloud: the device session the
 /// service issued and what the account screen shows. Kept in the Keychain on this device only
 /// (never synchronised): a session belongs to one device, and the email shown on the account
-/// screen never leaves the iPad.
+/// screen never leaves the device.
 ///
 /// The session token and the Apple user ID never appear in a description, debug description or
 /// mirror; neither does the email.
@@ -49,7 +49,7 @@ nonisolated protocol CloudDeviceSessionStore: Sendable {
 /// The session as one Keychain generic-password item, **this device only**: not synchronised
 /// (`kSecAttrSynchronizable` false) and `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, so it
 /// is never in a backup restored to another device and an automatic backup in a background task
-/// can still use it while the iPad is locked. The value is the session as JSON.
+/// can still use it while the device is locked. The value is the session as JSON.
 nonisolated struct KeychainCloudDeviceSessionStore: CloudDeviceSessionStore, CustomStringConvertible {
     static let defaultService = "software.tactile.texts.cloud-account"
     static let account = "device-session"

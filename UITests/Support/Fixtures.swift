@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Host paths of the generated fixture PDFs (see `Fixtures/make-fixtures.swift`).
@@ -20,6 +21,11 @@ enum Fixtures {
     /// A scanned book: 30 pages, a typed cover (page 1, real text) and 29 page images with no
     /// text layer; "The quiet heron measures tidewater." is the first body line of page 17.
     static var scanned: String { path("scanned.pdf") }
+
+    /// "iPhone" or "iPad": the kind of simulator the tests run on, for text that names the device.
+    static var deviceName: String {
+        MainActor.assumeIsolated { UIDevice.current.userInterfaceIdiom == .phone ? "iPhone" : "iPad" }
+    }
 
     static func path(_ name: String) -> String {
         repoRoot.appendingPathComponent("Fixtures/out/\(name)").path

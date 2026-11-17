@@ -142,14 +142,17 @@ nonisolated final class BackupCloudServiceFakeWorker: BackupCloudHandling, @unch
     func endAllSessions() { lock.withLock { live.removeAll() } }
     /// Starts another device's session on the account of `identity`; returns its token.
     @discardableResult
-    func addSession(identity: String = "apple:reader") -> String {
+    func addSession(identity: String = "apple:reader", label: String? = nil) -> String {
         lock.withLock {
             counter += 1
             let token = "OTHER-DEVICE-\(counter)"
-            live[token] = Session(id: Self.account(1000 + counter), account: accounts[identity]!.id)
+            live[token] = Session(id: Self.account(1000 + counter), account: accounts[identity]!.id, label: label)
             return token
         }
     }
+
+    /// Replaces a session's encrypted label (as an older app version would have written it).
+    func setLabel(_ label: String?, of token: String) { lock.withLock { live[token]?.label = label } }
 
     /// Every request the service received, in order, as `METHOD path`.
     var log: [String] { stub.requests.map { "\($0.method) \($0.path)" } }
@@ -466,7 +469,7 @@ struct BackupCloudServiceRig {
     ///   - keyStores: each account's key; `nil`: one key store (`keyStore`) for every account.
     static func make(subscribed: Bool = true, key: BackupEncryptionKey? = nil, attestSupported: Bool = true,
                      bypass: String = "", signedIn: Bool = true,
-                     keyStores: (any BackupKeyStoreFactory)? = nil) throws -> BackupCloudServiceRig {
+                     keyStores: (any BackupKeyStoreFactory)? = nil, deviceKind: DeviceKind = .iPad) throws -> BackupCloudServiceRig {
         let r2 = BackupCloudServiceFakeR2()
         let worker = BackupCloudServiceFakeWorker(r2: r2)
         worker.hasSubscription = subscribed
@@ -493,7 +496,7 @@ struct BackupCloudServiceRig {
                                             urlSession: worker.stub.session, s3Session: r2.stub.session,
                                             retryPolicy: S3RetryPolicy(maxAttempts: 1, sleep: { _ in }),
                                             temporaryDirectory: scratch.appendingPathComponent("tmp"), defaults: defaults,
-                                            deviceName: { "Rig iPad" }, now: { clock.now })
+                                            deviceName: { "Rig iPad" }, deviceKind: deviceKind, now: { clock.now })
         return BackupCloudServiceRig(r2: r2, worker: worker, store: store, attest: attest, keyStore: keyStore,
                                      sessionStore: sessionStore, identity: identity, clock: clock, defaults: defaults,
                                      scratch: scratch, cloud: cloud)

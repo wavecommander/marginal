@@ -108,7 +108,9 @@ struct CloudRecoveryKeyScreen: View {
                 .accessibilityIdentifier(AccessibilityID.CloudBackup.keySaved)
             }
         } footer: {
-            Text("Save it somewhere other than this iPad, for example in a password manager or on paper.")
+            Text(DeviceKind.current.pick(
+                iPad: "Save it somewhere other than this iPad, for example in a password manager or on paper.",
+                iPhone: "Save it somewhere other than this iPhone, for example in a password manager or on paper."))
         }
     }
 }
