@@ -50,6 +50,15 @@ struct SettingsView: View {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
                 }
                 Section {
+                    NavigationLink(value: SettingsPage.backup) {
+                        Label("Backup & Restore", systemImage: "externaldrive")
+                    }
+                    .padding(.vertical, Space.s)
+                    .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
+                } footer: {
+                    Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
+                }
+                Section {
                     NavigationLink {
                         SupportedFormatsView()
                     } label: {
@@ -61,20 +70,9 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, Space.s)
                     .accessibilityIdentifier(AccessibilityID.SupportedFormats.settingsRow)
-                } header: {
-                    Text("Importing", comment: "Settings: header of the section about importing books and documents.")
                 } footer: {
                     Text("What Tactile Texts can import, and what changes when a file is converted to PDF.",
                          comment: "Settings: line under the Supported Formats row.")
-                }
-                Section {
-                    NavigationLink(value: SettingsPage.backup) {
-                        Label("Backup & Restore", systemImage: "externaldrive")
-                    }
-                    .padding(.vertical, Space.s)
-                    .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
-                } footer: {
-                    Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
                 }
                 Section {
                     Button("Open the Quick Guide") {
