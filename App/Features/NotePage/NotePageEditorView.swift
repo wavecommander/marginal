@@ -359,8 +359,20 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         }
     }
 
+    /// Whether a finger tap in markup mode places the text cursor (and so brings up the
+    /// keyboard). Not while the reader's own fingers draw (Draw with Finger, or no Pencil in
+    /// use): there a tap is a dot of ink, and the keyboard coming up under a drawing hand is in
+    /// the way. `.anyInput` is the `-inkAnyInput` test switch standing in for the Pencil, so it
+    /// keeps the tap.
+    private var fingerTapPlacesCursor: Bool {
+        switch noteCanvas.drawingPolicy {
+        case .anyInput, .pencilOnly: return true
+        default: return UIPencilInteraction.prefersPencilOnlyDrawing
+        }
+    }
+
     @objc private func handleFingerTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended, currentModel?.isLoaded == true else { return }
+        guard recognizer.state == .ended, currentModel?.isLoaded == true, fingerTapPlacesCursor else { return }
         placeCursor(at: recognizer.location(in: textView))
     }
 
