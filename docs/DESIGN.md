@@ -190,7 +190,10 @@ ones even where the mockup draws an approximation.
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in
   any text field (Scribble, selection) and note ink is read-only. A finger always scrolls, and a
   finger tap in a note places the text cursor in either mode, so typing and inking can alternate
-  without leaving markup mode.
+  without leaving markup mode. The exception is when the reader's fingers draw (Draw with Finger
+  on, or no Pencil in use, as on an iPhone): in markup mode a finger tap on the note is then ink
+  and does not place the cursor or bring up the keyboard; to type, the reader turns markup off
+  (owner decision, 17 November 2026).
 - **Typing in markup mode** (owner decision, 15 November 2026). With the on-screen keyboard, the
   tool picker steps aside while the cursor is in the note, so the keyboard stays up and nothing
   overlaps it; when typing ends (the keyboard's own dismiss key, or a stroke on the note) the
