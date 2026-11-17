@@ -563,6 +563,24 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(toggle, "Markup"), "outlined again")
     }
 
+    /// Trailing toolbar icons appear left-to-right as: Notes, Markup, Bookmark, Search, More.
+    func testTrailingToolbarButtonOrder() {
+        let app = openSmall()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        let notes = app.buttons[ReaderID.notesToggle].firstMatch
+        let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let bookmark = app.buttons[ReaderID.bookmark].firstMatch
+        let search = app.buttons[ReaderID.search].firstMatch
+        let more = app.buttons[ReaderID.more].firstMatch
+        for button in [notes, markup, bookmark, search, more] {
+            XCTAssertTrue(button.waitForExistence(timeout: 5))
+        }
+        XCTAssertLessThanOrEqual(notes.frame.maxX, markup.frame.minX, "Notes before Markup")
+        XCTAssertLessThanOrEqual(markup.frame.maxX, bookmark.frame.minX, "Markup before Bookmark")
+        XCTAssertLessThanOrEqual(bookmark.frame.maxX, search.frame.minX, "Bookmark before Search")
+        XCTAssertLessThanOrEqual(search.frame.maxX, more.frame.minX, "Search before More")
+    }
+
     /// With a registered surface that takes first responder (as a canvas does), the picker stays.
     func testToolPickerStaysWithRegisteredSurface() {
         let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
@@ -719,6 +737,8 @@ enum ReaderID {
     static let historyForward = "reader.toolbar.historyForward"
     static let notesToggle = "reader.toolbar.notes"
     static let markupToggle = "reader.toolbar.markup"
+    static let bookmark = "reader.toolbar.bookmark"
+    static let search = "reader.toolbar.search"
     static let more = "reader.toolbar.more"
     static let maximize = "reader.toolbar.maximize"
     static let exitMaximize = "reader.maximized.exit"
