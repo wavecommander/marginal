@@ -70,6 +70,12 @@ struct ReaderScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        .overlay(alignment: .topTrailing) {
+            if session.isMaximized {
+                MaximizedPageControls(session: session)
+                    .transition(.opacity)
+            }
+        }
         // The search popover hangs from the reader, pointing at the toolbar's search button (see
         // `SearchAnchorReader`), so the button is never its source. It presents once the button
         // has been measured for this opening.
@@ -140,6 +146,11 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
+        // A maximized page has the whole window: no toolbar, no status bar. The way back is
+        // `MaximizedPageControls`, over the page.
+        .toolbar(session.isMaximized ? .hidden : .visible, for: .navigationBar)
+        .statusBarHidden(session.isMaximized)
+        .animation(.default, value: session.isMaximized)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session)
                 .presentationDetents([.medium, .large])
@@ -156,14 +167,14 @@ struct ReaderScreen: View {
 
     private func wideLayout(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            if session.isContentsVisible {
+            if session.isContentsShown {
                 ContentsSidebar(session: session)
                     .frame(width: ReaderSession.contentsSidebarWidth)
                     .paneContainer(AccessibilityID.Reader.contentsPane)
                 Divider()
             }
             pageArea
-            if session.isNotesVisible {
+            if session.isNotesShown {
                 // The handle and the pane come and go as one, sliding in from and out to the
                 // trailing edge when the notes button shows or hides them.
                 NotesSidePane(session: session, windowWidth: width)
@@ -177,7 +188,7 @@ struct ReaderScreen: View {
         ZStack(alignment: .leading) {
             VStack(spacing: 0) {
                 pageArea
-                if !ReaderLayout.usesSystemNotesSheet && session.isNotesVisible {
+                if !ReaderLayout.usesSystemNotesSheet && session.isNotesShown {
                     NotesBottomPanel(session: session, containerHeight: height)
                         .transition(.move(edge: .bottom))
                 }
@@ -207,7 +218,7 @@ struct ReaderScreen: View {
     /// The pill sits at the bottom of the page (mockup), except at narrow widths while the notes
     /// sheet covers the bottom: then it moves to the top of the page so it stays reachable.
     private var pillAtTop: Bool {
-        ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+        ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesShown
     }
 
     private var pageArea: some View {
@@ -246,13 +257,13 @@ struct ReaderScreen: View {
         // finished (presenting earlier would be dropped). Only a dismissal by the reader (swipe
         // down) hides the notes. The note page saves on disappearing, so nothing is lost.
         Binding(get: {
-                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesShown
                         && !session.isSearchVisible && !isSearchPanelOnScreen && !isRepresentingSearch
                         && !session.isSearchReopenQueued && session.closeReason == nil
                 },
                 set: { shown in
-                    guard session.isNarrowLayout, !session.isSearchVisible, !isSearchPanelOnScreen,
-                          !isRepresentingSearch, !session.isSearchReopenQueued else { return }
+                    guard session.isNarrowLayout, !session.isMaximized, !session.isSearchVisible,
+                          !isSearchPanelOnScreen, !isRepresentingSearch, !session.isSearchReopenQueued else { return }
                     session.isNotesVisible = shown
                 })
     }
@@ -300,6 +311,7 @@ struct ReaderScreen: View {
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
                     .toolbarGlyph()
             }
+            maximizeButton.toolbarGlyph()
             // The accent marks markup mode: the outline glyph is plain while off.
             markupToggle.toolbarGlyph(emphasised: session.isMarkupMode)
             notesToggle.toolbarGlyph()
@@ -326,6 +338,15 @@ struct ReaderScreen: View {
         }
         .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
+    }
+
+    /// Gives the page the whole window (design, "Maximized page"). The toolbar goes with
+    /// everything else, so the way back is `MaximizedPageControls`.
+    private var maximizeButton: some View {
+        Button { session.setMaximized(true) } label: {
+            Label("Maximize Page", systemImage: "arrow.up.left.and.arrow.down.right")
+        }
+        .accessibilityIdentifier(AccessibilityID.Reader.maximize)
     }
 
     /// The search button, in both modes. The search popover points at it but is not attached to
@@ -420,6 +441,51 @@ struct ReaderScreen: View {
                 .tag(ReaderScrollDirection.horizontal)
         }
         .pickerStyle(.inline)
+    }
+}
+
+/// What a maximized page keeps on screen besides the page (and, in markup mode, the system tool
+/// picker): a button that ends it, at the top trailing corner, and the ink Undo / Redo the
+/// toolbar shows in markup mode at compact width, where the tool picker has none.
+private struct MaximizedPageControls: View {
+    let session: ReaderSession
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            if session.isMarkupMode && horizontalSizeClass == .compact {
+                control("Undo", systemImage: "arrow.uturn.backward", id: AccessibilityID.Reader.maximizedUndo) {
+                    session.markup.undo()
+                }
+                .disabled(!session.markup.canUndo)
+                control("Redo", systemImage: "arrow.uturn.forward", id: AccessibilityID.Reader.maximizedRedo) {
+                    session.markup.redo()
+                }
+                .disabled(!session.markup.canRedo)
+            }
+            control("Exit Maximized Page", systemImage: "arrow.down.right.and.arrow.up.left",
+                    id: AccessibilityID.Reader.exitMaximize) {
+                session.setMaximized(false)
+            }
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(Space.s)
+    }
+
+    private func control(_ title: String, systemImage: String, id: String,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: Size.touch, height: Size.touch)
+                .background(.regularMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityIdentifier(id)
     }
 }
 

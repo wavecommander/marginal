@@ -182,6 +182,42 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(navigationBarShows(app, "12.4.1 Definitions"))
     }
 
+    /// Markup on, maximize, back, markup off: the page takes the window (no toolbar, no panes)
+    /// with markup still on and the tool picker still up, and the panes and the Markup toggle
+    /// are back as they were afterwards.
+    func testMaximizeHidesChromeAndKeepsMarkupOn() {
+        let app = openSmall(["-notesPanel", "page", "-exposeMarkupState", "-inkAnyInput"])
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        let contents = element(app, ReaderID.contentsPane)
+        let notes = element(app, ReaderID.notesPane)
+        XCTAssertTrue(contents.waitForExistence(timeout: 10))
+        XCTAssertTrue(notes.exists)
+        let state = app.buttons["reader.markupState"].firstMatch
+        let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let maximize = app.buttons[ReaderID.maximize].firstMatch
+        let exit = app.buttons[ReaderID.exitMaximize].firstMatch
+
+        markup.tap()
+        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 10))
+        XCTAssertFalse(exit.exists)
+        maximize.tap()
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "the way back is on the page")
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "the toolbar is hidden")
+        XCTAssertTrue(contents.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(notes.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5),
+                      "markup carries on while the page is maximized")
+
+        exit.tap()
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
+        XCTAssertTrue(exit.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
+        XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
+        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+        markup.tap()
+        XCTAssertTrue(waitForValue(state, containing: "markup=off", timeout: 10), "markup can be left")
+    }
+
     func testContentsAndNotesTogglesInWideLayout() {
         let app = openSmall(["-notesPanel", "page"])
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
@@ -691,6 +727,8 @@ enum ReaderID {
     static let notesToggle = "reader.toolbar.notes"
     static let markupToggle = "reader.toolbar.markup"
     static let more = "reader.toolbar.more"
+    static let maximize = "reader.toolbar.maximize"
+    static let exitMaximize = "reader.maximized.exit"
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
     static let contentsPane = "reader.pane.contents"

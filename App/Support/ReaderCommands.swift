@@ -52,10 +52,14 @@ struct ReaderCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
             .disabled(session == nil)
-            Button(session?.isNotesVisible == true ? "Hide Notes" : "Show Notes") {
+            Button(session?.isNotesShown == true ? "Hide Notes" : "Show Notes") {
                 session?.toggleNotes()
             }
             .keyboardShortcut("0", modifiers: [.command, .option])
+            .disabled(session == nil)
+            Button(session?.isMaximized == true ? "Exit Maximized Page" : "Maximize Page") {
+                session?.toggleMaximized()
+            }
             .disabled(session == nil)
         }
 

@@ -17,7 +17,7 @@ import SwiftUI
 /// What each option does (all are implemented; see `AppEnvironment.runLaunchTasks`
 /// and `WindowRootView`): `-resetState` passes `reset: true` to `LibraryStore.live`;
 /// `-importFixture` imports through `FixtureImporter`; `-openBook` opens that book in place in
-/// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
+/// the first Library window; `-openPage`, `-markup`, `-maximized` and `-notesPanel` apply to that reader only;
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
 /// (`-resetState` clears it first); `-stubConverters` and `-confirmConversions` are the import
@@ -68,6 +68,9 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
 
     /// `-markup`: start the reader in markup mode.
     var markup = false
+
+    /// `-maximized`: start the reader with the page maximized (toolbar and panes hidden).
+    var maximized = false
 
     /// `-notesPanel <page|section>`: open the notes inspector on that tab.
     var notesPanel: NotesTab?
@@ -220,6 +223,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     var openPage: Int? { nil }
     var screen: Screen? { nil }
     var markup: Bool { false }
+    var maximized: Bool { false }
     var notesPanel: NotesTab? { nil }
     var alsoOpenWindow: String? { nil }
     var alsoOpenWindowPage: Int? { nil }
@@ -249,6 +253,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 inkAnyInput = true
             case "-markup":
                 markup = true
+            case "-maximized":
+                maximized = true
             case "-plantLibraryStore":
                 if let path = value(after: index) {
                     if path.hasPrefix("/") { plantLibraryStore = URL(fileURLWithPath: path) }
