@@ -261,6 +261,21 @@ ones even where the mockup draws an approximation.
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
+- **Notebook map** (*owner decision, 17 November 2026: mockup N1, from Library search option D*).
+  Above the feed, under the type filter, a strip stands for the whole book: one segment per
+  top-level heading (front matter first when the first heading starts later), labelled with the
+  heading's number when there is room, and a mark at the page of every item the feed would show
+  for the current type filter and search: notes in the accent, highlights in their colour,
+  handwriting in grey. The strip always covers the whole book, whatever heading the column has
+  chosen.
+  - A box marks the pages the feed has on screen, and the segment it starts in is tinted
+    (iPadOS 18 and later follow every row on screen; earlier systems follow the top row).
+  - Touching or dragging along the strip shows the nearest item (page, kind, heading); letting
+    go scrolls the feed to it. An item outside the chosen heading first widens the feed to the
+    whole book. A pointer hovering shows the same callout without scrolling.
+  - VoiceOver reads "Map of the book" with the item count and the busiest heading; swiping up
+    or down moves from item to item and scrolls the feed to each.
+  - With nothing to show (no items, or none matching the filter and search) there is no strip.
 - **Library search** ("Search titles and notes") matches book titles, and the text of notes and
   highlights, case- and diacritic-insensitively (the Notebook's own search; handwriting has no
   text and is not searched). *Owner decision, 17 November 2026 (mockup option B): the results

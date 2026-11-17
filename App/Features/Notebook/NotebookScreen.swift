@@ -98,6 +98,15 @@ private struct NotebookContent: View {
     @State private var textOnlyCandidate: Notebook?
     /// `NotebookFeed.itemsByHeader(rows)`: what each header's checkbox stands for.
     @State private var headerItems: [String: [NotebookItemID]] = [:]
+    /// The map of the whole book above the feed (`NotebookMapStrip`), for the current type
+    /// filter and search.
+    @State private var map: NotebookMap?
+    /// The feed rows on screen (iPadOS 18 and later; earlier, only the top row), for the
+    /// map's box.
+    @State private var visibleRowIDs: Set<String> = []
+    /// An item chosen on the map that is outside the chosen heading: the feed scrolls to it
+    /// once it shows the whole book again.
+    @State private var pendingMapTarget: String?
 
     /// Below this window width (or in a compact size class) the filter column collapses into a
     /// toolbar menu.
@@ -196,9 +205,11 @@ private struct NotebookContent: View {
             rows = []
             entries = []
             headerItems = [:]
+            map = nil
             return
         }
-        let computed = await Self.compute(notebook, filter: filter)
+        let pageCount = model.book?.pageCount ?? 0
+        let computed = await Self.compute(notebook, filter: filter, pageCount: pageCount)
         guard !Task.isCancelled else { return }
         if !selection.isEmpty { selection.formIntersection(computed.items) }
         if computed.entries.contains(where: { $0.scope == filter.scope }) || filter.scope == .all {
@@ -210,15 +221,54 @@ private struct NotebookContent: View {
             return
         }
         entries = computed.entries
+        map = computed.map
         feedVersion += 1
     }
 
     @concurrent
-    private static func compute(_ notebook: Notebook, filter: NotebookFilter) async
+    private static func compute(_ notebook: Notebook, filter: NotebookFilter, pageCount: Int) async
         -> (rows: [NotebookFeedRow], entries: [NotebookScopeEntry], headerItems: [String: [NotebookItemID]],
-            items: Set<NotebookItemID>) {
+            items: Set<NotebookItemID>, map: NotebookMap) {
         let rows = NotebookFeed.rows(for: notebook, filter: filter)
-        return (rows, NotebookFeed.scopeEntries(for: notebook), NotebookFeed.itemsByHeader(rows), notebook.itemIDs)
+        // The map always covers the whole book, whatever heading the feed is showing.
+        var bookFilter = filter
+        bookFilter.scope = .all
+        let bookRows = filter.scope == .all ? rows : NotebookFeed.rows(for: notebook, filter: bookFilter)
+        let lastPage = bookRows.compactMap(\.targetPage).max() ?? 0
+        let map = NotebookMap(notebook: notebook, rows: bookRows, pageCount: max(pageCount, lastPage + 1))
+        return (rows, NotebookFeed.scopeEntries(for: notebook), NotebookFeed.itemsByHeader(rows), notebook.itemIDs, map)
+    }
+
+    // MARK: Map
+
+    /// The pages the feed has on screen, for the map's box.
+    private var pagesInView: ClosedRange<Int>? {
+        let ids = visibleRowIDs.isEmpty ? Set([scrollAnchor ?? rows.first?.id].compactMap { $0 }) : visibleRowIDs
+        return NotebookMap.pageRange(ofRows: ids, in: rows)
+    }
+
+    /// Scrolls the feed to an item chosen on the map; one outside the chosen heading first
+    /// widens the feed to the whole book.
+    private func scrollToMapItem(_ mark: NotebookMap.Mark) {
+        if rows.contains(where: { $0.id == mark.id }) {
+            withAnimation(.snappy(duration: 0.3)) { scrollAnchor = mark.id }
+        } else {
+            pendingMapTarget = mark.id
+            scopeKey = NotebookScope.all.storageKey
+        }
+    }
+
+    @ViewBuilder
+    private var mapStrip: some View {
+        if let map, !map.marks.isEmpty {
+            NotebookMapStrip(map: map, inView: pagesInView, choose: scrollToMapItem)
+                .frame(maxWidth: 780)
+                .padding(.horizontal, isWide ? 36 : 16)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+                .zIndex(1)
+        }
     }
 
     // MARK: Selection
@@ -293,6 +343,8 @@ private struct NotebookContent: View {
             .frame(maxWidth: 780 + 72)
             .accessibilityIdentifier(NotebookAccessibilityID.typeFilter)
 
+            mapStrip
+
             ZStack {
                 feed
                 emptyState
@@ -320,8 +372,13 @@ private struct NotebookContent: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition(id: $scrollAnchor, anchor: .top)
+            .modifier(NotebookVisibleRows(ids: $visibleRowIDs))
             .accessibilityIdentifier(NotebookAccessibilityID.feed)
             .onChange(of: feedVersion) { _, _ in
+                if let target = pendingMapTarget, rows.contains(where: { $0.id == target }) {
+                    pendingMapTarget = nil
+                    proxy.scrollTo(target, anchor: .top)
+                }
                 if !didRestoreScroll {
                     didRestoreScroll = true
                     if let anchor = scrollAnchor, rows.contains(where: { $0.id == anchor }) {
@@ -552,6 +609,24 @@ private extension View {
                     .accessibilityElement(children: .combine)
                 }
             }
+        }
+    }
+}
+
+/// Reports which feed rows are on screen, for the map's box. iPadOS 18 and later only; earlier
+/// systems leave `ids` empty and the box follows the top row (`scrollAnchor`). The only
+/// availability check of the map.
+private struct NotebookVisibleRows: ViewModifier {
+    @Binding var ids: Set<String>
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollTargetVisibilityChange(idType: String.self, threshold: 0.3) { visible in
+                let set = Set(visible)
+                if set != ids { ids = set }
+            }
+        } else {
+            content
         }
     }
 }
