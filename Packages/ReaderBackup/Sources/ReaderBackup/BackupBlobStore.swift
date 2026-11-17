@@ -97,7 +97,7 @@ public protocol BackupBlobStore: Sendable {
 
 /// A `BackupBlobStore` over a directory: `<root>/Backups/<name>`, `<root>/PDFs/<name>` and
 /// `<root>/<control name>`. It uses the same file access hook as `FolderBackupDestination` (see
-/// there), so a picked folder or the iCloud container can hold encrypted backups too, and it is
+/// there), so a picked folder can hold encrypted backups too, and it is
 /// what the tests use.
 ///
 /// Writes go to a hidden temporary sibling that is renamed into place when complete. Listing

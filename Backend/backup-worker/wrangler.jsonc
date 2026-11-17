@@ -10,10 +10,20 @@
 // see `.dev.vars.example`); deployments get them from `wrangler secret put`:
 //   R2_PARENT_ACCESS_KEY_ID, R2_PARENT_SECRET_ACCESS_KEY   the parent R2 token (object read and
 //                                                          write on the one bucket)
-//   USER_KEY_SECRET                                        keys the hash that names a user's folder
+//   IDENTITY_KEY_SECRET                                    keys the hashes of sign-in identities and
+//                                                          subscriptions (at least 32 characters; never change it)
+//   APPLE_SIWA_KEY_ID, APPLE_SIWA_PRIVATE_KEY              optional, both or neither: the Sign in with Apple
+//                                                          key, only to revoke Apple authorizations; without
+//                                                          it revocation is skipped with a log line
 //   APP_ATTEST_BYPASS_SECRET                               `dev` only, optional: lets the simulator
 //                                                          through without App Attest. If it exists
 //                                                          in production the Worker refuses to serve.
+//   DEV_TEST_SIGNIN_SECRET                                 `dev` only, optional: the dev test issuer's
+//                                                          key, so the simulator can sign in without
+//                                                          Apple or Google. Same production refusal.
+//
+// The Worker makes outbound requests to four fixed addresses only: Apple's and Google's sign-in
+// key sets, and Apple's token and revoke endpoints (see README, "Configuration").
 //
 // Every setting is checked when a request arrives (src/env.ts, readSettings); a missing or
 // malformed one makes every endpoint, /v1/health included, answer 500 and log which setting.
@@ -38,6 +48,11 @@
     "APPLE_TEAM_ID": "",
     // The app's numeric Apple ID in App Store Connect. Required in production; optional here.
     "APP_APPLE_ID": "",
+    // Google OAuth client IDs (comma-separated) whose ID tokens are accepted: the app's iOS
+    // client ID. Empty: Google sign-in is off. Not secrets.
+    "GOOGLE_CLIENT_IDS": "",
+    // Days before a subscription bought without the account's token may move to another account.
+    "SUBSCRIPTION_MOVE_DAYS": "30",
     // Seconds a credential lasts. Short on purpose: it is a bearer token.
     "CREDENTIAL_TTL_SECONDS": "900",
     // After a subscription ends: days of read-only access, then the day the data is deleted.
@@ -89,6 +104,8 @@
         "APP_BUNDLE_ID": "software.tactile.texts",
         "APPLE_TEAM_ID": "",
         "APP_APPLE_ID": "",
+        "GOOGLE_CLIENT_IDS": "",
+        "SUBSCRIPTION_MOVE_DAYS": "30",
         "CREDENTIAL_TTL_SECONDS": "900",
         "READ_ONLY_DAYS": "30",
         "DELETE_AFTER_DAYS": "60",

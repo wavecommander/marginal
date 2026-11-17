@@ -36,6 +36,8 @@ struct ReaderScreen: View {
     @Bindable var session: ReaderSession
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     /// Search panels on screen (each counts from its appearance until its dismissal has
     /// finished). A count, not a flag: when search reopens while the last panel is still going,
     /// the new panel's appearance and the old one's disappearance can come in either order.
@@ -70,6 +72,12 @@ struct ReaderScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        .overlay(alignment: .topTrailing) {
+            if session.isMaximized {
+                MaximizedPageControls(session: session)
+                    .transition(.opacity)
+            }
+        }
         // The search popover hangs from the reader, pointing at the toolbar's search button (see
         // `SearchAnchorReader`), so the button is never its source. It presents once the button
         // has been measured for this opening.
@@ -140,8 +148,14 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
         .toolbar { toolbarContent }
+        // A maximized page has the whole window: no toolbar, no status bar. The way back is a
+        // finger tap on the page (`ReaderPDFController`), Escape or View ▸ Exit Maximized Page.
+        .toolbar(session.isMaximized ? .hidden : .visible, for: .navigationBar)
+        .statusBarHidden(session.isMaximized)
+        .animation(.default, value: session.isMaximized)
         .sheet(isPresented: notesSheetBinding) {
-            NotesPanel(session: session)
+            NotesPanel(session: session,
+                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact)
                 .presentationDetents([.medium, .large])
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
@@ -156,14 +170,14 @@ struct ReaderScreen: View {
 
     private func wideLayout(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            if session.isContentsVisible {
+            if session.isContentsShown {
                 ContentsSidebar(session: session)
                     .frame(width: ReaderSession.contentsSidebarWidth)
                     .paneContainer(AccessibilityID.Reader.contentsPane)
                 Divider()
             }
             pageArea
-            if session.isNotesVisible {
+            if session.isNotesShown {
                 // The handle and the pane come and go as one, sliding in from and out to the
                 // trailing edge when the notes button shows or hides them.
                 NotesSidePane(session: session, windowWidth: width)
@@ -177,7 +191,7 @@ struct ReaderScreen: View {
         ZStack(alignment: .leading) {
             VStack(spacing: 0) {
                 pageArea
-                if !ReaderLayout.usesSystemNotesSheet && session.isNotesVisible {
+                if !ReaderLayout.usesSystemNotesSheet && session.isNotesShown {
                     NotesBottomPanel(session: session, containerHeight: height)
                         .transition(.move(edge: .bottom))
                 }
@@ -187,12 +201,17 @@ struct ReaderScreen: View {
                     .ignoresSafeArea()
                     .onTapGesture { session.isContentsOverlayVisible = false }
                     .accessibilityHidden(true)
+                    // Explicit z-order: a view being removed from a ZStack otherwise drops
+                    // behind its siblings for its removal transition, and the Contents pane
+                    // would slide out underneath the page.
+                    .zIndex(1)
                 ContentsSidebar(session: session)
                     .frame(width: min(320, ReaderSession.contentsSidebarWidth + 20))
                     .background(Color(uiColor: .systemGroupedBackground))
                     .shadow(radius: 12)
                     .paneContainer(AccessibilityID.Reader.contentsOverlay)
                     .transition(.move(edge: .leading))
+                    .zIndex(2)
                     .onChange(of: session.currentPageIndex) { _, _ in session.isContentsOverlayVisible = false }
             }
         }
@@ -202,7 +221,7 @@ struct ReaderScreen: View {
     /// The pill sits at the bottom of the page (mockup), except at narrow widths while the notes
     /// sheet covers the bottom: then it moves to the top of the page so it stays reachable.
     private var pillAtTop: Bool {
-        ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+        ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesShown
     }
 
     private var pageArea: some View {
@@ -223,8 +242,13 @@ struct ReaderScreen: View {
                 // Offers Locate PDF… and the Notebook when the book's PDF is missing.
                 ReaderUnavailableView(book: session.book, message: message)
             case .ready:
-                PagePill(session: session)
-                    .padding(pillAtTop ? .top : .bottom, 14)
+                // A maximized page has the whole window, without the pill (owner decision,
+                // 17 November 2026).
+                if !session.isMaximized {
+                    PagePill(session: session)
+                        .padding(pillAtTop ? .top : .bottom, 14)
+                        .transition(.opacity)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -241,23 +265,24 @@ struct ReaderScreen: View {
         // finished (presenting earlier would be dropped). Only a dismissal by the reader (swipe
         // down) hides the notes. The note page saves on disappearing, so nothing is lost.
         Binding(get: {
-                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesVisible
+                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesShown
                         && !session.isSearchVisible && !isSearchPanelOnScreen && !isRepresentingSearch
                         && !session.isSearchReopenQueued && session.closeReason == nil
                 },
                 set: { shown in
-                    guard session.isNarrowLayout, !session.isSearchVisible, !isSearchPanelOnScreen,
-                          !isRepresentingSearch, !session.isSearchReopenQueued else { return }
+                    guard session.isNarrowLayout, !session.isMaximized, !session.isSearchVisible,
+                          !isSearchPanelOnScreen, !isRepresentingSearch, !session.isSearchReopenQueued else { return }
                     session.isNotesVisible = shown
                 })
     }
 
     // MARK: Title
 
+    /// The reader's place only; markup mode does not add a prefix (the filled Markup button
+    /// shows the mode; design, "Markup controls").
     private var subtitle: String {
-        let place = session.deepestHeading?.title
+        session.deepestHeading?.title
             ?? PageNumbering.label(forPageIndex: session.currentPageIndex)
-        return session.isMarkupMode ? "Markup · \(place)" : place
     }
 
     // MARK: Toolbar
@@ -271,50 +296,51 @@ struct ReaderScreen: View {
                 Label(session.isContentsShown ? "Hide Contents" : "Show Contents", systemImage: "sidebar.leading")
             }
             .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
-            SectionHistoryButton(session: session, direction: .back)
-            SectionHistoryButton(session: session, direction: .forward)
+            .toolbarGlyph()
+            SectionHistoryButton(session: session, direction: .back).toolbarGlyph()
+            SectionHistoryButton(session: session, direction: .forward).toolbarGlyph()
         }
         // One toolbar in both modes (design, "Markup controls"). Find works in markup mode too
         // (⇧⌘F or the search button); markup stays on.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            searchButton
-            if !session.isNarrowLayout {
-                BookmarkButton(session: session)
-            }
             // Ink undo/redo are the system tool picker's own buttons, except at compact width,
             // where the picker has none.
             if session.isMarkupMode && horizontalSizeClass == .compact {
                 Button { session.markup.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!session.markup.canUndo)
                     .accessibilityIdentifier(AccessibilityID.Reader.undo)
+                    .toolbarGlyph()
                 Button { session.markup.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!session.markup.canRedo)
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
+                    .toolbarGlyph()
             }
-            markupToggle
-            notesToggle
-            moreMenu
+            notesToggle.toolbarGlyph()
+            // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
+            markupToggle.toolbarGlyph()
+            if !session.isNarrowLayout {
+                BookmarkButton(session: session).toolbarGlyph()
+            }
+            searchButton.toolbarGlyph()
+            moreMenu.toolbarGlyph()
         }
     }
 
-    /// The only switch for markup mode: outlined while off, filled (and selected) while on.
-    /// Turning it off does everything leaving markup does (flushes every surface).
+    /// The only switch for markup mode: the outlined glyph while off, the filled one while on,
+    /// with no selected background (owner decision, 17 November 2026). Turning it off does
+    /// everything leaving markup does (flushes every surface).
     ///
-    /// A `Toggle`, not a `Button` with `.accessibilityAddTraits(.isSelected)`: SwiftUI turns a
-    /// toolbar `Button` into a bar button item that keeps only its title, image, identifier and
-    /// enabled state, so traits and values added to it never reach VoiceOver or XCUITest
-    /// (measured on iPadOS 27 with the button grouped, alone, with and without the More menu).
-    /// A button-style `Toggle` becomes a bar item with a selection state, which UIKit exposes as
-    /// the Selected trait. The label also says the state ("Done with Markup" while on). Tests
+    /// A plain `Button`, so it has no Selected trait: SwiftUI turns a toolbar `Button` into a bar
+    /// button item that keeps only its title, image, identifier and enabled state, and a
+    /// button-style `Toggle` (which does carry the trait) always draws the selected background.
+    /// The label says the state instead ("Done with Markup" while on), and tests read it. They
     /// read the tool picker's visibility from `ReaderStateProbe` (`-exposeMarkupState`).
     private var markupToggle: some View {
         let isOn = session.isMarkupMode
-        return Toggle(isOn: Binding(get: { session.isMarkupMode },
-                                    set: { on in if on != session.isMarkupMode { session.toggleMarkup() } })) {
+        return Button { session.toggleMarkup() } label: {
             Label(isOn ? "Done with Markup" : "Markup",
                   systemImage: isOn ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
         }
-        .toggleStyle(.button)
         .accessibilityIdentifier(AccessibilityID.Reader.markupToggle)
     }
 
@@ -348,8 +374,10 @@ struct ReaderScreen: View {
         }
     }
 
-    /// The label says the state ("Hide Notes" while shown); an accessibility value here would not
-    /// reach VoiceOver (see `markupToggle`). Tests read it from `ReaderStateProbe`.
+    /// Shows and hides the notes pane: a plain button that looks the same either way (owner
+    /// decision, 17 November 2026). The label says the state ("Hide Notes" while shown); an
+    /// accessibility value here would not reach VoiceOver (see `markupToggle`). Tests read it
+    /// from `ReaderStateProbe`.
     private var notesToggle: some View {
         Button { withAnimation { session.toggleNotes() } } label: {
             Label(session.isNotesVisible ? "Hide Notes" : "Show Notes", systemImage: "note.text")
@@ -368,14 +396,18 @@ struct ReaderScreen: View {
             Button { session.requestAddHeading() } label: {
                 Label("Add Heading at This Page…", systemImage: "text.badge.plus")
             }
-            Button { window.openReaderInNewWindow(bookID: session.book.id) } label: {
-                Label("Open in New Window", systemImage: "macwindow.badge.plus")
+            if supportsMultipleWindows {
+                Button { window.openReaderInNewWindow(bookID: session.book.id) } label: {
+                    Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                }
             }
             Button { window.openNotebook(bookID: session.book.id) } label: {
                 Label("Notebook", systemImage: "book.pages")
             }
-            Button { window.openNotebookInNewWindow(bookID: session.book.id) } label: {
-                Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
+            if supportsMultipleWindows {
+                Button { window.openNotebookInNewWindow(bookID: session.book.id) } label: {
+                    Label("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus")
+                }
             }
             MarkedUpExportMenu(session: session)
             Divider()
@@ -407,6 +439,53 @@ struct ReaderScreen: View {
     }
 }
 
+/// What a maximized page keeps on screen besides the page (and, in markup mode, the system tool
+/// picker): the ink Undo / Redo the toolbar shows in markup mode at compact width, where the
+/// tool picker has none, at the top trailing corner. There is no exit button (owner decision,
+/// 17 November 2026): a finger tap on the page ends it, and so does Escape, kept here on an
+/// invisible button.
+private struct MaximizedPageControls: View {
+    let session: ReaderSession
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            if session.isMarkupMode && horizontalSizeClass == .compact {
+                control("Undo", systemImage: "arrow.uturn.backward", id: AccessibilityID.Reader.maximizedUndo) {
+                    session.markup.undo()
+                }
+                .disabled(!session.markup.canUndo)
+                control("Redo", systemImage: "arrow.uturn.forward", id: AccessibilityID.Reader.maximizedRedo) {
+                    session.markup.redo()
+                }
+                .disabled(!session.markup.canRedo)
+            }
+            Button("Exit Maximized Page") { session.setMaximized(false) }
+                .keyboardShortcut(.cancelAction)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+        .padding(Space.s)
+    }
+
+    private func control(_ title: String, systemImage: String, id: String,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: Size.touch, height: Size.touch)
+                .background(.regularMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityIdentifier(id)
+    }
+}
+
 /// Narrow-width notes panel before iPadOS 26 (see `ReaderLayout.usesSystemNotesSheet`): an
 /// inline panel under the page with a grabber and two heights matching the sheet's detents
 /// (medium: half, large: 85% of the reader). Tap the grabber to switch; drag it up/down to
@@ -414,6 +493,8 @@ struct ReaderScreen: View {
 private struct NotesBottomPanel: View {
     let session: ReaderSession
     let containerHeight: CGFloat
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var isLarge = false
     /// The grabber's vertical travel in the drag under way (0 otherwise). A gesture state, so a
     /// cancelled drag puts the panel back. Its reset is not animated (see `NotesSidePane`).
@@ -455,7 +536,8 @@ private struct NotesBottomPanel: View {
                 .accessibilityAdjustableAction { direction in
                     withAnimation { isLarge = direction == .increment }
                 }
-            NotesPanel(session: session)
+            NotesPanel(session: session,
+                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact)
         }
         .frame(height: min(largeHeight, max(120, baseHeight - dragOffset - releaseOffset)))
         .frame(maxWidth: .infinity)
@@ -795,8 +877,8 @@ private extension View {
 /// Measures the toolbar's search button for the search popover (TSOFT-216).
 ///
 /// A popover attached to a toolbar button has the bar button item as its source, and on
-/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (search, bookmark,
-/// Markup, notes, More) into the popover: the popover covers the bar while it is open (those
+/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (notes, Markup,
+/// bookmark, search, More) into the popover: the popover covers the bar while it is open (those
 /// buttons are gone), and on the owner's iPad the button was left looking selected after the
 /// morph back. Attached to the reader with the button's frame as its anchor rect, it is a plain
 /// popover under the bar whose arrow points at the button, and the toolbar is left alone.

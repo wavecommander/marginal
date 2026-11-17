@@ -181,6 +181,23 @@ final class NotePageUITests: XCTestCase {
         XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=shown"))
     }
 
+    /// With the reader's own fingers drawing (the default policy with no Pencil in use, as on
+    /// the simulator, or Draw with Finger on), a finger tap on the note in markup mode does not
+    /// take the cursor there: the keyboard stays away and the tool picker stays up. The other
+    /// tests here pass `-inkAnyInput`, which stands in for the Pencil and keeps the tap.
+    func testFingerTapDoesNotBringUpTheKeyboardWhileFingersDraw() {
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
+            + ["-openBook", "small", "-openPage", "1", "-notesPanel", "page", "-exposeMarkupState",
+               "-markup", "-hardwareKeyboard", "no"])
+        // A cold launch can take longer than `pickerShown`'s ten seconds.
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=shown", timeout: 30))
+        pagePoint(app, x: 40, y: 14 + 11).tap()
+        sleep(2)
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "responder=markup"), "the note did not take focus")
+        XCTAssertTrue(wait(markupState(app), "value CONTAINS %@", "picker=shown"), "the picker stayed")
+        XCTAssertEqual(app.keyboards.count, 0, "no keyboard")
+    }
+
     func testTypingWithMarkupOnByTapping() {
         let app = launch(fresh: true, markup: true)
         textView(app).tap()

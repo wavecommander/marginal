@@ -186,7 +186,9 @@ final class SearchUITests: XCTestCase {
     /// closing it. The steps are ordered so that a toolbar tap follows Done, a tap outside and
     /// choosing a result.
     func testSearchButtonLooksUnchangedAfterSearchCloses() throws {
-        let app = launch(Fixtures.small, "small")
+        // Notes shown throughout (a fresh book opens with them hidden), so the narrow layout has
+        // a notes sheet to step aside.
+        let app = launch(Fixtures.small, "small", ["-notesPanel", "page"])
         let button = app.buttons[ID.searchButton].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 30))
         var baseline = settledImage(of: button)
@@ -218,11 +220,11 @@ final class SearchUITests: XCTestCase {
 
         let markup = app.buttons[ID.markupToggle].firstMatch
         markup.tap()
-        XCTAssertTrue(waitFor(markup, \.isSelected), "markup did not turn on")
+        XCTAssertTrue(waitFor(markup) { $0.label == "Done with Markup" }, "markup did not turn on")
         baseline = settledImage(of: button)
         openAndClose(app, baseline, "Done in markup mode") { app.buttons[ID.done].firstMatch.tap() }
         markup.tap()
-        XCTAssertTrue(waitFor(markup) { !$0.isSelected }, "markup did not turn off")
+        XCTAssertTrue(waitFor(markup) { $0.label == "Markup" }, "markup did not turn off")
 
         XCUIDevice.shared.orientation = .portrait
         let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch

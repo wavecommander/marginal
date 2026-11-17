@@ -1,16 +1,21 @@
 // The user's folder in R2, through the Worker's bucket binding: where it is, how much it holds,
 // and emptying it in bounded steps.
 
-import type { AppleEnvironment } from "./appleJws";
+import type { Namespace } from "./subscription";
 import { userPrefix } from "./tempCredentials";
 
 /**
- * The folder for a subscription. Customers' data is under `users/`; sandbox and Xcode purchases
- * (App Review, TestFlight, development) under `sandbox/`, so test data never mixes with theirs.
+ * An account's folder. Customers' data is under `users/`; sandbox and Xcode purchases (App
+ * Review, TestFlight, development) under `sandbox/`, so test data never mixes with theirs.
  */
-export function folderFor(userKey: string, environment: AppleEnvironment): string {
-  const prefix = userPrefix(userKey); // validates the key: 64 lower-case hex digits
-  return environment === "Production" ? prefix : `sandbox/${prefix.slice("users/".length)}`;
+export function folderFor(folderKey: string, namespace: Namespace): string {
+  const prefix = userPrefix(folderKey); // validates the key: 64 lower-case hex digits
+  return namespace === "users" ? prefix : `sandbox/${prefix.slice("users/".length)}`;
+}
+
+/** Both of an account's folders. */
+export function foldersOf(folderKey: string): string[] {
+  return [folderFor(folderKey, "users"), folderFor(folderKey, "sandbox")];
 }
 
 /** Most list pages one usage count may read (1,000 objects each). */
@@ -48,11 +53,13 @@ export interface Budget {
 export async function deleteFolder(bucket: R2Bucket, prefix: string, budget: Budget): Promise<{ done: boolean; deleted: number }> {
   if (!prefix.endsWith("/") || prefix.length < 10) throw new Error("deleteFolder: not a user folder");
   let deleted = 0;
-  while (budget.operations >= 2) {
+  // One operation is enough to find a folder already empty.
+  while (budget.operations >= 1) {
     budget.operations -= 1;
     const listed = await bucket.list({ prefix, limit: 1000 });
     const keys = listed.objects.map((object) => object.key);
     if (keys.length === 0) return { done: true, deleted };
+    if (budget.operations < 1) break;
     // The listing is by prefix, but check every key anyway before deleting it.
     if (keys.some((key) => !key.startsWith(prefix))) throw new Error("deleteFolder: listing escaped the folder");
     budget.operations -= 1;
@@ -62,4 +69,18 @@ export async function deleteFolder(bucket: R2Bucket, prefix: string, budget: Bud
     if (!listed.truncated) return { done: true, deleted };
   }
   return { done: false, deleted };
+}
+
+/**
+ * Empties both of an account's folders, `users/` first, within `budget`. With a budget of at
+ * least 3, every call makes progress: finding the first folder empty costs one operation.
+ */
+export async function emptyAccountFolders(bucket: R2Bucket, folderKey: string, budget: Budget): Promise<{ done: boolean; deleted: number }> {
+  let deleted = 0;
+  for (const folder of foldersOf(folderKey)) {
+    const result = await deleteFolder(bucket, folder, budget);
+    deleted += result.deleted;
+    if (!result.done) return { done: false, deleted };
+  }
+  return { done: true, deleted };
 }

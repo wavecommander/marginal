@@ -8,16 +8,17 @@ import UIKit
 /// Stored in `UserDefaults` under `storageKey` (views use `@AppStorage`). A missing or unknown
 /// value reads as `.raspberry`, which matches the `AccentColor` asset (the launch-frame tint).
 nonisolated enum AccentChoice: String, CaseIterable, Identifiable, Sendable {
-    case raspberry, coral, indigo, viridian, teal, tobacco, aubergine, graphite
+    case raspberry, coral, indigo, viridian, aubergine, onyx
 
     static let storageKey = "settings.accent"
     static let `default` = AccentChoice.raspberry
 
     var id: String { rawValue }
 
-    /// The stored value, falling back to the default when it is missing or unknown.
+    /// The stored value, falling back to the default when it is missing or unknown. Graphite,
+    /// which Onyx replaced, reads as Onyx; the retired Teal and Tobacco read as the default.
     init(storedValue: String?) {
-        self = storedValue.flatMap(AccentChoice.init(rawValue:)) ?? .default
+        self = storedValue.flatMap { $0 == "graphite" ? .onyx : AccentChoice(rawValue: $0) } ?? .default
     }
 
     /// The choice stored in `defaults`.
@@ -44,14 +45,11 @@ nonisolated enum AccentChoice: String, CaseIterable, Identifiable, Sendable {
             Quad(accent: (0x3A52AF, 0xB4C0F4), tint: (0xE0E4F5, 0x1F2747), onAccent: (0xFFFFFF, 0x0E142A))
         case .viridian:
             Quad(accent: (0x266450, 0x7AD3B5), tint: (0xE1F4EE, 0x21362F), onAccent: (0xFFFFFF, 0x0F2920))
-        case .teal:
-            Quad(accent: (0x13626E, 0x7ECEDA), tint: (0xDCF5F9, 0x1F3437), onAccent: (0xFFFFFF, 0x082A30))
-        case .tobacco:
-            Quad(accent: (0x824C17, 0xE4BB91), tint: (0xF9EBDC, 0x382B1E), onAccent: (0xFFFFFF, 0x301C08))
         case .aubergine:
             Quad(accent: (0x6E469C, 0xD2B8EE), tint: (0xEAE3F2, 0x2A1E39), onAccent: (0xFFFFFF, 0x1B1127))
-        case .graphite:
-            Quad(accent: (0x5D5952, 0xC5C2BB), tint: (0xE6E3DE, 0x3A3833), onAccent: (0xFFFFFF, 0x1E1D1A))
+        case .onyx:
+            // Black in Light Mode; near-white in Dark Mode, where black would vanish.
+            Quad(accent: (0x000000, 0xEDEDED), tint: (0xE4E4E4, 0x363636), onAccent: (0xFFFFFF, 0x0D0D0D))
         }
     }
 
@@ -172,3 +170,26 @@ private struct AccentProbe: UIViewRepresentable {
     }
 }
 #endif
+
+/// Toolbar glyphs in the label colour (design, "Toolbar glyphs"). On iPadOS 26 and later the
+/// Liquid Glass capsule already marks a bar item as a button, so only a screen's one main action
+/// keeps the accent (it does not use this modifier); the Library's Import uses it, by the owner's
+/// choice. Filled glyphs that show state are plain too.
+/// Earlier systems have no capsule, and bar items keep the accent there. The one availability
+/// check for toolbar colour.
+struct ToolbarGlyphTint: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.tint(Color.primary)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// See `ToolbarGlyphTint`.
+    func toolbarGlyph() -> some View {
+        modifier(ToolbarGlyphTint())
+    }
+}

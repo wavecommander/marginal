@@ -12,6 +12,8 @@ final class NotesPanelUITests: XCTestCase {
         static let title = "notesPanel.title"
         static let status = "notePage.status"
         static let shrink = "notesPanel.shrink"
+        static let lowerRegionToggle = "notesPanel.lowerRegionToggle"
+        static let markup = "notesPanel.markup"
         static let levelToggle = "notesPanel.levelToggle"
         static let level = "notesPanel.level"
         static let highlight = "notesPanel.highlight"
@@ -335,6 +337,36 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
     }
 
+    /// Narrow sheet: the header's button hides the lists under the note and shows them again,
+    /// and the choice is still there after a relaunch. A regular-size iPad window keeps Markup
+    /// in the toolbar only (the header's own Markup button is for compact screens). The note
+    /// page's widening in a two-column sheet is pinned in `NotesPanelRulesTests`.
+    func testNarrowSheetHidesAndShowsTheLists() {
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        var app = launch(fresh: true, page: 3, tab: "section", orientation: .portrait)
+        XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
+        XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5), "the level picker, under the note")
+        var hide = app.buttons[ID.lowerRegionToggle].firstMatch
+        XCTAssertTrue(hide.waitForExistence(timeout: 5))
+        XCTAssertTrue(wait(hide, "label == %@", "Hide Section Levels"))
+        XCTAssertFalse(app.buttons[ID.markup].firstMatch.exists, "Markup stays in the toolbar at regular size")
+
+        hide.tap()
+        XCTAssertTrue(levelToggle(app).waitForNonExistence(timeout: 5), "the lists are hidden")
+        XCTAssertTrue(wait(hide, "label == %@", "Show Section Levels"))
+
+        app.terminate()
+        app = launch(fresh: false, page: 3, tab: "section", orientation: .portrait)
+        XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
+        hide = app.buttons[ID.lowerRegionToggle].firstMatch
+        XCTAssertTrue(hide.waitForExistence(timeout: 10))
+        XCTAssertEqual(hide.label, "Show Section Levels", "the choice is remembered")
+        XCTAssertFalse(levelToggle(app).exists)
+
+        hide.tap()
+        XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5), "and shown again")
+    }
+
     /// Delete Note: disabled on an empty note; deleting asks first, leaves the placeholder, and the
     /// note is still gone after a relaunch.
     func testDeleteNoteFromTheHeader() {
@@ -358,6 +390,32 @@ final class NotesPanelUITests: XCTestCase {
         let again = launch(fresh: false, page: 3)
         XCTAssertTrue(wait(status(again), "label == %@", "Empty"), "still gone")
         XCTAssertEqual((textView(again).value as? String) ?? "", "")
+    }
+
+    /// Deleting a note from the header shows the Undo pill; tapping it restores the note.
+    func testDeleteNoteUndoPillRestoresDeletedNote() {
+        let app = launch(fresh: true, page: 3)
+        let delete = app.buttons["notes.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 10))
+        type(app, "Keep me")
+        XCTAssertTrue(waitForEnabled(delete))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "cleared on delete")
+
+        let undoPill = app.buttons["notes.undoDelete"].firstMatch
+        XCTAssertTrue(undoPill.waitForExistence(timeout: 5), "Undo pill appears after delete")
+        undoPill.tap()
+
+        XCTAssertTrue(wait(textView(app), "value == %@", "Keep me"), "note text restored")
+        XCTAssertTrue(wait(status(app), "label == %@", "Saved"), "restored note is saved")
+        XCTAssertFalse(undoPill.exists, "Undo pill goes away once tapped")
+
+        app.terminate()
+        let again = launch(fresh: false, page: 3)
+        XCTAssertTrue(wait(textView(again), "value == %@", "Keep me"), "still restored after relaunch")
     }
 
     /// Swiping right on the notes pane (its header, the note page), as when a drag meant for the

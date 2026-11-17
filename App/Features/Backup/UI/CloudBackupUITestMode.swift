@@ -1,24 +1,32 @@
 #if DEBUG
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import ReaderBackup
 import UIKit
 
-// Tactile Texts Cloud for UI tests and screenshots, which cannot reach a Worker or the App
-// Store: `-cloudBackupUITest <state>` builds `TactileCloudBackup` from the fakes below. Debug
-// builds only; none of this exists in a release build.
+// Tactile Texts Cloud for UI tests and screenshots, which cannot reach a Worker, Apple, Google or
+// the App Store: `-cloudBackupUITest <state>` builds `TactileCloudBackup` from the fakes below.
+// Debug builds only; none of this exists in a release build.
 //
 // - StoreKit: `CloudBackupUITestStore`, one product at £2.99 a month; Subscribe succeeds at once.
+// - Sign in with Apple and Google: `CloudBackupUITestIdentity`, which answers at once with a
+//   token the fake service accepts (both buttons are offered).
 // - The service: `CloudBackupUITestServer` behind a `URLProtocol`, answering the Worker's
-//   contract (`/v1/challenge`, `/v1/session`, `/v1/delete-my-data`) and, for the storage, the
-//   few S3 calls `S3BackupBlobStore` makes, kept as files in a temporary folder. App Attest is
-//   unsupported, so the client sends the development bypass, which this fake accepts.
+//   contract (challenge, sign-in, change, sign-out, the account, its deletion, sessions and
+//   delete-my-data) for one account, and, for the storage, the few S3 calls
+//   `S3BackupBlobStore` makes, kept as files in a temporary folder. App Attest is unsupported,
+//   so the client sends the development bypass, which this fake accepts.
 // - The key: `CloudBackupUITestKeyStore`, in memory. Seeded states hold a known key whose
 //   recovery key is `CloudBackupUITestMode.recoveryKey`; UI tests type it.
+// - Every state but `signedOut` and `sessionExpired` starts signed in with Apple.
 
 /// The starting state `-cloudBackupUITest` names.
 nonisolated enum CloudBackupUITestState: String, CaseIterable, Sendable {
-    /// Never subscribed: the offer. Subscribing works.
+    /// Signed out, never subscribed: the offer with both sign-in buttons. Signing in, then
+    /// subscribing, works.
+    case signedOut
+    /// Signed in with Apple, never subscribed: the offer. Subscribing works.
     case notSubscribed
     /// Subscribed, nothing backed up, no key yet: the first backup makes one.
     case active
@@ -40,6 +48,12 @@ nonisolated enum CloudBackupUITestState: String, CaseIterable, Sendable {
     case storeUnavailable
     /// Subscribed, but the service can't be reached.
     case unreachable
+    /// Subscribed with two backups and this iPad's key, but this device's session has ended
+    /// (signed out elsewhere): the first request signs out here. Signing in again carries on.
+    case sessionExpired
+
+    /// The device starts signed in.
+    var startsSignedIn: Bool { self != .signedOut }
 }
 
 @MainActor
@@ -51,6 +65,16 @@ enum CloudBackupUITestMode {
     nonisolated static let storageHost = "r2.ui-test"
     nonisolated static let bucket = "ui-test"
     nonisolated static let prefix = "users/ui-test/"
+    /// The one account the fake service has (32 hex digits, as the service's are).
+    nonisolated static let accountID = "0c10dacc0c10dacc0c10dacc0c10dacc"
+    nonisolated static let appAccountToken = "6f9619ff-8b86-d011-b42d-00c04fc964ff"
+    /// The session a signed-in state starts with.
+    nonisolated static let sessionToken = "ui-test-session-0000000000000000000000000001"
+    /// The session `sessionExpired` starts with, which the service no longer knows.
+    nonisolated static let staleSessionToken = "ui-test-session-0000000000000000000000000000"
+    /// The emails the fake sign-ins carry.
+    nonisolated static let appleEmail = "reader@privaterelay.appleid.com"
+    nonisolated static let googleEmail = "reader@gmail.example"
     /// The seeded backups' key, as a recovery key (UI tests type it).
     nonisolated static let recoveryKey = "0C51-260Z-4RPK-8ET2-9585-EQK5-DHSQ-N0C8-HYB9-V95B-PAWW-1HYE-TQE0-045G"
     /// Another valid recovery key, not the backups' (`differentKey` holds it; tests type it).
@@ -69,7 +93,7 @@ enum CloudBackupUITestMode {
         let seeded: Bool
         let deviceKey: BackupEncryptionKey?
         switch state {
-        case .notSubscribed, .active, .dataDeleted, .storeUnavailable, .unreachable:
+        case .signedOut, .notSubscribed, .active, .dataDeleted, .storeUnavailable, .unreachable:
             seeded = false
             deviceKey = nil
         case .needsRecoveryKey:
@@ -78,7 +102,7 @@ enum CloudBackupUITestMode {
         case .differentKey:
             seeded = true
             deviceKey = try! BackupRecoveryKey(otherRecoveryKey).encryptionKey
-        case .overAllowance, .readOnly, .lapsed, .revoked:
+        case .overAllowance, .readOnly, .lapsed, .revoked, .sessionExpired:
             seeded = true
             deviceKey = backupsKey
         }
@@ -93,8 +117,8 @@ enum CloudBackupUITestMode {
         let defaults = UserDefaults(suiteName: defaultsSuite)!
         defaults.removePersistentDomain(forName: defaultsSuite)
         if deviceKey != nil {
-            defaults.set(true, forKey: CloudBackupAccount.recoveryKeyShownKey)
-            defaults.set(true, forKey: CloudBackupAccount.recoveryKeySavedKey)
+            defaults.set(true, forKey: CloudBackupAccount.flagKey(CloudBackupAccount.recoveryKeyShownKey, account: accountID))
+            defaults.set(true, forKey: CloudBackupAccount.flagKey(CloudBackupAccount.recoveryKeySavedKey, account: accountID))
         }
         let lastSuccessKey = BackupService.lastSuccessKeyPrefix + TactileCloudBackupDestination.destinationID
         if seeded, deviceKey != nil {
@@ -103,14 +127,39 @@ enum CloudBackupUITestMode {
             UserDefaults.standard.removeObject(forKey: lastSuccessKey)
         }
 
+        var session: CloudDeviceSession?
+        if state.startsSignedIn {
+            session = CloudDeviceSession(accountID: accountID, sessionID: CloudBackupUITestServer.sessionID(1), provider: .apple,
+                                         deviceSessionToken: state == .sessionExpired ? staleSessionToken : sessionToken,
+                                         email: appleEmail, appleUserID: nil, appAccountToken: UUID(uuidString: appAccountToken))
+        }
         let configuration = BackupServiceConfiguration(host: serviceHost, productIDs: productID, attestBypass: "ui-test")!
-        let session = CloudBackupUITestURLProtocol.session()
+        let urlSession = CloudBackupUITestURLProtocol.session()
         return TactileCloudBackup.make(configuration: configuration, store: CloudBackupUITestStore(state: state, now: now),
                                        attest: CloudBackupUITestAttest(), keyStore: CloudBackupUITestKeyStore(key: deviceKey),
-                                       urlSession: session, s3Session: session,
+                                       sessionStore: InMemoryCloudDeviceSessionStore(session), identity: CloudBackupUITestIdentity(),
+                                       urlSession: urlSession, s3Session: urlSession,
                                        temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true),
-                                       defaults: defaults)
+                                       defaults: defaults, deviceName: { "UI Test iPad" })
     }
+}
+
+// MARK: - Sign in with Apple and Google
+
+/// Apple and Google answering at once, with tokens the fake service reads.
+@MainActor
+final class CloudBackupUITestIdentity: CloudIdentityProviding {
+    var availableProviders: [CloudSignInProvider] { [.apple, .google] }
+
+    func credential(_ provider: CloudSignInProvider, nonce: String, anchor: ASPresentationAnchor?) async throws -> CloudIdentityCredential {
+        try await Task.sleep(for: .milliseconds(200))
+        return CloudIdentityCredential(provider: provider, idToken: "ui-test-id-token.\(provider.rawValue).\(nonce)",
+                                       authorizationCode: provider == .apple ? "ui-test-code" : nil,
+                                       email: provider == .apple ? CloudBackupUITestMode.appleEmail : CloudBackupUITestMode.googleEmail,
+                                       appleUserID: nil)
+    }
+
+    func appleAuthorizationEnded(userID: String) async -> Bool { false }
 }
 
 // MARK: - StoreKit
@@ -130,9 +179,9 @@ final class CloudBackupUITestStore: BackupStoreKit {
     init(state: CloudBackupUITestState, now: Date) {
         self.state = state
         switch state {
-        case .notSubscribed, .storeUnavailable:
+        case .signedOut, .notSubscribed, .storeUnavailable:
             break
-        case .active, .overAllowance, .needsRecoveryKey, .differentKey, .unreachable:
+        case .active, .overAllowance, .needsRecoveryKey, .differentKey, .unreachable, .sessionExpired:
             add(purchased: now.addingTimeInterval(-10 * 86_400), expires: now.addingTimeInterval(20 * 86_400), active: true)
         case .readOnly:
             add(purchased: now.addingTimeInterval(-35 * 86_400), expires: now.addingTimeInterval(-5 * 86_400), active: false)
@@ -159,7 +208,7 @@ final class CloudBackupUITestStore: BackupStoreKit {
         return ids.contains(Self.product.id) ? [Self.product] : []
     }
 
-    func purchase(productID: String, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
+    func purchase(productID: String, appAccountToken: UUID?, confirmIn scene: UIScene?) async throws -> BackupStorePurchaseResult {
         try await Task.sleep(for: .milliseconds(300))
         let now = Date()
         add(purchased: now, expires: now.addingTimeInterval(30 * 86_400), active: true)
@@ -193,11 +242,14 @@ nonisolated struct CloudBackupUITestAttest: AppAttestClient {
     func reset() async {}
 }
 
-nonisolated final class CloudBackupUITestKeyStore: BackupKeyStore, @unchecked Sendable {
+/// The fake service has one account, so one key stands for it.
+nonisolated final class CloudBackupUITestKeyStore: BackupKeyStore, BackupKeyStoreFactory, @unchecked Sendable {
     private let lock = NSLock()
     private var key: BackupEncryptionKey?
 
     init(key: BackupEncryptionKey?) { self.key = key }
+
+    func keyStore(forAccount accountID: String) -> any BackupKeyStore { self }
 
     func load() async throws -> BackupEncryptionKey? { lock.withLock { key } }
 
@@ -239,12 +291,31 @@ nonisolated final class CloudBackupUITestServer: @unchecked Sendable {
     private var challenges = 0
     private var uploads: [String: (key: String, parts: [Int: Data])] = [:]
     private var uploadCounter = 0
+    /// Live device sessions: token to session ID. Another device's is always there (until
+    /// signed out everywhere), so the account lists two devices.
+    private var sessions: [String: String] = [:]
+    private var sessionCounter = 1
+    private var provider = CloudSignInProvider.apple
+    private var labels: [String: String] = [:]
+    /// The account was deleted: the next sign-in makes a new one.
+    private var accountExists = true
+
+    static let otherDeviceToken = "ui-test-session-other-device"
+
+    static func sessionID(_ number: Int) -> String { String(format: "%032x", number) }
 
     func reset(root: URL, state: CloudBackupUITestState, now: Date) {
         lock.withLock {
             self.root = root
             self.state = state
             self.now = now
+            provider = .apple
+            labels = [:]
+            accountExists = true
+            sessionCounter = 1
+            sessions = [Self.otherDeviceToken: Self.sessionID(99)]
+            // `sessionExpired` starts with a session the service no longer knows.
+            if state.startsSignedIn, state != .sessionExpired { sessions[CloudBackupUITestMode.sessionToken] = Self.sessionID(1) }
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
@@ -252,7 +323,7 @@ nonisolated final class CloudBackupUITestServer: @unchecked Sendable {
     /// A purchase in the fake store: the service now sees an active subscription.
     func subscribed(now: Date) {
         lock.withLock {
-            if state == .notSubscribed || state == .readOnly || state == .lapsed || state == .dataDeleted {
+            if [.signedOut, .notSubscribed, .readOnly, .lapsed, .dataDeleted].contains(state) {
                 state = .active
                 self.now = now
             }
@@ -313,21 +384,102 @@ nonisolated final class CloudBackupUITestServer: @unchecked Sendable {
 
     private func service(method: String, path: String, body: Data) -> Reply {
         let (state, now) = lock.withLock { (self.state, self.now) }
-        switch (method, path) {
-        case ("POST", "/v1/challenge"):
+        guard method == "POST" else { return Self.error(405, "method-not-allowed") }
+        if path == "/v1/challenge" {
             let count = lock.withLock { challenges += 1; return challenges }
             return .json(200, ["challenge": Data("challenge-\(count)".utf8).base64EncodedString(),
                                "expiresAt": now.addingTimeInterval(300).formatted(.iso8601)])
-        case ("POST", "/v1/session"):
+        }
+        let fields = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+        switch path {
+        case "/v1/auth/apple", "/v1/auth/google":
+            guard (fields["idToken"] as? String)?.hasPrefix("ui-test-id-token.") == true else {
+                return Self.error(401, "id-token-invalid")
+            }
+            let (token, id, isNew) = lock.withLock { () -> (String, String, Bool) in
+                sessionCounter += 1
+                let token = String(format: "ui-test-session-%028d", sessionCounter)
+                let id = Self.sessionID(sessionCounter)
+                sessions[token] = id
+                let isNew = !accountExists
+                if isNew {
+                    accountExists = true
+                    provider = path.hasSuffix("apple") ? .apple : .google
+                }
+                return (token, id, isNew)
+            }
+            return .json(200, ["deviceSessionToken": token, "sessionId": id, "newAccount": isNew,
+                               "account": account(currentSessionID: id, state: state, now: now)])
+        default:
+            break
+        }
+        // Everything else needs a live session.
+        guard let token = fields["deviceSessionToken"] as? String,
+              let sessionID = lock.withLock({ sessions[token] }) else { return Self.error(401, "session-invalid") }
+        switch path {
+        case "/v1/session":
+            if state == .notSubscribed, fields["signedTransaction"] != nil {
+                // The App Store's subscription binds to the (new) account, as the first to present it.
+                lock.withLock { self.state = .active }
+                return session(state: .active, now: now)
+            }
             return session(state: state, now: now)
-        case ("POST", "/v1/delete-my-data"):
-            let deleted = (FileManager.default.subpaths(atPath: folder.path) ?? []).count
-            try? FileManager.default.removeItem(at: folder)
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        case "/v1/delete-my-data":
+            let deleted = emptyFolder()
+            return .json(200, ["done": true, "deletedObjects": deleted])
+        case "/v1/account":
+            if let label = fields["deviceLabel"] as? String { lock.withLock { labels[sessionID] = label } }
+            return .json(200, account(currentSessionID: sessionID, state: state, now: now))
+        case "/v1/auth/change":
+            guard let target = (fields["newProvider"] as? String).flatMap(CloudSignInProvider.init(rawValue:)),
+                  (fields["newIdToken"] as? String)?.hasPrefix("ui-test-id-token.\(target.rawValue)") == true else {
+                return Self.error(400, "bad-request")
+            }
+            lock.withLock { provider = target }
+            return .json(200, account(currentSessionID: sessionID, state: state, now: now))
+        case "/v1/auth/signout":
+            lock.withLock { sessions[token] = nil }
+            return .json(200, ["ok": true, "endedSessions": 1])
+        case "/v1/auth/signout-all":
+            let ended = lock.withLock { () -> Int in
+                let count = sessions.count
+                sessions.removeAll()
+                return count
+            }
+            return .json(200, ["ok": true, "endedSessions": ended])
+        case "/v1/account/delete":
+            let deleted = emptyFolder()
+            lock.withLock {
+                sessions.removeAll()
+                labels.removeAll()
+                accountExists = false
+                // A new account has no subscription until the App Store's transaction binds it.
+                if state != .signedOut { self.state = .notSubscribed }
+            }
             return .json(200, ["done": true, "deletedObjects": deleted])
         default:
             return Self.error(404, "not-found")
         }
+    }
+
+    private func emptyFolder() -> Int {
+        let deleted = (FileManager.default.subpaths(atPath: folder.path) ?? []).count
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return deleted
+    }
+
+    /// The `AccountResponse` for the one account.
+    private func account(currentSessionID: String, state: CloudBackupUITestState, now: Date) -> [String: Any] {
+        let (provider, sessions, labels) = lock.withLock { (self.provider, self.sessions, self.labels) }
+        let created = now.addingTimeInterval(-30 * 86_400).formatted(.iso8601)
+        let devices: [[String: Any]] = sessions.values.sorted().map { id in
+            ["sessionId": id, "createdAt": created, "lastUsedAt": now.formatted(.iso8601),
+             "label": labels[id].map { $0 as Any } ?? NSNull(), "current": id == currentSessionID]
+        }
+        return ["accountId": CloudBackupUITestMode.accountID, "provider": provider.rawValue,
+                "appAccountToken": CloudBackupUITestMode.appAccountToken, "createdAt": created, "devices": devices,
+                "subscription": NSNull(), "usage": NSNull()]
     }
 
     private func session(state: CloudBackupUITestState, now: Date) -> Reply {
@@ -357,7 +509,10 @@ nonisolated final class CloudBackupUITestServer: @unchecked Sendable {
         case .overAllowance:
             mode = "read-delete"
             usage = (10_400_000_000, 10_000_000_000)
-        case .notSubscribed, .active, .needsRecoveryKey, .differentKey, .storeUnavailable:
+        case .signedOut, .notSubscribed, .storeUnavailable:
+            // The account has no subscription and the App Store has none to bind.
+            return Self.error(403, "not-subscribed")
+        case .active, .needsRecoveryKey, .differentKey, .sessionExpired:
             break
         }
         return .json(200, [

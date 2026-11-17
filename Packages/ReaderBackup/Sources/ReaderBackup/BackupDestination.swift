@@ -4,7 +4,7 @@ import Foundation
 public enum BackupDestinationAvailability: Hashable, Sendable {
     case available
     /// Not usable; `reason` is shown to the reader as is (for example "This folder can’t be
-    /// found. It may have been moved or deleted." or "iCloud isn’t available in this build.").
+    /// found. It may have been moved or deleted.").
     case unavailable(reason: String)
 
     /// `true` for `.available`.
@@ -13,8 +13,8 @@ public enum BackupDestinationAvailability: Hashable, Sendable {
 
 /// A snapshot archive stored at a destination.
 public struct BackupSnapshotInfo: Hashable, Sendable, Identifiable {
-    /// The destination's own handle for the snapshot (the file name for a folder, a file ID for
-    /// Google Drive). Pass the info back to the same destination to download or delete it.
+    /// The destination's own handle for the snapshot (the file name for a folder, the object
+    /// key for a bucket). Pass the info back to the same destination to download or delete it.
     public var id: String
     /// The snapshot's file name (`SnapshotName`).
     public var name: String
@@ -41,7 +41,7 @@ public struct BackupSnapshotInfo: Hashable, Sendable, Identifiable {
 }
 
 /// A place backups go in the folder layout (`BackupFolderLayout`): snapshot archives under
-/// `Backups/`, PDFs addressed by hash under `PDFs/`. The Folder, iCloud and Google Drive
+/// `Backups/`, PDFs addressed by hash under `PDFs/`. The picked-folder and S3-compatible
 /// destinations implement it; the backup engine only talks to this protocol.
 ///
 /// Contract every implementation keeps:

@@ -11,7 +11,8 @@ import ReaderBackup
 nonisolated enum CloudBackupPage: Equatable, Sendable {
     /// Nothing known yet: a spinner.
     case checking
-    /// Not subscribed (or the App Store can't be asked): what the service is, and Subscribe.
+    /// Signed out (the sign-in buttons), or not subscribed, or the App Store can't be asked: what
+    /// the service is, and Subscribe.
     case offer
     /// Subscribed, or subscribed once: the account, its banner, and the backups.
     case status
@@ -19,8 +20,9 @@ nonisolated enum CloudBackupPage: Equatable, Sendable {
     static func make(_ status: CloudBackupAccount.Status, hasError: Bool) -> CloudBackupPage {
         switch status {
         case .unknown: hasError ? .status : .checking
-        case .notSubscribed, .storeUnavailable: .offer
-        case .notInThisBuild, .needsRecoveryKey, .active, .overAllowance, .readOnly, .lapsed, .revoked, .dataDeleted: .status
+        case .signedOut, .notSubscribed, .storeUnavailable: .offer
+        case .notInThisBuild, .subscriptionElsewhere, .needsRecoveryKey, .active, .overAllowance, .readOnly, .lapsed, .revoked,
+             .dataDeleted: .status
         }
     }
 }
@@ -48,7 +50,8 @@ nonisolated struct CloudBackupCapabilities: Equatable, Sendable {
             CloudBackupCapabilities(canBackUp: false, listsBackups: true, canDeleteBackups: false, canDeleteEverything: true)
         case .lapsed, .revoked:
             CloudBackupCapabilities(canBackUp: false, listsBackups: false, canDeleteBackups: false, canDeleteEverything: true)
-        case .needsRecoveryKey, .notInThisBuild, .unknown, .storeUnavailable, .notSubscribed, .dataDeleted:
+        case .needsRecoveryKey, .notInThisBuild, .unknown, .signedOut, .storeUnavailable, .notSubscribed,
+             .subscriptionElsewhere, .dataDeleted:
             // Starting over without the recovery key is offered on the Enter Recovery Key page.
             CloudBackupCapabilities(canBackUp: false, listsBackups: false, canDeleteBackups: false, canDeleteEverything: false)
         }
@@ -104,8 +107,11 @@ nonisolated struct CloudBackupBanner: Equatable, Sendable {
                                      message: TactileCloudError.notInThisBuild.localizedDescription, actions: [])
         case .storeUnavailable(let reason):
             return CloudBackupBanner(tone: .problem, title: "Couldn’t Reach the App Store", message: reason, actions: [.tryAgain])
-        case .notSubscribed:
+        case .notSubscribed, .signedOut:
             return nil
+        case .subscriptionElsewhere(let error):
+            return CloudBackupBanner(tone: .problem, title: "Subscription Used by Another Account",
+                                     message: error.localizedDescription, actions: [.tryAgain])
         case .overAllowance:
             let figures = usage.map { "Your backups use \(BackupUIText.bytes($0.bytes)) of your plan’s \(BackupUIText.bytes($0.allowanceBytes)), so new backups can’t be made." }
                 ?? "Your backups are over your plan’s storage allowance, so new backups can’t be made."
@@ -402,6 +408,86 @@ nonisolated enum CloudBackupRecoveryKeyLogic {
         switch status {
         case .active, .overAllowance, .readOnly: true
         default: false
+        }
+    }
+}
+
+// MARK: - Signing in and the account
+
+/// The account's words: signing in, the account section, and each sign-in change's confirmation.
+/// Every confirmation says what happens to the books on this iPad (they stay as they are) and to
+/// what is kept in the cloud (owner decision 7).
+nonisolated enum CloudAccountText {
+    static let name = CloudServiceError.serviceName
+
+    static let signInHeader = "Sign In"
+    static let signInIntro = "Sign in to subscribe and back up. Your books, notes and ink stay on this iPad whether or not you sign in; signing in only gives your backups an account to belong to. \(name) keeps no name or email address."
+    static let lostAccess = "If you lose access to the Apple Account or Google Account you sign in with, the account can’t be reached; the books on your iPads are unaffected."
+
+    /// "Sign in with Apple", "Sign in with Google".
+    static func signInTitle(_ provider: CloudSignInProvider) -> String { "Sign in with \(provider.name)" }
+
+    /// What the page says after this iPad was signed out without the reader asking here.
+    static func signedOutNotice(_ reason: CloudBackupSignIn.SignedOutReason) -> String {
+        switch reason {
+        case .sessionEnded:
+            "This iPad was signed out of \(name), perhaps from another device. Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up to \(name). Sign in again to carry on."
+        case .appleRevoked:
+            "Sign in with Apple was turned off for Tactile Texts, so this iPad was signed out of \(name). Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up there."
+        case .accountDeleted:
+            "Your \(name) account and its backups have been deleted. Your books, notes and ink on this iPad are just as they were. Your subscription isn’t cancelled: use Manage Subscription in your Apple Account settings to stop paying."
+        }
+    }
+
+    static let accountHeader = "Account"
+    /// "Signed in with Apple".
+    static func signedInWith(_ provider: CloudSignInProvider) -> String { "Signed in with \(provider.name)" }
+    static func changeTitle(to provider: CloudSignInProvider) -> String { "Change to Sign in with \(provider.name)…" }
+    static let devicesHeader = "Signed-In Devices"
+    static let accountFooter = "Signing out or deleting the account never changes the books on this iPad: they stay here, open and editable."
+
+    /// "Last used 15 December 2026".
+    static func lastUsed(_ date: Date?, dateText: (Date) -> String = CloudServiceError.day) -> String? {
+        date.map { "Last used \(dateText($0))" }
+    }
+
+    // Confirmations
+
+    static let signOutTitle = "Sign Out of \(name)?"
+    static let signOutMessage = "Your books, notes and ink stay on this iPad exactly as they are, but they won’t be backed up to \(name) until you sign in again. Your backups stay in your account."
+    static let signOutButton = "Sign Out"
+
+    static let signOutAllTitle = "Sign Out on Every Device?"
+    static let signOutAllMessage = "Every device signed in to this account is signed out, this iPad included. The books on each device stay as they are, and your backups stay in your account. Nothing is backed up until you sign in again."
+    static let signOutAllButton = "Sign Out of All Devices"
+
+    static func changeConfirmTitle(to provider: CloudSignInProvider) -> String { "Change to Sign in with \(provider.name)?" }
+    static func changeConfirmMessage(from current: CloudSignInProvider, to provider: CloudSignInProvider) -> String {
+        "First confirm with \(current.name), then sign in with \(provider.name). Your account, its backups, its subscription and its key stay the same, and the books on this iPad aren’t touched. Afterwards you sign in with \(provider.name) only; other devices stay signed in."
+    }
+    static let changeButton = "Continue"
+
+    static func changedTitle(to provider: CloudSignInProvider) -> String { "You Now Sign In with \(provider.name)" }
+    static let changedMessage = "Other devices stay signed in to this account. If any of them isn’t yours, sign out on every device."
+
+    static func identityInUseTitle(_ provider: CloudSignInProvider) -> String { "That \(provider.name) Account Has Its Own Account" }
+    static func identityInUseMessage(_ provider: CloudSignInProvider) -> String {
+        "The \(provider.name) sign-in you chose is already used by another \(name) account, so this account can’t change to it. Nothing has changed. If that other account is yours, sign in with it, delete it, then try again."
+    }
+
+    static let deleteTitle = "Delete Your \(name) Account?"
+    static func deleteMessage(provider: CloudSignInProvider) -> String {
+        "Every backup and PDF kept in \(name) is deleted for good, and the account is removed. The books, notes and ink on this iPad stay exactly as they are. You’ll confirm with \(provider.name) first. Your subscription isn’t cancelled: use Manage Subscription to stop paying."
+    }
+    static let deleteButton = "Delete Account"
+    static let deleting = "Deleting your account…"
+
+    static func busy(_ activity: CloudBackupSignIn.Activity) -> String {
+        switch activity {
+        case .signingIn(let provider): "Signing in with \(provider.name)…"
+        case .changing(let provider): "Changing to Sign in with \(provider.name)…"
+        case .signingOut(let everywhere): everywhere ? "Signing out of every device…" : "Signing out…"
+        case .deletingAccount: deleting
         }
     }
 }

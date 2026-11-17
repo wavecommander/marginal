@@ -10,7 +10,9 @@ import SwiftUI
 ///
 /// Laid out as the design's "Notes panel layout" rule says:
 /// - **Header:** the tab picker, Delete Note, and the shrink button while the pane is wider than
-///   its default; then the title and the "Saved" status.
+///   its default; then the title and the "Saved" status. A narrow panel on a compact screen
+///   (which can cover the toolbar) adds Markup and, while it is on, ink Undo and Redo; a narrow
+///   panel with lists under or beside the note adds a button that hides and shows them.
 /// - **Page note:** "Page 312", the note editor, and "Highlights on this page" only while the page
 ///   has any (with none, the note takes the whole panel).
 /// - **Section note:** the heading's title and pages, the note editor, then the collapsible level
@@ -25,6 +27,9 @@ struct NotesPanel: View {
     private let controller: NotesPanelController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(WindowContext.self) private var window: WindowContext?
+    /// The reader hid the lists under (or beside) the note in a narrow panel. Remembered, like
+    /// the level picker's own collapse.
+    @AppStorage(NotesPanelRegions.collapsedKey) private var isLowerRegionCollapsed = false
     /// The note the reader asked to delete (confirmation shown while set).
     @State private var deleteCandidate: NotePageModel?
     /// The shown page's highlights (Page note tab; empty on the Section tab).
@@ -36,14 +41,23 @@ struct NotesPanel: View {
         var revision: Int
     }
 
-    init(session: ReaderSession) {
+    /// The reader's window is compact in either direction (an iPhone, or a compact-width iPad
+    /// window). Given by the shell from the window's own size classes: inside a sheet the
+    /// environment's are the sheet's (compact in a regular iPad window too).
+    private let isCompactWindow: Bool
+
+    init(session: ReaderSession, isCompactWindow: Bool = false) {
         self.session = session
         self.controller = session.notesPanel
+        self.isCompactWindow = isCompactWindow
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let metrics = NotesPanelMetrics(presentation: session.isNarrowLayout ? .narrow : .pane, size: proxy.size)
+            // No lists to show (a page without highlights) counts as hidden: the note has the
+            // whole width either way, so its page widens to fill it the same.
+            let metrics = NotesPanelMetrics(presentation: session.isNarrowLayout ? .narrow : .pane, size: proxy.size,
+                                            listsHidden: session.isNarrowLayout && (!hasLowerRegion || isLowerRegionCollapsed))
             VStack(alignment: .leading, spacing: 0) {
                 header(metrics)
                     .padding(.horizontal, 14)
@@ -76,6 +90,22 @@ struct NotesPanel: View {
         } message: { model in
             Text(Self.deleteMessage(hasInk: model.hasInk))
         }
+        .onChange(of: controller.model?.revision) { _, _ in
+            if let pending = controller.undoController.pending,
+               let model = controller.model,
+               model.target == pending.note.target,
+               !NotesPanelController.isEmpty(model) {
+                controller.undoController.dismiss()
+            }
+        }
+        .onChange(of: session.saveToken.isRevoked) { _, revoked in
+            if revoked { controller.undoController.dismiss() }
+        }
+        .overlay(alignment: .bottom) {
+            DeletedNoteUndoPill(controller: controller.undoController)
+                .padding(.bottom, Space.l)
+                .padding(.horizontal, Space.m)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(NotesPanelAccessibilityID.panel)
     }
@@ -86,13 +116,24 @@ struct NotesPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Picker("Note", selection: Binding(get: { session.notesTab }, set: { controller.selectTab($0) })) {
-                    Text("Page note").tag(ReaderSession.NotesTab.page)
-                    Text("Section note").tag(ReaderSession.NotesTab.section)
+                    // Beside the markup controls in a phone-width panel the full names were cut
+                    // to "Page n…" / "Section…"; VoiceOver still reads them in full.
+                    let short = showsMarkupControls && metrics.size.width < 500
+                    Text(short ? "Page" : "Page note").tag(ReaderSession.NotesTab.page)
+                        .accessibilityLabel("Page note")
+                    Text(short ? "Section" : "Section note").tag(ReaderSession.NotesTab.section)
+                        .accessibilityLabel("Section note")
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 300)
                 .accessibilityIdentifier(NotesPanelAccessibilityID.tabs)
                 Spacer(minLength: 0)
+                if showsMarkupControls {
+                    markupControls
+                }
+                if showsLowerRegionToggle(metrics) {
+                    lowerRegionToggle(metrics)
+                }
                 if let model = controller.model {
                     deleteButton(model)
                 }
@@ -174,6 +215,63 @@ struct NotesPanel: View {
             .accessibilityLabel("\(text), go to the start of \(heading.title)")
             .accessibilityIdentifier(NotesPanelAccessibilityID.sectionRange)
         }
+    }
+
+    /// A narrow panel on a compact screen can cover the toolbar (an iPhone in landscape: the sheet
+    /// takes the whole screen) or sit under a toolbar whose Markup button has gone into the
+    /// overflow menu, so the panel carries the switch itself.
+    private var showsMarkupControls: Bool {
+        session.isNarrowLayout && isCompactWindow
+    }
+
+    /// Markup, as in the toolbar (outlined while off, filled while on), and ink Undo / Redo
+    /// while it is on: the tool picker has none on a compact screen.
+    @ViewBuilder
+    private var markupControls: some View {
+        if session.isMarkupMode {
+            headerButton("Undo", systemImage: "arrow.uturn.backward", id: NotesPanelAccessibilityID.undo) {
+                session.markup.undo()
+            }
+            .disabled(!session.markup.canUndo)
+            headerButton("Redo", systemImage: "arrow.uturn.forward", id: NotesPanelAccessibilityID.redo) {
+                session.markup.redo()
+            }
+            .disabled(!session.markup.canRedo)
+        }
+        headerButton(session.isMarkupMode ? "Done with Markup" : "Markup",
+                     systemImage: session.isMarkupMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
+                     id: NotesPanelAccessibilityID.markup) {
+            session.toggleMarkup()
+        }
+    }
+
+    private func showsLowerRegionToggle(_ metrics: NotesPanelMetrics) -> Bool {
+        metrics.presentation == .narrow && hasLowerRegion
+    }
+
+    /// Hides and shows the lists under (or beside) the note, so the note can have the panel.
+    private func lowerRegionToggle(_ metrics: NotesPanelMetrics) -> some View {
+        let name = session.notesTab == .page ? "Highlights" : "Section Levels"
+        return headerButton(isLowerRegionCollapsed ? "Show \(name)" : "Hide \(name)",
+                            systemImage: metrics.usesColumns ? "sidebar.trailing" : "rectangle.bottomhalf.inset.filled",
+                            id: NotesPanelAccessibilityID.lowerRegionToggle) {
+            withAnimation { isLowerRegionCollapsed.toggle() }
+        }
+        .accessibilityValue(isLowerRegionCollapsed ? "Collapsed" : "Expanded")
+    }
+
+    private func headerButton(_ title: String, systemImage: String, id: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 40, minHeight: 44)
+        }
+        // In the label colour, like the toolbar's glyphs (design, "Toolbar glyphs"): Markup
+        // shows its state by its glyph alone.
+        .tint(Color.primary)
+        .hoverEffect(.highlight)
+        .accessibilityIdentifier(id)
     }
 
     /// Delete Note (design: "Deleting a note"): in the header on both tabs, disabled while the
@@ -269,7 +367,8 @@ struct NotesPanel: View {
 
     @ViewBuilder
     private func content(_ metrics: NotesPanelMetrics) -> some View {
-        let columns = metrics.usesColumns && hasLowerRegion
+        let showsLowerRegion = hasLowerRegion && !(showsLowerRegionToggle(metrics) && isLowerRegionCollapsed)
+        let columns = metrics.usesColumns && showsLowerRegion
         // One layout value for both arrangements keeps the editor's identity (and so its
         // UIKit view) when the panel switches between stacked and two-column, and when the
         // region under the note comes and goes.
@@ -289,7 +388,7 @@ struct NotesPanel: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if hasLowerRegion {
+            } else if showsLowerRegion {
                 Divider()
                 NotesBoundedScroll(maximumHeight: metrics.lowerRegionMaximumHeight) {
                     lowerRegion

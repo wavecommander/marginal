@@ -17,6 +17,8 @@ final class NotebookUITests: XCTestCase {
         static let selectAll = "notebook.selectAll"
         static let selectDone = "notebook.selectDone"
         static let scopeMenu = "notebook.scopeMenu"
+        static let feed = "notebook.feed"
+        static let map = "notebook.map"
         static func header(_ title: String) -> String { "notebook.header.\(title)" }
         static func headingNote(_ title: String) -> String { "notebook.headingNote.\(title)" }
         static func pageNote(_ page: Int) -> String { "notebook.pageNote.\(page)" }
@@ -157,6 +159,41 @@ final class NotebookUITests: XCTestCase {
         XCTAssertFalse(row(app, ID.header("4 Determinants")).exists)
     }
 
+    /// The map of the whole book: a summary for VoiceOver, and touching a mark scrolls the feed
+    /// to its item, widening a chosen heading to the whole book first (design: "Notebook map").
+    func testMapScrollsTheFeedToAnItem() {
+        let app = launch()
+        let map = app.descendants(matching: .any)[ID.map].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(map.value as? String, "16 items, most in 5 Eigenvalues and Eigenvectors")
+
+        // The yellow highlight on page 19 (index 18 of 40): its mark sits at 18.5 / 40. The feed
+        // has rows after it, so it can come to the top.
+        let target = row(app, ID.highlight(19, 0))
+        let feed = app.scrollViews[ID.feed].firstMatch
+        func tapMark() { map.coordinate(withNormalizedOffset: CGVector(dx: 18.5 / 40, dy: 0.3)).tap() }
+        tapMark()
+        XCTAssertTrue(target.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil { target.isHittable && target.frame.minY - feed.frame.minY < 120 },
+                      "the feed scrolled to p. 19: \(target.frame) in \(feed.frame)")
+
+        // From a heading that does not contain it, the feed widens to the whole book.
+        select(app, scope: "4 Determinants")
+        XCTAssertTrue(waitForAbsence(target))
+        tapMark()
+        XCTAssertTrue(target.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitUntil { target.isHittable })
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            usleep(200_000)
+        }
+        return condition()
+    }
+
     func testInkedNoteShowsItsHandwriting() {
         let app = launch()
         select(app, scope: "5.2 The Characteristic Equation")
@@ -243,6 +280,28 @@ final class NotebookUITests: XCTestCase {
         alert.buttons["Delete"].tap()
         XCTAssertTrue(waitForAbsence(note, timeout: 10), "row removed")
         XCTAssertTrue(row(app, ID.pageNote(1)).exists, "other notes stay")
+    }
+
+    /// Deleting a note row in the Notebook shows the Undo pill; tapping it brings the row back.
+    func testDeleteNoteFromARowUndoPillRestoresNote() {
+        let app = launch()
+        let note = row(app, ID.pageNote(5))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.press(forDuration: 1.0)
+        let delete = app.buttons["notebook.deleteNote"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        let alert = app.alerts["Delete This Note?"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(waitForAbsence(note, timeout: 10), "row removed")
+
+        let undoPill = app.buttons["notes.undoDelete"].firstMatch
+        XCTAssertTrue(undoPill.waitForExistence(timeout: 5), "Undo pill appears after delete")
+        undoPill.tap()
+
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "row restored")
+        XCTAssertFalse(undoPill.exists, "Undo pill goes away once tapped")
     }
 
     func testExportMarkdownAndPDFPresentTheShareSheet() {

@@ -13,6 +13,9 @@ Scribble **on**, double-tap and squeeze set to their defaults.
 
 - [ ] **Pressure.** In markup mode, a pen stroke pressed lightly then hard gets visibly thicker.
 - [ ] **Tilt.** The pencil tool shades wider when the Pencil is tilted.
+- [ ] **Maximized page.** In markup mode, tap Maximize Page: the toolbar and panes go, the tool
+      picker stays and the Pencil still draws. A stroke that starts on the exit button does not
+      draw. Exit, and the Markup button turns markup off.
 - [ ] **Hover** (Pencil 2 / Pro on a supported iPad). Holding the Pencil just above the page in
       markup mode shows the tool's hover preview; nothing is drawn until the tip touches.
 - [ ] **Double-tap / squeeze.** Double-tap (or squeeze on Pencil Pro) does what Settings says
@@ -121,6 +124,16 @@ Scribble **on**, double-tap and squeeze set to their defaults.
       memory stays flat, and the exported file is not much larger than the
       book. Repeat with a scanned book and a book converted from EPUB. The menu bar's Book ›
       Export Marked-Up PDF (⌥⌘E, ⌥⇧⌘E) does the same in the focused window.
+- [ ] **Marked-up export in the background.** With the 700+ page textbook, confirm the export,
+      tap Continue in Background and allow notifications: the pill shows a time left that settles
+      after a few seconds and reading goes on. Go back to the Library and open another book: the
+      export keeps going. Go to the Home Screen: the system shows the export's progress (iPadOS
+      26+), it keeps moving, an "Export Finished" notification arrives, and tapping it opens the
+      book's Notebook with the file under Exported PDFs; Share saves it to Files. Quit the app
+      from the app switcher and reopen: the file is still listed. Again, stopping it from the
+      system's progress display: back in the app the Notebook lists it as not finished, with Try
+      Again. On iPadOS 17 to 25 (if available): it pauses about 30 seconds after leaving the app
+      and resumes on return.
 - [ ] **The toolbar arrives in one motion** (TSOFT-230). In landscape, right after launching the
       app, open a book's Notebook from the Library's context menu, then again from the Continue
       Reading card, from the reader's More › Notebook, and with Open Notebook in New Window. Each
@@ -257,28 +270,25 @@ runs or very large files. Open Settings › Backup & Restore.
       other: the book is unticked, the row says why it can't be merged, and its menu offers
       only Replace with Backup and Leave as Is.
 - [ ] **Folder in iCloud Drive.** Choose Folder… and pick a folder in iCloud Drive; Back Up
-      Now; the files appear under `Backups/` and `PDFs/` in Files and on another device. Quit
+      Now; the files appear under `Tactile Texts Backups/` and `PDFs/` in Files and on another device. Quit
       and relaunch, then restart the iPad: the folder is still remembered each time.
 - [ ] **A backup that is only in iCloud.** On a second device, or after the system has evicted
       the local copy, the backup is still listed and restoring it downloads it first. In
       Aeroplane Mode the app reports that it cannot be downloaded instead of hanging.
 - [ ] **Folder gone.** Delete or rename the chosen folder in Files: the destination says to
       choose the folder again and does not recreate it.
-- [ ] **Another provider's folder.** Try Choose Folder… on the Google Drive app's location in
-      Files. Note whether a folder can be picked at all; if not, that is expected.
+- [ ] **Google Drive through Files.** With the Google Drive app installed and switched on as
+      a location in Files: Save Backup File… into Google Drive, then Restore from File… from
+      there on a fresh install. Then try Choose Folder… on that location and note whether a
+      folder can be picked at all (it is up to Google's Files extension; if it can't, a backup
+      file is the way to use Google Drive). This is the only route to Google Drive: the app has
+      no Google sign-in of its own.
 - [ ] **Automatic backup.** Turn it on for the iCloud Drive folder, make a note, and leave the
       iPad for a day (on power overnight): the status line shows a backup with a new date. Make
       no change the next day: no new backup appears.
 
 Only once the account side exists (see `Config/Local.xcconfig.example`):
 
-- [ ] **iCloud container** (paid developer team). The destination is available, "Tactile Texts"
-      appears in Files › iCloud Drive, and a backup made on one device is listed on another.
-- [ ] **Google Drive** (OAuth client ID). Sign In… shows Google's page and returns to the app;
-      this is the first real test of the redirect scheme. Back Up Now creates "Tactile Texts
-      Backups" in Drive; a large PDF uploads and survives a brief loss of network; restoring on
-      a fresh install works; Sign Out removes access. Quit and relaunch: still signed in (the
-      Keychain has never been exercised on the simulator).
 - [ ] **S3-compatible bucket** (for example Cloudflare R2). The destination appears under the
       configured name; Back Up Now uploads a snapshot and a PDF of several hundred megabytes;
       the objects are under `Backups/` and `PDFs/` in the bucket; restore works; a wrong key
@@ -286,13 +296,54 @@ Only once the account side exists (see `Config/Local.xcconfig.example`):
 
 ### Tactile Texts Cloud
 
-Needs a build with `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` set, the Worker deployed, a
-paid developer team (App Attest and the App Store sandbox), and a Sandbox Apple Account
-(Settings › App Store › Sandbox Account). The simulator tests cover the screens against fakes
-only. Open Settings › Backup & Restore › Tactile Texts Cloud.
+Needs a build with `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` set, the sign-in settings
+(`TACTILE_ENTITLEMENTS = Config/SignInWithApple.entitlements` with `SIGN_IN_WITH_APPLE = YES`,
+and `GOOGLE_SIGNIN_CLIENT_ID` with `GOOGLE_SIGNIN_URL_SCHEME`), the Worker deployed with its
+Sign in with Apple key and `GOOGLE_CLIENT_IDS`, a paid developer team (App Attest, Sign in with
+Apple and the App Store sandbox), and a Sandbox Apple Account (Settings › App Store › Sandbox
+Account). The simulator tests cover the screens against fakes only. Open Settings › Backup &
+Restore › Tactile Texts Cloud.
 
-- [ ] **Offer and purchase.** The offer shows the sandbox price and period, Terms of Use and
-      Privacy Policy open the configured pages, and Subscribe shows the App Store sheet. After
+- [ ] **Sign in with Apple.** Signed out, the page shows the system's Sign in with Apple button
+      and Sign in with Google at the same size. Sign in with Apple shows Apple's sheet; after it
+      the Account section says "Signed in with Apple" with the email (or the private relay
+      address) and lists this iPad. The Worker's logs show a sign-in and no email.
+- [ ] **Sign in with Google, and the nonce.** Sign out, then Sign in with Google: Google's page
+      opens in the sign-in sheet, and after choosing an account the page is signed in (a new
+      account if this Google identity never signed in). This is the check that Google returns
+      the `nonce` in the ID token to an iOS client with PKCE: if it does not, the Worker answers
+      "couldn't confirm your sign-in" (`id-token-invalid`). Cancelling Google's page says nothing.
+- [ ] **Change the sign-in, both ways.** Signed in with Apple and subscribed: Change to Sign in
+      with Google… asks first, then Apple's sheet, then Google's page; afterwards the Account
+      section says Google, the subscription, backups and recovery key are the same, and the
+      page offers Sign Out of All Devices. Change back to Apple the same way. Choosing a Google
+      account that already has its own Tactile Texts Cloud account is refused with that
+      explanation and nothing changes. Cancelling either step changes nothing.
+- [ ] **The key on a second iPad, per account.** Sign in to the same account on a second iPad
+      with the same Apple Account and iCloud Keychain on: the page waits for the key, and after
+      a while lists the backups without the recovery key; the second iPad's name appears in the
+      first iPad's device list once its key has arrived. On an iPad signed in to a different
+      Tactile Texts Cloud account, the first account's key is never used.
+- [ ] **Sign Out of All Devices, seen on the other iPad.** On iPad A, Sign Out of All Devices:
+      A is signed out at once. On iPad B, open the Tactile Texts Cloud page (or wait for its next
+      automatic backup): it says it was signed out and that its books aren't backed up; its
+      library opens and edits as before. Sign in again on B and the backups are there.
+- [ ] **Delete Account and Apple's revocation.** Signed in with Apple: Delete Account… asks first
+      (the books stay, the subscription isn't cancelled, Manage Subscription), then Apple's
+      sheet; the page shows progress, then says the account was deleted. The Worker's bucket
+      folder is empty; in Settings › Apple Account › Sign in with Apple, Tactile Texts is no
+      longer listed (the Worker revoked it). The subscription is still in Manage Subscription.
+      Signing in again makes a new, empty account that the subscription binds to.
+- [ ] **Apple revocation from Settings.** Signed in with Apple, stop using Sign in with Apple for
+      Tactile Texts in Settings › Apple Account: back in the app (or at the next launch) the page
+      says this iPad was signed out; the library is unchanged.
+- [ ] **Automatic backup is on for a new subscriber.** On an iPad that never set up automatic
+      backups, sign in and subscribe: Settings › Backup & Restore shows automatic backup on, to
+      Tactile Texts Cloud. Turning it off stays off after signing out and in again.
+- [ ] **Offer and purchase.** Signed in, the offer shows the sandbox price and period, Terms of
+      Use and Privacy Policy open the configured pages, and Subscribe shows the App Store sheet.
+      The purchase's transaction names the account (the Worker binds it with its
+      `appAccountToken`). After
       buying, the page becomes the status page with the plan, "Renews on …" and the storage
       used. Cancelling the sheet says nothing; Ask to Buy (a child sandbox account) says the
       purchase is waiting for approval.
@@ -304,7 +355,7 @@ only. Open Settings › Backup & Restore › Tactile Texts Cloud.
       password manager. "Not Now" leaves a reminder on the page; "I’ve Saved It" removes it.
       VoiceOver reads the key group by group, character by character.
 - [ ] **The key on a second iPad.** On a second iPad signed in to the same Apple Account with
-      iCloud Keychain on, install the app and Restore Purchases: the page says the key may still
+      iCloud Keychain on, install the app and sign in to the same account: the page says the key may still
       be arriving, and after a while Try Again lists the backups without typing the key.
 - [ ] **Restore with the recovery key.** With iCloud Keychain off on the second iPad (or after
       deleting and reinstalling with Keychain sync off), Enter Recovery Key: a key from another

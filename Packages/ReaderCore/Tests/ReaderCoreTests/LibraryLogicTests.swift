@@ -37,6 +37,30 @@ struct LibraryLogicTests {
         #expect(!LibraryLogic.anyText(["x"], contains: " "))
     }
 
+    @Test func searchCountsAndOrdersBooksByMatches() {
+        #expect(LibraryLogic.matchCount(["Eigenvalue", "eigenvector", "trace", "ÉIGEN"], query: " eigen ") == 3)
+        #expect(LibraryLogic.matchCount(["eigen"], query: "  ") == 0)
+
+        let a = book("Algebra", added: 1, opened: 30)
+        let b = book("Biology", added: 2, opened: 20)
+        let c = book("Chemistry", added: 3, opened: 10)
+        let d = book("Drawing", added: 4)
+        let counts: [UUID: Int] = [a.id: 2, b.id: 5, c.id: 2, d.id: 0]
+        // Most matches first; ties keep the Library's order; no matches, no row.
+        #expect(LibraryLogic.searchResultOrder([a, b, c, d], counts: counts, sort: .recentlyOpened).map(\.title)
+                == ["Biology", "Algebra", "Chemistry"])
+        #expect(LibraryLogic.searchResultOrder([a, b, c, d], counts: counts, sort: .dateAdded).map(\.title)
+                == ["Biology", "Chemistry", "Algebra"])
+        #expect(LibraryLogic.searchResultOrder([a], counts: [:], sort: .title).isEmpty)
+
+        #expect(LibraryLogic.titleMatches([c, a, b], query: "i", sort: .title).map(\.title) == ["Biology", "Chemistry"])
+        #expect(LibraryLogic.titleMatches([a], query: " ", sort: .title).isEmpty)
+        #expect(LibraryLogic.matchesText(1) == "1 match")
+        #expect(LibraryLogic.matchesText(12) == "12 matches")
+        #expect(LibraryLogic.booksText(1) == "1 book")
+        #expect(LibraryLogic.booksText(5) == "5 books")
+    }
+
     @Test func continueReadingIsTheMostRecentlyOpened() {
         #expect(LibraryLogic.continueReading([book("A", added: 1)]) == nil)
         let a = book("A", added: 1, opened: 10)
@@ -70,6 +94,14 @@ struct LibraryLogicTests {
         #expect(message.contains("can't be undone"))
         let bare = LibraryLogic.deletionMessage(title: "Algebra", summary: BookDeletionSummary(records: BookRecordCounts(), inkedPages: 0))
         #expect(bare.contains("the PDF file") && !bare.contains(" and "))
+        #expect(!bare.contains("exported"))
+    }
+
+    @Test func deletionMessageNamesExportedPDFs() {
+        let none = BookDeletionSummary(records: BookRecordCounts(), inkedPages: 0)
+        #expect(LibraryLogic.deletionMessage(title: "Algebra", summary: none, exportedPDFs: 1)
+            .contains("the PDF file and 1 exported PDF."))
+        #expect(LibraryLogic.deletionMessage(title: "Algebra", summary: none, exportedPDFs: 3).contains("3 exported PDFs"))
     }
 
     @Test func paletteIndexIsStable() {

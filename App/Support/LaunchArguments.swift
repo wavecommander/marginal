@@ -17,7 +17,7 @@ import SwiftUI
 /// What each option does (all are implemented; see `AppEnvironment.runLaunchTasks`
 /// and `WindowRootView`): `-resetState` passes `reset: true` to `LibraryStore.live`;
 /// `-importFixture` imports through `FixtureImporter`; `-openBook` opens that book in place in
-/// the first Library window; `-openPage`, `-markup` and `-notesPanel` apply to that reader only;
+/// the first Library window; `-openPage`, `-markup`, `-maximized` and `-notesPanel` apply to that reader only;
 /// `-screen` picks the first window's screen; `-inkAnyInput` is `ReaderSession.drawingPolicy`;
 /// `-alsoOpenWindow` opens a second reader window; `-accent` sets the stored accent preset
 /// (`-resetState` clears it first); `-stubConverters` and `-confirmConversions` are the import
@@ -69,6 +69,9 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-markup`: start the reader in markup mode.
     var markup = false
 
+    /// `-maximized`: start the reader with the page maximized (toolbar and panes hidden).
+    var maximized = false
+
     /// `-notesPanel <page|section>`: open the notes inspector on that tab.
     var notesPanel: NotesTab?
 
@@ -82,6 +85,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-seedNotebook` (DEBUG, Notebook UI tests): seed the opened Notebook's book with the
     /// deterministic notes, highlights and headings described in `NotebookDebugSeed`.
     var seedNotebook = false
+
+    /// `-seedLibrarySearch` (DEBUG, Library search UI tests and screenshots): after the launch's
+    /// fixture imports, give every imported book notes and highlights that mention "eigen"
+    /// (`NotebookDebugSeed.seedLibrarySearch`).
+    var seedLibrarySearch = false
 
     /// `-seedNotebookLateNote` (DEBUG): also add a page note about four seconds after seeding.
     var seedNotebookLateNote = false
@@ -134,9 +142,10 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
 
     #if DEBUG
     /// `-cloudBackupUITest <state>` (DEBUG, UI tests and screenshots): Tactile Texts Cloud built
-    /// from fakes in that starting state (`CloudBackupUITestState`: `notSubscribed`, `active`,
-    /// `readOnly`, `needsRecoveryKey`, …) instead of from the build's settings, so its screens
-    /// work without a Worker or the App Store (`CloudBackupUITestMode`).
+    /// from fakes in that starting state (`CloudBackupUITestState`: `signedOut`, `notSubscribed`,
+    /// `active`, `readOnly`, `needsRecoveryKey`, `sessionExpired`, …) instead of from the build's
+    /// settings, so its screens, signing in included, work without a Worker, Apple, Google or the
+    /// App Store (`CloudBackupUITestMode`).
     var cloudBackupUITest: String?
     #endif
 
@@ -190,9 +199,17 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-seedSidebarHeadings`: seed the opened book with a reader's outline (`SidebarDebugSeed`).
     var seedSidebarHeadings = false
 
+    /// `-librarySearchQuery <text>` (DEBUG, screenshots): the Library opens with this search.
+    var librarySearchQuery: String?
+
     /// `-searchPageDelayMs <ms>`: pause this long after each page of a text search, so a test can
     /// act while the search runs (`SearchModel`). Negative or malformed values are ignored.
     var searchPageDelayMs: Int?
+
+    /// `-exportPageDelayMs <ms>`: pause this long after each book page of a marked-up PDF export,
+    /// so a test can act while the export runs (`MarkedUpExportLibrary`). Negative or malformed
+    /// values are ignored.
+    var exportPageDelayMs: Int?
 
     /// `-pageInkDebug`, or `PAGE_INK_DEBUG` set to anything in the environment: log the page ink
     /// overlay's work (`PageInkOverlayProvider.debugLog`).
@@ -207,6 +224,7 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     var openPage: Int? { nil }
     var screen: Screen? { nil }
     var markup: Bool { false }
+    var maximized: Bool { false }
     var notesPanel: NotesTab? { nil }
     var alsoOpenWindow: String? { nil }
     var alsoOpenWindowPage: Int? { nil }
@@ -236,6 +254,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 inkAnyInput = true
             case "-markup":
                 markup = true
+            case "-maximized":
+                maximized = true
             case "-plantLibraryStore":
                 if let path = value(after: index) {
                     if path.hasPrefix("/") { plantLibraryStore = URL(fileURLWithPath: path) }
@@ -266,6 +286,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 }
             case "-seedNotebook":
                 seedNotebook = true
+            case "-seedLibrarySearch":
+                seedLibrarySearch = true
             case "-seedNotebookLateNote":
                 seedNotebookLateNote = true
             case "-seedNotebookPageInk":
@@ -339,10 +361,20 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 seedSidebar = true
             case "-seedSidebarHeadings":
                 seedSidebarHeadings = true
+            case "-librarySearchQuery":
+                if let text = value(after: index) {
+                    index += 1
+                    librarySearchQuery = text
+                }
             case "-searchPageDelayMs":
                 if let text = value(after: index) {
                     index += 1
                     if let ms = Int(text), ms >= 0 { searchPageDelayMs = ms }
+                }
+            case "-exportPageDelayMs":
+                if let text = value(after: index) {
+                    index += 1
+                    if let ms = Int(text), ms >= 0 { exportPageDelayMs = ms }
                 }
             case "-pageInkDebug":
                 pageInkDebug = true

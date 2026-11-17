@@ -1,80 +1,64 @@
 import Observation
 import ReaderCore
 import SwiftUI
+import UIKit
 
-/// Runs one marked-up PDF export at a time for one reader window (`ReaderSession.markedUpExport`)
-/// and hands the file to the share sheet; removes it when the share sheet is done with it. Before
-/// reading, it saves everything pending in every open editor on the store (this window's ink and
-/// notes, and any other window's), so the export holds what is on screen.
+/// A reader window's part of marked-up PDF exports (`ReaderSession.markedUpExport`): the
+/// confirmation before one starts and the one before the user stops one. The exports themselves,
+/// their progress and their files belong to the app (`MarkedUpExportLibrary`), so leaving the
+/// book or closing the window does not stop one.
 @Observable
 @MainActor
 final class MarkedUpExportController {
-    enum State: Equatable {
-        case idle
-        case running(includesNotes: Bool, fraction: Double)
-        /// Waiting for the share sheet to finish with the file.
-        case sharing(NotebookExportResult)
-        case failed(String)
+    struct Confirmation: Equatable {
+        let includesNotes: Bool
+        /// The size of the book's PDF, when known.
+        let sourceByteCount: Int64?
+        /// Trying an unfinished export again.
+        let retryOf: UUID?
     }
 
-    private(set) var state: State = .idle
-    @ObservationIgnored private var task: Task<Void, Never>?
+    /// Waiting for the user to confirm an export.
+    var confirmation: Confirmation?
+    /// Waiting for the user to confirm stopping this running export.
+    var stopCandidate: UUID?
+}
 
-    var isRunning: Bool { if case .running = state { true } else { false } }
-    var isIdle: Bool { state == .idle }
-
-    var sharedResult: NotebookExportResult? {
-        if case .sharing(let result) = state { result } else { nil }
+/// What the confirmations and status lines say, in the reader and the Notebook.
+enum MarkedUpExportWording {
+    static func confirmationTitle(includesNotes: Bool) -> String {
+        includesNotes ? "Export Book with Notes?" : "Export Marked-Up PDF?"
     }
 
-    func start(book: Book, store: LibraryStore, includeNotes: Bool) {
-        guard state == .idle else { return }
-        state = .running(includesNotes: includeNotes, fraction: 0)
-        task = Task { [weak self] in
-            await OpenEditorRegistry.shared.flushAll(store: store)
-            await NotebookExporter.purgeStale(root: MarkedUpExporter.defaultRoot)
-            do {
-                try Task.checkCancellation()
-                let result = try await MarkedUpExporter.export(book: book, store: store, includeNotes: includeNotes,
-                                                               progress: { fraction in
-                    guard let self, case .running(let notes, _) = self.state else { return }
-                    self.state = .running(includesNotes: notes, fraction: fraction)
-                })
-                guard let self else {
-                    NotebookExporter.cleanUp(result)
-                    return
-                }
-                if Task.isCancelled {
-                    NotebookExporter.cleanUp(result)
-                    self.state = .idle
-                } else {
-                    self.state = .sharing(result)
-                }
-            } catch is CancellationError {
-                self?.state = .idle
-            } catch {
-                self?.state = .failed(error.localizedDescription)
-            }
-        }
+    static func confirmationMessage(sourceByteCount: Int64?) -> String {
+        let size = sourceByteCount.map { " (\($0.formatted(.byteCount(style: .file))))" } ?? ""
+        return "This can take a long time, and Tactile Texts will create a file at least as big as the "
+            + "current PDF\(size). It keeps going while you read or leave the book, and the finished PDF "
+            + "is kept in this book's Notebook until you delete it."
     }
 
-    /// Stops a running export (its files are removed) or lets go of a file waiting to be shared.
-    func cancel() {
-        task?.cancel()
-        if let result = sharedResult {
-            NotebookExporter.cleanUp(result)
-            state = .idle
-        }
+    static let stopTitle = "Stop Exporting?"
+    static let stopMessage = "The PDF made so far is deleted. You can export again later."
+    static let stopButton = "Stop Export"
+    static let keepButton = "Keep Exporting"
+
+    static let deleteTitle = "Delete Exported PDF?"
+    static func deleteMessage(_ record: MarkedUpExportRecord) -> String {
+        let size = record.byteCount.map { " (\($0.formatted(.byteCount(style: .file))))" } ?? ""
+        return "“\(record.fileName)”\(size) is deleted from Tactile Texts. Copies you saved or shared "
+            + "elsewhere are not affected. This can't be undone."
     }
 
-    /// The share sheet was dismissed (shared or not): remove the file.
-    func shareDidFinish() {
-        if let result = sharedResult { NotebookExporter.cleanUp(result) }
-        state = .idle
+    static func runningTitle(includesNotes: Bool) -> String {
+        includesNotes ? "Exporting Book with Notes" : "Exporting Marked-Up PDF"
     }
 
-    func dismissError() {
-        if case .failed = state { state = .idle }
+    /// "48 MB · Today at 13:05".
+    static func finishedDetail(_ record: MarkedUpExportRecord) -> String {
+        let size = record.byteCount.map { $0.formatted(.byteCount(style: .file)) } ?? ""
+        let date = (record.finishedAt ?? record.startedAt)
+            .formatted(Date.RelativeFormatStyle(presentation: .named, unitsStyle: .wide))
+        return [size, date].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
@@ -123,10 +107,14 @@ extension ReaderSession {
     /// The command's title (More menu, menu bar).
     static let markedUpExportTitle = "Export Marked-Up PDF"
 
-    /// Whether this window can export now: the book is open and no export of this window is
-    /// running or waiting for the share sheet.
+    /// The app's exports (`nil` in unit tests that build a session without one).
+    var markedUpExports: MarkedUpExportLibrary? { configuration.markedUpExports }
+
+    /// Whether this window can start an export now: the book is open, no export of it is running
+    /// and none is waiting to be confirmed here.
     var canExportMarkedUpPDF: Bool {
-        loadState == .ready && closeReason == nil && markedUpExport.isIdle
+        guard let markedUpExports, loadState == .ready, closeReason == nil else { return false }
+        return !markedUpExports.isRunning(bookID: book.id) && markedUpExport.confirmation == nil
     }
 
     /// Whether `choice` is offered: "Book with Notes" only when the book has notes (or before the
@@ -137,10 +125,43 @@ extension ReaderSession {
         return notebook.totalCounts.notes > 0
     }
 
-    /// Exports this book as a marked-up PDF and offers it in the share sheet.
+    /// Asks the user to confirm, then (`confirmMarkedUpExport()`) exports this book as a marked-up
+    /// PDF. Every way of starting the export comes here.
     func exportMarkedUpPDF(_ choice: MarkedUpExportChoice) {
         guard isMarkedUpExportAvailable(choice) else { return }
-        markedUpExport.start(book: book, store: store, includeNotes: choice.includesNotes)
+        markedUpExport.confirmation = .init(includesNotes: choice.includesNotes,
+                                            sourceByteCount: Self.byteCount(of: store.documentURL(for: book)),
+                                            retryOf: nil)
+    }
+
+    /// Asks to confirm trying an unfinished export again.
+    func retryMarkedUpExport(_ record: MarkedUpExportRecord) {
+        guard canExportMarkedUpPDF else { return }
+        markedUpExport.confirmation = .init(includesNotes: record.includesNotes,
+                                            sourceByteCount: Self.byteCount(of: store.documentURL(for: book)),
+                                            retryOf: record.id)
+    }
+
+    /// The user confirmed the export asked for: it starts, with its progress card in this window.
+    func confirmMarkedUpExport() {
+        guard let confirmation = markedUpExport.confirmation else { return }
+        markedUpExport.confirmation = nil
+        guard let markedUpExports, loadState == .ready, closeReason == nil else { return }
+        if let retry = confirmation.retryOf {
+            markedUpExports.retry(retry, book: book, store: store, cardOwner: id)
+        } else {
+            markedUpExports.start(book: book, store: store, includeNotes: confirmation.includesNotes, cardOwner: id)
+        }
+    }
+
+    /// The export this reader shows (its card or pill): the book's running export, else its
+    /// latest one the user has not seen end.
+    var markedUpExportNotice: MarkedUpExportRecord? {
+        markedUpExports?.notice(for: book.id)
+    }
+
+    nonisolated static func byteCount(of url: URL) -> Int64? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
     }
 }
 
@@ -169,58 +190,257 @@ struct MarkedUpExportMenu: View {
 // MARK: - Presentation
 
 extension View {
-    /// The marked-up export's progress card (with Cancel), its share sheet (a popover from the
-    /// toolbar's trailing end) and its failure alert, for the reader of `session`.
+    /// The marked-up export's confirmation, progress card (Cancel, Continue in Background),
+    /// status pill, share sheet (a popover from the toolbar's trailing end) and alerts, for the
+    /// reader of `session`.
     func markedUpExportPresentation(_ session: ReaderSession) -> some View {
-        modifier(MarkedUpExportPresentation(export: session.markedUpExport))
+        modifier(MarkedUpExportPresentation(session: session))
+    }
+
+    /// The "Export Marked-Up PDF?" confirmation, shown while `confirmation` is set.
+    func markedUpExportConfirmation(_ confirmation: Binding<MarkedUpExportController.Confirmation?>,
+                                    onConfirm: @escaping () -> Void) -> some View {
+        alert(MarkedUpExportWording.confirmationTitle(includesNotes: confirmation.wrappedValue?.includesNotes ?? false),
+              isPresented: Binding(get: { confirmation.wrappedValue != nil }, set: { _ in })) {
+            // Dismissal always goes through a button (Escape picks Cancel), which sets the state;
+            // the binding's setter must not, since it can run before Export's action.
+            Button("Export") { onConfirm() }
+                .accessibilityIdentifier(AccessibilityID.MarkedUpExport.confirmExport)
+            Button("Cancel", role: .cancel) { confirmation.wrappedValue = nil }
+                .accessibilityIdentifier(AccessibilityID.MarkedUpExport.confirmCancel)
+        } message: {
+            Text(MarkedUpExportWording.confirmationMessage(sourceByteCount: confirmation.wrappedValue?.sourceByteCount))
+        }
+    }
+
+    /// The "Stop Exporting?" confirmation, shown while `candidate` is set.
+    func markedUpExportStopConfirmation(_ candidate: Binding<UUID?>, library: MarkedUpExportLibrary?) -> some View {
+        alert(MarkedUpExportWording.stopTitle, isPresented: Binding(get: { candidate.wrappedValue != nil }, set: { _ in })) {
+            Button(MarkedUpExportWording.stopButton, role: .destructive) {
+                if let id = candidate.wrappedValue { library?.cancel(id) }
+                candidate.wrappedValue = nil
+            }
+            .accessibilityIdentifier(AccessibilityID.MarkedUpExport.confirmStop)
+            Button(MarkedUpExportWording.keepButton, role: .cancel) { candidate.wrappedValue = nil }
+        } message: {
+            Text(MarkedUpExportWording.stopMessage)
+        }
     }
 }
 
 private struct MarkedUpExportPresentation: ViewModifier {
-    let export: MarkedUpExportController
+    let session: ReaderSession
+    @Bindable private var controller: MarkedUpExportController
+
+    init(session: ReaderSession) {
+        self.session = session
+        self.controller = session.markedUpExport
+    }
+
+    private var library: MarkedUpExportLibrary? { session.markedUpExports }
+    private var notice: MarkedUpExportRecord? { session.markedUpExportNotice }
+    private var showsCard: Bool {
+        guard let notice, notice.isRunning else { return false }
+        return library?.cardOwners[notice.id] == session.id
+    }
+
+    private var sharedURL: URL? {
+        guard let library, let id = library.shareRequests[session.id], let record = library.record(id) else { return nil }
+        return library.fileURL(for: record)
+    }
 
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .topTrailing) {
-                NotebookShareSheetAnchor(item: export.sharedResult?.fileURL, onFinish: export.shareDidFinish)
+                NotebookShareSheetAnchor(item: sharedURL, onFinish: { library?.shareDidFinish(in: session.id) })
                     .frame(width: 1, height: 1)
                     .padding(.trailing, 28)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            .overlay { progress }
-            .alert("Export Failed", isPresented: failed) {
-                Button("OK") { export.dismissError() }
+            .overlay(alignment: .top) {
+                if !showsCard, let notice, let library {
+                    MarkedUpExportPill(record: notice, library: library, session: session).padding(.top, 10)
+                }
+            }
+            .overlay {
+                if showsCard, let notice, let library {
+                    MarkedUpExportCard(record: notice, library: library, session: session)
+                }
+            }
+            .markedUpExportConfirmation($controller.confirmation) { session.confirmMarkedUpExport() }
+            .markedUpExportStopConfirmation($controller.stopCandidate, library: library)
+            .alert("Export Didn't Finish", isPresented: failed) {
+                Button("OK") { library?.dismissFailureAlert(in: session.id) }
             } message: {
-                if case .failed(let message) = export.state { Text(message) }
+                if let message = library?.failureAlerts[session.id] { Text(message) }
             }
     }
 
-    @ViewBuilder
-    private var progress: some View {
-        if case .running(let includesNotes, let fraction) = export.state {
-            ZStack {
-                Color.black.opacity(0.12).ignoresSafeArea()
-                VStack(spacing: 14) {
-                    Text(includesNotes ? "Exporting Book with Notes…" : "Exporting Marked-Up PDF…").font(.headline)
-                    ProgressView(value: fraction)
-                        .progressViewStyle(.linear)
-                        .frame(width: 220)
-                        .accessibilityIdentifier(AccessibilityID.MarkedUpExport.progress)
-                    Button("Cancel", role: .cancel) { export.cancel() }
+    private var failed: Binding<Bool> {
+        Binding(get: { library?.failureAlerts[session.id] != nil },
+                set: { if !$0 { library?.dismissFailureAlert(in: session.id) } })
+    }
+}
+
+/// The progress card of a running export, in the window that started it.
+private struct MarkedUpExportCard: View {
+    let record: MarkedUpExportRecord
+    let library: MarkedUpExportLibrary
+    let session: ReaderSession
+
+    var body: some View {
+        let fraction = library.progress[record.id]?.fraction ?? 0
+        ZStack {
+            Color.black.opacity(0.12).ignoresSafeArea()
+            VStack(spacing: 14) {
+                Text(MarkedUpExportWording.runningTitle(includesNotes: record.includesNotes) + "…").font(.headline)
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .frame(width: 260)
+                    .accessibilityIdentifier(AccessibilityID.MarkedUpExport.progress)
+                Text(MarkedUpExportTimeEstimate.text(remaining: library.remaining(record.id)))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .accessibilityIdentifier(AccessibilityID.MarkedUpExport.timeLeft)
+                HStack(spacing: 12) {
+                    Button("Cancel", role: .cancel) { session.markedUpExport.stopCandidate = record.id }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier(AccessibilityID.MarkedUpExport.cancel)
+                    Button("Continue in Background") { library.moveToBackground(record.id) }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier(AccessibilityID.MarkedUpExport.background)
                 }
-                .padding(24)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: .black.opacity(0.15), radius: 20, y: 6)
-                .accessibilityElement(children: .contain)
+            }
+            .padding(24)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: .black.opacity(0.15), radius: 20, y: 6)
+            .accessibilityElement(children: .contain)
+        }
+    }
+}
+
+/// The status pill at the top of a reader: a running export (tap for its progress card), or how
+/// the latest one ended until the user shares or hides it. Hiding keeps the file (it stays in
+/// the Notebook).
+private struct MarkedUpExportPill: View {
+    let record: MarkedUpExportRecord
+    let library: MarkedUpExportLibrary
+    let session: ReaderSession
+
+    var body: some View {
+        Group {
+            if record.isRunning {
+                running
+            } else if record.isFinished {
+                finished
+            } else {
+                unfinished
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .accessibilityElement(children: .contain)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var running: some View {
+        let fraction = library.progress[record.id]?.fraction ?? 0
+        return HStack(spacing: 12) {
+            Button { library.showCard(record.id, in: session.id) } label: {
+                HStack(spacing: 10) {
+                    MarkedUpExportProgressRing(fraction: fraction)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(MarkedUpExportWording.runningTitle(includesNotes: record.includesNotes))
+                            .font(.subheadline.weight(.semibold))
+                        Text(MarkedUpExportTimeEstimate.text(remaining: library.remaining(record.id)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .accessibilityIdentifier(AccessibilityID.MarkedUpExport.timeLeft)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.MarkedUpExport.status)
+            .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
+            .accessibilityHint("Shows the export's progress")
+            closeButton(label: "Stop Export", identifier: AccessibilityID.MarkedUpExport.backgroundCancel) {
+                session.markedUpExport.stopCandidate = record.id
             }
         }
     }
 
-    private var failed: Binding<Bool> {
-        Binding(get: { if case .failed = export.state { true } else { false } },
-                set: { if !$0 { export.dismissError() } })
+    private var finished: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(.green)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Marked-Up PDF Ready").font(.subheadline.weight(.semibold))
+                Text("Kept in this book's Notebook").font(.caption).foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AccessibilityID.MarkedUpExport.status)
+            Button("Share") { library.share(record.id, in: session.id) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier(AccessibilityID.MarkedUpExport.share)
+            closeButton(label: "Hide", identifier: AccessibilityID.MarkedUpExport.hide) {
+                library.acknowledge(record.id)
+            }
+        }
+    }
+
+    private var unfinished: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.title3).foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Export Didn't Finish").font(.subheadline.weight(.semibold))
+                Text(record.unfinishedReason ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: 320, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AccessibilityID.MarkedUpExport.status)
+            Button("Try Again") { session.retryMarkedUpExport(record) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!session.canExportMarkedUpPDF)
+                .accessibilityIdentifier(AccessibilityID.MarkedUpExport.retry)
+            closeButton(label: "Hide", identifier: AccessibilityID.MarkedUpExport.hide) {
+                library.acknowledge(record.id)
+            }
+        }
+    }
+
+    private func closeButton(label: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+/// A small ring filled to `fraction`.
+struct MarkedUpExportProgressRing: View {
+    let fraction: Double
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(.quaternary, lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: max(0.02, min(fraction, 1)))
+                .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.linear(duration: 0.2), value: fraction)
+        }
+        .frame(width: 20, height: 20)
+        .accessibilityHidden(true)
     }
 }

@@ -166,6 +166,20 @@ enum OfficeDocumentPrinter {
         var title: String?
     }
 
+    /// The page's `<title>` as a book title, or nil when it is empty or only the name the file was
+    /// served under (`document.docx`): QuickLook titles a file that has no title of its own after
+    /// that name, and the import then keeps the reader's file name instead.
+    nonisolated static func pageTitle(_ title: String, mainPath: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let served = (mainPath as NSString).lastPathComponent
+        let stem = (served as NSString).deletingPathExtension
+        if trimmed.isEmpty || trimmed.caseInsensitiveCompare(served) == .orderedSame
+            || trimmed.caseInsensitiveCompare(stem) == .orderedSame {
+            return nil
+        }
+        return trimmed
+    }
+
     static func print(_ source: OfficeDocumentConverter.Source, workspace: URL, timeout: TimeInterval,
                       diagnostics: WebConversionDiagnostics?, trace: (@Sendable (String) -> Void)?,
                       progress: @escaping (Double) -> Void) async throws -> Rendered {
@@ -192,7 +206,7 @@ enum OfficeDocumentPrinter {
         if content.isEmpty {
             throw ConversionError.failed(reason: "The file shows no text or pictures, so there is nothing to convert: it may be damaged or empty.")
         }
-        let title = source.title ?? (content.title.isEmpty ? nil : content.title)
+        let title = source.title ?? pageTitle(content.title, mainPath: source.mainPath)
 
         if content.pdfPlugin {
             // Pages (and anything else WebKit shows as a PDF): print each page at its own size.

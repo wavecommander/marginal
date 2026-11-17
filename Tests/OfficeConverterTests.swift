@@ -97,6 +97,40 @@ struct OfficeConverterTests {
         }
     }
 
+    /// A file with no title of its own: QuickLook titles the page after the name it was served
+    /// under, which must not become the book's title (the import keeps the file name instead).
+    @Test func aWordFileWithoutATitleHasNoTitle() async throws {
+        var zip = EPUBTestZIPWriter()
+        zip.add("[Content_Types].xml", """
+            <?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\
+            <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\
+            <Default Extension="xml" ContentType="application/xml"/>\
+            <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>
+            """)
+        zip.add("_rels/.rels", """
+            <?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>
+            """)
+        zip.add("word/document.xml", """
+            <?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>\
+            <w:p><w:r><w:t>UNTITLEDWORD body text.</w:t></w:r></w:p>\
+            </w:body></w:document>
+            """)
+        let workspace = try F6Workspace(data: zip.build(), extension: "docx", format: .word)
+        let converted = try await convert(workspace)
+        let document = try #require(PDFDocument(url: converted.pdf))
+        #expect(document.findString("UNTITLEDWORD", withOptions: []).count == 1)
+        #expect(converted.title == nil, "title \(converted.title ?? "nil")")
+    }
+
+    @Test func thePageTitleIsIgnoredWhenItIsTheServedName() {
+        #expect(OfficeDocumentPrinter.pageTitle("document.docx", mainPath: "document.docx") == nil)
+        #expect(OfficeDocumentPrinter.pageTitle("Document.DOC", mainPath: "document.doc") == nil)
+        #expect(OfficeDocumentPrinter.pageTitle("document", mainPath: "document.pages") == nil)
+        #expect(OfficeDocumentPrinter.pageTitle("  ", mainPath: "document.docx") == nil)
+        #expect(OfficeDocumentPrinter.pageTitle(" Harbour Notes ", mainPath: "document.docx") == "Harbour Notes")
+    }
+
     @Test func textSizeDoesNotChangeOfficeDocuments() async throws {
         var counts: [Int] = []
         for size in [ConversionTextSize.small, .large] {

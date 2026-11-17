@@ -22,6 +22,17 @@ nonisolated struct BuildInfo: Equatable, Sendable {
 
     static let current = BuildInfo.fromInfoDictionary()
 
+    /// Whether this is a development (Debug configuration) build. Only these show the branch,
+    /// commit and build time in Settings ▸ About; Release builds, including App Store builds, show
+    /// the version alone, and `scripts/stamp-build-info.sh` does not stamp them.
+    static var isDevelopmentBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
     static func fromInfoDictionary(_ infoDictionary: [String: Any]? = Bundle.main.infoDictionary) -> BuildInfo {
         let stamp = infoDictionary?[infoKey] as? [String: Any]
         return BuildInfo(

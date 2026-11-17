@@ -23,6 +23,7 @@
 import { equalBytes, fromBase64, fromBase64Url } from "./bytes";
 import type { Settings } from "./env";
 import { Refusal } from "./http";
+import { normalizeAppAccountToken } from "./identity";
 import { parseCertificate, verifyChain, importPublicKey, type Certificate } from "./x509";
 
 const LEAF_MARKER = "1.2.840.113635.100.6.11.1";
@@ -56,6 +57,8 @@ export interface Transaction {
   signedDate: number;
   expiresDate: number;
   revocationDate: number | undefined;
+  /** The purchase's appAccountToken (lower-case UUID), when the app set one. */
+  appAccountToken: string | undefined;
 }
 
 export interface RenewalInfo {
@@ -165,6 +168,11 @@ export async function verifyTransaction(jws: string, context: VerifyContext): Pr
   }
   const revocationDate = payload.revocationDate;
   if (revocationDate !== undefined && !isTime(revocationDate)) throw new Refusal("transaction-invalid", "revocation date");
+  let appAccountToken: string | undefined;
+  if (payload.appAccountToken !== undefined && payload.appAccountToken !== "") {
+    appAccountToken = typeof payload.appAccountToken === "string" ? normalizeAppAccountToken(payload.appAccountToken) : undefined;
+    if (!appAccountToken) throw new Refusal("transaction-invalid", "app account token");
+  }
   return {
     originalTransactionId,
     transactionId,
@@ -173,6 +181,7 @@ export async function verifyTransaction(jws: string, context: VerifyContext): Pr
     signedDate: payload.signedDate as number,
     expiresDate,
     revocationDate,
+    appAccountToken,
   };
 }
 

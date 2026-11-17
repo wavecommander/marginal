@@ -77,12 +77,14 @@ final class ReaderSlot {
         configuration.hardwareKeyboard = options.hardwareKeyboard
         configuration.scrollDirection = options.scrollDirection
         #endif
+        configuration.markedUpExports = environment.markedUpExports
         configuration.restoredState = leftState ?? window.readerState(for: bookID)
         configuration.resumePosition = leftPosition
         let overrides = takingOverrides ? window.takeReaderOverrides(for: bookID) : nil
         if let overrides {
             configuration.initialPageIndex = overrides.pageIndex
             configuration.startInMarkup = overrides.startInMarkup
+            configuration.startMaximized = overrides.startMaximized
             configuration.openNotesTab = overrides.notesTab
         }
         PerfMarks.mark("readerHost")

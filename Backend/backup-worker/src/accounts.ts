@@ -1,0 +1,278 @@
+// Accounts and sign-in: signing in with Apple or Google, changing the sign-in, signing out, the
+// account screen, deleting the account, and Apple's sign-in notifications. Every endpoint here
+// except the notifications is attested (challenge and App Attest, as for a session).
+
+import { revokeAppleAuthorization } from "./appleSignIn";
+import { fromBase64 } from "./bytes";
+import type { AccountResponse, DeleteAccountResponse, DeviceInfo, SignInResponse, SignOutResponse } from "./contract";
+import * as db from "./db";
+import type { Env, Settings } from "./env";
+import { Refusal, json, optionalStringField, readJsonBody, stringField } from "./http";
+import { identityHash, newAccountId, newFolderKey, newSessionId, newSessionToken, sessionTokenHash, type Provider } from "./identity";
+import { checkProviderEnabled, nonceFor, verifyAppleSignInNotification, verifyIdToken } from "./idToken";
+import { logEvent, shortKey } from "./log";
+import { authenticate, requireSession, sessionTokenField } from "./requestAuth";
+import { deleteBudget, type Deps } from "./service";
+import { emptyAccountFolders, folderFor } from "./storage";
+import { accessAt, allowanceFor, primaryOf, subscriptionInfo } from "./subscription";
+import { MAX_TTL_SECONDS } from "./tempCredentials";
+import { currentUsage } from "./usage";
+
+const MAX_ID_TOKEN = 8 * 1024;
+const MAX_AUTHORIZATION_CODE = 1024;
+const MAX_DEVICE_LABEL = 1024;
+
+// ---------------------------------------------------------------------------------------------
+// Signing in
+
+export async function signIn(provider: Provider, request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, challenge, attestKeyId } = await authenticate(request, env, settings, deps, provider === "apple" ? "auth-apple" : "auth-google", (body) => {
+    // Google not configured (and no dev test issuer to stand in): refuse before the challenge is spent.
+    checkProviderEnabled(provider, settings);
+    return {
+      idToken: stringField(body, "idToken", MAX_ID_TOKEN),
+      authorizationCode: provider === "apple" ? optionalStringField(body, "authorizationCode", MAX_AUTHORIZATION_CODE) : undefined,
+      deviceLabel: deviceLabelField(body),
+    };
+  });
+  const verified = await verifyIdToken(fields.idToken, provider, await nonceFor(challenge), settings, { jwks: deps.jwks, now: deps.now() });
+  const hash = await identityHash(settings.identityKeySecret, verified.namespace, verified.subject);
+  const now = deps.now().getTime();
+
+  let account = await db.getAccountByIdentity(env.DB, hash);
+  let newAccount = false;
+  if (!account) {
+    const created: db.Account = {
+      accountId: newAccountId(),
+      folderKey: newFolderKey(),
+      provider,
+      identityHash: hash,
+      appAccountToken: crypto.randomUUID().toLowerCase(),
+      createdAt: now,
+      identityChangedAt: now,
+      deletingSince: null,
+    };
+    newAccount = await db.insertAccount(env.DB, created);
+    // Lost a race with another first sign-in of the same identity: use the account it made.
+    account = newAccount ? created : await db.getAccountByIdentity(env.DB, hash);
+    if (!account) throw new Error("sign-in: account neither created nor found");
+  }
+  if (account.deletingSince !== null) throw new Refusal("account-deleting", "account is being deleted");
+
+  const token = newSessionToken();
+  const session: db.DeviceSession = { sessionId: newSessionId(), accountId: account.accountId, attestKeyId, label: fields.deviceLabel ?? null, createdAt: now, lastUsedAt: now };
+  await db.insertSession(env.DB, session, await sessionTokenHash(token));
+  logEvent("signed-in", { provider, account: shortKey(account.accountId), newAccount, ...(verified.issuer === "dev-test" ? { issuer: "dev-test" } : {}) });
+  const body: SignInResponse = {
+    deviceSessionToken: token,
+    sessionId: session.sessionId,
+    newAccount,
+    account: await accountResponse(env, settings, deps, account, session.sessionId),
+  };
+  return json(200, body);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Changing the sign-in
+
+export async function changeSignIn(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, challenge, attestKeyId } = await authenticate(request, env, settings, deps, "auth-change", (body) => {
+    const newProvider = stringField(body, "newProvider", 16);
+    if (newProvider !== "apple" && newProvider !== "google") throw new Refusal("bad-request", "field newProvider");
+    return {
+      token: sessionTokenField(body),
+      currentIdToken: stringField(body, "currentIdToken", MAX_ID_TOKEN),
+      currentAuthorizationCode: optionalStringField(body, "currentAuthorizationCode", MAX_AUTHORIZATION_CODE),
+      newProvider: newProvider as Provider,
+      newIdToken: stringField(body, "newIdToken", MAX_ID_TOKEN),
+    };
+  });
+  const { session, account } = await requireSession(env, deps, fields.token, attestKeyId);
+  if (fields.newProvider === account.provider) throw new Refusal("bad-request", "already this provider");
+  if (account.provider === "apple" && fields.currentAuthorizationCode === undefined) {
+    throw new Refusal("bad-request", "field currentAuthorizationCode");
+  }
+  const nonce = await nonceFor(challenge);
+  const context = { jwks: deps.jwks, now: deps.now() };
+
+  // 1. Proof from the current sign-in.
+  const current = await verifyIdToken(fields.currentIdToken, account.provider, nonce, settings, context);
+  if ((await identityHash(settings.identityKeySecret, current.namespace, current.subject)) !== account.identityHash) {
+    throw new Refusal("identity-mismatch", "current ID token is not this account's");
+  }
+  // 2. The new sign-in.
+  const next = await verifyIdToken(fields.newIdToken, fields.newProvider, nonce, settings, context);
+  const nextHash = await identityHash(settings.identityKeySecret, next.namespace, next.subject);
+  if (await db.getAccountByIdentity(env.DB, nextHash)) throw new Refusal("identity-in-use", "new identity has an account");
+
+  // 3. The swap, in one statement: never two identities, never none.
+  const outcome = await db.changeIdentity(env.DB, account.accountId, account.identityHash, fields.newProvider, nextHash, deps.now().getTime());
+  if (outcome === "in-use") throw new Refusal("identity-in-use", "new identity has an account");
+  if (outcome === "stale") throw new Refusal("identity-mismatch", "account changed meanwhile");
+  logEvent("sign-in-changed", { account: shortKey(account.accountId), from: account.provider, to: fields.newProvider });
+
+  // 4. Leaving Apple: revoke the authorization it gave. Never undoes the change.
+  if (account.provider === "apple") {
+    await revokeAppleAuthorization(fields.currentAuthorizationCode!, settings, deps.fetch, deps.now(), "sign-in-changed");
+  }
+  const changed: db.Account = { ...account, provider: fields.newProvider, identityHash: nextHash };
+  return json(200, await accountResponse(env, settings, deps, changed, session.sessionId));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Signing out
+
+export async function signOut(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, attestKeyId } = await authenticate(request, env, settings, deps, "auth-signout", (body) => sessionTokenField(body));
+  const { session, account } = await requireSession(env, deps, fields, attestKeyId, { allowDeleting: true });
+  const ended = await db.deleteSession(env.DB, session.sessionId);
+  logEvent("signed-out", { account: shortKey(account.accountId), sessions: ended });
+  const body: SignOutResponse = { ok: true, endedSessions: ended };
+  return json(200, body);
+}
+
+export async function signOutAll(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, attestKeyId } = await authenticate(request, env, settings, deps, "auth-signout-all", (body) => sessionTokenField(body));
+  const { account } = await requireSession(env, deps, fields, attestKeyId, { allowDeleting: true });
+  const ended = await db.deleteAccountSessions(env.DB, account.accountId);
+  logEvent("signed-out-everywhere", { account: shortKey(account.accountId), sessions: ended });
+  const body: SignOutResponse = { ok: true, endedSessions: ended };
+  return json(200, body);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The account screen
+
+export async function getAccount(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, attestKeyId } = await authenticate(request, env, settings, deps, "account", (body) => ({
+    token: sessionTokenField(body),
+    deviceLabel: deviceLabelField(body),
+  }));
+  const { session, account } = await requireSession(env, deps, fields.token, attestKeyId);
+  if (fields.deviceLabel !== undefined) await db.setSessionLabel(env.DB, session.sessionId, fields.deviceLabel);
+  return json(200, await accountResponse(env, settings, deps, account, session.sessionId));
+}
+
+async function accountResponse(env: Env, settings: Settings, deps: Deps, account: db.Account, currentSessionId: string): Promise<AccountResponse> {
+  const now = deps.now().getTime();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const devices: DeviceInfo[] = (await db.listSessions(env.DB, account.accountId)).map((session) => ({
+    sessionId: session.sessionId,
+    createdAt: iso(session.createdAt),
+    lastUsedAt: iso(session.lastUsedAt),
+    label: session.label,
+    current: session.sessionId === currentSessionId,
+  }));
+  const primary = primaryOf(await db.listSubscribers(env.DB, account.accountId), now, settings);
+  let subscription: AccountResponse["subscription"] = null;
+  let usage: AccountResponse["usage"] = null;
+  if (primary) {
+    subscription = subscriptionInfo(primary, accessAt(primary, now, settings), settings);
+    const counted = await currentUsage(env, primary, folderFor(account.folderKey, primary.namespace), now, settings);
+    const allowance = allowanceFor(primary, settings);
+    usage = { bytes: counted.bytes, allowanceBytes: allowance, overAllowance: counted.bytes > allowance || !counted.complete, countedAt: iso(counted.countedAt) };
+  }
+  return {
+    accountId: account.accountId,
+    provider: account.provider,
+    appAccountToken: account.appAccountToken,
+    createdAt: iso(account.createdAt),
+    devices,
+    subscription,
+    usage,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deleting the account
+
+export async function deleteAccount(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { fields, challenge, attestKeyId } = await authenticate(request, env, settings, deps, "account-delete", (body) => ({
+    token: sessionTokenField(body),
+    idToken: optionalStringField(body, "idToken", MAX_ID_TOKEN),
+    authorizationCode: optionalStringField(body, "authorizationCode", MAX_AUTHORIZATION_CODE),
+  }));
+  const { session, account } = await requireSession(env, deps, fields.token, attestKeyId, { allowDeleting: true });
+
+  let deletingSince = account.deletingSince;
+  if (deletingSince === null) {
+    // The first call: proof from the current sign-in, then the point of no return.
+    if (fields.idToken === undefined) throw new Refusal("bad-request", "field idToken");
+    if (account.provider === "apple" && fields.authorizationCode === undefined) throw new Refusal("bad-request", "field authorizationCode");
+    const proof = await verifyIdToken(fields.idToken, account.provider, await nonceFor(challenge), settings, { jwks: deps.jwks, now: deps.now() });
+    if ((await identityHash(settings.identityKeySecret, proof.namespace, proof.subject)) !== account.identityHash) {
+      throw new Refusal("identity-mismatch", "ID token is not this account's");
+    }
+    deletingSince = deps.now().getTime();
+    await db.markAccountDeleting(env.DB, account.accountId, deletingSince);
+    // Other devices stop now; this one keeps its session until the deletion is done.
+    await db.deleteAccountSessions(env.DB, account.accountId, { keep: session.sessionId });
+    logEvent("account-deletion-started", { account: shortKey(account.accountId) });
+    if (account.provider === "apple") {
+      await revokeAppleAuthorization(fields.authorizationCode!, settings, deps.fetch, deps.now(), "account-deleted");
+    }
+  }
+
+  const result = await emptyAccountFolders(env.BUCKET, account.folderKey, deleteBudget(deps));
+  if (result.done) await finishAccountDeletion(env, settings, account, deletingSince, deps.now().getTime(), "app");
+  const body: DeleteAccountResponse = { done: result.done, deletedObjects: result.deleted };
+  return json(200, body);
+}
+
+/**
+ * Added to the longest life a credential may be configured with (`MAX_TTL_SECONDS`, not the
+ * current `CREDENTIAL_TTL_SECONDS`): how long a deleted account's folder name is kept after its
+ * deletion started. Using the maximum means a credential minted under a longer setting than
+ * today's can never outlive the folder's tombstone.
+ */
+export const PURGE_MARGIN_MS = 5 * 60_000;
+
+/**
+ * Once the folders are empty: removes the account (identity, sessions, subscription binding) at
+ * once, keeping only its folder name until every credential minted before the deletion started
+ * has expired. The cron then empties the folders once more and forgets them.
+ */
+export async function finishAccountDeletion(env: Env, settings: Settings, account: db.Account, deletingSince: number, now: number, by: "app" | "cron"): Promise<void> {
+  const purgeAfter = deletingSince + MAX_TTL_SECONDS * 1000 + PURGE_MARGIN_MS;
+  await db.removeAccount(env.DB, account, purgeAfter, now);
+  logEvent("account-deleted", { account: shortKey(account.accountId), by });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sign in with Apple server-to-server notifications
+
+/** Events that end the sessions of the Apple identity's account. The data is kept. */
+const ENDING_EVENTS = new Set(["consent-revoked", "account-delete"]);
+
+export async function signInNotification(request: Request, env: Env, settings: Settings, deps: Deps): Promise<Response> {
+  const { value } = await readJsonBody(request);
+  const payload = stringField(value, "payload", MAX_ID_TOKEN);
+  const event = await verifyAppleSignInNotification(payload, settings, { jwks: deps.jwks, now: deps.now() });
+  let outcome = "ignored-type";
+  if (ENDING_EVENTS.has(event.type)) {
+    const account = await db.getAccountByIdentity(env.DB, await identityHash(settings.identityKeySecret, "apple", event.subject));
+    if (!account) {
+      outcome = "ignored-unknown-identity";
+    } else if (account.deletingSince !== null) {
+      // The deletion owns the account's sessions (and its own Apple revocation sends this event).
+      outcome = "ignored-account-deleting";
+    } else {
+      // Only sessions made at or before the event, so a replay cannot sign out a later sign-in.
+      const ended = await db.deleteAccountSessions(env.DB, account.accountId, { createdAtOrBefore: event.occurredAt });
+      outcome = `sessions-ended:${ended}`;
+    }
+  }
+  logEvent("signin-notification", { type: event.type, outcome });
+  return json(200, { ok: true });
+}
+
+function deviceLabelField(body: Record<string, unknown>): string | undefined {
+  const label = optionalStringField(body, "deviceLabel", MAX_DEVICE_LABEL);
+  if (label === undefined) return undefined;
+  try {
+    fromBase64(label);
+  } catch {
+    throw new Refusal("bad-request", "field deviceLabel");
+  }
+  return label;
+}

@@ -25,6 +25,7 @@ struct WindowRootView: View {
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("window.path") private var storedPath: Data?
     @State private var context: WindowContext?
     @State private var scene: UIWindowScene?
@@ -49,6 +50,18 @@ struct WindowRootView: View {
             context?.sleepOffScreenReaders()
         }
         .task { await applyLaunchPlanIfFirstWindow() }
+        .onChange(of: environment.markedUpExports.revealRequest) { _, _ in showRequestedExports() }
+        .onChange(of: scenePhase) { _, _ in showRequestedExports() }
+    }
+
+    /// A marked-up export's notification was opened: the window in front shows that book's
+    /// Notebook, where the export is listed under "Exported PDFs".
+    private func showRequestedExports() {
+        guard scenePhase == .active, let context, environment.libraryRecovery == nil,
+              let request = environment.markedUpExports.revealRequest else { return }
+        environment.markedUpExports.revealRequest = nil
+        if context.path.last == .notebook(bookID: request.bookID) { return }
+        context.openNotebook(bookID: request.bookID)
     }
 
     private func makeContextIfNeeded() {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import S3Kit
 
@@ -118,6 +119,76 @@ nonisolated struct BackupServiceDeletion: Hashable, Sendable {
     let deletedObjects: Int
 }
 
+/// The two ways of signing in to Tactile Texts Cloud (the account's `provider`).
+nonisolated enum CloudSignInProvider: String, Hashable, Sendable, CaseIterable, Codable {
+    case apple
+    case google
+
+    /// "Apple", "Google".
+    var name: String {
+        switch self {
+        case .apple: "Apple"
+        case .google: "Google"
+        }
+    }
+
+    /// The other one (what Change to Sign in with … changes to).
+    var other: CloudSignInProvider { self == .apple ? .google : .apple }
+}
+
+/// A single-use challenge from `/v1/challenge`, for a request whose ID tokens are bound to it.
+nonisolated struct BackupServiceChallenge: Hashable, Sendable {
+    /// As the service sent it (base64), to send back in the body.
+    let text: String
+    let bytes: Data
+
+    /// What Apple's and Google's ID tokens must carry as `nonce`: the lower-case hex SHA-256 of
+    /// the challenge's bytes.
+    var nonce: String {
+        SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// One signed-in device of the account (`DeviceInfo`).
+nonisolated struct BackupServiceDevice: Hashable, Sendable, Identifiable {
+    let sessionID: String
+    let createdAt: Date?
+    let lastUsedAt: Date?
+    /// The device's name, encrypted by the app with the backup key; `nil` when none was sent.
+    let label: String?
+    /// The device that asked.
+    let isCurrent: Bool
+
+    var id: String { sessionID }
+}
+
+/// The account as the service describes it (`AccountResponse`).
+nonisolated struct BackupServiceAccountInfo: Hashable, Sendable {
+    /// 32 hex digits, random. Names the account's Keychain item for the backup key.
+    let accountID: String
+    let provider: CloudSignInProvider
+    /// Passed to StoreKit on every purchase, so the transaction names the account.
+    let appAccountToken: UUID?
+    let createdAt: Date?
+    /// Oldest first.
+    let devices: [BackupServiceDevice]
+    let subscription: BackupServiceSubscriptionInfo?
+    let usage: BackupServiceUsage?
+}
+
+/// An answer to sign-in. The session token never appears in a description, debug description or
+/// mirror.
+nonisolated struct BackupServiceSignIn: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    let deviceSessionToken: String
+    let sessionID: String
+    let newAccount: Bool
+    let account: BackupServiceAccountInfo
+
+    var description: String { "BackupServiceSignIn(newAccount: \(newAccount), provider: \(account.provider.rawValue), token: <redacted>)" }
+    var debugDescription: String { description }
+    var customMirror: Mirror { Mirror(self, children: ["newAccount": newAccount, "provider": account.provider], displayStyle: .struct) }
+}
+
 // MARK: - Errors
 
 /// What the backup service refused, or why it could not be asked. One case per contract error
@@ -147,6 +218,26 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
     case dataDeleted(BackupServiceSubscriptionInfo?)
     case notificationInvalid
     case internalError
+    /// An Apple or Google sign-in failed the service's checks (expired, or not for this app).
+    case idTokenInvalid
+    /// The service does not accept this way of signing in.
+    case providerDisabled
+    /// The service could not reach Apple or Google to check a sign-in.
+    case providerUnreachable
+    /// This device's session has ended (signed out here or everywhere, ended by Apple, or the
+    /// account was deleted). The app becomes signed out; nothing on the iPad changes.
+    case sessionInvalid
+    /// The sign-in given as proof is not the one the account uses now.
+    case identityMismatch
+    /// Changing the sign-in: the new Apple or Google identity already has an account.
+    case identityInUse
+    /// The account is being deleted.
+    case accountDeleting
+    /// The subscription on this Apple Account was bought for another Tactile Texts Cloud account.
+    case subscriptionOtherAccount
+    /// The subscription on this Apple Account is in use by another account (moved less than 30
+    /// days ago).
+    case subscriptionInUse
 
     // The client's own.
     /// A status or code this app does not understand. `code` is for logs.
@@ -156,9 +247,10 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
     /// This device has no App Attest (the simulator, for example) and the build has no
     /// development bypass, so the service cannot be used here.
     case appAttestUnavailable
-    /// There is no verified subscription to identify the reader with (never subscribed on this
-    /// Apple ID); the service was not asked.
+    /// The account has no subscription (`not-subscribed`).
     case notSubscribed
+    /// This device is not signed in; the service was not asked.
+    case notSignedIn
 
     static let serviceName = "Tactile Texts Cloud"
 
@@ -183,6 +275,16 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
         case "data-deleted": self = .dataDeleted(subscription)
         case "notification-invalid": self = .notificationInvalid
         case "internal": self = .internalError
+        case "id-token-invalid": self = .idTokenInvalid
+        case "provider-disabled": self = .providerDisabled
+        case "provider-unreachable": self = .providerUnreachable
+        case "session-invalid": self = .sessionInvalid
+        case "identity-mismatch": self = .identityMismatch
+        case "identity-in-use": self = .identityInUse
+        case "account-deleting": self = .accountDeleting
+        case "not-subscribed": self = .notSubscribed
+        case "subscription-other-account": self = .subscriptionOtherAccount
+        case "subscription-in-use": self = .subscriptionInUse
         default: return nil
         }
     }
@@ -208,7 +310,17 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
         case .dataDeleted: "data-deleted"
         case .notificationInvalid: "notification-invalid"
         case .internalError: "internal"
-        case .unexpectedResponse, .noNetwork, .appAttestUnavailable, .notSubscribed: nil
+        case .idTokenInvalid: "id-token-invalid"
+        case .providerDisabled: "provider-disabled"
+        case .providerUnreachable: "provider-unreachable"
+        case .sessionInvalid: "session-invalid"
+        case .identityMismatch: "identity-mismatch"
+        case .identityInUse: "identity-in-use"
+        case .accountDeleting: "account-deleting"
+        case .notSubscribed: "not-subscribed"
+        case .subscriptionOtherAccount: "subscription-other-account"
+        case .subscriptionInUse: "subscription-in-use"
+        case .unexpectedResponse, .noNetwork, .appAttestUnavailable, .notSignedIn: nil
         }
     }
 
@@ -259,6 +371,26 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
             return "\(name) isn’t available on this device, because it can’t confirm that it’s running the genuine Tactile Texts app."
         case .notSubscribed:
             return "Subscribe to \(name) to back up there."
+        case .notSignedIn:
+            return "Sign in to \(name) to back up there."
+        case .idTokenInvalid:
+            return "\(name) couldn’t confirm your sign-in. Try again."
+        case .providerDisabled:
+            return "That way of signing in isn’t available for \(name)."
+        case .providerUnreachable:
+            return "\(name) couldn’t reach Apple or Google to check your sign-in. Try again later."
+        case .sessionInvalid:
+            return "You’ve been signed out of \(name). The books on this iPad are just as they were, but they aren’t backed up there until you sign in again."
+        case .identityMismatch:
+            return "That isn’t the sign-in your \(name) account uses now. Confirm with the account’s current sign-in."
+        case .identityInUse:
+            return "That sign-in already has a \(name) account of its own, so this account can’t change to it. If that account is yours, sign in with it and delete it first."
+        case .accountDeleting:
+            return "This \(name) account is being deleted."
+        case .subscriptionOtherAccount:
+            return "The subscription on this Apple Account was bought for a different \(name) account. Sign in with that account to use it."
+        case .subscriptionInUse:
+            return "The subscription on this Apple Account is being used by a different \(name) account. It can move to this account 30 days after it last moved, or you can sign in with that account."
         }
     }
 
@@ -270,9 +402,11 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
 
 // MARK: - Client
 
-/// Talks to the backup service: health, App Attest registration, sessions and deletion.
+/// Talks to the backup service: health, App Attest registration, signing in and out, the
+/// account, sessions and deletion.
 ///
-/// **Authenticated requests** (`session`, `deleteMyData`): a fresh challenge, the JSON body built
+/// **Authenticated requests** (everything but health): a fresh challenge (or the one given, for
+/// a request carrying ID tokens bound to it), the JSON body built
 /// once, and an App Attest assertion over **exactly those bytes**, which are then sent unchanged
 /// with `X-App-Attest-Key-Id` and `X-App-Attest-Assertion`.
 ///
@@ -329,50 +463,126 @@ actor BackupServiceClient {
         return try Self.decode(HealthBody.self, data, status: status).environment
     }
 
+    /// `POST /v1/challenge`, for a request whose ID tokens must carry its `nonce` (sign-in,
+    /// changing the sign-in, deleting the account): fetch it first, ask Apple or Google with its
+    /// `nonce`, then pass it to that request. Valid for five minutes, once.
+    func challenge() async throws -> BackupServiceChallenge {
+        let (text, bytes) = try await fetchChallenge()
+        return BackupServiceChallenge(text: text, bytes: bytes)
+    }
+
+    /// `POST /v1/auth/apple` or `/v1/auth/google`: signs in to the identity's account (creating
+    /// it on the first sign-in) and starts this device's session.
+    func signIn(provider: CloudSignInProvider, challenge: BackupServiceChallenge, idToken: String,
+                authorizationCode: String?, deviceLabel: String?) async throws -> BackupServiceSignIn {
+        var body = RequestBody(action: provider == .apple ? "auth-apple" : "auth-google")
+        body.idToken = idToken
+        body.authorizationCode = provider == .apple ? authorizationCode : nil
+        body.deviceLabel = deviceLabel
+        let data = try await authenticated(body, challenge: challenge)
+        return try Self.decode(SignInBody.self, data, status: 200).value()
+    }
+
+    /// `POST /v1/auth/change`: the account's sign-in becomes `newProvider`'s. Both ID tokens
+    /// carry `challenge`'s nonce.
+    func changeSignIn(sessionToken: String, challenge: BackupServiceChallenge, currentIdToken: String,
+                      currentAuthorizationCode: String?, newProvider: CloudSignInProvider,
+                      newIdToken: String) async throws -> BackupServiceAccountInfo {
+        var body = RequestBody(action: "auth-change", deviceSessionToken: sessionToken)
+        body.currentIdToken = currentIdToken
+        body.currentAuthorizationCode = currentAuthorizationCode
+        body.newProvider = newProvider.rawValue
+        body.newIdToken = newIdToken
+        let data = try await authenticated(body, challenge: challenge)
+        return try Self.decode(AccountBody.self, data, status: 200).value()
+    }
+
+    /// `POST /v1/auth/signout` (`everywhere`: `/v1/auth/signout-all`). Returns the sessions ended.
+    @discardableResult
+    func signOut(sessionToken: String, everywhere: Bool) async throws -> Int {
+        let data = try await authenticated(RequestBody(action: everywhere ? "auth-signout-all" : "auth-signout",
+                                                       deviceSessionToken: sessionToken))
+        return try Self.decode(SignOutBody.self, data, status: 200).endedSessions
+    }
+
+    /// `POST /v1/account`: the account screen (devices, subscription). `deviceLabel` sets this
+    /// device's encrypted name.
+    func account(sessionToken: String, deviceLabel: String? = nil) async throws -> BackupServiceAccountInfo {
+        var body = RequestBody(action: "account", deviceSessionToken: sessionToken)
+        body.deviceLabel = deviceLabel
+        let data = try await authenticated(body)
+        return try Self.decode(AccountBody.self, data, status: 200).value()
+    }
+
+    /// The proof the first call of `deleteAccount` needs: a fresh ID token from the account's
+    /// current sign-in, bound to `challenge`, and for Apple its authorization code.
+    struct DeletionProof: Sendable {
+        let challenge: BackupServiceChallenge
+        let idToken: String
+        let authorizationCode: String?
+    }
+
+    /// `POST /v1/account/delete`: one step of deleting the account. The first call carries
+    /// `proof`; later calls pass `nil`. Call until `done`.
+    func deleteAccount(sessionToken: String, proof: DeletionProof?) async throws -> BackupServiceDeletion {
+        var body = RequestBody(action: "account-delete", deviceSessionToken: sessionToken)
+        body.idToken = proof?.idToken
+        body.authorizationCode = proof?.authorizationCode
+        let data = try await authenticated(body, challenge: proof?.challenge)
+        let decoded = try Self.decode(DeletionBody.self, data, status: 200)
+        return BackupServiceDeletion(done: decoded.done, deletedObjects: decoded.deletedObjects)
+    }
+
     /// `POST /v1/session`: temporary credentials, the storage they reach, the mode, the
-    /// subscription and the usage.
-    func session(signedTransaction: String, signedRenewalInfo: String?) async throws -> BackupServiceSession {
-        let data = try await authenticated(action: "session", signedTransaction: signedTransaction,
-                                           signedRenewalInfo: signedRenewalInfo)
+    /// subscription and the usage. The signed transaction is sent when the app has one.
+    func session(sessionToken: String, signedTransaction: String?, signedRenewalInfo: String?) async throws -> BackupServiceSession {
+        var body = RequestBody(action: "session", deviceSessionToken: sessionToken)
+        body.signedTransaction = signedTransaction
+        body.signedRenewalInfo = signedTransaction == nil ? nil : signedRenewalInfo
+        let data = try await authenticated(body)
         return try Self.decode(SessionBody.self, data, status: 200).value()
     }
 
     /// `POST /v1/delete-my-data`: one bounded batch; call again until `done`.
-    func deleteMyData(signedTransaction: String, signedRenewalInfo: String?) async throws -> BackupServiceDeletion {
-        let data = try await authenticated(action: "delete-my-data", signedTransaction: signedTransaction,
-                                           signedRenewalInfo: signedRenewalInfo)
+    func deleteMyData(sessionToken: String) async throws -> BackupServiceDeletion {
+        let data = try await authenticated(RequestBody(action: "delete-my-data", deviceSessionToken: sessionToken))
         let body = try Self.decode(DeletionBody.self, data, status: 200)
         return BackupServiceDeletion(done: body.done, deletedObjects: body.deletedObjects)
     }
 
     // MARK: Authenticated requests
 
-    private func authenticated(action: String, signedTransaction: String, signedRenewalInfo: String?) async throws -> Data {
+    /// Sends `body` as an attested request. Without `challenge` a fresh one is fetched, and a
+    /// `device-unknown` or `assertion-invalid` answer starts over with a new key, once. With a
+    /// `challenge` (whose nonce is in ID tokens the body carries) the request is sent once: the
+    /// service spends the challenge even when it refuses, so a retry would need new ID tokens;
+    /// the key is reset for the reader's next try.
+    private func authenticated(_ body: RequestBody, challenge: BackupServiceChallenge? = nil) async throws -> Data {
         try await serialized {
             do {
-                return try await self.attempt(action: action, signedTransaction: signedTransaction,
-                                              signedRenewalInfo: signedRenewalInfo)
+                return try await self.attempt(body, challenge: challenge)
             } catch let error as CloudServiceError where error == .deviceUnknown || error == .assertionInvalid {
-                // The service no longer knows this key, or refused its assertion: start over with
-                // a new key, once.
                 await self.attest.reset()
-                return try await self.attempt(action: action, signedTransaction: signedTransaction,
-                                              signedRenewalInfo: signedRenewalInfo)
+                if challenge != nil { throw error }
+                return try await self.attempt(body, challenge: nil)
             }
         }
     }
 
-    private func attempt(action: String, signedTransaction: String, signedRenewalInfo: String?) async throws -> Data {
+    private func attempt(_ template: RequestBody, challenge given: BackupServiceChallenge?) async throws -> Data {
         var headers: [String: String] = [:]
         let useBypass = !attest.isSupported
         if useBypass {
             guard let attestBypassSecret else { throw CloudServiceError.appAttestUnavailable }
             headers[Self.bypassHeader] = attestBypassSecret
         }
-        let challenge = try await fetchChallenge()
-        let body = try Self.encode(AuthenticatedBody(action: action, challenge: challenge.text,
-                                                     signedTransaction: signedTransaction,
-                                                     signedRenewalInfo: signedRenewalInfo))
+        var request = template
+        if let given {
+            request.challenge = given.text
+        } else {
+            request.challenge = try await fetchChallenge().text
+        }
+        let body = try Self.encode(request)
         if !useBypass {
             let assertion: AppAttestAssertion
             do {
@@ -385,9 +595,22 @@ actor BackupServiceClient {
             headers[Self.keyIDHeader] = assertion.keyID
             headers[Self.assertionHeader] = assertion.assertionObject.base64EncodedString()
         }
-        let (data, status) = try await send(path: "/v1/\(action)", method: "POST", body: body, headers: headers)
+        let (data, status) = try await send(path: Self.path(for: template.action), method: "POST", body: body, headers: headers)
         guard status == 200 else { throw Self.failure(status: status, data: data) }
         return data
+    }
+
+    /// The endpoint each action names (`ENDPOINT_ACTIONS` in `src/contract.ts`).
+    nonisolated static func path(for action: String) -> String {
+        switch action {
+        case "auth-apple": "/v1/auth/apple"
+        case "auth-google": "/v1/auth/google"
+        case "auth-change": "/v1/auth/change"
+        case "auth-signout": "/v1/auth/signout"
+        case "auth-signout-all": "/v1/auth/signout-all"
+        case "account-delete": "/v1/account/delete"
+        default: "/v1/\(action)"
+        }
     }
 
     /// Registers the attest client's key (`/v1/challenge`, then `/v1/attest`). Concurrent callers
@@ -496,11 +719,86 @@ actor BackupServiceClient {
 
 // MARK: - Wire format
 
-nonisolated private struct AuthenticatedBody: Encodable {
-    let action: String
-    let challenge: String
-    let signedTransaction: String
-    let signedRenewalInfo: String?
+/// Every attested request's body: `action`, `challenge`, and the fields its endpoint takes (a
+/// field left `nil` is not sent). Never described: it carries tokens.
+nonisolated private struct RequestBody: Encodable, Sendable {
+    var action: String
+    var challenge: String?
+    var deviceSessionToken: String?
+    var signedTransaction: String?
+    var signedRenewalInfo: String?
+    var idToken: String?
+    var authorizationCode: String?
+    var deviceLabel: String?
+    var currentIdToken: String?
+    var currentAuthorizationCode: String?
+    var newProvider: String?
+    var newIdToken: String?
+
+    init(action: String, deviceSessionToken: String? = nil) {
+        self.action = action
+        self.deviceSessionToken = deviceSessionToken
+    }
+}
+
+nonisolated private struct SignOutBody: Decodable {
+    let endedSessions: Int
+}
+
+nonisolated private struct AccountBody: Decodable {
+    struct Device: Decodable {
+        let sessionId: String
+        let createdAt: String?
+        let lastUsedAt: String?
+        let label: String?
+        let current: Bool
+    }
+    struct Usage: Decodable {
+        let bytes: Int64
+        let allowanceBytes: Int64
+        let overAllowance: Bool
+        let countedAt: String?
+    }
+
+    let accountId: String
+    let provider: String
+    let appAccountToken: String
+    let createdAt: String?
+    let devices: [Device]
+    let subscription: SubscriptionBody?
+    let usage: Usage?
+
+    func value() throws -> BackupServiceAccountInfo {
+        guard !accountId.isEmpty, accountId.count <= 64, accountId.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw CloudServiceError.unexpectedResponse(status: 200, code: "account id")
+        }
+        guard let provider = CloudSignInProvider(rawValue: provider) else {
+            throw CloudServiceError.unexpectedResponse(status: 200, code: "provider")
+        }
+        return BackupServiceAccountInfo(
+            accountID: accountId.lowercased(), provider: provider, appAccountToken: UUID(uuidString: appAccountToken),
+            createdAt: BackupServiceClient.date(createdAt),
+            devices: devices.map {
+                BackupServiceDevice(sessionID: $0.sessionId, createdAt: BackupServiceClient.date($0.createdAt),
+                                    lastUsedAt: BackupServiceClient.date($0.lastUsedAt), label: $0.label, isCurrent: $0.current)
+            },
+            subscription: try subscription?.value(),
+            usage: usage.map { BackupServiceUsage(bytes: $0.bytes, allowanceBytes: $0.allowanceBytes,
+                                                  overAllowance: $0.overAllowance, countedAt: BackupServiceClient.date($0.countedAt)) })
+    }
+}
+
+nonisolated private struct SignInBody: Decodable {
+    let deviceSessionToken: String
+    let sessionId: String
+    let newAccount: Bool
+    let account: AccountBody
+
+    func value() throws -> BackupServiceSignIn {
+        guard !deviceSessionToken.isEmpty else { throw CloudServiceError.unexpectedResponse(status: 200, code: "session token") }
+        return BackupServiceSignIn(deviceSessionToken: deviceSessionToken, sessionID: sessionId, newAccount: newAccount,
+                                   account: try account.value())
+    }
 }
 
 nonisolated private struct AttestBody: Encodable {

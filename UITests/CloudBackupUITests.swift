@@ -312,7 +312,11 @@ final class CloudBackupUITests: XCTestCase {
         XCTAssertTrue(notice.waitForExistence(timeout: 20), app.debugDescription)
         scrollToTop(app)
         XCTAssertEqual(seeSnapshots(1, in: app), 0, "every backup is gone")
-        XCTAssertTrue(any(app, "backup.snapshots.empty").exists, app.debugDescription)
+        // The Account section below can push the empty list's row out of view.
+        scrollToTop(app)
+        let empty = any(app, "backup.snapshots.empty")
+        scrollTo(empty, in: app)
+        XCTAssertTrue(empty.exists, app.debugDescription)
     }
 
     /// Without the launch argument (the default build has no service configured) the Backup

@@ -84,6 +84,8 @@ final class ReaderSession: Identifiable {
         var restoredState: RestorableState?
         /// Start in markup mode (`-markup`).
         var startInMarkup = false
+        /// Start with the page maximized (`-maximized`).
+        var startMaximized = false
         /// Open the notes panel on this tab (`-notesPanel`).
         var openNotesTab: NotesTab?
         #if DEBUG
@@ -127,6 +129,9 @@ final class ReaderSession: Identifiable {
         var notebookRebuildDelay: Duration = .milliseconds(250)
         /// Install the feature controllers (`ReaderFeatureWiring`). Unit tests may turn it off.
         var installsFeatures = true
+        /// The app's marked-up PDF exports (`AppEnvironment.markedUpExports`); without it the
+        /// reader offers no Export Marked-Up PDF.
+        var markedUpExports: MarkedUpExportLibrary?
 
         init() {}
     }
@@ -249,6 +254,12 @@ final class ReaderSession: Identifiable {
     var isNarrowLayout = false
     /// The notes panel (wide) or sheet (narrow) is shown.
     var isNotesVisible = false
+    /// The page is maximized: the toolbar, the status bar, Contents and the notes panel are off
+    /// screen and the page has the whole window (design, "Maximized page"). It hides the panes
+    /// without changing `isContentsVisible` / `isNotesVisible`, so they are back as they were
+    /// when it ends, and it leaves the mode alone, so markup carries on through it. Per window;
+    /// not restored. Change it with `setMaximized(_:)` / `toggleMaximized()`.
+    private(set) var isMaximized = false
     /// The notes panel's tab.
     var notesTab: NotesTab = .page
     /// Requested notes panel width in points. The shell clamps it to
@@ -303,7 +314,8 @@ final class ReaderSession: Identifiable {
         return renderer
     }
     @ObservationIgnored private var thumbnailsIfCreated: PDFThumbnailRenderer?
-    /// This window's "Export Marked-Up PDF" (`exportMarkedUpPDF(_:)`); cancelled by `close()`.
+    /// This window's confirmations for "Export Marked-Up PDF" (`exportMarkedUpPDF(_:)`). The
+    /// exports belong to the app (`markedUpExports`): `close()` leaves them running.
     let markedUpExport = MarkedUpExportController()
 
     // MARK: Private state
@@ -379,6 +391,7 @@ final class ReaderSession: Identifiable {
         if configuration.startInMarkup {
             setMode(.markup)
         }
+        isMaximized = configuration.startMaximized
         PerfMarks.mark("sessionInit")
     }
 
@@ -439,7 +452,9 @@ final class ReaderSession: Identifiable {
         guard !isClosed else { return }
         isClosed = true
         for task in [openTask, lastReadSaveTask, placeSaveTask, pagePillIdleTask] { task?.cancel() }
-        markedUpExport.cancel()
+        markedUpExport.confirmation = nil
+        markedUpExport.stopCandidate = nil
+        configuration.markedUpExports?.readerClosed(id)
         hubToken = nil
         indexObservation = nil
         index = nil
@@ -612,15 +627,46 @@ final class ReaderSession: Identifiable {
 
     // MARK: Panels
 
-    /// Toggles Contents: the sidebar at wide widths, the overlay at narrow widths.
+    /// Maximizes the page or ends that. Maximizing closes the narrow Contents overlay (it is
+    /// not restored); everything else is left as it is and only hidden.
+    func setMaximized(_ maximized: Bool) {
+        guard maximized != isMaximized else { return }
+        isMaximized = maximized
+        if maximized { isContentsOverlayVisible = false }
+    }
+    func toggleMaximized() { setMaximized(!isMaximized) }
+
+    /// Toggles Contents: the sidebar at wide widths, the overlay at narrow widths. While the
+    /// page is maximized Contents is hidden, so this ends that and shows it.
     func toggleContents() {
-        if isNarrowLayout { isContentsOverlayVisible.toggle() } else { isContentsVisible.toggle() }
+        if isMaximized {
+            setMaximized(false)
+            if isNarrowLayout { isContentsOverlayVisible = true } else { isContentsVisible = true }
+        } else if isNarrowLayout {
+            isContentsOverlayVisible.toggle()
+        } else {
+            isContentsVisible.toggle()
+        }
     }
     /// Whether Contents is on screen in the current layout.
-    var isContentsShown: Bool { isNarrowLayout ? isContentsOverlayVisible : isContentsVisible }
-    func toggleNotes() { isNotesVisible.toggle() }
-    /// Shows the notes panel on a tab.
+    var isContentsShown: Bool {
+        !isMaximized && (isNarrowLayout ? isContentsOverlayVisible : isContentsVisible)
+    }
+    /// Whether the notes panel is on screen (`isNotesVisible`, unless the page is maximized).
+    var isNotesShown: Bool { isNotesVisible && !isMaximized }
+    /// Shows or hides the notes panel. While the page is maximized the panel is hidden, so this
+    /// ends that and shows it.
+    func toggleNotes() {
+        if isMaximized {
+            setMaximized(false)
+            isNotesVisible = true
+        } else {
+            isNotesVisible.toggle()
+        }
+    }
+    /// Shows the notes panel on a tab (ending a maximized page, which hides the panel).
     func showNotes(_ tab: NotesTab) {
+        setMaximized(false)
         notesTab = tab
         isNotesVisible = true
     }
@@ -661,6 +707,7 @@ final class ReaderSession: Identifiable {
         let page = pageIndex.flatMap { PageNumbering.isValid($0, pageCount: pageCount) ? $0 : nil } ?? currentPageIndex
         let title = suggestedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingAddHeadingRequest = AddHeadingRequest(pageIndex: page, suggestedTitle: title?.isEmpty == false ? title : nil)
+        setMaximized(false)  // the sidebar presents the sheet
         if isNarrowLayout { isContentsOverlayVisible = true } else { isContentsVisible = true }
     }
 
@@ -677,6 +724,7 @@ final class ReaderSession: Identifiable {
     }
     /// Opens search, or queues it while the popover is still closing (see `isSearchDismissing`).
     func showSearch() {
+        setMaximized(false)  // the search panel hangs from the toolbar's search button
         if isSearchDismissing {
             isSearchReopenQueued = true
         } else {

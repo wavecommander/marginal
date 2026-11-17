@@ -33,8 +33,6 @@ final class AppEnvironment {
     @ObservationIgnored let backupDestinations: BackupDestinationRegistry
     /// The folder the reader picked in Files to back up to (the Backup screen sets and clears it).
     @ObservationIgnored let backupFolderStore: BackupFolderStore
-    /// The Google Drive connection (sign in, sign out, state) behind the Google Drive destination.
-    @ObservationIgnored let googleDriveAccount: GoogleDriveAccount
     /// Tactile Texts Cloud (subscription, account, destination); `nil` unless the build sets
     /// `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` (empty by default).
     @ObservationIgnored let cloudBackup: TactileCloudBackup?
@@ -45,6 +43,9 @@ final class AppEnvironment {
     @ObservationIgnored let backupScheduler: BackupScheduler
     /// First-run onboarding: the welcome sheet, the Quick Guide and tip resets.
     let onboarding: OnboardingCoordinator
+    /// Every marked-up PDF export and the files they made, kept until the user deletes them
+    /// (`<store root>/Marked-Up Exports`).
+    let markedUpExports: MarkedUpExportLibrary
     /// The one text-recognition queue for scanned books (started after launch work). The
     /// search status (S3) calls its entry points; progress reaches windows through the hub.
     @ObservationIgnored let textRecognition: TextRecognitionEngine
@@ -79,6 +80,8 @@ final class AppEnvironment {
         self.importService = importService
         self.fixtureImporter = FixtureImporter(service: importService)
         self.onboarding = OnboardingCoordinator()
+        self.markedUpExports = MarkedUpExportLibrary(
+            archive: MarkedUpExportArchive(root: MarkedUpExportArchive.defaultRoot(storeRoot: store.rootDirectory)))
         self.textRecognition = TextRecognitionEngine(store: store)
         let backupService = BackupService(store: store)
         let backupDestinations = BackupDestinationRegistry()
@@ -91,18 +94,17 @@ final class AppEnvironment {
         self.backupScheduler = BackupScheduler(settings: backupAutomaticSettings, service: backupService,
                                                destinations: backupDestinations,
                                                armed: !launchOptions.resetState && libraryRecovery == nil)
-        let local = BackupDestinationFactory.folderAndICloud()
-        let cloud = CloudBackupDestinations.make()
-        self.backupFolderStore = local.folderStore
-        self.googleDriveAccount = cloud.googleDriveAccount
+        let backupFolderStore = BackupFolderStore()
+        self.backupFolderStore = backupFolderStore
         if let folder = launchOptions.backupFolder {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             backupDestinations.register(FolderBackupDestination(root: folder))
         }
-        // Listed in this order: the picked folder, iCloud, Google Drive, then the developer's
-        // S3-compatible bucket when the build is configured for one. Each reports itself
-        // unavailable (no folder chosen, no iCloud in this build, not signed in) when it is.
-        for destination in local.all + cloud.all { backupDestinations.register(destination) }
+        // The folder picked in Files (which is how iCloud Drive, Google Drive and other
+        // providers are reached; it reports itself unavailable until a folder is chosen), then
+        // the developer's S3-compatible bucket when the build is configured for one.
+        backupDestinations.register(PickedFolderBackupDestination(store: backupFolderStore))
+        if let s3 = BackupDestinationFactory.s3() { backupDestinations.register(s3) }
         // Tactile Texts Cloud, last, only when the build is configured for the service.
         var cloudBackup: TactileCloudBackup?
         #if DEBUG
@@ -113,6 +115,11 @@ final class AppEnvironment {
         self.cloudBackup = cloudBackup
         if let cloudBackup {
             backupDestinations.register(cloudBackup.destination)
+            // Automatic backup is on by default for a signed-in subscriber (unless the reader
+            // already set automatic backups up, or turned them off).
+            cloudBackup.account.onActiveSubscriber = { [weak backupAutomaticSettings] in
+                backupAutomaticSettings?.applyDefault(destinationID: TactileCloudBackupDestination.destinationID)
+            }
             cloudBackup.start()
         }
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
@@ -135,6 +142,7 @@ final class AppEnvironment {
         if launchOptions.resetState {
             // The notes panel's level picker starts collapsed in a fresh state, as on a first launch.
             UserDefaults.standard.removeObject(forKey: NotesLevelPicker.expandedKey)
+            UserDefaults.standard.removeObject(forKey: NotesPanelRegions.collapsedKey)
             UserDefaults.standard.removeObject(forKey: AccentChoice.storageKey)
             // A fresh state has no backup folder chosen and automatic backups off.
             UserDefaults.standard.removeObject(forKey: BackupFolderStore.defaultKey)
@@ -174,6 +182,7 @@ final class AppEnvironment {
                 // run must not be rolled forward into the empty library.
                 try? FileManager.default.removeItem(at: RestoreLayout.root(storeRoot: store.rootDirectory))
                 try? FileManager.default.removeItem(at: RestoreSafetyStore.root(storeRoot: store.rootDirectory))
+                try? FileManager.default.removeItem(at: MarkedUpExportArchive.defaultRoot(storeRoot: store.rootDirectory))
             }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {
@@ -253,6 +262,7 @@ final class AppEnvironment {
                 plan.readerOverrides = ReaderOverrides(
                     pageIndex: launchOptions.openPage.map(PageNumbering.pageIndex(forDisplayNumber:)),
                     startInMarkup: launchOptions.markup,
+                    startMaximized: launchOptions.maximized,
                     notesTab: launchOptions.notesPanel.flatMap { ReaderSession.NotesTab(rawValue: $0.rawValue) })
             case .notebook:
                 plan.path = [.notebook(bookID: target.id)]
@@ -283,6 +293,7 @@ final class AppEnvironment {
 nonisolated struct ReaderOverrides: Sendable, Equatable {
     var pageIndex: Int?
     var startInMarkup = false
+    var startMaximized = false
     var notesTab: ReaderSession.NotesTab?
     /// A heading whose note the notes panel shows on the Section tab (a Notebook heading-note
     /// row); applied with `ReaderSession.showNotes(.section, heading:)`.

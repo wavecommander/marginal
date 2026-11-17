@@ -24,19 +24,115 @@ export interface AttestRequest {
 }
 
 /**
- * Body of `POST /v1/session` and `POST /v1/delete-my-data`. The exact body bytes are the App
- * Attest `clientData`: the app signs SHA-256(body) with `generateAssertion(keyId,
+ * Every attested request (everything below except `/v1/apple/*`). The exact body bytes are the
+ * App Attest `clientData`: the app signs SHA-256(body) with `generateAssertion(keyId,
  * clientDataHash:)` and sends the result in headers (see `AUTH_HEADERS`).
  */
-export interface AuthenticatedRequest {
-  /** Must name the endpoint: `"session"` for /v1/session, `"delete-my-data"` for /v1/delete-my-data. */
-  action: "session" | "delete-my-data";
+export interface AttestedRequest {
+  /** Must name the endpoint (see `ENDPOINT_ACTIONS`). */
+  action: Action;
   /** A challenge from `/v1/challenge`, exactly as received. Single use. */
   challenge: string;
-  /** The subscription's latest transaction (StoreKit `Transaction.jwsRepresentation`). */
-  signedTransaction: string;
-  /** Optional: its renewal info (`Product.SubscriptionInfo.RenewalInfo` JWS). Lets billing-retry and grace periods count. */
+}
+
+/** The `action` each attested endpoint requires. */
+export const ENDPOINT_ACTIONS = {
+  "/v1/auth/apple": "auth-apple",
+  "/v1/auth/google": "auth-google",
+  "/v1/auth/change": "auth-change",
+  "/v1/auth/signout": "auth-signout",
+  "/v1/auth/signout-all": "auth-signout-all",
+  "/v1/account": "account",
+  "/v1/account/delete": "account-delete",
+  "/v1/session": "session",
+  "/v1/delete-my-data": "delete-my-data",
+} as const;
+
+export type Action = (typeof ENDPOINT_ACTIONS)[keyof typeof ENDPOINT_ACTIONS];
+
+/** Requests made while signed in carry the device session from sign-in. */
+export interface SignedInRequest extends AttestedRequest {
+  /** The `deviceSessionToken` sign-in returned (43 characters). */
+  deviceSessionToken: string;
+}
+
+/**
+ * `POST /v1/auth/apple` and `POST /v1/auth/google`. The ID token's `nonce` must be the
+ * lower-case hex SHA-256 of the challenge's base64-decoded bytes.
+ *
+ * Every ID token field in this contract (`idToken`, `currentIdToken`, `newIdToken`) may instead
+ * be a dev test issuer token (README, "The dev test issuer"), on the `dev` deployment only and
+ * only when DEV_TEST_SIGNIN_SECRET is set. It stands in for the provider the endpoint names, in
+ * an identity namespace of its own, so it never reaches an account made with a real sign-in.
+ */
+export interface SignInRequest extends AttestedRequest {
+  action: "auth-apple" | "auth-google";
+  /**
+   * Apple: `ASAuthorizationAppleIDCredential.identityToken` (UTF-8). Google: the `id_token`.
+   * `dev` with the test issuer on: or a dev test token.
+   */
+  idToken: string;
+  /** Apple only, optional: `authorizationCode`. Accepted and not used at sign-in. */
+  authorizationCode?: string;
+  /** Optional: this device's name, encrypted by the app (base64, at most 1,024 characters). Opaque here. */
+  deviceLabel?: string;
+}
+
+/**
+ * `POST /v1/auth/change`: replaces the account's sign-in with another provider's. Both ID tokens
+ * carry the same `nonce` (from this request's challenge).
+ */
+export interface ChangeSignInRequest extends SignedInRequest {
+  action: "auth-change";
+  /**
+   * A fresh ID token from the account's current sign-in: the proof. For an account made with
+   * dev test tokens, a dev test token for the same subject (a real token is `identity-mismatch`,
+   * and the other way round).
+   */
+  currentIdToken: string;
+  /** Required when the current sign-in is Apple: that sign-in's `authorizationCode`, to revoke it after the change. */
+  currentAuthorizationCode?: string;
+  /** The provider to change to; must differ from the current one. */
+  newProvider: "apple" | "google";
+  /** A fresh ID token from the new provider (`dev` with the test issuer on: or a dev test token). */
+  newIdToken: string;
+}
+
+/** `POST /v1/auth/signout` (this device) and `POST /v1/auth/signout-all` (every device). */
+export interface SignOutRequest extends SignedInRequest {
+  action: "auth-signout" | "auth-signout-all";
+}
+
+/** `POST /v1/account`: the account screen's information. */
+export interface AccountRequest extends SignedInRequest {
+  action: "account";
+  /** Optional: sets this device's encrypted name (base64, at most 1,024 characters). */
+  deviceLabel?: string;
+}
+
+/**
+ * `POST /v1/account/delete`. The first call needs a fresh ID token from the current sign-in
+ * (and, for Apple, its authorization code); later calls, until `done`, need only the session.
+ */
+export interface DeleteAccountRequest extends SignedInRequest {
+  action: "account-delete";
+  /** The proof, as `ChangeSignInRequest.currentIdToken`. */
+  idToken?: string;
+  authorizationCode?: string;
+}
+
+/** `POST /v1/session`. */
+export interface SessionRequest extends SignedInRequest {
+  action: "session";
+  /** Optional: the backup subscription's latest transaction (StoreKit `Transaction.jwsRepresentation`). */
+  signedTransaction?: string;
+  /** Optional, only with `signedTransaction`: its renewal info JWS. Lets billing-retry and grace periods count. */
   signedRenewalInfo?: string;
+}
+
+/** `POST /v1/delete-my-data`. */
+export interface DeleteMyDataRequest extends SignedInRequest {
+  action: "delete-my-data";
 }
 
 export const AUTH_HEADERS = {
@@ -51,6 +147,11 @@ export const AUTH_HEADERS = {
 /** `POST /v1/apple/notifications`: App Store Server Notifications V2. */
 export interface AppleNotificationRequest {
   signedPayload: string;
+}
+
+/** `POST /v1/apple/signin-notifications`: Sign in with Apple server-to-server notifications. */
+export interface AppleSignInNotificationRequest {
+  payload: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -80,7 +181,7 @@ export type SubscriptionStateName =
   | "grace-period"
   /** Apple is retrying a failed renewal: access continues. */
   | "billing-retry"
-  /** The subscription has ended (expired, or billing retry gave up). */
+  /** The subscription has ended (expired, or billing retry gave up, or it moved to another account). */
   | "ended"
   /** Apple refunded or revoked it. */
   | "revoked";
@@ -101,12 +202,59 @@ export interface SubscriptionInfo {
 }
 
 export interface UsageInfo {
-  /** Bytes stored under the user's folder at the last count. */
+  /** Bytes stored under the account's folder at the last count. */
   bytes: number;
   allowanceBytes: number;
   /** True when `bytes` exceeds `allowanceBytes` (the mode is then `read-delete`). */
   overAllowance: boolean;
   countedAt: string;
+}
+
+/** One signed-in device of the account. */
+export interface DeviceInfo {
+  /** 32 hex digits; stable for the life of the session. */
+  sessionId: string;
+  createdAt: string;
+  lastUsedAt: string;
+  /** The encrypted name the app sent, as sent; null if none. */
+  label: string | null;
+  /** True for the device that made this request. */
+  current: boolean;
+}
+
+/** `POST /v1/account`, 200; also inside sign-in and change responses. */
+export interface AccountResponse {
+  /** 32 hex digits. Random; names the account to the app (for example its Keychain item). */
+  accountId: string;
+  /** The account's one sign-in. Never the provider's user ID or email. */
+  provider: "apple" | "google";
+  /** Lower-case UUID. Pass to StoreKit as `Product.PurchaseOption.appAccountToken` on every purchase. */
+  appAccountToken: string;
+  createdAt: string;
+  /** Oldest first. */
+  devices: DeviceInfo[];
+  /** The subscription paying for the account (as in a session); null if it has none. */
+  subscription: SubscriptionInfo | null;
+  /** Usage of that subscription's folder; null if it has none. */
+  usage: UsageInfo | null;
+}
+
+/** `POST /v1/auth/apple`, `POST /v1/auth/google`, 200. */
+export interface SignInResponse {
+  /** The device session. Shown once: keep it in the Keychain, this device only. */
+  deviceSessionToken: string;
+  /** This session's ID in `account.devices`. */
+  sessionId: string;
+  /** True if this sign-in created the account. */
+  newAccount: boolean;
+  account: AccountResponse;
+}
+
+/** `POST /v1/auth/signout`, `POST /v1/auth/signout-all`, 200. */
+export interface SignOutResponse {
+  ok: true;
+  /** How many device sessions ended (this one included). */
+  endedSessions: number;
 }
 
 /** `POST /v1/session`, 200. */
@@ -133,14 +281,16 @@ export interface SessionResponse {
   usage: UsageInfo;
 }
 
-/** `POST /v1/delete-my-data`, 200. Call again until `done` is true. */
+/** `POST /v1/delete-my-data` and `POST /v1/account/delete`, 200. Call again until `done` is true. */
 export interface DeleteMyDataResponse {
   done: boolean;
   /** Objects deleted by this call. */
   deletedObjects: number;
 }
 
-/** `POST /v1/apple/notifications`, 200. */
+export type DeleteAccountResponse = DeleteMyDataResponse;
+
+/** `POST /v1/apple/notifications` and `POST /v1/apple/signin-notifications`, 200. */
 export interface AppleNotificationResponse {
   ok: true;
 }
@@ -159,6 +309,16 @@ export const ERRORS = {
   "device-already-attested": { status: 409, message: "This device is already registered." },
   "device-unknown": { status: 401, message: "This device needs to be registered again." },
   "assertion-invalid": { status: 401, message: "This copy of the app could not be verified." },
+  "id-token-invalid": { status: 401, message: "The sign-in could not be verified. Try again." },
+  "provider-disabled": { status: 403, message: "This way of signing in is not available." },
+  "provider-unreachable": { status: 503, message: "Apple or Google could not be reached. Try again later." },
+  "session-invalid": { status: 401, message: "You have been signed out. Sign in again." },
+  "identity-mismatch": { status: 403, message: "Confirm with the sign-in this account uses now." },
+  "identity-in-use": { status: 409, message: "That sign-in already has an account of its own." },
+  "account-deleting": { status: 409, message: "This account is being deleted." },
+  "not-subscribed": { status: 403, message: "This account has no subscription to Tactile Texts Cloud." },
+  "subscription-other-account": { status: 403, message: "This subscription was bought for another account." },
+  "subscription-in-use": { status: 403, message: "This subscription is in use by another account." },
   "transaction-invalid": { status: 401, message: "The subscription could not be verified." },
   "product-unknown": { status: 403, message: "This purchase does not include cloud backup." },
   "environment-not-accepted": { status: 403, message: "Purchases from this environment are not accepted here." },

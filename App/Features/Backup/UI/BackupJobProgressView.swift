@@ -2,7 +2,7 @@ import SwiftUI
 
 /// What a running backup or restore says about itself.
 enum BackupJobText {
-    /// "Backing Up", "Backing Up to iCloud", "Opening Backup", "Restoring", "Undoing Restore".
+    /// "Backing Up", "Backing Up to My Backups", "Opening Backup", "Restoring", "Undoing Restore".
     static func title(_ kind: BackupJob.Kind) -> String {
         switch kind {
         case .backUpToFile: "Making Backup File"

@@ -70,14 +70,14 @@ struct BackupUILogicTests {
 
     // MARK: Errors
 
-    @Test func cancellationIsQuietAndSignInIsOffered() {
+    @Test func cancellationIsQuietAndOtherErrorsShowTheirOwnMessage() {
         #expect(BackupFailure.from(CancellationError(), title: "T") == nil)
         #expect(BackupFailure.from(ImportError.cancelled, title: "T") == nil)
         let busy = BackupFailure.from(BackupServiceError.busy, title: "T")
         #expect(busy?.message == BackupServiceError.busy.localizedDescription)
-        #expect(busy?.offersSignIn == false)
-        #expect(BackupFailure.from(CloudBackupError.needsSignInAgain, title: "T")?.offersSignIn == true)
-        #expect(BackupFailure.from(CloudBackupError.noNetwork(destination: "Drive"), title: "T")?.offersSignIn == false)
+        let offline = BackupFailure.from(CloudBackupError.noNetwork(destination: "R2"), title: "T")
+        #expect(offline?.title == "T")
+        #expect(offline?.message == CloudBackupError.noNetwork(destination: "R2").localizedDescription)
         let mismatch = BackupFailure.from(ImportError.pdfMismatch(bookTitle: "B"), title: "T")
         #expect(mismatch?.message == ImportError.pdfMismatch(bookTitle: "B").localizedDescription)
     }
@@ -86,26 +86,14 @@ struct BackupUILogicTests {
 
     @Test func destinationKindsDecideTheirControls() {
         #expect(BackupDestinationKind(id: "folder") == .pickedFolder)
-        #expect(BackupDestinationKind(id: "icloud") == .iCloud)
-        #expect(BackupDestinationKind(id: "google-drive") == .googleDrive)
         #expect(BackupDestinationKind(id: "s3") == .s3)
         #expect(BackupDestinationKind(id: "folder:/tmp/x") == .other)
+        // The IDs of the destinations the app once had of its own (an old setting may hold one).
+        #expect(BackupDestinationKind(id: "icloud") == .other)
+        #expect(BackupDestinationKind(id: "google-drive") == .other)
         #expect(BackupDestinationKind.pickedFolder.showsFolderControls)
         #expect(!BackupDestinationKind.other.showsFolderControls)
-        #expect(BackupDestinationKind.googleDrive.showsGoogleAccount)
-        #expect(!BackupDestinationKind.iCloud.showsGoogleAccount && !BackupDestinationKind.iCloud.showsFolderControls)
-        #expect(!BackupDestinationKind.s3.showsGoogleAccount && !BackupDestinationKind.s3.showsFolderControls)
-    }
-
-    @Test func googleAccountButtons() {
-        let notSetUp = GoogleAccountPresentation.make(.notSetUp)
-        #expect(!notSetUp.showsSignIn && !notSetUp.showsSignOut)
-        let signedOut = GoogleAccountPresentation.make(.signedOut)
-        #expect(signedOut.showsSignIn && !signedOut.showsSignOut)
-        let signedIn = GoogleAccountPresentation.make(.signedIn)
-        #expect(!signedIn.showsSignIn && signedIn.showsSignOut)
-        let again = GoogleAccountPresentation.make(.needsSignInAgain)
-        #expect(again.showsSignIn && again.showsSignOut)
+        #expect(!BackupDestinationKind.s3.showsFolderControls)
     }
 
     // MARK: Automatic backup
@@ -240,7 +228,7 @@ struct BackupUILogicTests {
         #expect(!BackupJobText.canCancel(kind: .backUpToDestination("F"), phase: .removingOldBackups))
         #expect(BackupJobText.status(kind: .restore, phase: .committing, fraction: 0.96).hasSuffix("can’t be cancelled now."))
         #expect(BackupJobText.status(kind: .backUpToFile, phase: .writingBackup, fraction: 0.425) == "Writing backup… 43%")
-        #expect(BackupJobText.title(.backUpToDestination("iCloud")) == "Backing Up to iCloud")
+        #expect(BackupJobText.title(.backUpToDestination("My Backups")) == "Backing Up to My Backups")
     }
 
     @MainActor @Test func undoAndMergePhasesReadAsWhatTheyDo() {

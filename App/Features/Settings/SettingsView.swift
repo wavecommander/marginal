@@ -11,7 +11,8 @@ import UIKit
 /// window's `AccentRoot` reads the same key, so all windows, this sheet and its preview change
 /// at once.
 ///
-/// About: the build's version, branch, commit and build time (`BuildInfo`, `AboutSection`).
+/// About: the version, the branch, commit and build time in development builds (`BuildInfo`,
+/// `AboutSection`), and who makes the app.
 ///
 /// Backup & Restore is a page of its own (`BackupScreen`); "Back Up & Restore…" in the menu bar
 /// opens the sheet straight on it (`WindowContext.showBackupSettings()`).
@@ -50,6 +51,15 @@ struct SettingsView: View {
                     Text("The accent colours buttons, selection and reading progress in every window. Highlights and notes keep their own colours.")
                 }
                 Section {
+                    NavigationLink(value: SettingsPage.backup) {
+                        Label("Backup & Restore", systemImage: "externaldrive")
+                    }
+                    .padding(.vertical, Space.s)
+                    .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
+                } footer: {
+                    Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
+                }
+                Section {
                     NavigationLink {
                         SupportedFormatsView()
                     } label: {
@@ -61,20 +71,9 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, Space.s)
                     .accessibilityIdentifier(AccessibilityID.SupportedFormats.settingsRow)
-                } header: {
-                    Text("Importing", comment: "Settings: header of the section about importing books and documents.")
                 } footer: {
                     Text("What Tactile Texts can import, and what changes when a file is converted to PDF.",
                          comment: "Settings: line under the Supported Formats row.")
-                }
-                Section {
-                    NavigationLink(value: SettingsPage.backup) {
-                        Label("Backup & Restore", systemImage: "externaldrive")
-                    }
-                    .padding(.vertical, Space.s)
-                    .accessibilityIdentifier(AccessibilityID.Backup.settingsRow)
-                } footer: {
-                    Text("Back up your notes, highlights and ink to a file, a folder or a cloud service, and restore them on this or another iPad.")
                 }
                 Section {
                     Button("Open the Quick Guide") {
@@ -123,8 +122,9 @@ extension View {
     }
 }
 
-/// Settings ▸ About: which build this is, from `BuildInfo` (the version, and the branch, commit
-/// and time `scripts/stamp-build-info.sh` stamped). Copy puts them on one line for a bug report.
+/// Settings ▸ About: which build this is, from `BuildInfo` (the version; in development builds
+/// also the branch, commit and time `scripts/stamp-build-info.sh` stamped, which Copy puts on one
+/// line for a bug report), and who makes the app.
 private struct AboutSection: View {
     let build: BuildInfo
 
@@ -143,27 +143,33 @@ private struct AboutSection: View {
         Section {
             row(Text("Version", comment: "Settings ▸ About: the app's version and build number."),
                 value: build.versionText ?? unknown, id: AccessibilityID.Settings.aboutVersion)
-            row(Text("Branch", comment: "Settings ▸ About: the git branch the app was built from."),
-                value: build.branch
-                    ?? (build.commit == nil ? unknown
-                        : String(localized: "Detached", comment: "Settings ▸ About: built from a commit on no branch.")),
-                id: AccessibilityID.Settings.aboutBranch)
-            row(Text("Commit", comment: "Settings ▸ About: the git commit the app was built from."),
-                value: commitText, id: AccessibilityID.Settings.aboutCommit)
-            row(Text("Built", comment: "Settings ▸ About: the date and time the app was built."),
-                value: build.builtAt?.formatted(date: .abbreviated, time: .shortened) ?? unknown,
-                id: AccessibilityID.Settings.aboutBuilt)
-            Button {
-                UIPasteboard.general.string = build.summary
-            } label: {
-                Label {
-                    Text("Copy Build Details", comment: "Settings ▸ About: copies the version, branch, commit and build time as one line.")
-                } icon: {
-                    Image(systemName: "doc.on.clipboard")
+            if BuildInfo.isDevelopmentBuild {
+                row(Text("Branch", comment: "Settings ▸ About: the git branch the app was built from."),
+                    value: build.branch
+                        ?? (build.commit == nil ? unknown
+                            : String(localized: "Detached", comment: "Settings ▸ About: built from a commit on no branch.")),
+                    id: AccessibilityID.Settings.aboutBranch)
+                row(Text("Commit", comment: "Settings ▸ About: the git commit the app was built from."),
+                    value: commitText, id: AccessibilityID.Settings.aboutCommit)
+                row(Text("Built", comment: "Settings ▸ About: the date and time the app was built."),
+                    value: build.builtAt?.formatted(date: .abbreviated, time: .shortened) ?? unknown,
+                    id: AccessibilityID.Settings.aboutBuilt)
+                Button {
+                    UIPasteboard.general.string = build.summary
+                } label: {
+                    Label {
+                        Text("Copy Build Details", comment: "Settings ▸ About: copies the version, branch, commit and build time as one line.")
+                    } icon: {
+                        Image(systemName: "doc.on.clipboard")
+                    }
                 }
+                .padding(.vertical, Space.s)
+                .accessibilityIdentifier(AccessibilityID.Settings.aboutCopy)
             }
-            .padding(.vertical, Space.s)
-            .accessibilityIdentifier(AccessibilityID.Settings.aboutCopy)
+            Text("Made by [Tactile Software Ltd.](https://tactile.software)",
+                 comment: "Settings ▸ About: who makes the app; the company name links to its website.")
+                .padding(.vertical, Space.s)
+                .accessibilityIdentifier(AccessibilityID.Settings.aboutMadeBy)
         } header: {
             Text("About", comment: "Settings: header of the section that says which build of the app this is.")
         }

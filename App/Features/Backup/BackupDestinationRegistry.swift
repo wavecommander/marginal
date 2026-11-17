@@ -3,7 +3,7 @@ import Observation
 import ReaderBackup
 
 /// The backup destinations the app offers (the Backup screen lists `entries`). One per app,
-/// owned by `AppEnvironment`. Each destination registers itself (Folder, iCloud, Google Drive,
+/// owned by `AppEnvironment`. Each destination registers itself (the picked folder,
 /// S3-compatible); `-backupFolder <path>` registers a `FolderBackupDestination` for UI tests.
 @Observable
 @MainActor

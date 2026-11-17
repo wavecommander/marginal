@@ -46,7 +46,7 @@ ones even where the mockup draws an approximation.
 
 | Artboard | What it shows |
 | --- | --- |
-| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
+| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. Search results for notes and highlights are described under "Library search". |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
 | Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
@@ -165,16 +165,42 @@ ones even where the mockup draws an approximation.
   ink read-only. Ink saves when a page leaves the screen, on leaving markup mode, and when the app backgrounds.
 - **Markup controls.** The toolbar's Markup button is the only switch for the mode, and it is
   always in the same place: outlined while markup is off, filled while it is on, and tapping it
-  toggles. There is no Done button, and the rest of the toolbar is the same in both modes. Undo
+  toggles. There is no Done button, and the rest of the toolbar is the same in both modes; the
+  toolbar subtitle shows only the reader's place, with no "Markup" prefix (owner decision,
+  17 November 2026). The Markup button shows its state only by its glyph, with no selected
+  background, and the Notes and Contents buttons are plain buttons that look the same whether
+  their pane is shown or not; their labels say the state ("Done with Markup", "Hide Notes")
+  (owner decision, 17 November 2026). Undo
   and Redo for ink are the system tool picker's own Undo and Redo buttons, not toolbar buttons;
   they act on the surface last drawn on, as do ⌘Z / ⇧⌘Z and Edit ▸ Undo/Redo. Only where the
   system picker has no Undo and Redo buttons (compact-width windows) does the toolbar show them.
+- **Maximized page.** A single finger tap on a page (no drag) gives the page the whole window:
+  the toolbar, the status bar, Contents and the notes panel go off screen. The same tap on a
+  maximized page ends it, and so do Escape and View ▸ Exit Maximized Page (View ▸ Maximize Page
+  starts it from the keyboard). There is no Maximize button in the toolbar and no exit button
+  over the page, and the page pill is hidden too (owner decisions, 17 November 2026): only the
+  page stays.
+  The tap waits out a double tap, so double-tap zoom never maximizes. It does nothing else when
+  the tap has another job: following a link, opening a highlight's menu, clearing a text
+  selection or a search mark, or stopping a scroll; nor while the Find panel is open, nor in
+  markup mode when the finger draws (Draw with Finger, or no Pencil in use). Pencil taps never
+  maximize. It is not a mode: markup is left as it is, so the reader can turn markup on,
+  maximize, write with the tool picker still up, come back, and turn markup off from the
+  toolbar. Where the toolbar would show ink Undo and Redo (markup mode at compact width) they sit
+  at the top trailing corner over the page. The panes are hidden, not closed: they are back as
+  they were when it ends, and their saved state does not change (the narrow Contents overlay is
+  the exception; it is closed). Anything that needs a pane or the toolbar ends it first: Show
+  Contents, Show Notes, opening a note, Find, and adding a heading. It is per window and is not
+  restored.
 - **Markup mode covers notes too.** There is one mode and one tool picker for the whole reader.
   While it is on, the Pencil inks whichever surface it touches, the PDF page or the open note, and
   undo/redo follow the surface last drawn on. While it is off, the Pencil in a note behaves as in
   any text field (Scribble, selection) and note ink is read-only. A finger always scrolls, and a
   finger tap in a note places the text cursor in either mode, so typing and inking can alternate
-  without leaving markup mode.
+  without leaving markup mode. The exception is when the reader's fingers draw (Draw with Finger
+  on, or no Pencil in use, as on an iPhone): in markup mode a finger tap on the note is then ink
+  and does not place the cursor or bring up the keyboard; to type, the reader turns markup off
+  (owner decision, 17 November 2026).
 - **Typing in markup mode** (owner decision, 15 November 2026). With the on-screen keyboard, the
   tool picker steps aside while the cursor is in the note, so the keyboard stays up and nothing
   overlaps it; when typing ends (the keyboard's own dismiss key, or a stroke on the note) the
@@ -202,6 +228,17 @@ ones even where the mockup draws an approximation.
   - *Header:* the Page note / Section note tabs, Delete Note, the shrink control when the pane
     is widened, then the title (the page number, or the heading's title and page range) and the
     save status. No zoom button, and no level picker here.
+  - *Header, narrow panel on a compact screen* (an iPhone, or a compact-width iPad window;
+    owner decision, 17 November 2026): the sheet can cover the toolbar (in landscape on an
+    iPhone it takes the whole screen) or sit under a toolbar whose Markup button is in the
+    overflow menu, so the header also has the Markup switch and, while markup is on, ink Undo
+    and Redo. They do what the toolbar's do. The toolbar's Markup button is otherwise still the
+    only switch for the mode.
+  - *Hiding the lists* (narrow panels; owner decision, 17 November 2026): when there is
+    anything under or beside the note, a header button hides it and shows it again, and the
+    choice is remembered. Hidden in a two-column sheet, the note has the whole width and its
+    page widens to fill it at the same zoom (the text re-wraps, as in a widened pane). A page
+    note with no highlights has nothing beside it and widens the same way (17 November 2026).
   - *Page note tab, under the note:* "Highlights on this page", only while the page has any.
     There is no "This page is in" list: the toolbar subtitle, the Contents sidebar and the
     Section note tab already say where the page sits.
@@ -244,19 +281,67 @@ ones even where the mockup draws an approximation.
   switches live with the system setting. This replaces the first build's choice to keep the note
   page light in Dark Mode. Read-only notes in the Notebook follow the appearance too; exports (Markdown images, PDF) are always light, on white. PDF pages stay as
   the PDF draws them.
+- **The reader's background is true black in Dark Mode** (owner decision, 17 November 2026). The
+  area around and between PDF pages is `#000000` in Dark Mode and a light gray (`#E6E6EA`) in
+  Light Mode; the pages themselves are unchanged.
 - **Deleting a note** (owner requirement). The notes pane has a visible control to delete the
   note it is showing, page note or section note: a Delete Note action in the note's header,
   disabled while the note is empty. It asks for confirmation, saying what will go (the typed
   text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
-  removes the note and its ink and leaves the empty placeholder. The same action is offered on a
-  note's row in the Notebook. The change shows in every
+  removes the note and its ink and leaves the empty placeholder, and shows a brief Undo pill
+  button that restores the note and its ink. The same action and Undo pill are offered on a
+  note's row in the Notebook and Library search results. The change shows in every
   window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
-  confirmation that states those counts.
+  confirmation that states those counts, and its exported marked-up PDFs (counted as "exported
+  PDFs"; see "Export Marked-Up PDF").
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
+- **Notebook headings stay pinned** (*owner decision, 17 November 2026*). While the feed
+  scrolls, the heading of the rows on screen stays at the top of the feed, on the page's
+  background, until the next heading (of any level) pushes it away. A pinned heading is the
+  same row as before: it opens the reader at its start page and has its checkbox while
+  selecting. Scrolling to a row (from the map, or restoring the window's place) lands it just
+  below the pinned heading, not under it.
+- **Notebook map** (*owner decision, 17 November 2026: mockup N1, from Library search option D*).
+  Above the feed, under the type filter, a strip stands for the whole book: one segment per
+  top-level heading (front matter first when the first heading starts later), labelled with the
+  heading's number when there is room, and a mark at the page of every item the feed would show
+  for the current type filter and search: notes in the accent, highlights in their colour,
+  handwriting in grey. The strip always covers the whole book, whatever heading the column has
+  chosen.
+  - A box marks the pages the feed has on screen, and the segment it starts in is tinted
+    (iPadOS 18 and later follow every row on screen; earlier systems follow the top row).
+  - Touching or dragging along the strip shows the nearest item (page, kind, heading); letting
+    go scrolls the feed to it. An item outside the chosen heading first widens the feed to the
+    whole book. A pointer hovering shows the same callout without scrolling.
+  - VoiceOver reads "Map of the book" with the item count and the busiest heading; swiping up
+    or down moves from item to item and scrolls the feed to each.
+  - With nothing to show (no items, or none matching the filter and search) there is no strip.
+- **Library search** ("Search titles and notes") matches book titles, and the text of notes and
+  highlights, case- and diacritic-insensitively (the Notebook's own search; handwriting has no
+  text and is not searched). *Owner decision, 17 November 2026 (mockup option B): the results
+  show what matched, not just which books.*
+  - When no note or highlight matches, the grid shows the books whose title matches, as before.
+  - When notes or highlights match, the Library shows them instead of the grid. Wide windows
+    have two columns. The left one lists "All Books" with the total, then each book with
+    matches and its count, most matches first (ties in the Library's sort), and under "Title
+    Matches" the books whose title matches (tapping one opens it, as its cover does). The right
+    one shows, for each book in that order, a header (cover, title, count, "Open Notebook") and
+    the book's matches laid out exactly as its Notebook lays them out when searched: under their
+    headings, with page pills, highlight colours and ink. Choosing a book on the left shows
+    only its matches; "All Books" shows them all.
+  - *Owner decision, 17 November 2026:* the matches scroll inside their panel, never under the
+    toolbar, and each book's header stays pinned at the top of the panel while that book's
+    rows pass beneath it (the next book's header takes its place). The left column scrolls
+    inside its own area too.
+  - Narrow windows (below the Notebook's width threshold, or compact) have no left column: the
+    title matches lead, then every book's header and matches.
+  - Rows behave as Notebook rows: tapping opens the reader at the page or the heading's note
+    (a book without its PDF offers Locate PDF… instead), the context menu offers Open in New
+    Window and Delete Note. Counts and rows follow changes made in any window.
 - **Export.** Three formats, from the Notebook's Export menu, through the share sheet:
   - *Markdown*: one `.md` file, text only. If the export has a note with ink or a page with
     handwriting, the app first says that images are not included and offers the ZIP.
@@ -270,8 +355,55 @@ ones even where the mockup draws an approximation.
   - *Where:* the reader's More menu, as a submenu with two choices, and the menu bar's Book ›
     Export Marked-Up PDF, acting on the focused window (Book Only ⌥⌘E, Book with Notes ⌥⇧⌘E).
     **Book Only** ("Ink and highlights drawn on the pages") and **Book with Notes** ("Your notes
-    added at the end"); Book with Notes is unavailable while the book has no notes. Not offered
-    in the Library or the Notebook. Pending edits in every window are saved first.
+    added at the end"); Book with Notes is unavailable while the book has no notes, and both are
+    unavailable while an export of the book is running. Not offered in the Library or the
+    Notebook (the Notebook only offers Try Again for an export that did not finish). Pending
+    edits in every window are saved first.
+  - *Confirmation first* (owner decision, 17 November 2026): every way of starting the export
+    (More menu, menu bar, either choice, Try Again) first asks "Export Marked-Up PDF?" ("Export
+    Book with Notes?"): "This can take a long time, and Tactile Texts will create a file at
+    least as big as the current PDF (48 MB). It keeps going while you read or leave the book,
+    and the finished PDF is kept in this book's Notebook until you delete it." The size is the
+    book's PDF, left out if it cannot be read. **Export** starts it; **Cancel** exports nothing.
+  - *Nothing is lost implicitly* (owner decision, 17 November 2026): the export belongs to the
+    book, not to the reader window. Leaving the book, closing its window, sharing, putting away
+    a notice or relaunching never stops an export or deletes its file. Only the user's own,
+    confirmed actions do: stopping a running export ("Stop Exporting?" — "The PDF made so far is
+    deleted. You can export again later." **Stop Export** / **Keep Exporting**), deleting an
+    exported PDF ("Delete Exported PDF?", naming the file and its size, **Delete** / **Cancel**),
+    or deleting the book (its confirmation counts the exported PDFs).
+  - *Running in the background* (owner decision, 17 November 2026): one export per book at a
+    time. The progress card shows the time left ("About 3 minutes left", once it has 5% done and
+    2 seconds to go on) with **Cancel** (asks first, as above) and **Continue in Background**.
+    Continue in Background puts away the card and shows a status pill at the top of the reader
+    (progress ring, title, time left, a stop button that asks first; tapping it shows the card
+    again), and the reader can be used, or left, meanwhile. Every reader window on the book
+    shows the pill. It asks for permission to notify the first time. The export keeps running
+    when Tactile Texts leaves the foreground: on iPadOS 26 and later as a continued processing
+    task, which the system shows with its progress and which the user can stop there; before
+    iPadOS 26, or if the system will not run that task, only for the short time UIKit allows,
+    after which it is paused until the app is opened again. Stopped by the system (or by the
+    user from the system's display) it is kept as unfinished with Try Again, since the app
+    cannot tell the two apart; cut short by the app quitting, likewise ("Tactile Texts closed
+    before the export finished.").
+  - *When it ends* (owner decision, 17 November 2026): finished in the window showing its card
+    with the app in front, the share sheet opens there. Otherwise a notification says "Export
+    Finished" ("“<file>” is ready. Find it in the Notebook of “<book>”.", shown while the app is
+    open too) or "Export Didn't Finish" with the reason, and the book's readers show a pill:
+    "Marked-Up PDF Ready" / "Kept in this book's Notebook" with **Share** and a Hide button, or
+    "Export Didn't Finish" with the reason, **Try Again** and Hide. Hide only puts the pill away.
+    Opening the notification shows the book's Notebook in the window in front. A failure in
+    front of the user shows an alert ("Export Didn't Finish") instead of the pill.
+  - *Exported PDFs* (owner decision, 17 November 2026): the top of the book's Notebook lists
+    every marked-up export of the book, newest first, under "Exported PDFs" with their count and
+    the space the files take; the list folds away (remembered per window) and scrolls past a
+    few rows. A running export shows its progress ring, time left and **Stop**; a finished one
+    its file name, size and date with **Share** (the share sheet) and Delete (also in its
+    context menu); one that did not finish says why, with **Try Again** and Remove (no file to
+    delete). The section is absent when the book has no exports. Files are kept in the app's
+    own storage (`Marked-Up Exports` in Application Support, one folder per export with its
+    record), not in the Files app, not in backups (they can be made again from the book), and
+    not removed by the system.
   - *Pages:* every page of the book, in order, as the reader sees it upright (its crop box with
     its rotation applied), on white. The page's own content is copied, not pictured: text stays
     selectable and searchable where the book's is, vector stays vector, a scanned page keeps its
@@ -295,8 +427,8 @@ ones even where the mockup draws an approximation.
   - *File:* `<Title> (Marked Up).pdf` or `<Title> (Marked Up with Notes).pdf`; the PDF's title is
     the book's. Appendix pages are A4 or US Letter by locale, like the Notebook PDF.
   - *Large books:* written page by page to the file, one page's ink in memory at a time, pages
-    copied off the main thread, with progress and Cancel (which leaves nothing behind). A book
-    whose PDF is missing or password-protected says so instead.
+    copied off the main thread, with progress and Cancel (which, once confirmed, leaves nothing
+    behind). A book whose PDF is missing or password-protected says so instead.
   - *Nothing left out silently* (owner decision, 16 November 2026): if a page's ink, a note's
     handwriting (Book with Notes), or the book's headings, highlights or notes cannot be read,
     the export fails and says which (the page number for page ink) instead of finishing without
@@ -374,7 +506,7 @@ Added by the owner (TSOFT-215, 14 November 2026).
   `AppIcon76x76@2x~ipad.png` in the bundle.
 - **Accent.** The accent is the reader's choice, from a fixed list of presets in Settings ▸
   Appearance (`AccentChoice` in `App/DesignSystem/Accent.swift`, stored under `settings.accent`):
-  Raspberry (the default), Coral, Indigo, Viridian, Teal, Tobacco, Aubergine and Graphite. There
+  Raspberry (the default), Coral, Indigo, Viridian, Aubergine and Onyx (black in Light Mode, near-white in Dark Mode; it replaced Graphite, and Teal and Tobacco were dropped, 17 November 2026; a stored Graphite reads as Onyx, a stored Teal or Tobacco as Raspberry). There
   is no free colour picker, because each preset is a hand-checked set of accent, accent tint and
   on-accent colours in both appearances. Raspberry is `#9C3656` in Light Mode and `#F4A3BE` in
   Dark Mode. The `AccentColor` asset holds the same raspberry; it is only the default and the
@@ -385,17 +517,29 @@ Added by the owner (TSOFT-215, 14 November 2026).
   static colour. Nothing in `App/` hard-codes another blue. Highlight colours, ink, the bookmark
   red, margin red, destructive red and book cloth are separate and do not follow the accent. The
   app icon stays berry whatever the choice.
+- **Toolbar glyphs** (owner, 17 November 2026). On iPadOS 26 and later, the Library, Reader
+  and Notebook toolbars draw their items in the label colour, like the back button and the
+  search field the system already draws that way. The Liquid Glass capsule already marks them as
+  buttons, so the accent there marks only a screen's one main action: the Notebook's Done while
+  choosing. The Library's Import (+) is in the label colour too (owner, 17 November 2026). Filled glyphs that show state (Markup on, a bookmarked
+  page) stay in the label colour too. Other toolbars (sheets, Search, Settings)
+  keep the system's tinted confirmation actions. `toolbarGlyph()` in
+  `App/DesignSystem/Accent.swift` is the one availability check: before iPadOS 26 there is no
+  capsule, and bar items keep the accent. Menus opened from the toolbars (More, Sort, Export)
+  are UIKit and still take the accent from `UIWindow.tintColor`.
 - **Settings.** iPadOS has no system Settings entry for Tactile Texts and there is no
   `Settings.bundle`, so preferences live in an in-app sheet (`SettingsView`). It opens from the
   Library's gear button and from "Settings…" (⌘,) in any window.
-- **Settings ▸ About** says which build this is: the version and build number, the git branch
+- **Settings ▸ About** says which build this is and who makes it. Every build shows the version
+  and build number, and "Made by Tactile Software Ltd.", the name linking to
+  https://tactile.software. Development (Debug) builds also show the git branch
   ("Detached" on a detached HEAD), the short commit (with "with uncommitted changes" when the
   checkout had any, untracked files included) and the build time in the iPad's time zone. Copy
   Build Details puts all of it on one line for a bug report. `scripts/stamp-build-info.sh`, a
-  build phase that runs on every build, writes the values into the built Info.plist
-  (`TactileTextsBuild`); the committed `App/Info.plist` never has them. A build made without git
-  shows "Unknown". (2026-11-16: shown in every build, Release included, while the app is
-  pre-release; decide before the App Store whether customers see the branch and commit.)
+  build phase, writes the values into the built Info.plist (`TactileTextsBuild`) of Debug builds
+  only; the committed `App/Info.plist` never has them. A Debug build made without git shows
+  "Unknown". (2026-11-17, owner: Release builds, App Store builds included, show only the version
+  and the Made by line; the branch, commit, build time and Copy Build Details are development-only.)
 - **Text and icons on an accent fill use `accentTheme.onAccent`** (white in Light Mode, a deep
   shade of the accent's hue in Dark Mode, where every accent is light). This applies to
   `.borderedProminent` buttons, whose label the system draws white on any tint, and to the Pages
@@ -499,10 +643,10 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
   when present. The newest 10 snapshots are kept; PDFs are never removed automatically. In a
-  folder the reader picked and in the iCloud container the snapshot folder is `Tactile Texts
-  Backups/` (owner decision, 16 November 2026), so it reads as the app's in Files; snapshots
-  already in `Backups/` there still list, restore and delete, and new ones are never written
-  to it. Google Drive, S3 and Tactile Texts Cloud keep `Backups/`.
+  folder the reader picked the snapshot folder is `Tactile Texts Backups/` (owner decision,
+  16 November 2026), so it reads as the app's in Files; snapshots already in `Backups/` there
+  still list, restore and delete, and new ones are never written to it. S3 and Tactile Texts
+  Cloud keep `Backups/`.
 - **Include PDFs is one choice** (owner decision, 15 November 2026). The backup-file switch,
   each destination's switch and the automatic backup's switch all show and change the same
   stored value, in every window at once, so a reader who has decided once is never caught out
@@ -511,14 +655,21 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Not in a backup.** Window state, preferences and thumbnails. Backups are not encrypted by
   the app, except those to Tactile Texts Cloud (encrypted on the iPad; see below), and the
   Backup screen's footnote says which.
-- **Destinations.** A file; a folder the reader picks in Files (for example in iCloud Drive),
-  remembered across launches, which Choose Another Folder… replaces but nothing clears (owner
-  decision, 16 November 2026: no Stop Using This Folder); the app's own iCloud container; Google Drive (the app can see only
-  the files it creates); and an S3-compatible bucket the developer configures at build time (for
-  example Cloudflare R2). The last three are switched on from `Config/Local.xcconfig` and are
-  off, or reported as not available, in a build without them. **S3 credentials set at build
-  time are compiled into the app and can be read out of it**: such a build is for the
-  developer's own devices, with a token limited to one bucket, and is never distributed.
+- **Destinations.** A file; a folder the reader picks in Files, remembered across launches,
+  which Choose Another Folder… replaces but nothing clears (owner decision, 16 November 2026:
+  no Stop Using This Folder); and an S3-compatible bucket the developer configures at build
+  time (for example Cloudflare R2), switched on from `Config/Local.xcconfig` and left out of a
+  build without it. **S3 credentials set at build time are compiled into the app and can be
+  read out of it**: such a build is for the developer's own devices, with a token limited to
+  one bucket, and is never distributed.
+- **iCloud Drive, Google Drive and other storage go through Files** (owner decision,
+  17 November 2026). The app has no iCloud container and no Google sign-in of its own: the
+  system's pickers already reach every location Files shows, so the reader saves or opens a
+  backup file there, or chooses a folder there as the folder destination (its screen says so
+  under Choose Folder…). A folder in iCloud Drive gets what the app can do for it: every
+  access is coordinated, and a backup that is in iCloud but not on this iPad is listed and
+  downloaded before it is read. Whether a folder can be chosen in another app's location is
+  up to that app's Files extension; a backup file can be saved to and opened from any of them.
 - **Linking PDFs by hash.** A book's identity is its sampled fingerprint, as before. A backup
   also records the SHA-256 of the whole PDF, kept beside the book in `document.sha256`. A book
   restored without its PDF is an ordinary book whose file is absent: the Library marks it
@@ -580,7 +731,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   the same commit: the merged book is built to one side, then swapped in.
 - **One at a time.** One backup or restore runs for the whole app, with progress and Cancel in
   every window. Cancel is honoured until books are being swapped in.
-- **Automatic backups** (owner decision: manual plus automatic). Off by default. When on, a
+- **Automatic backups** (owner decision: manual plus automatic). Off by default (except for a
+  signed-in Tactile Texts Cloud subscriber; see that section). When on, a
   backup to the chosen destination is due when the library has changed and the last success is
   at least a day old. It is checked when a window becomes active, every 15 minutes while the
   app stays in front, and from a background processing task scheduled when the app goes to the
@@ -681,12 +833,51 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   through the Worker. The Worker makes the credentials itself by signing with a parent R2 token
   it keeps as a secret, so issuing them costs no call to Cloudflare, and revoking the parent
   token ends every credential made from it.
-- **Identity is the App Store subscription** (owner decision). There is no account, sign-in,
-  email address or password. The iPad sends the signed subscription transaction Apple gave it;
-  the Worker checks Apple's signature chain to a pinned Apple root, the bundle ID, the product
-  and the environment. The user's folder is `users/<HMAC-SHA256(server secret, original
-  transaction ID)>/`, so Restore Purchases on a new iPad finds the same backups. App Store
-  Server Notifications keep the Worker's record current for renewals, expiry and refunds.
+- **An account, signed in with Apple or Google** (owner decisions, 17 November 2026; this
+  replaces "identity is the App Store subscription" of 15 November 2026). The reader signs in
+  to an account with Sign in with Apple or Sign in with Google; the subscription pays for the
+  account and is not who the reader is. An account has exactly one sign-in at a time. There is
+  still no password, and the service keeps no name or email address: the email in the ID
+  token is shown on the Account section of the iPad that signed in and is never sent. Signing
+  in asks the Worker for a one-time challenge, asks Apple or Google for an ID token carrying its
+  SHA-256 as the nonce, and gets a device session back, kept in the Keychain on this iPad only
+  (not synchronised). Every later request carries that session and App Attest. The account's
+  folder name is random. Purchases carry the account's `appAccountToken`, so the signed
+  transaction names the account it pays for; a transaction is sent with every session request
+  so a purchase binds to the account. App Store Server Notifications keep the Worker's record
+  current for renewals, expiry and refunds. The Worker's contract is
+  `Backend/backup-worker/README.md`; the plan is `docs/CLOUD_SYNC_PLAN.md`.
+- **Sign-in is required for the service** (owner decision 2), and only for it: the rest of the
+  app has no account and the welcome sheet's "no account" stays true. Subscribe and Restore
+  Purchases appear only when signed in.
+- **The library is never touched by a sign-in change** (owner decision 7). The books, notes and
+  ink on the iPad are ordinary local data. Sign Out, Sign Out of All Devices, Change the
+  sign-in, a session the service ended (signed out elsewhere, or by Apple), a revoked Sign in
+  with Apple authorization, a lapsed subscription and a deleted account all leave every book
+  open and editable; only the service stops. Automatic cloud backup then skips, and the page
+  says the books are no longer backed up there.
+- **Signing in and the Account section** (as built 17 November 2026). Signed out, the offer shows
+  Sign in with Apple (the system's button) and Sign in with Google at the same size, in place
+  of Subscribe; only the ways the build is configured for appear (`SIGN_IN_WITH_APPLE` with the
+  committed `Config/SignInWithApple.entitlements`, `GOOGLE_SIGNIN_CLIENT_ID`), and with neither
+  the service says it isn't available. A build with every setting empty has no service and no
+  sign-in anywhere. Signed in, an Account section shows which sign-in and the email, the
+  signed-in devices (each named by an encrypted label only the account's key opens: "This
+  iPad" and "Another device" until the key exists), Change to Sign in with Google/Apple…, Sign
+  Out…, Sign Out of All Devices… and Delete Account…. Each asks first and says what happens to
+  the books on this iPad (they stay) and to what is in the cloud.
+  - *Sign Out* ends this iPad's session (even when the service can't be reached); the key
+    stays, so signing in again carries on. *Sign Out of All Devices* ends every session of the
+    account; other iPads find out at their next request and say so.
+  - *Change* confirms with the current sign-in, then the new one; the account, folder,
+    subscription and key stay the same. A new sign-in that already has its own account is
+    refused with an explanation; afterwards the page offers Sign Out of All Devices.
+  - *Delete Account* (App Store guideline 5.1.1(v)) confirms with the current sign-in, then
+    deletes the folder and the account in steps, with progress; Apple's authorization is
+    revoked by the Worker. It says the subscription is not cancelled and points to Manage
+    Subscription. The account's key is removed after.
+  - At launch the app asks Apple whether a Sign in with Apple authorization still holds, and
+    listens for its revocation, signing out here if not.
 - **That it is the real app.** App Attest: each install registers a device key once and signs
   every request for credentials with it, so a copied subscription transaction alone cannot be
   used from a script. The simulator has no App Attest; only the Worker's `dev` deployment
@@ -700,8 +891,10 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   recognised), and a snapshot keeps only its timestamp in the clear, with the device name
   encrypted. Sizes and times remain visible to the operator. The plaintext SHA-256 check on
   restore is unchanged.
-- **The key.** A random 256-bit key in the Keychain, carried to the reader's other devices by
-  iCloud Keychain, plus a **recovery key** (56 characters in 14 groups of 4, with typo
+- **The key.** A random 256-bit key in the Keychain, one item per account (named by the
+  account's random ID, so signing in to another account on the same iPad never pairs one
+  account's key with another's backups), carried to the reader's other devices by iCloud
+  Keychain, plus a **recovery key** (56 characters in 14 groups of 4, with typo
   detection) the reader can save. A small key-check object in the user's folder tells "wrong
   key" apart from damage. A device that finds backups but has no key asks for the recovery key
   and **never makes a new key while data exists**, because the key may simply not have arrived
@@ -719,9 +912,14 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   between sessions, not within one.
 - **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
   them, then removes the key from the Keychain (on every device, since it is synchronised).
+- **Automatic backup is on by default for a signed-in subscriber** (owner decision, 17 November
+  2026), to Tactile Texts Cloud, the first time the account is seen able to back up, unless the
+  reader already set automatic backups up (switched them on or off, or chose a destination). A
+  reader who turns it off is left alone. Nothing changes for anyone else or for other
+  destinations.
 - **Where it lives and what the reader sees.** The service is the last row under Destinations on
-  the Backup screen, and opens its own page (not the generic destination page). Not subscribed:
-  an offer saying what it is, the price and period from the App Store, that backups are
+  the Backup screen, and opens its own page (not the generic destination page). Signed out: the
+  offer with the two sign-in buttons. Signed in and not subscribed: an offer saying what it is, the price and period from the App Store, that backups are
   encrypted on the iPad and nobody else can read them, why the recovery key matters, what
   happens when a subscription ends, Subscribe, Restore Purchases, and Terms of Use and Privacy
   Policy links (`BACKUP_TERMS_URL`, `BACKUP_PRIVACY_URL`; a link left empty is not shown).
@@ -742,8 +940,12 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   (`Config/TactileTexts.storekit`) and fakes. Purchases made in the sandbox, TestFlight or Xcode are
   kept apart from paying users' data, under `sandbox/`, with a 100 MB allowance. The UI tests
   launch debug builds with `-cloudBackupUITest <state>`, which builds the service from fakes in
-  the app's debug code (a scripted StoreKit, a fake Worker and a folder standing in for R2); none
-  of it is in a release build.
+  the app's debug code (a scripted StoreKit, Apple and Google that answer at once, a fake Worker
+  and a folder standing in for R2); `signedOut` and `sessionExpired` start signed out or with an
+  ended session, every other state signed in. None of it is in a release build. The Worker's
+  `dev` deployment has a test issuer (`DEV_TEST_SIGNIN_SECRET`) so a debug build
+  (`BACKUP_SERVICE_DEV_SIGNIN`) and the end-to-end test can sign in without Apple or Google;
+  production refuses it.
 
 ## Keeping data openable across versions
 
@@ -849,7 +1051,7 @@ switching between development branches).
 | Shared data across windows | One `ModelContainer` for the app, read on the main actor by every window; an in-process change hub (`StoreChangeHub`, one per `LibraryStore`) announces every committed change, to records and to ink files alike (what changed and the book, page or note it concerns, never the new value), and other windows re-read what they show through `LibraryStore`. Nothing relies on SwiftData observation or `@Query` | One signal for structured data and for ink, which lives in files; each change carries its origin (the window or job that made it), so a window can tell its own changes from another window's. |
 | Drawing policy | `PKCanvasView.drawingPolicy = .default`, with the shared system `PKToolPicker` | Honours the reader's Pencil settings instead of overriding them. |
 | Vector ink | `PKDrawing` data on disk; live `PKCanvasView` rendering; exports stroke paths as vector | Sharp at any zoom and in exported PDFs. |
-| Backup format and network code | Three Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan), `GoogleDriveKit` (OAuth with PKCE, Drive REST), `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
+| Backup format and network code | Two Foundation-only packages beside `ReaderCore`: `ReaderBackup` (archive, hashing, manifest, folder layout, restore plan) and `S3Kit` (Signature Version 4, object operations); the app holds the engine, the destinations' app side and the UI | The format and every network request are tested with `swift test` on the Mac in seconds, against published test vectors and stubs, with no account needed. |
 | Cloud backup service | A Cloudflare Worker (TypeScript, D1, a daily cron) that verifies the App Store subscription and App Attest and issues 15-minute R2 credentials limited to one user's folder; the iPad talks to R2 directly with `S3Kit` and encrypts with `ReaderBackup` | The only server code is the part that must hold a secret. File data never passes through it, so it stays small and cheap, and the storage holds nothing readable. |
 | PDF content hash | A sidecar file `Books/<bookID>/document.sha256`, not a database column | No SwiftData migration touches the reader's data; the directory is already removed with the book. |
 | Quick Guide | A PDF generated by `scripts/make-guide.swift` and committed at `App/Resources/Tactile Texts Quick Guide.pdf` (the file name is the book's title), imported through the normal import path; seeded notes, highlight and ink written through the repositories | The guide exercises the same code as a reader's own book, and the existing "same file opens the existing book" rule prevents duplicates. |
@@ -952,8 +1154,8 @@ is never written to, and no text layer is added to it.
 
 ## Not in version 1
 
-iCloud sync (backup and restore to iCloud exist, see "Backup and restore"; keeping two devices in
-step does not), collections or tags in the Library, for scanned books: writing a text layer into
+iCloud sync (a backup can be kept in iCloud Drive and restored from it, see "Backup and restore";
+keeping two devices in step does not exist), collections or tags in the Library, for scanned books: writing a text layer into
 the PDF, recognition while the app is suspended and a choice of recognition language (see
 "Scanned books" for what exists), handwriting search,
 automatic heading detection from page text, an in-window split of two pages or two books (two

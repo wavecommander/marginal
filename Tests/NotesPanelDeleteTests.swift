@@ -114,5 +114,61 @@ struct NotesPanelDeleteTests {
         #expect(try store.notes.note(bookID: book.id, target: open.target) == nil)
         #expect(open.text == "")
         #expect(NotesPanelController.isEmpty(open))
+        #expect(controller.undoController.pending?.note.text == "Typing")
+    }
+
+    @Test func undoRestoresDeletedStoredNoteAndInkAcrossWindows() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        var configuration = ReaderSession.Configuration()
+        configuration.installsFeatures = false
+        let session = ReaderSession(book: book, store: store, configuration: configuration)
+        let controller = NotesPanelController(session: session) { [weak session] target in
+            NotePageModel(session: session!, target: target, autosaveDelay: .milliseconds(60))
+        }
+        let open = try #require(controller.model)
+        await open.load()
+        open.userDidEditText("Marked")
+        let layout = NotePageLayoutEngine.shared.bandLayout(for: "Marked")
+        Support.draw(Support.stroke(over: layout.paragraphs[0]), on: open)
+        await open.flush()
+        let originalID = try #require(try store.notes.note(bookID: book.id, target: open.target)?.id)
+
+        let otherWindow = makeModel(store, book, target: open.target, origin: ChangeOrigin(label: "other"))
+        await otherWindow.load()
+        #expect(otherWindow.text == "Marked")
+        #expect(otherWindow.hasInk)
+
+        #expect(await controller.delete(open))
+        #expect(open.text == "" && !open.hasInk)
+        #expect(controller.undoController.pending != nil)
+        #expect(await Support.waitUntil { otherWindow.text == "" && !otherWindow.hasInk })
+
+        #expect(await controller.undoController.undo())
+        #expect(controller.undoController.pending == nil)
+        #expect(open.text == "Marked")
+        #expect(open.hasInk)
+        #expect(open.saveState == .saved)
+        let restored = try #require(try store.notes.note(bookID: book.id, target: open.target))
+        #expect(restored.id == originalID)
+        #expect(restored.text == "Marked")
+        #expect(restored.hasInk)
+        #expect(try await store.noteInk(bookID: book.id, noteID: originalID) != nil)
+        #expect(await Support.waitUntil { otherWindow.text == "Marked" && otherWindow.hasInk })
+    }
+
+    @Test func undoControllerAutoDismissesUnlessKeptVisible() async throws {
+        let undo = DeletedNoteUndoController(timeout: .milliseconds(80))
+        let note = Note(bookID: UUID(), target: .page(1), text: "Temp")
+        let snapshot = DeletedNoteSnapshot(note: note, inkData: nil)
+        undo.offer(snapshot, keepVisible: false) { _ in true }
+        #expect(undo.pending == snapshot)
+        #expect(await Support.waitUntil { undo.pending == nil })
+
+        undo.offer(snapshot, keepVisible: true) { _ in true }
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(undo.pending == snapshot, "kept visible while assistive tech is active")
+        undo.setKeepVisible(false)
+        #expect(await Support.waitUntil { undo.pending == nil })
     }
 }

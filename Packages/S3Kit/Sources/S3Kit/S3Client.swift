@@ -123,11 +123,7 @@ public struct S3Client: Sendable {
             throw S3Error.unexpectedResponse(status: response.statusCode, code: nil,
                                              message: "The object's size was missing.")
         }
-        var metadata: [String: String] = [:]
-        for (name, value) in headers where name.hasPrefix("x-amz-meta-") {
-            metadata[String(name.dropFirst("x-amz-meta-".count))] = value
-        }
-        return S3ObjectHead(size: size, metadata: metadata, eTag: headers["etag"],
+        return S3ObjectHead(size: size, metadata: Self.userMetadata(headers), eTag: headers["etag"],
                             lastModified: headers["last-modified"].flatMap(Self.parseHTTPDate))
     }
 
@@ -352,6 +348,15 @@ public struct S3Client: Sendable {
             headers["x-amz-meta-\(lower)"] = value
         }
         return headers
+    }
+
+    /// The user metadata (`x-amz-meta-*`) in lowercased response headers, names without the prefix.
+    static func userMetadata(_ headers: [String: String]) -> [String: String] {
+        var metadata: [String: String] = [:]
+        for (name, value) in headers where name.hasPrefix("x-amz-meta-") {
+            metadata[String(name.dropFirst("x-amz-meta-".count))] = value
+        }
+        return metadata
     }
 
     static func lowercasedHeaders(_ response: HTTPURLResponse) -> [String: String] {

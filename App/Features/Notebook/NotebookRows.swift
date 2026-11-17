@@ -24,6 +24,8 @@ nonisolated enum NotebookAccessibilityID {
     static let exportProgress = "notebook.export.progress"
     static let exportCancel = "notebook.export.cancel"
     static let openBook = "notebook.openBook"
+    /// The map of the whole book above the feed (`NotebookMapStrip`).
+    static let map = "notebook.map"
     static let empty = "notebook.empty"
     /// "Delete Note" in a note row's context menu.
     static let deleteNote = "notebook.deleteNote"

@@ -17,7 +17,12 @@ struct LibraryScreen: View {
     @AppStorage(LibrarySort.storageKey) private var sortRaw = LibrarySort.recentlyOpened.rawValue
     @State private var model: LibraryModel?
     @State private var query = ""
-    @State private var noteMatches: Set<UUID> = []
+    /// Per book, how many of its notes and highlights contain the query (books with none are
+    /// absent).
+    @State private var noteCounts: [UUID: Int] = [:]
+    /// The Notebooks the search results read (`LibrarySearchResultsView`); stopped when the
+    /// search ends.
+    @State private var searchNotebooks: LibrarySearchNotebooks?
     @State private var showImporter = false
     @State private var isDropTargeted = false
     @State private var renameTarget: Book?
@@ -30,6 +35,8 @@ struct LibraryScreen: View {
     /// A book without its PDF the reader tried to open: offers Locate PDF… and the Notebook.
     @State private var missingPrompt: Book?
     @State private var linker = PDFLinker()
+    /// Undo pill state after deleting a note from Library search results.
+    @State private var undoController = DeletedNoteUndoController()
 
     init() {}
 
@@ -65,7 +72,8 @@ struct LibraryScreen: View {
                                environment: environment)
     }
 
-    private var screen: some View {
+    /// The page with its title, search field and toolbar; `screen` adds the sheets and alerts.
+    private var titledPage: some View {
         ZStack {
             Color(.systemGroupedBackground).ignoresSafeArea()
             if let model {
@@ -75,16 +83,56 @@ struct LibraryScreen: View {
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $query, prompt: "Search titles and notes")
+        .modifier(LibrarySearchPresentation())
         .toolbar { toolbar }
+        .overlay(alignment: .bottom) {
+            DeletedNoteUndoPill(controller: undoController)
+                .padding(.bottom, Space.l)
+                .padding(.horizontal, Space.m)
+        }
+        .onChange(of: model?.books.map(\.id) ?? []) { _, ids in
+            if let bookID = undoController.pending?.note.bookID, !ids.contains(bookID) {
+                undoController.dismiss()
+            }
+        }
+    }
+
+    private var screen: some View {
+        titledPage
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task { await considerWelcome() }
+        #if DEBUG
+        .task {
+            if let preset = LaunchOptions.current.librarySearchQuery, query.isEmpty {
+                try? await Task.sleep(for: .seconds(1.5))
+                query = preset
+            }
+        }
+        .task {
+            guard LaunchOptions.current.seedLibrarySearch else { return }
+            _ = await environment.launchPlan()
+            await NotebookDebugSeed.seedLibrarySearch(store: environment.store)
+        }
+        #endif
         .sheet(isPresented: welcomeBinding) {
             WelcomeSheet(openGuide: {
                 environment.onboarding.dismissWelcome()
                 openQuickGuide()
             }, notNow: { environment.onboarding.dismissWelcome() })
         }
-        .task(id: query) { await updateNoteMatches() }
+        .task(id: SearchInput(query: query, annotationsVersion: model?.annotationsVersion ?? 0)) {
+            await updateNoteMatches()
+        }
+        .onChange(of: isSearching) { _, searching in
+            if !searching {
+                searchNotebooks?.stopAll()
+                searchNotebooks = nil
+            }
+        }
+        .onDisappear {
+            searchNotebooks?.stopAll()
+            searchNotebooks = nil
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importerMode.contentTypes,
                       allowsMultipleSelection: importerMode == .importDocuments) { result in
             importerCompleted(result)
@@ -164,19 +212,22 @@ struct LibraryScreen: View {
     @ViewBuilder
     private func content(_ model: LibraryModel) -> some View {
         let all = model.books
-        let visible = LibraryLogic.sorted(LibraryLogic.filtered(all, query: query, noteMatches: noteMatches), by: sort)
+        let visible = LibraryLogic.sorted(LibraryLogic.filtered(all, query: query, noteMatches: Set(noteCounts.keys)), by: sort)
         let backupJob = environment.backupService.job
         if all.isEmpty && service.jobs.isEmpty && backupJob == nil {
             emptyState
+        } else if isSearching, !noteCounts.isEmpty {
+            // Notes or highlights match: the books and their matches (design: "Library search").
+            VStack(spacing: 0) {
+                progressRows
+                    .padding(.horizontal, sizeClass == .regular ? 32 : 16)
+                    .padding(.bottom, 8)
+                searchResults(model, all: all)
+            }
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if !service.jobs.isEmpty || backupJob != nil {
-                        VStack(spacing: 10) {
-                            if let backupJob { LibraryBackupProgressRow(job: backupJob) }
-                            ForEach(service.jobs) { ImportProgressRow(job: $0) }
-                        }
-                    }
+                    progressRows
                     if !isSearching, let book = LibraryLogic.continueReading(all) {
                         ContinueReadingCard(book: book, annotationCount: model.continueAnnotationCount,
                                             isMissingPDF: model.isMissingPDF(book),
@@ -200,6 +251,43 @@ struct LibraryScreen: View {
         }
     }
 
+    /// Import and backup progress, above the grid or the search results.
+    @ViewBuilder
+    private var progressRows: some View {
+        let backupJob = environment.backupService.job
+        if !service.jobs.isEmpty || backupJob != nil {
+            VStack(spacing: 10) {
+                if let backupJob { LibraryBackupProgressRow(job: backupJob) }
+                ForEach(service.jobs) { ImportProgressRow(job: $0) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchResults(_ model: LibraryModel, all: [Book]) -> some View {
+        if let searchNotebooks {
+            let counts = noteCounts
+            LibrarySearchResultsView(
+                notebooks: searchNotebooks,
+                books: LibraryLogic.searchResultOrder(all, counts: counts, sort: sort)
+                    .map { LibrarySearchResultsView.BookCount(book: $0, count: counts[$0.id] ?? 0) },
+                titleMatches: LibraryLogic.titleMatches(all, query: query, sort: sort),
+                query: query,
+                isMissingPDF: { model.isMissingPDF($0) },
+                openBook: { open($0) },
+                openAt: { book, page, heading in open(book, pageIndex: page, notesHeading: heading) },
+                openInNewWindow: { book, page, heading in
+                    window.openReaderInNewWindow(bookID: book.id, pageIndex: page, notesHeading: heading)
+                },
+                openNotebook: { window.openNotebook(bookID: $0.id) },
+                onDeleteNote: { snapshot in
+                    undoController.offer(snapshot) { [store = environment.store] item in
+                        (try? await NoteRestore.restore(item, to: store, origin: nil)) != nil
+                    }
+                })
+        }
+    }
+
     private var emptyState: some View {
         ContentUnavailableView {
             Label("No Books Yet", systemImage: "books.vertical")
@@ -207,7 +295,7 @@ struct LibraryScreen: View {
                 // buttons' own ones.
                 .accessibilityIdentifier("library.emptyState")
         } description: {
-            Text("Import a book or document to start reading and taking notes. You can also drop files here from Files or another app, or restore your books from a backup.",
+            Text("Import a book or document to start reading and taking notes.\nYou can also drop files here from Files or another app, or restore your books from a backup.",
                  comment: "Library empty state: description under 'No Books Yet'.")
         } actions: {
             ViewThatFits {
@@ -220,6 +308,8 @@ struct LibraryScreen: View {
     private var emptyGuideButton: some View {
         Button("Open the Quick Guide", systemImage: "book.pages") { openQuickGuide() }
             .buttonStyle(.bordered)
+            // Its full width, not a truncated title: the row falls back to a column when it doesn't fit.
+            .fixedSize()
             .accessibilityIdentifier(AccessibilityID.Onboarding.emptyLibraryOpenGuide)
     }
 
@@ -327,6 +417,7 @@ struct LibraryScreen: View {
                 Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
             }
             .accessibilityIdentifier(AccessibilityID.Settings.openButton)
+            .toolbarGlyph()
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -340,6 +431,7 @@ struct LibraryScreen: View {
             }
             .accessibilityLabel("Sort by \(sort.label)")
             .accessibilityIdentifier("library.sortMenu")
+            .toolbarGlyph()
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
@@ -350,6 +442,7 @@ struct LibraryScreen: View {
             }
             .fontWeight(.semibold)
             .accessibilityIdentifier(AccessibilityID.Library.importButton)
+            .toolbarGlyph()
         }
     }
 
@@ -389,25 +482,36 @@ struct LibraryScreen: View {
 
     // MARK: Search
 
+    private struct SearchInput: Equatable {
+        let query: String
+        /// Bumped by a note or highlight change in any window, so the counts stay current.
+        let annotationsVersion: Int
+    }
+
     private func updateNoteMatches() async {
         guard isSearching, let model else {
-            noteMatches = []
+            noteCounts = [:]
             return
         }
         try? await Task.sleep(for: .milliseconds(250))  // debounce; cancelled by the next keystroke
         guard !Task.isCancelled else { return }
-        let matches = await model.bookIDsWithAnnotations(matching: query)
-        if !Task.isCancelled { noteMatches = matches }
+        let counts = await model.annotationMatchCounts(matching: query)
+        guard !Task.isCancelled else { return }
+        if !counts.isEmpty, searchNotebooks == nil {
+            searchNotebooks = LibrarySearchNotebooks(store: environment.store)
+        }
+        noteCounts = counts
     }
 
     // MARK: Opening and the file importer
 
-    /// Opens the book in place, or, when its PDF is missing, offers Locate PDF… and the Notebook.
-    private func open(_ book: Book) {
+    /// Opens the book in place (at `pageIndex`, with `notesHeading`'s note in the notes panel,
+    /// when given), or, when its PDF is missing, offers Locate PDF… and the Notebook.
+    private func open(_ book: Book, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
         if model?.isMissingPDF(book) == true {
             missingPrompt = book
         } else {
-            window.openReader(bookID: book.id)
+            window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
         }
     }
 
@@ -505,7 +609,9 @@ struct LibraryScreen: View {
         Task {
             do {
                 let summary = try await environment.store.deletionSummary(bookID: book.id)
-                deletePrompt = DeletePrompt(book: book, message: LibraryLogic.deletionMessage(title: book.title, summary: summary))
+                let exports = environment.markedUpExports.records(for: book.id).filter { $0.isRunning || $0.isFinished }.count
+                deletePrompt = DeletePrompt(book: book, message: LibraryLogic.deletionMessage(title: book.title, summary: summary,
+                                                                                             exportedPDFs: exports))
             } catch {
                 errorMessage = "Couldn't look up what deleting “\(book.title)” removes: \(error)"
             }
@@ -515,13 +621,17 @@ struct LibraryScreen: View {
     private func delete(_ book: Book) {
         let store = environment.store
         let origin = model?.origin
+        let exports = environment.markedUpExports
         Task {
             do {
                 try await store.deleteBook(id: book.id, origin: origin)
+                // Named in the confirmation ("exported PDFs").
+                exports.deleteAll(bookID: book.id)
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
                 ReaderPositionStore().removePosition(for: book.id)
             } catch LibraryStoreError.bookFilesNotRemoved {
+                exports.deleteAll(bookID: book.id)
                 ReaderScrollDirectionStore().removeDirection(for: book.id)
                 ReaderNotesPanelStore().removeValue(for: book.id)
                 ReaderPositionStore().removePosition(for: book.id)
@@ -559,5 +669,18 @@ struct LibraryScreen: View {
 
     private var errorBinding: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+}
+
+/// Keeps the large "Library" title where it is while the search field is active. Without it,
+/// focusing search on iPad drops the title's leading margin and it jumps to the window's edge.
+/// iPadOS 17.0 has no such switch and keeps the system's default search presentation.
+private struct LibrarySearchPresentation: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.1, *) {
+            content.searchPresentationToolbarBehavior(.avoidHidingContent)
+        } else {
+            content
+        }
     }
 }

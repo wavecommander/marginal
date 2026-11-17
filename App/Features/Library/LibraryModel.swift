@@ -15,6 +15,9 @@ final class LibraryModel {
     /// covers carry "PDF missing" and opening them offers Locate PDF…. Checked off the main
     /// thread whenever the list reloads (a book saved, linked or deleted).
     private(set) var booksMissingPDF: Set<UUID> = []
+    /// Increases whenever a note or highlight of any book is saved or removed, from any window,
+    /// so an open search recounts its matches.
+    private(set) var annotationsVersion = 0
 
     @ObservationIgnored let store: LibraryStore
     @ObservationIgnored let origin = ChangeOrigin(label: "library window")
@@ -59,6 +62,7 @@ final class LibraryModel {
         case .bookSaved, .bookDeleted:
             reload()
         case .noteSaved(let id, _, _), .noteRemoved(let id, _, _), .highlightsChanged(let id, _):
+            annotationsVersion += 1
             if id == continueBookID { recountContinueBook() }
         default:
             break
@@ -72,22 +76,21 @@ final class LibraryModel {
         continueAnnotationCount = notes + highlights
     }
 
-    /// IDs of books with a note or a highlight whose text contains `query`. Reads one book at a
-    /// time and yields between books, so typing stays responsive; stops early if cancelled.
-    func bookIDsWithAnnotations(matching query: String) async -> Set<UUID> {
-        var matches: Set<UUID> = []
+    /// For each book with a note or highlight whose text contains `query`, how many do
+    /// (`LibraryLogic.matchCount`, which matches as the Notebook's search does). Reads one book
+    /// at a time and yields between books, so typing stays responsive; stops early if cancelled.
+    func annotationMatchCounts(matching query: String) async -> [UUID: Int] {
+        var counts: [UUID: Int] = [:]
         for book in books {
             if Task.isCancelled { break }
             let notes = (try? store.notes.notes(bookID: book.id)) ?? []
-            if LibraryLogic.anyText(notes.lazy.map(\.text), contains: query) {
-                matches.insert(book.id)
-            } else {
-                let highlights = (try? store.highlights.highlights(bookID: book.id)) ?? []
-                if LibraryLogic.anyText(highlights.lazy.map(\.text), contains: query) { matches.insert(book.id) }
-            }
+            let highlights = (try? store.highlights.highlights(bookID: book.id)) ?? []
+            let count = LibraryLogic.matchCount(notes.lazy.map(\.text), query: query)
+                + LibraryLogic.matchCount(highlights.lazy.map(\.text), query: query)
+            if count > 0 { counts[book.id] = count }
             await Task.yield()
         }
-        return matches
+        return counts
     }
 
     /// Renames the book (the title only; the file keeps its name). Blank titles are ignored.

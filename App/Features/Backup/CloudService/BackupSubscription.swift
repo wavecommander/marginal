@@ -175,13 +175,13 @@ final class BackupSubscription {
     /// - Returns: `.purchased` (the state is then subscribed), `.cancelled`, or `.pending`.
     /// - Throws: `BackupSubscriptionError` (`verificationFailed` when the App Store's signature
     ///   did not verify: nothing is unlocked and the transaction is not finished).
-    func purchase(_ productID: String, confirmIn scene: UIScene? = nil) async throws -> PurchaseOutcome {
+    func purchase(_ productID: String, appAccountToken: UUID? = nil, confirmIn scene: UIScene? = nil) async throws -> PurchaseOutcome {
         guard productIDs.contains(productID) else {
             throw productIDs.isEmpty ? BackupSubscriptionError.notConfigured : BackupSubscriptionError.productNotFound
         }
         let result: BackupStorePurchaseResult
         do {
-            result = try await store.purchase(productID: productID, confirmIn: scene)
+            result = try await store.purchase(productID: productID, appAccountToken: appAccountToken, confirmIn: scene)
         } catch is CancellationError {
             return .cancelled
         }

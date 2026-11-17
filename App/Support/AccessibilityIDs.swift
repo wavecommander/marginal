@@ -31,6 +31,21 @@ nonisolated enum AccessibilityID {
         static let useEarlierCopy = "library.unavailable.useEarlierCopy"
         /// Shown once the library was changed and opens at the next launch.
         static let recoveryReady = "library.unavailable.ready"
+        // Search results when notes or highlights match (`LibrarySearchResultsView`); the rows
+        // themselves carry the Notebook's identifiers (`NotebookAccessibilityID`).
+        static let searchResults = "library.search.results"
+        /// The column of books with matches (wide windows).
+        static let searchBookColumn = "library.search.books"
+        /// "All Books" in that column.
+        static let searchAllBooks = "library.search.allBooks"
+        /// A book in that column: `library.search.book.<title>`.
+        static func searchBook(_ title: String) -> String { "library.search.book.\(title)" }
+        /// A book whose title matches: `library.search.title.<title>`.
+        static func searchTitle(_ title: String) -> String { "library.search.title.\(title)" }
+        /// The results column.
+        static let searchFeed = "library.search.feed"
+        /// A book's header in the results column: `library.search.header.<title>`.
+        static func searchHeader(_ title: String) -> String { "library.search.header.\(title)" }
     }
 
     /// Settings ▸ Backup & Restore and a destination's screen.
@@ -70,9 +85,7 @@ nonisolated enum AccessibilityID {
         static let backUpNow = "backup.destinationScreen.backUpNow"
         static let destinationResult = "backup.destinationScreen.result"
         static let chooseFolder = "backup.destinationScreen.chooseFolder"
-        static let googleStatus = "backup.destinationScreen.google.status"
-        static let googleSignIn = "backup.destinationScreen.google.signIn"
-        static let googleSignOut = "backup.destinationScreen.google.signOut"
+        static let folderFooter = "backup.destinationScreen.folder.footer"
         /// One row per backup at the destination: `backup.snapshot.<snapshot name>`.
         static func snapshot(_ name: String) -> String { "backup.snapshot.\(name)" }
         static let snapshotsEmpty = "backup.snapshots.empty"
@@ -91,6 +104,20 @@ nonisolated enum AccessibilityID {
         static let terms = "cloud.terms"
         static let privacy = "cloud.privacy"
         static let notice = "cloud.notice"
+        // Signing in (the offer, signed out)
+        static let signInApple = "cloud.signIn.apple"
+        static let signInGoogle = "cloud.signIn.google"
+        /// Why this iPad was signed out (session ended, Apple revoked, account deleted).
+        static let signedOutNotice = "cloud.signedOut"
+        // The account (signed in)
+        static let accountSignIn = "cloud.account.signIn"
+        /// One row per device: `cloud.account.device.<n>`, oldest first from 0.
+        static func device(_ index: Int) -> String { "cloud.account.device.\(index)" }
+        static let changeSignIn = "cloud.account.change"
+        static let signOut = "cloud.account.signOut"
+        static let signOutAll = "cloud.account.signOutAll"
+        static let deleteAccount = "cloud.account.delete"
+        static let accountBusy = "cloud.account.busy"
         // The status page
         static let status = "cloud.status"
         static let banner = "cloud.banner"
@@ -185,6 +212,10 @@ nonisolated enum AccessibilityID {
         static let markupToggle = "reader.toolbar.markup"
         static let notesToggle = "reader.toolbar.notes"
         static let more = "reader.toolbar.more"
+        /// The ink Undo / Redo over a maximized page (markup mode at compact width, as in the
+        /// toolbar).
+        static let maximizedUndo = "reader.maximized.undo"
+        static let maximizedRedo = "reader.maximized.redo"
         /// Undo / Redo of ink: only in markup mode at compact width (elsewhere the tool picker has them).
         static let undo = "reader.toolbar.undo"
         static let redo = "reader.toolbar.redo"
@@ -221,6 +252,7 @@ nonisolated enum AccessibilityID {
         static let aboutCommit = "settings.about.commit"
         static let aboutBuilt = "settings.about.built"
         static let aboutCopy = "settings.about.copy"
+        static let aboutMadeBy = "settings.about.madeBy"
     }
 
     /// The reader's "Export Marked-Up PDF" (More menu) and its progress card.
@@ -231,6 +263,31 @@ nonisolated enum AccessibilityID {
         static let withNotes = "reader.more.exportMarkedUp.withNotes"
         static let progress = "reader.exportMarkedUp.progress"
         static let cancel = "reader.exportMarkedUp.cancel"
+        /// The confirmation alert's buttons.
+        static let confirmExport = "reader.exportMarkedUp.confirm.export"
+        static let confirmCancel = "reader.exportMarkedUp.confirm.cancel"
+        /// The progress card's "Continue in Background".
+        static let background = "reader.exportMarkedUp.background"
+        /// "About 3 minutes left" (progress card and status pill).
+        static let timeLeft = "reader.exportMarkedUp.timeLeft"
+        /// The status pill shown while the export runs in the background, or when it is ready.
+        static let status = "reader.exportMarkedUp.status"
+        static let backgroundCancel = "reader.exportMarkedUp.status.cancel"
+        static let share = "reader.exportMarkedUp.status.share"
+        /// Puts away the pill of an export that ended (the file is kept).
+        static let hide = "reader.exportMarkedUp.status.hide"
+        static let retry = "reader.exportMarkedUp.status.retry"
+        /// "Stop Export" in the "Stop Exporting?" confirmation.
+        static let confirmStop = "reader.exportMarkedUp.confirm.stop"
+        /// "Delete" in the "Delete Exported PDF?" confirmation.
+        static let confirmDelete = "reader.exportMarkedUp.confirm.delete"
+        /// The Notebook's "Exported PDFs" section and its rows (row IDs end in the file name).
+        static let notebookSection = "notebook.exportedPDFs"
+        static let notebookRow = "notebook.exportedPDFs.row"
+        static let notebookShare = "notebook.exportedPDFs.share"
+        static let notebookDelete = "notebook.exportedPDFs.delete"
+        static let notebookStop = "notebook.exportedPDFs.stop"
+        static let notebookRetry = "notebook.exportedPDFs.retry"
     }
 
     /// Placeholders the next packages replace (keep the identifiers if convenient).

@@ -18,6 +18,8 @@ struct TactileTextsApp: App {
         // BGTaskScheduler requires every launch handler to be registered before the app
         // finishes launching; the App is initialised before that.
         environment.backupScheduler.registerBackgroundTask()
+        // Marked-up PDF exports that finish in the background say so, in the app too.
+        MarkedUpExportNotifications.install()
     }
 
     var body: some Scene {

@@ -241,7 +241,7 @@ struct BackupSchedulerTests {
     }
 
     @Test func networkDestinationsRequireTheNetwork() async throws {
-        let rig = try await SchedulerRig(destinationID: GoogleDriveBackupDestination.destinationID)
+        let rig = try await SchedulerRig(destinationID: S3BackupDestination.destinationID)
         defer { rig.tearDown() }
         rig.scheduler.registerBackgroundTask()
         rig.scheduler.scenePhaseChanged(.background)

@@ -150,10 +150,10 @@ export async function createTempCredentials(request: TempCredentialRequest): Pro
   };
 }
 
-/** The folder a user's backups live in. `userKey` is lower-case hex (see `userKey.ts`). */
-export function userPrefix(userKey: string): string {
-  if (!/^[0-9a-f]{64}$/.test(userKey)) throw new Error("userPrefix: not a user key");
-  return `users/${userKey}/`;
+/** The folder an account's backups live in. `folderKey` is 64 lower-case hex digits (see `identity.ts`). */
+export function userPrefix(folderKey: string): string {
+  if (!/^[0-9a-f]{64}$/.test(folderKey)) throw new Error("userPrefix: not a folder key");
+  return `users/${folderKey}/`;
 }
 
 function base64url(bytes: Uint8Array): string {

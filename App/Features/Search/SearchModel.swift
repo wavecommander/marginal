@@ -115,7 +115,7 @@ final class SearchModel {
     @ObservationIgnored private var annotationRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var changeObservation: StoreChangeObservation?
     @ObservationIgnored private var runID = 0
-    @ObservationIgnored private var hasMark = false
+    @ObservationIgnored private(set) var hasMark = false
     /// A result chosen in the panel whose navigation waits until the panel has gone (opening the
     /// notes sheet while the popover is still dismissing would fail).
     @ObservationIgnored private var pendingSelection: SearchResult?

@@ -60,6 +60,40 @@ enum NotebookDebugSeed {
         }
     }
 
+    /// `-seedLibrarySearch`: seeds every book that has no notes yet, once per process. The
+    /// `no-outline` fixture gets the full Notebook seed (`seed`); every other book a page note,
+    /// a highlight and a note that do not mention it, so Library search for "eigen" finds
+    /// several books with different counts.
+    static func seedLibrarySearch(store: LibraryStore) async {
+        guard LaunchOptions.current.seedLibrarySearch else { return }
+        for book in (try? store.books.allBooks()) ?? [] {
+            guard !seeded.contains(book.id), ((try? store.notes.noteCount(bookID: book.id)) ?? 0) == 0 else { continue }
+            seeded.insert(book.id)
+            do {
+                if book.title == "no-outline" {
+                    try await seed(store: store, book: book)
+                } else {
+                    try searchSample(store: store, book: book)
+                }
+            } catch {
+                print("NotebookDebugSeed: \(error)")
+            }
+        }
+    }
+
+    private static func searchSample(store: LibraryStore, book: Book) throws {
+        let id = book.id
+        let last = max(book.pageCount - 1, 0)
+        _ = try store.notes.save(Note(bookID: id, target: .page(min(1, last)),
+                                      text: "Eigenvalues come up here before determinants do.", createdAt: date(30)))
+        _ = try store.notes.save(Note(bookID: id, target: .page(min(3, last)),
+                                      text: "Nothing to search for on this page.", createdAt: date(31)))
+        try store.highlights.save(Highlight(bookID: id, pageIndex: min(2, last),
+                                            rects: [CGRect(x: 72, y: 500, width: 300, height: 14)],
+                                            color: .green, text: "Every eigenvalue of a symmetric matrix is real.",
+                                            createdAt: date(32)))
+    }
+
     /// Fixed timestamps keep the seed deterministic.
     private static func date(_ offset: TimeInterval) -> Date {
         Date(timeIntervalSinceReferenceDate: 800_000_000 + offset)
