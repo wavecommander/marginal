@@ -19,7 +19,38 @@ Most of the backup half is built ("Tactile Texts Cloud" in `docs/DESIGN.md`,
 | Merge of two copies of a book: notes paragraph by paragraph, ink by stroke identity, highlights, bookmarks, headings | `ReaderCore/Merge`, `App/Features/Backup/Merge` | The base of the sync merge. `NoteInk.merge(local:remote:base:)` already takes a common ancestor. |
 | One change signal for records and ink, carrying who made the change | `StoreChangeHub` | How sync learns a book changed, and how windows learn sync changed a book. |
 | A book whose PDF is absent ("PDF missing", Locate PDF…) | Library, `DocumentLinking` | How a synced book appears before its PDF has been downloaded. |
-| Google OAuth with PKCE, no SDK | `GoogleDriveKit` | Sign in with Google, asking for `openid` instead of Drive access. |
+| ~~Google OAuth with PKCE, no SDK~~ | Removed with `GoogleDriveKit` on 17 November 2026 (the Google Drive destination went; Files reaches Drive). The code is in history at `bd7dd50^`. | Not available. C2 writes a small sign-in-only OAuth flow; see "Changes that landed underneath this plan". |
+
+### Changes that landed underneath this plan
+
+**17 November 2026, "Backup: iCloud Drive and Google Drive go through the Files pickers"**
+(`bd7dd50`). The app's own iCloud container and Google Drive destinations are gone, with the
+`GoogleDriveKit` package, the iCloud entitlements file and the Google client ID build setting.
+What is left is the backup file, the folder picked in Files, the build-time S3 bucket and
+Tactile Texts Cloud. Checked against this plan:
+
+- **Sign in with Google loses the code it was going to reuse.** C2 now builds it: the
+  authorisation request with PKCE and a nonce, the redirect check, and one code exchange that
+  returns the ID token, shown in an `ASWebAuthenticationSession`. That is a fraction of what
+  was removed (no Drive client, no refresh, no token store, since sign-in keeps no Google
+  token), and the request builder, PKCE, form encoding and stub server can be taken from
+  `bd7dd50^` rather than rewritten. It lives in a small Foundation-and-CryptoKit package so it
+  is tested on the Mac like the rest.
+- **The app again holds a Google OAuth client**, for identity only (`openid email`), not
+  Drive. Owner decision, 17 November 2026, made after the removal: Sign in with Google stays.
+- **No entitlements file is left in the repository.** Sign in with Apple needs one. C2 adds a
+  committed file holding only the Sign in with Apple entitlement; `Config/Local.xcconfig` still
+  switches it on through `TACTILE_ENTITLEMENTS`, and a build without it has no Apple button.
+- **The key is not affected.** It travels by iCloud Keychain (a synchronisable Keychain item),
+  which never used the iCloud container or its entitlement. Still a real-device check, as before.
+- **Nothing in sync, the Worker or the formats changes.** The folder layout, `.ttbackup` files,
+  `EncryptedBackupDestination` and the cloud service are as they were; the commit's edits to
+  `ReaderBackup` are comments. C1, C3a and C3b, which were started from the commit before it,
+  are unaffected apart from two one-line merges for C3b (the package list in `scripts/test.sh`
+  and in `AGENTS.md`, now four packages plus `ReaderSync`).
+- **A reader who used the removed destinations for automatic backup** now has none selected.
+  Automatic cloud backup "on by default for a signed-in subscriber" covers them once they
+  subscribe, and nothing else in the plan depended on those destinations.
 
 What is missing is three things: an **account** (today the user is the subscription itself), a
 **sync engine** (today two iPads never merge, and a merge brings deletions back), and the
@@ -72,7 +103,7 @@ there changes with the package that builds each one.
   token. The Worker stores no email address and no name; the app shows the email from the ID
   token on the device that signed in and nowhere else.
 - **Signing in.** The app asks the Worker for a challenge, then asks Apple
-  (`ASAuthorizationAppleIDProvider`) or Google (the existing PKCE flow in an
+  (`ASAuthorizationAppleIDProvider`) or Google (an authorisation-code flow with PKCE in an
   `ASWebAuthenticationSession`, scope `openid email`) for an ID token whose `nonce` is the
   SHA-256 of that challenge. The Worker verifies the token's signature against the provider's
   published keys (fetched and cached), the issuer, the audience (the bundle ID for Apple, the
@@ -97,7 +128,8 @@ there changes with the package that builds each one.
   (guideline 4.8). Apple's server-to-server notifications (consent revoked, Apple Account
   deleted) end the sessions of that identity. The app checks `getCredentialState` at launch.
 - **Build settings.** Off unless `Config/Local.xcconfig` sets them, as every integration is:
-  the Sign in with Apple entitlement in the entitlements file `TACTILE_ENTITLEMENTS` names, and
+  the Sign in with Apple entitlement, in a committed entitlements file that C2 adds and
+  `TACTILE_ENTITLEMENTS` names (the repository has had none since 17 November 2026), and
   `GOOGLE_SIGNIN_CLIENT_ID`. With either missing that button is absent; with both missing the
   service reports itself not available.
 
@@ -286,7 +318,13 @@ cannot silently roll a book back.
 ## Packages
 
 **Status, 17 November 2026:** C0 is done; its answers are in `docs/CLOUD_SYNC_FINDINGS.md`,
-and the rows below were corrected from it. Nothing else is started.
+and the rows below were corrected from it. C1, C3a (the three-way merge) and C3b (`S3Kit`
+additions and the `ReaderSync` foundations) are built, each on its own agent branch with its
+tests rerun and passing, and none is merged: `worktree-agent-abd5d46db9e349b2e` (C1),
+`worktree-agent-a9f3116cda09011a5` (C3a), `worktree-agent-a0760c082fa584ef8` (C3b). C3c (the
+sync round and the simulated-device tests) is in progress on top of C3a and C3b. C2, C4 and C5
+are not started. Nothing has been checked on a real iPad or against real Apple or Google
+sign-in.
 
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`
@@ -296,7 +334,7 @@ apply to every package.
 | --- | --- | --- |
 | C0 | Findings, no feature code. Against the development bucket with real temporary credentials: `If-Match` and `If-None-Match` on `PutObject` behave as documented under a race, and whether `wrangler dev`'s local S3 endpoint honours them (if not, tests use a fake store and the real bucket). Whether `S3Kit` already sends conditional headers and returns ETags from list, head and get. That Google returns an ID token carrying our `nonce` to an iOS client with PKCE. How page-ink stroke identity is derived today and whether it survives a save and reload on another device. How long a background task really gets. | `docs/CLOUD_SYNC_FINDINGS.md` |
 | C1 | Accounts in the Worker: the migration, ID token verification for both providers, device sessions, changing the sign-in, entitlement binding with `appAccountToken`, sign-out of one device and of all, account deletion with Apple revocation, Apple's sign-in notifications. | `Backend/backup-worker` |
-| C2 | Sign-in in the app, and the existing cloud backup moved onto accounts: both sign-in buttons, the account screen (the sign-in and Change, devices, Sign Out, Sign Out of All Devices, delete), the per-account Keychain item, purchase with `appAccountToken`, `nonce` and `id_token` in `GoogleDriveKit` (C0: it has neither), automatic backup on by default for subscribers, `-cloudBackupUITest` states for signed-out and signed-in. | `App/Features/Backup/CloudService`, `App/Features/Backup/UI`, `Packages/GoogleDriveKit` |
+| C2 | Sign-in in the app, and the existing cloud backup moved onto accounts: both sign-in buttons, the account screen (the sign-in and Change, devices, Sign Out, Sign Out of All Devices, delete), the per-account Keychain item, purchase with `appAccountToken`, Sign in with Google as a new small package `GoogleSignInKit` (PKCE, nonce, one code exchange for the ID token; `GoogleDriveKit` was removed on 17 November 2026, its OAuth pieces are in history at `bd7dd50^`), the Sign in with Apple entitlements file, automatic backup on by default for subscribers, `-cloudBackupUITest` states for signed-out and signed-in. | `App/Features/Backup/CloudService`, `App/Features/Backup/UI`, `Packages/GoogleSignInKit`, `Config/` |
 | C3 | Sync core, testable on the Mac. In `ReaderCore`: the three-way book merge and the diff against a base. A new Foundation-and-CryptoKit package `ReaderSync`: head and blob formats, the encrypted object store with conditional writes, the push and pull round with retry on 412, the base store, rollback refusal, the version rules, a write ID on each head so a timed-out put can be reconciled. `S3Kit` (C0 found them missing): `If-Match` and `If-None-Match` on a put, the ETag a put stored, 412 as its own error, a small object read into memory with its ETag, and keys encoded segment by segment. | `Packages/ReaderCore`, `Packages/ReaderSync`, `Packages/S3Kit` |
 | C4 | Sync in the app: the engine wired to `LibraryStore` and `StoreChangeHub`, page and note ink merged with the existing `StrokeMerge` given the base ink (C0: the three-way merge already exists), a page or note whose ink needs a newer PencilKit content version than this iPad has shown but never edited or pushed, applying changes under open windows, the join, scheduling, PDF upload and download, the download state in the Library, the Sync switch and status. | `App/Features/Sync`, hooks in `App/Features/Library` and `App/Features/Backup` |
 | C5 | Safety and housekeeping: Recently Deleted, head history and "restore this book to an earlier day", removal of blobs and PDFs nothing refers to (only when older than seven days, so an upload in flight is never removed), the end-to-end test against `wrangler dev`, `docs/DEVICE_CHECKLIST.md` entries, `docs/DESIGN.md` brought in step. | App, `Backend/backup-worker`, `docs/` |

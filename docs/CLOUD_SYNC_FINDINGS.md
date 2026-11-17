@@ -175,7 +175,10 @@ not to ask for more background time.
   ID on heads.
 - **C4** loses "three-way page-ink merging" (it exists) and gains the content-version rule in
   section 3.
-- **C2** gains `nonce` and `id_token` in `GoogleDriveKit`.
+- **C2** gains `nonce` and `id_token` in `GoogleDriveKit`. *Superseded the same day:*
+  `GoogleDriveKit` was removed (`bd7dd50`), so C2 writes a sign-in-only flow in a new small
+  package; what section 4 read from `GoogleDriveKit` is in history at `bd7dd50^`. See "Changes
+  that landed underneath this plan" in the plan.
 - Nothing found stops the design, and nothing is owed from C0. Three answers wait for real
   devices and are listed with the package that needs them: Google's nonce (C2), ink from a
   newer iPadOS and background time (C4).
