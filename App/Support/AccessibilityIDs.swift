@@ -31,6 +31,21 @@ nonisolated enum AccessibilityID {
         static let useEarlierCopy = "library.unavailable.useEarlierCopy"
         /// Shown once the library was changed and opens at the next launch.
         static let recoveryReady = "library.unavailable.ready"
+        // Search results when notes or highlights match (`LibrarySearchResultsView`); the rows
+        // themselves carry the Notebook's identifiers (`NotebookAccessibilityID`).
+        static let searchResults = "library.search.results"
+        /// The column of books with matches (wide windows).
+        static let searchBookColumn = "library.search.books"
+        /// "All Books" in that column.
+        static let searchAllBooks = "library.search.allBooks"
+        /// A book in that column: `library.search.book.<title>`.
+        static func searchBook(_ title: String) -> String { "library.search.book.\(title)" }
+        /// A book whose title matches: `library.search.title.<title>`.
+        static func searchTitle(_ title: String) -> String { "library.search.title.\(title)" }
+        /// The results column.
+        static let searchFeed = "library.search.feed"
+        /// A book's header in the results column: `library.search.header.<title>`.
+        static func searchHeader(_ title: String) -> String { "library.search.header.\(title)" }
     }
 
     /// Settings ▸ Backup & Restore and a destination's screen.

@@ -137,6 +137,45 @@ public enum LibraryLogic {
         return texts.contains { $0.localizedStandardContains(trimmed) }
     }
 
+    /// How many of the texts contain the query, matched like `anyText` and like the Notebook's
+    /// search (`NotebookFeed.rows`), so a book's count in Library search equals the rows its
+    /// results show. `0` for an empty query.
+    public static func matchCount(_ texts: some Sequence<String>, query: String) -> Int {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        return texts.reduce(0) { $0 + ($1.localizedStandardContains(trimmed) ? 1 : 0) }
+    }
+
+    /// The books with matching notes or highlights, in Library search's order: most matches
+    /// first, ties in the Library's own `sort`. Books with no matches (absent or `0` in
+    /// `counts`) are left out.
+    public static func searchResultOrder(_ books: [Book], counts: [UUID: Int], sort: LibrarySort) -> [Book] {
+        let matching = books.filter { (counts[$0.id] ?? 0) > 0 }
+        let rank = Dictionary(uniqueKeysWithValues: sorted(matching, by: sort).enumerated().map { ($1.id, $0) })
+        return matching.sorted { lhs, rhs in
+            let l = counts[lhs.id] ?? 0, r = counts[rhs.id] ?? 0
+            if l != r { return l > r }
+            return (rank[lhs.id] ?? 0) < (rank[rhs.id] ?? 0)
+        }
+    }
+
+    /// Books whose title contains `query` (as `filtered` matches titles), in `sort` order.
+    public static func titleMatches(_ books: [Book], query: String, sort: LibrarySort) -> [Book] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return sorted(books.filter { $0.title.localizedStandardContains(trimmed) }, by: sort)
+    }
+
+    /// "1 match", "12 matches".
+    public static func matchesText(_ count: Int) -> String {
+        "\(count.formatted(.number)) \(count == 1 ? "match" : "matches")"
+    }
+
+    /// "1 book", "5 books".
+    public static func booksText(_ count: Int) -> String {
+        "\(count.formatted(.number)) \(count == 1 ? "book" : "books")"
+    }
+
     /// Index into a palette of `count` colours, stable across launches (not `hashValue`).
     public static func paletteIndex(for text: String, count: Int) -> Int {
         guard count > 0 else { return 0 }

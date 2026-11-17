@@ -154,6 +154,45 @@ final class LibraryUITests: XCTestCase {
         XCTAssertTrue(book(app, "large").waitForNonExistence(timeout: 10))
     }
 
+    /// Notes and highlights that match: the books with matches beside the matches themselves,
+    /// laid out as in the Notebook (design: "Library search").
+    func testSearchShowsMatchingNotesByBook() throws {
+        guard #available(iOS 18, *) else { throw XCTSkip("XCUITest cannot type into the search field on the iOS 17.5 simulator") }
+        let app = launch([Fixtures.small, Fixtures.large, Fixtures.noOutline], extra: ["-seedLibrarySearch"])
+        XCTAssertTrue(book(app, "no-outline").waitForExistence(timeout: 30))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("eigen")
+
+        func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+        // The column: All Books, then the books by number of matches (seeded: 7, 2 and 2).
+        let all = element("library.search.allBooks")
+        XCTAssertTrue(all.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertEqual(all.value as? String, "11 matches")
+        XCTAssertEqual(element("library.search.book.no-outline").value as? String, "7 matches")
+        XCTAssertEqual(element("library.search.book.small").value as? String, "2 matches")
+        XCTAssertTrue(element("library.search.book.no-outline").frame.minY < element("library.search.book.small").frame.minY)
+
+        // The results: each book's header, then its matching rows under their headings.
+        XCTAssertTrue(element("library.search.header.no-outline").waitForExistence(timeout: 20))
+        XCTAssertTrue(element("notebook.header.5.1 Invariant Directions").waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(element("notebook.pageNote.23").exists)
+        // A note that does not match is not listed.
+        XCTAssertFalse(element("notebook.pageNote.17").exists)
+
+        // Choosing a book shows only its matches.
+        element("library.search.book.small").tap()
+        XCTAssertTrue(element("library.search.header.no-outline").waitForNonExistence(timeout: 10))
+        XCTAssertTrue(element("library.search.header.small").exists)
+
+        // A row opens the reader at its page.
+        let note = element("notebook.pageNote.2")
+        XCTAssertTrue(note.waitForExistence(timeout: 10), app.debugDescription)
+        note.tap()
+        XCTAssertTrue(readerToolbar(app).waitForExistence(timeout: 20), app.debugDescription)
+    }
+
     func testOpenInNewWindowShowsAReaderBesideTheLibrary() {
         let app = launch([Fixtures.small])
         XCTAssertTrue(book(app, "small").waitForExistence(timeout: 20))

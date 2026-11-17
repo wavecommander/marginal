@@ -83,6 +83,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// deterministic notes, highlights and headings described in `NotebookDebugSeed`.
     var seedNotebook = false
 
+    /// `-seedLibrarySearch` (DEBUG, Library search UI tests and screenshots): after the launch's
+    /// fixture imports, give every imported book notes and highlights that mention "eigen"
+    /// (`NotebookDebugSeed.seedLibrarySearch`).
+    var seedLibrarySearch = false
+
     /// `-seedNotebookLateNote` (DEBUG): also add a page note about four seconds after seeding.
     var seedNotebookLateNote = false
 
@@ -190,6 +195,9 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-seedSidebarHeadings`: seed the opened book with a reader's outline (`SidebarDebugSeed`).
     var seedSidebarHeadings = false
 
+    /// `-librarySearchQuery <text>` (DEBUG, screenshots): the Library opens with this search.
+    var librarySearchQuery: String?
+
     /// `-searchPageDelayMs <ms>`: pause this long after each page of a text search, so a test can
     /// act while the search runs (`SearchModel`). Negative or malformed values are ignored.
     var searchPageDelayMs: Int?
@@ -266,6 +274,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 }
             case "-seedNotebook":
                 seedNotebook = true
+            case "-seedLibrarySearch":
+                seedLibrarySearch = true
             case "-seedNotebookLateNote":
                 seedNotebookLateNote = true
             case "-seedNotebookPageInk":
@@ -339,6 +349,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 seedSidebar = true
             case "-seedSidebarHeadings":
                 seedSidebarHeadings = true
+            case "-librarySearchQuery":
+                if let text = value(after: index) {
+                    index += 1
+                    librarySearchQuery = text
+                }
             case "-searchPageDelayMs":
                 if let text = value(after: index) {
                     index += 1

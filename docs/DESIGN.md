@@ -46,7 +46,7 @@ ones even where the mockup draws an approximation.
 
 | Artboard | What it shows |
 | --- | --- |
-| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. |
+| Library | Imported books in a grid with progress, search, sort, Import, and a "Continue reading" card with shortcuts to Resume and to the Notebook. Search results for notes and highlights are described under "Library search". |
 | Reader · page note | The main reading layout: Contents sidebar (PDF outline with note badges), the page, and the Notes inspector on "Page note". |
 | Markup with Apple Pencil | Markup mode: ink over the page, a tool palette, undo/redo, Done. (Superseded by the owner: undo/redo live in the tool picker and there is no Done button; see "Markup controls".) |
 | Markup · page and note together | Markup mode with the notes panel widened to half the screen: the same tool palette inks the PDF page on the left and the note on the right. The note is zoomed to 140% for writing; ink sits over the typed text and in the blank space below it. |
@@ -259,6 +259,28 @@ ones even where the mockup draws an approximation.
 - **Narrow width** (portrait, Split View, Stage Manager): Contents becomes an overlay and the
   inspector becomes a sheet with medium and large detents and background interaction enabled.
 - **Notebook** rows open the reader at that page or heading.
+- **Library search** ("Search titles and notes") matches book titles, and the text of notes and
+  highlights, case- and diacritic-insensitively (the Notebook's own search; handwriting has no
+  text and is not searched). *Owner decision, 17 November 2026 (mockup option B): the results
+  show what matched, not just which books.*
+  - When no note or highlight matches, the grid shows the books whose title matches, as before.
+  - When notes or highlights match, the Library shows them instead of the grid. Wide windows
+    have two columns. The left one lists "All Books" with the total, then each book with
+    matches and its count, most matches first (ties in the Library's sort), and under "Title
+    Matches" the books whose title matches (tapping one opens it, as its cover does). The right
+    one shows, for each book in that order, a header (cover, title, count, "Open Notebook") and
+    the book's matches laid out exactly as its Notebook lays them out when searched: under their
+    headings, with page pills, highlight colours and ink. Choosing a book on the left shows
+    only its matches; "All Books" shows them all.
+  - *Owner decision, 17 November 2026:* the matches scroll inside their panel, never under the
+    toolbar, and each book's header stays pinned at the top of the panel while that book's
+    rows pass beneath it (the next book's header takes its place). The left column scrolls
+    inside its own area too.
+  - Narrow windows (below the Notebook's width threshold, or compact) have no left column: the
+    title matches lead, then every book's header and matches.
+  - Rows behave as Notebook rows: tapping opens the reader at the page or the heading's note
+    (a book without its PDF offers Locate PDF… instead), the context menu offers Open in New
+    Window and Delete Note. Counts and rows follow changes made in any window.
 - **Export.** Three formats, from the Notebook's Export menu, through the share sheet:
   - *Markdown*: one `.md` file, text only. If the export has a note with ink or a page with
     handwriting, the app first says that images are not included and offers the ZIP.

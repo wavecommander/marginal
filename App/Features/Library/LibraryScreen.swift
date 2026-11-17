@@ -17,7 +17,12 @@ struct LibraryScreen: View {
     @AppStorage(LibrarySort.storageKey) private var sortRaw = LibrarySort.recentlyOpened.rawValue
     @State private var model: LibraryModel?
     @State private var query = ""
-    @State private var noteMatches: Set<UUID> = []
+    /// Per book, how many of its notes and highlights contain the query (books with none are
+    /// absent).
+    @State private var noteCounts: [UUID: Int] = [:]
+    /// The Notebooks the search results read (`LibrarySearchResultsView`); stopped when the
+    /// search ends.
+    @State private var searchNotebooks: LibrarySearchNotebooks?
     @State private var showImporter = false
     @State private var isDropTargeted = false
     @State private var renameTarget: Book?
@@ -84,13 +89,38 @@ struct LibraryScreen: View {
         titledPage
         .onAppear { if model == nil { model = LibraryModel(store: environment.store) } }
         .task { await considerWelcome() }
+        #if DEBUG
+        .task {
+            if let preset = LaunchOptions.current.librarySearchQuery, query.isEmpty {
+                try? await Task.sleep(for: .seconds(1.5))
+                query = preset
+            }
+        }
+        .task {
+            guard LaunchOptions.current.seedLibrarySearch else { return }
+            _ = await environment.launchPlan()
+            await NotebookDebugSeed.seedLibrarySearch(store: environment.store)
+        }
+        #endif
         .sheet(isPresented: welcomeBinding) {
             WelcomeSheet(openGuide: {
                 environment.onboarding.dismissWelcome()
                 openQuickGuide()
             }, notNow: { environment.onboarding.dismissWelcome() })
         }
-        .task(id: query) { await updateNoteMatches() }
+        .task(id: SearchInput(query: query, annotationsVersion: model?.annotationsVersion ?? 0)) {
+            await updateNoteMatches()
+        }
+        .onChange(of: isSearching) { _, searching in
+            if !searching {
+                searchNotebooks?.stopAll()
+                searchNotebooks = nil
+            }
+        }
+        .onDisappear {
+            searchNotebooks?.stopAll()
+            searchNotebooks = nil
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importerMode.contentTypes,
                       allowsMultipleSelection: importerMode == .importDocuments) { result in
             importerCompleted(result)
@@ -170,19 +200,22 @@ struct LibraryScreen: View {
     @ViewBuilder
     private func content(_ model: LibraryModel) -> some View {
         let all = model.books
-        let visible = LibraryLogic.sorted(LibraryLogic.filtered(all, query: query, noteMatches: noteMatches), by: sort)
+        let visible = LibraryLogic.sorted(LibraryLogic.filtered(all, query: query, noteMatches: Set(noteCounts.keys)), by: sort)
         let backupJob = environment.backupService.job
         if all.isEmpty && service.jobs.isEmpty && backupJob == nil {
             emptyState
+        } else if isSearching, !noteCounts.isEmpty {
+            // Notes or highlights match: the books and their matches (design: "Library search").
+            VStack(spacing: 0) {
+                progressRows
+                    .padding(.horizontal, sizeClass == .regular ? 32 : 16)
+                    .padding(.bottom, 8)
+                searchResults(model, all: all)
+            }
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if !service.jobs.isEmpty || backupJob != nil {
-                        VStack(spacing: 10) {
-                            if let backupJob { LibraryBackupProgressRow(job: backupJob) }
-                            ForEach(service.jobs) { ImportProgressRow(job: $0) }
-                        }
-                    }
+                    progressRows
                     if !isSearching, let book = LibraryLogic.continueReading(all) {
                         ContinueReadingCard(book: book, annotationCount: model.continueAnnotationCount,
                                             isMissingPDF: model.isMissingPDF(book),
@@ -203,6 +236,38 @@ struct LibraryScreen: View {
                 .padding(.horizontal, sizeClass == .regular ? 32 : 16)
                 .padding(.vertical, 12)
             }
+        }
+    }
+
+    /// Import and backup progress, above the grid or the search results.
+    @ViewBuilder
+    private var progressRows: some View {
+        let backupJob = environment.backupService.job
+        if !service.jobs.isEmpty || backupJob != nil {
+            VStack(spacing: 10) {
+                if let backupJob { LibraryBackupProgressRow(job: backupJob) }
+                ForEach(service.jobs) { ImportProgressRow(job: $0) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchResults(_ model: LibraryModel, all: [Book]) -> some View {
+        if let searchNotebooks {
+            let counts = noteCounts
+            LibrarySearchResultsView(
+                notebooks: searchNotebooks,
+                books: LibraryLogic.searchResultOrder(all, counts: counts, sort: sort)
+                    .map { LibrarySearchResultsView.BookCount(book: $0, count: counts[$0.id] ?? 0) },
+                titleMatches: LibraryLogic.titleMatches(all, query: query, sort: sort),
+                query: query,
+                isMissingPDF: { model.isMissingPDF($0) },
+                openBook: { open($0) },
+                openAt: { book, page, heading in open(book, pageIndex: page, notesHeading: heading) },
+                openInNewWindow: { book, page, heading in
+                    window.openReaderInNewWindow(bookID: book.id, pageIndex: page, notesHeading: heading)
+                },
+                openNotebook: { window.openNotebook(bookID: $0.id) })
         }
     }
 
@@ -395,25 +460,36 @@ struct LibraryScreen: View {
 
     // MARK: Search
 
+    private struct SearchInput: Equatable {
+        let query: String
+        /// Bumped by a note or highlight change in any window, so the counts stay current.
+        let annotationsVersion: Int
+    }
+
     private func updateNoteMatches() async {
         guard isSearching, let model else {
-            noteMatches = []
+            noteCounts = [:]
             return
         }
         try? await Task.sleep(for: .milliseconds(250))  // debounce; cancelled by the next keystroke
         guard !Task.isCancelled else { return }
-        let matches = await model.bookIDsWithAnnotations(matching: query)
-        if !Task.isCancelled { noteMatches = matches }
+        let counts = await model.annotationMatchCounts(matching: query)
+        guard !Task.isCancelled else { return }
+        if !counts.isEmpty, searchNotebooks == nil {
+            searchNotebooks = LibrarySearchNotebooks(store: environment.store)
+        }
+        noteCounts = counts
     }
 
     // MARK: Opening and the file importer
 
-    /// Opens the book in place, or, when its PDF is missing, offers Locate PDF… and the Notebook.
-    private func open(_ book: Book) {
+    /// Opens the book in place (at `pageIndex`, with `notesHeading`'s note in the notes panel,
+    /// when given), or, when its PDF is missing, offers Locate PDF… and the Notebook.
+    private func open(_ book: Book, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
         if model?.isMissingPDF(book) == true {
             missingPrompt = book
         } else {
-            window.openReader(bookID: book.id)
+            window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
         }
     }
 
