@@ -189,6 +189,37 @@ struct SyncEngineBehaviourTests {
         try await world.settle(&rng, "after the touch")
     }
 
+    /// The app anchors merged note ink to the merged text, and reads each side's ink against
+    /// that side's text: a note ink merge names all of them.
+    @Test func aNoteInkMergeNamesTheMergedTextAndEachSidesNote() async throws {
+        let world = try await sharedWorld()
+        let (a, b) = (world.devices[0], world.devices[1])
+        func ink(_ token: String, _ text: String) -> (inout FakeLibrary.Book) -> Void {
+            { book in
+                var tokens = TokenInk.decode(book.files[.noteInk(noteN)])
+                tokens.insert(token)
+                book.files[.noteInk(noteN)] = TokenInk.encode(tokens)
+                setText(&book, noteN, text)
+                if let k = book.archive.notes.firstIndex(where: { $0.id == noteN }) {
+                    book.archive.notes[k].hasInk = true
+                    book.archive.notes[k].bandLayout = testLayout
+                }
+            }
+        }
+        await edit(a, ink("ka", "n0\na"))
+        await edit(b, ink("kb", "n0\nb"))
+        _ = try await a.sync()
+        _ = try await b.sync()
+        let named = try #require(b.merger.notes.values.last)
+        #expect(named.merged.id == noteN)
+        #expect(named.merged.text == "n0\nb\na" || named.merged.text == "n0\na\nb")
+        #expect(named.local?.text == "n0\nb")
+        #expect(named.remote?.text == "n0\na")
+        #expect(named.base?.text == "n0")
+        var rng = SeededGenerator(state: 9)
+        try await world.settle(&rng, "after the note merge")
+    }
+
     @Test func aSecondRoundWhileOneRunsIsRefused() async throws {
         let world = try await sharedWorld()
         let a = world.devices[0]

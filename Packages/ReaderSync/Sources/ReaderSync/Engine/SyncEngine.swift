@@ -748,7 +748,7 @@ public actor SyncEngine {
             }
         }
         let result = try await inkMerger.merge(SyncInkMergeRequest(kind: job.kind, local: local, remote: remote, base: base,
-                                                                   absorbed: absorbed))
+                                                                   absorbed: absorbed, notes: job.notes))
         guard let result, !result.isEmpty else { return nil }
         let content = ContentDigest(of: result)
         cache[content] = result
