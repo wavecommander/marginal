@@ -355,10 +355,10 @@ struct ReaderScreen: View {
             // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
             markupToggle.toolbarGlyph()
             notesToggle.toolbarGlyph()
+            BookmarkButton(session: session).toolbarGlyph()
             if !session.isNarrowLayout {
-                BookmarkButton(session: session).toolbarGlyph()
+                searchButton.toolbarGlyph()
             }
-            searchButton.toolbarGlyph()
             moreMenu.toolbarGlyph()
         }
     }
@@ -425,9 +425,10 @@ struct ReaderScreen: View {
     private var moreMenu: some View {
         Menu {
             if session.isNarrowLayout {
-                Button { BookmarkActions.toggle(session: session) } label: {
-                    Label("Bookmark Page", systemImage: "bookmark")
+                Button { openSearch() } label: {
+                    Label(SearchAnchorReader.searchTitle, systemImage: "magnifyingglass")
                 }
+                .accessibilityIdentifier(AccessibilityID.Reader.search)
             }
             Button { session.showGoToPage() } label: { Label("Go to Page…", systemImage: "arrow.right.doc.on.clipboard") }
             Button { session.requestAddHeading() } label: {
@@ -796,7 +797,7 @@ private struct PagePill: View {
     @Bindable var session: ReaderSession
     let isFaded: Bool
     @State private var text = ""
-    @FocusState private var isFieldFocused: Bool
+    @State private var isFieldFocused = false
     /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
     /// that opened it is still closing, must not close it).
     @State private var hasHadFocus = false
@@ -806,19 +807,8 @@ private struct PagePill: View {
         Group {
             if session.isGoToPageVisible {
                 HStack(spacing: 8) {
-                    TextField("Page", text: $text)
-                        .keyboardType(.asciiCapableNumberPad)
-                        .submitLabel(.go)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                        .focused($isFieldFocused)
-                        .onSubmit(submit)
-                        .onChange(of: text) { _, newValue in
-                            let filtered = PageNumbering.digitsOnly(newValue)
-                            if filtered != newValue {
-                                text = filtered
-                            }
-                        }
+                    GoToPageTextField(text: $text, isFocused: $isFieldFocused, onSubmit: submit)
+                        .frame(width: 90, height: 34)
                         .accessibilityLabel("Go to page")
                         .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
                     Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
@@ -1034,6 +1024,100 @@ private struct SearchAnchorReader: UIViewRepresentable {
                 responder = next
             }
             return CGRect(x: bounds.maxX, y: bounds.minY, width: 0, height: 0)
+        }
+    }
+}
+
+private struct GoToPageTextField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let onSubmit: () -> Void
+
+    func makeUIView(context: Context) -> FocusableTextField {
+        let field = FocusableTextField()
+        field.placeholder = "Page"
+        field.borderStyle = .roundedRect
+        field.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        field.keyboardType = .numberPad
+        field.returnKeyType = .go
+        if #available(iOS 26.0, *) {
+            field.allowsNumberPadPopover = true
+        }
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.textChanged(_:)), for: .editingChanged)
+        field.accessibilityLabel = "Go to page"
+        field.accessibilityIdentifier = AccessibilityID.Reader.goToPageField
+        return field
+    }
+
+    func updateUIView(_ uiView: FocusableTextField, context: Context) {
+        context.coordinator.parent = self
+        uiView.wantsFocus = isFocused
+        if uiView.text != text {
+            uiView.text = text
+        }
+        if !isFocused, uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        } else {
+            uiView.focusIfNeeded()
+        }
+    }
+
+    final class FocusableTextField: UITextField {
+        var wantsFocus = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            focusIfNeeded()
+        }
+
+        func focusIfNeeded() {
+            guard wantsFocus, window != nil, !isFirstResponder else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.wantsFocus, self.window != nil, !self.isFirstResponder else { return }
+                self.becomeFirstResponder()
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: GoToPageTextField
+        init(_ parent: GoToPageTextField) { self.parent = parent }
+
+        @objc func textChanged(_ sender: UITextField) {
+            let filtered = PageNumbering.digitsOnly(sender.text ?? "")
+            if sender.text != filtered {
+                sender.text = filtered
+            }
+            parent.text = filtered
+        }
+
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            let current = textField.text ?? ""
+            guard let swiftRange = Range(range, in: current) else { return false }
+            let updated = current.replacingCharacters(in: swiftRange, with: string)
+            let filtered = PageNumbering.digitsOnly(updated)
+            if filtered == updated {
+                return true
+            }
+            textField.text = filtered
+            parent.text = filtered
+            return false
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            parent.isFocused = true
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            parent.isFocused = false
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            return false
         }
     }
 }

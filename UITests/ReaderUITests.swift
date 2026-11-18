@@ -867,6 +867,11 @@ final class ReaderUITests: XCTestCase {
         pill(app).tap()
         let field = app.textFields[ReaderID.goToPageField]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        sleep(1)
+        let shotDir = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: shotDir.appendingPathComponent("numpad-ipad-uitextfield.png"))
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "number pad appears")
         XCTAssertTrue(keyboard.keys["1"].exists || keyboard.buttons["1"].exists, "num pad has digit keys")
