@@ -42,7 +42,10 @@ import ReaderCore
 /// repair: a pull that meets a missing blob fails that book with nothing changed here, a push
 /// checks (once a day) that the blobs it keeps from the head it replaces are there and uploads
 /// any it holds, and a housekeeping run uploads any blob a live head names that is missing and
-/// that this device holds. Clocks: a pushing device whose clock is more than about six days
+/// that this device holds. Snapshot backups share `PDFs/`: a backup that relied on a PDF already
+/// stored checks, once its snapshot is stored, that it is still there and uploads it if not (the
+/// app's `BackupService`), and the snapshots are read just before each batch of PDF removals.
+/// Clocks: a pushing device whose clock is more than about six days
 /// behind the store's could still rely on an old blob (rule 1 judges by its clock when its
 /// listings show nothing later); repair covers that too.
 public enum SyncHousekeeping {

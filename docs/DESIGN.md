@@ -669,8 +669,8 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
   when present. The newest 10 snapshots are kept; PDFs are never removed automatically, except in
   Tactile Texts Cloud, where sync's housekeeping removes a PDF that no snapshot and no synced book
-  refers to after seven days (and a backup writes again a PDF stored there more than a day ago
-  rather than rely on it). In a
+  refers to after seven days (a backup checks, after its snapshot is stored, that the PDFs it
+  found already there still are, and uploads any that went). In a
   folder the reader picked the snapshot folder is `Tactile Texts Backups/` (owner decision,
   16 November 2026), so it reads as the app's in Files; snapshots already in `Backups/` there
   still list, restore and delete, and new ones are never written to it. S3 and Tactile Texts

@@ -213,6 +213,7 @@ struct SyncUILogicTests {
         #expect(UndoRestoreLogic.confirmation(record, syncOn: true).message.contains(SyncNoticeText.restoreCarried))
         #expect(SyncNoticeText.restoreCarried.contains("other devices"))
         #expect(SyncNoticeText.deleteCarried.contains("removed from your other devices"))
-        #expect(!SyncNoticeText.deleteCarried.contains("Recently Deleted"), "not built yet")
+        // C5: Recently Deleted is built, so the confirmation may now promise the way back.
+        #expect(SyncNoticeText.deleteCarried.contains("Recently Deleted") && SyncNoticeText.deleteCarried.contains("30 days"))
     }
 }

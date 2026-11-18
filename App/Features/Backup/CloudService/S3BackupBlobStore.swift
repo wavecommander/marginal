@@ -83,7 +83,6 @@ nonisolated struct S3BackupBlobStore: BackupBlobStore, CustomStringConvertible, 
         try Self.check(key)
         return try await run(.object(name: key.name)) { try await client.head(key: key.path) }?.size
     }
-
     @concurrent
     func upload(from file: URL, to key: BackupBlobKey, progress: BackupProgress?) async throws {
         try Self.check(key)

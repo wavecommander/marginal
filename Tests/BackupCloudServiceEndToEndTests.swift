@@ -2,6 +2,7 @@ import Foundation
 import ReaderBackup
 import ReaderCore
 import ReaderStore
+import ReaderSync
 import S3Kit
 import StoreKit
 import StoreKitTest
@@ -207,6 +208,142 @@ struct BackupCloudServiceEndToEndTests {
         try await cloud.signIn.signIn(with: .google, anchor: nil)
         #expect(cloud.signIn.accountID != accountID, "the same identity now makes a new account")
         try await cloud.deleteAccount(anchor: nil)
+    }
+
+    // MARK: Sync through the service (C5)
+
+    /// Two libraries in one process sync through the real path: the Worker's session and
+    /// temporary credentials, `SyncS3ObjectStore` over `S3Client`, the real development bucket.
+    /// A note, a highlight, page ink and a deletion cross; Recently Deleted brings the book back;
+    /// housekeeping runs and removes nothing it should not; writing an object again moves its date
+    /// (the reuse rule's assumption about R2); every object is opaque; everything is removed.
+    @Test(.enabled(if: serviceHost != nil && bypassSecret != nil && devSignInSecret != nil))
+    func syncTwoLibrariesThroughTheService() async throws {
+        let storeKit = try storeKitSession()
+        defer { storeKit.clearTransactions() }
+        let host = try #require(Self.serviceHost)
+        let bypass = try #require(Self.bypassSecret)
+        let configuration = try #require(BackupServiceConfiguration(host: host, productIDs: Self.productID, attestBypass: bypass))
+        let scratch = try BackupTestSupport.scratch("SyncEndToEnd")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let suite = "SyncEndToEnd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let keyStore = InMemoryBackupKeyStore()
+        let identity = DevTestCloudIdentityProvider(secret: try #require(Self.devSignInSecret), audience: "software.tactile.texts",
+                                                    subject: "sync-end-to-end-\(UUID().uuidString.lowercased())")
+        let cloud = TactileCloudBackup.make(configuration: configuration, store: AppStoreBackupStore(),
+                                            attest: DeviceAppAttestClient(defaultsSuiteName: suite), keyStore: keyStore,
+                                            sessionStore: InMemoryCloudDeviceSessionStore(), identity: identity,
+                                            temporaryDirectory: scratch.appendingPathComponent("enc"), defaults: defaults)
+        let account = cloud.account
+        let connection = try #require(account.connection)
+        try await cloud.signIn.signIn(with: .apple, anchor: nil)
+        let token = try #require(cloud.signIn.appAccountToken)
+        _ = try await subscribe(cloud.subscription, session: storeKit, appAccountToken: token)
+        await account.refresh()
+        let session = try #require(connection.latestSession, "no session: \(String(describing: account.lastError))")
+        #expect(session.mode == .readWrite)
+        let raw = S3Client(endpoint: try #require(session.storage.s3Endpoint), credentialsProvider: connection.credentials)
+        for object in try await raw.list() { try await raw.delete(key: object.key) }
+        let accountID = try #require(cloud.signIn.accountID)
+        let access = TactileCloudSyncAccess(connection: connection, accountID: { accountID },
+                                            temporaryDirectory: scratch.appendingPathComponent("sync-tmp"))
+        guard case .ready(let ready) = try await access.prepareRound() else {
+            Issue.record("the account is not ready to sync")
+            return
+        }
+        #expect(ready.mode == .full)
+        #expect(try await keyStore.load() == ready.key, "the first round made the account's key")
+
+        do {
+            let a = try SyncTestDevice("A", objects: ready.store, key: ready.key)
+            let b = try SyncTestDevice("B", objects: ready.store, key: ready.key)
+            defer { a.cleanUp(); b.cleanUp() }
+            let date = Date(timeIntervalSinceReferenceDate: 790_000_000)
+            let noteText = "End-to-end note \(UUID().uuidString)"
+
+            // A note, a highlight and page ink cross from A to B.
+            let bookA = try await a.importBook()
+            let other = try await a.importBook(BackupTestSupport.noOutline)
+            try await a.sync()
+            try await b.sync()
+            try a.store.notes.save(Note(bookID: bookA.id, target: .page(2), text: noteText, createdAt: date))
+            try a.store.highlights.save(Highlight(bookID: bookA.id, pageIndex: 1, rects: [CGRect(x: 10, y: 20, width: 90, height: 12)],
+                                                  color: .green, text: "marked end to end", createdAt: date))
+            let stroke = SyncTestSupport.stroke(80)
+            try await SyncTestSupport.addPageInk(a, bookA.id, page: 5, [stroke])
+            #expect(try await a.sync().failures.isEmpty)
+            #expect(try await b.sync().failures.isEmpty)
+            let bookB = try #require(b.book(sha256: SyncTestSupport.sha256(bookA, in: a)))
+            #expect(try b.archive(bookB).notes.map(\.text) == [noteText])
+            #expect(try b.archive(bookB).highlights.map(\.text) == ["marked end to end"])
+            #expect(try await b.pageStrokes(bookB.id, page: 5) == [StrokeIdentity(stroke)])
+
+            // A deletion crosses, and Recently Deleted on B brings the book back to both.
+            try await a.store.deleteBook(id: other.id, origin: nil)
+            #expect(try await a.sync().count(.deletedInAccount) == 1)
+            #expect(try await b.sync().count(.deletedHere) == 1)
+            #expect(try b.store.books.allBooks().count == 1)
+            let deleted = try await b.engine.recentlyDeleted()
+            #expect(deleted.map(\.deviceName) == ["A"])
+            let restored = try await b.engine.restoreDeleted(bookKey: try #require(deleted.first).bookKey)
+            #expect(restored?.action == .createdHere)
+            #expect(try b.store.books.allBooks().count == 2)
+            #expect(try await a.sync().count(.createdHere) == 1)
+            #expect(try await b.engine.recentlyDeleted().isEmpty)
+
+            // Writing an object again moves its date (S3 `LastModified`), as the reuse rule assumes.
+            let probe = try await ready.store.list(prefix: SyncLayout.blobsPrefix).first
+            let probeKey = try #require(probe?.key)
+            let before = try #require(try await ready.store.head(probeKey)?.lastModified)
+            try await Task.sleep(for: .milliseconds(1_500))
+            let encrypted = await a.engine.store
+            let head = try #require(try await encrypted.readHead(bookKey: try encrypted.bookKey(pdfSHA256: SyncTestSupport.sha256(bookA, in: a))))
+            let records = try await encrypted.blob(head.head.references.records)
+            try await encrypted.putBlob(records, reuseIfWrittenAfter: .distantFuture)
+            let recordsKey = try encrypted.blobKey(sha256: head.head.references.records.sha256)
+            let after = try #require(try await ready.store.head(recordsKey)?.lastModified)
+            #expect(after > before, "rewritten: \(before) → \(after)")
+
+            // Housekeeping runs (with the account's snapshots) and removes nothing anything needs.
+            let keysBefore = Set(try await ready.store.list(prefix: "").map(\.key))
+            let snapshots = SyncSnapshotPDFReferences(
+                destination: EncryptedBackupDestination(id: "sync-housekeeping", displayName: "", store: try #require(ready.backupStore),
+                                                        key: ready.key, temporaryDirectory: scratch.appendingPathComponent("snap-tmp")),
+                cacheDirectory: scratch.appendingPathComponent("snapshots"))
+            let run = try await a.engine.housekeep(snapshots: snapshots)
+            #expect(run.outcome == .finished, "\(run)")
+            #expect(!run.removedAnything && run.repairedBlobs == 0 && run.missingBlobs == 0, "\(run)")
+            let keysAfter = Set(try await ready.store.list(prefix: "").map(\.key))
+            #expect(keysBefore.subtracting(keysAfter).isEmpty, "removed \(keysBefore.subtracting(keysAfter))")
+            #expect(try await a.sync().failures.isEmpty)
+            #expect(try await b.sync().failures.isEmpty)
+            try await SyncTestSupport.expectEqual(a, b, "after housekeeping, through the service")
+
+            // Every object is opaque: no title, note, highlight or PDF hash in a name or in the bytes.
+            let pdfHash = SyncTestSupport.sha256(bookA, in: a)
+            let secrets = [noteText, "marked end to end", pdfHash, bookA.title, other.title]
+            let objects = try await raw.list()
+            #expect(objects.contains { $0.key.hasPrefix(SyncLayout.headsPrefix) } && objects.contains { $0.key.hasPrefix(SyncLayout.blobsPrefix) })
+            for object in objects {
+                for secret in secrets { #expect(!object.key.contains(secret), "\(object.key) names it") }
+                let file = scratch.appendingPathComponent(UUID().uuidString)
+                _ = try await raw.download(key: object.key, to: file)
+                let bytes = try Data(contentsOf: file)
+                #expect(!bytes.starts(with: Data("%PDF".utf8)) && !bytes.starts(with: Data("PK".utf8)) && !bytes.starts(with: Data("{".utf8)),
+                        "\(object.key) is readable")
+                for secret in secrets where secret.utf8.count >= 5 {
+                    #expect(bytes.range(of: Data(secret.utf8)) == nil, "\(object.key) holds plaintext")
+                }
+            }
+        }
+
+        // Everything this run wrote is removed, and the account with it.
+        for object in try await raw.list() { try await raw.delete(key: object.key) }
+        #expect(try await raw.list().isEmpty)
+        try await cloud.deleteAccount(anchor: nil)
+        #expect(!cloud.signIn.isSignedIn)
     }
 
     static func base64URLDecoded(_ text: String) -> Data? {

@@ -317,9 +317,9 @@ nonisolated enum SyncNoticeText {
     /// Added to the restore confirmations (Replace with Backup, Undo Last Restore) while sync is on.
     static let restoreCarried = String(localized: "Sync is on, so this change is also carried to your other devices.",
                                        comment: "Restore confirmation, added while Sync is on.")
-    /// Added to the Delete Book confirmation while sync is on. (Recently Deleted is not built yet,
-    /// so nothing promises the book can come back from the account.)
-    static let deleteCarried = String(localized: "Sync is on, so it’s also removed from your other devices.",
+    /// Added to the Delete Book confirmation while sync is on (C5: Recently Deleted is built, so
+    /// it can say the book can come back).
+    static let deleteCarried = String(localized: "Sync is on, so it’s also removed from your other devices. It stays in Recently Deleted on the Tactile Texts Cloud page for 30 days, where you can restore it from any of your devices.",
                                       comment: "Delete Book confirmation, added while Sync is on.")
 }
 

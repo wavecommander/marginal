@@ -48,6 +48,7 @@ struct SyncSectionView: View {
                 }
                 .disabled(service.status == .syncing || environment.backupService.isBusy)
                 .accessibilityIdentifier(AccessibilityID.Sync.syncNow)
+                SyncRecentlyDeletedLink(sync: sync)
             }
             Picker(String(localized: "Download PDFs", comment: "Tactile Texts Cloud ▸ Sync: when synced books' PDFs download."),
                    selection: policyBinding) {

@@ -12,6 +12,9 @@ nonisolated struct SyncAccountAccess: Sendable {
     var key: BackupEncryptionKey
     /// `.pullOnly` when the session is read-only or over the allowance.
     var mode: SyncMode
+    /// The account folder's backup objects (snapshots, `PDFs/`, the key check), for
+    /// housekeeping's PDF rule: no PDF a kept snapshot refers to is removed. `nil`: no PDF is.
+    var backupStore: (any BackupBlobStore)? = nil
 }
 
 /// Where sync stands with the account before a round.
@@ -122,7 +125,8 @@ nonisolated struct TactileCloudSyncAccess: SyncAccountProvider {
         case .ready(let key):
             let client = S3Client(endpoint: endpoint, credentialsProvider: connection.credentials, session: s3Session,
                                   retryPolicy: retryPolicy)
-            return .ready(SyncAccountAccess(accountID: account, store: SyncS3ObjectStore(client: client), key: key, mode: mode))
+            return .ready(SyncAccountAccess(accountID: account, store: SyncS3ObjectStore(client: client), key: key, mode: mode,
+                                            backupStore: blobStore))
         }
     }
 }
@@ -172,7 +176,8 @@ nonisolated final class LocalSyncAccess: SyncAccountProvider, @unchecked Sendabl
                                               createKey: { try await keyStore.createKey() }) {
         case .needsKey(let need): return .needsKey(accountID: account, need)
         case .nothingToSync: return .nothingToSync(accountID: account)
-        case .ready(let key): return .ready(SyncAccountAccess(accountID: account, store: store, key: key, mode: mode))
+        case .ready(let key):
+            return .ready(SyncAccountAccess(accountID: account, store: store, key: key, mode: mode, backupStore: blobStore))
         }
     }
 }

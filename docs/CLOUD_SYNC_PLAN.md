@@ -395,7 +395,9 @@ and engine changes: tombstones carry writer level 2 (the app's level is now 2; o
 level 1, so a level-1 app keeps syncing them); history is written before the head that replaces
 it; a push rewrites a stored blob older than a day instead of relying on it, re-checks its uploads
 when more than an hour passes before the head write, and checks once a day that the blobs it keeps
-are there; a backup to Tactile Texts Cloud likewise rewrites a PDF older than a day. In the app:
+are there; a backup checks, after its snapshot is stored, that the PDFs it relied on are still
+there and uploads any that went (rewriting every old PDF on each daily backup would cost too
+much). In the app:
 the Recently Deleted list on the Tactile Texts Cloud page, Earlier Versions… in the Library with a
 restore safety copy (Undo Last Restore), the Delete Book confirmation's 30 days, and housekeeping
 after a full round at most once a day. **Verified**: the six packages' tests (fault injection at

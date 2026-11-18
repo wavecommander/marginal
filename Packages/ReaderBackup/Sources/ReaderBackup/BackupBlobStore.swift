@@ -93,16 +93,6 @@ public protocol BackupBlobStore: Sendable {
 
     /// Deletes the object `key`. Deleting one that is already gone succeeds.
     func delete(_ key: BackupBlobKey) async throws
-
-    /// When the object was last written, by the store's own clock, or `nil` when there is none
-    /// or the store keeps no dates (the default). Tactile Texts Cloud's store reports it, so a
-    /// backup never relies on an old PDF that sync's housekeeping may be removing
-    /// (`EncryptedBackupDestination.mayReusePDF`).
-    func lastModified(of key: BackupBlobKey) async throws -> Date?
-}
-
-extension BackupBlobStore {
-    public func lastModified(of key: BackupBlobKey) async throws -> Date? { nil }
 }
 
 /// A `BackupBlobStore` over a directory: `<root>/Backups/<name>`, `<root>/PDFs/<name>` and

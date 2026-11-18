@@ -13,7 +13,8 @@ import ReaderSync
 ///     <root>/lock
 ///
 /// ETags are a quoted hash of the bytes (as S3's for a single `PutObject`), so writing equal
-/// bytes keeps the ETag and any change of bytes changes it.
+/// bytes keeps the ETag and any change of bytes changes it. An object's last-modified time is
+/// its file's modification date (every write replaces the file).
 nonisolated final class FolderSyncObjectStore: SyncObjectStore, @unchecked Sendable {
     let root: URL
     private let objects: URL
@@ -41,8 +42,9 @@ nonisolated final class FolderSyncObjectStore: SyncObjectStore, @unchecked Senda
             let names = try FileManager.default.contentsOfDirectory(atPath: objects.path)
             return try names.compactMap { name -> SyncObjectInfo? in
                 guard let key = Self.key(fromName: name), key.hasPrefix(prefix) else { return nil }
-                let data = try Data(contentsOf: objects.appendingPathComponent(name))
-                return SyncObjectInfo(key: key, eTag: Self.eTag(data), size: Int64(data.count))
+                let url = objects.appendingPathComponent(name)
+                let data = try Data(contentsOf: url)
+                return SyncObjectInfo(key: key, eTag: Self.eTag(data), size: Int64(data.count), lastModified: Self.modified(url))
             }
             .sorted { Array($0.key.utf8).lexicographicallyPrecedes(Array($1.key.utf8)) }
         }
@@ -88,7 +90,8 @@ nonisolated final class FolderSyncObjectStore: SyncObjectStore, @unchecked Senda
     func head(_ key: String) async throws -> SyncObjectHead? {
         try await locked {
             guard let data = try read(key) else { return nil }
-            return SyncObjectHead(size: Int64(data.count), eTag: Self.eTag(data), metadata: try readMetadata(key))
+            return SyncObjectHead(size: Int64(data.count), eTag: Self.eTag(data), metadata: try readMetadata(key),
+                                  lastModified: Self.modified(objectURL(key)))
         }
     }
 
@@ -140,6 +143,12 @@ nonisolated final class FolderSyncObjectStore: SyncObjectStore, @unchecked Senda
     static func key(fromName name: String) -> String? {
         guard !name.hasPrefix(".") else { return nil }
         return name.replacingOccurrences(of: "%2F", with: "/").replacingOccurrences(of: "%25", with: "%")
+    }
+
+    /// The file's modification date: every write replaces the file (atomically), so it is the
+    /// time of the last write, as S3's `LastModified` is.
+    static func modified(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 
     static func eTag(_ data: Data) -> String {

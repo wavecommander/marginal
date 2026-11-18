@@ -27,6 +27,8 @@ struct LibraryScreen: View {
     @State private var showImporter = false
     @State private var isDropTargeted = false
     @State private var renameTarget: Book?
+    /// The synced book whose Earlier Versions sheet is open.
+    @State private var versionsTarget: Book?
     @State private var renameText = ""
     @State private var deletePrompt: DeletePrompt?
     @State private var errorMessage: String?
@@ -144,6 +146,11 @@ struct LibraryScreen: View {
             ConversionSheet(request: request,
                             onConvert: { options in convert(request, options: options) },
                             onCancel: { cancel(request) })
+        }
+        .sheet(item: $versionsTarget) { book in
+            if let sync = environment.sync {
+                SyncEarlierVersionsSheet(sync: sync, book: book)
+            }
         }
         .overlay {
             if isDropTargeted {
@@ -441,6 +448,10 @@ struct LibraryScreen: View {
             renameText = book.title
             renameTarget = book
         }
+        if environment.sync?.offersEarlierVersions(book.id) == true {
+            Button(SyncRecoveryText.earlierVersionsMenu, systemImage: "clock.arrow.circlepath") { versionsTarget = book }
+                .accessibilityIdentifier(AccessibilityID.Sync.earlierVersionsMenu)
+        }
         Button("Delete…", systemImage: "trash", role: .destructive) { prepareDelete(book) }
         ConvertedFromMenuSection(book: book, identifier: AccessibilityID.Provenance.libraryMenu)
     }
@@ -654,7 +665,7 @@ struct LibraryScreen: View {
                 let summary = try await environment.store.deletionSummary(bookID: book.id)
                 let exports = environment.markedUpExports.records(for: book.id).filter { $0.isRunning || $0.isFinished }.count
                 var message = LibraryLogic.deletionMessage(title: book.title, summary: summary, exportedPDFs: exports)
-                // Sync carries the deletion to the other devices (Recently Deleted is not built yet).
+                // Sync carries the deletion to the other devices; the account keeps the book 30 days.
                 if environment.sync?.isOn == true { message += " " + SyncNoticeText.deleteCarried }
                 deletePrompt = DeletePrompt(book: book, message: message)
             } catch {

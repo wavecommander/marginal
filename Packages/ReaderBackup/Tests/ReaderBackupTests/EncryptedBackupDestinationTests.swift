@@ -30,20 +30,6 @@ final class CountingBlobStore: BackupBlobStore, @unchecked Sendable {
         }
         if let failure { throw failure }
         try await inner.upload(from: file, to: key, progress: progress)
-        lock.withLock { if let storedClock { written[key.path] = storedClock } }
-    }
-
-    /// With a clock, uploads are stamped with it and `lastModified` reports them (as S3's would);
-    /// without one the store keeps no dates (the default for folders).
-    var clock: Date? {
-        get { lock.withLock { storedClock } }
-        set { lock.withLock { storedClock = newValue } }
-    }
-    private var storedClock: Date?
-    private var written: [String: Date] = [:]
-
-    func lastModified(of key: BackupBlobKey) async throws -> Date? {
-        lock.withLock { storedClock == nil ? nil : written[key.path] }
     }
 
     func download(_ key: BackupBlobKey, to file: URL, progress: BackupProgress?) async throws {
@@ -249,43 +235,6 @@ struct EncryptedBackupDestinationTests {
         try FileManager.default.moveItem(at: f.dir.url.appendingPathComponent("store/Backups/\(uploaded[0].id)"),
                                          to: f.dir.url.appendingPathComponent("store/Backups/\(moved)"))
         #expect(try await destination.listSnapshots().map(\.id) == [longInfo.id, uploaded[2].id, uploaded[1].id])
-    }
-
-    @Test func aBackupReusesAPDFOnlyWhileItIsFreshWhereTheStoreKeepsDates() async throws {
-        final class Clock: @unchecked Sendable {
-            private let lock = NSLock()
-            private var value = EncryptedBackupDestinationTests.olderDate
-            var now: Date { lock.withLock { value } }
-            func set(_ date: Date) { lock.withLock { value = date } }
-        }
-        // A store without dates (a folder): present is reusable, as before.
-        let plain = try EncryptedFixture()
-        let source = try plain.dir.file("book.pdf", Data("%PDF-1.7 reuse".utf8))
-        let digest = try ContentHash.digest(ofFileAt: source)
-        try await plain.destination().uploadPDF(from: source, sha256: digest.sha256, size: digest.size, progress: nil)
-        #expect(try await plain.destination().mayReusePDF(sha256: digest.sha256, size: digest.size))
-
-        // A store with dates: reusable within a day of being written, written again after.
-        let f = try EncryptedFixture()
-        f.store.clock = Self.olderDate
-        let clock = Clock()
-        let destination = EncryptedBackupDestination(id: "tactile-cloud", displayName: "Tactile Cloud", store: f.store,
-                                                     key: sequentialKey, temporaryDirectory: f.temporaryDirectory,
-                                                     availableCapacity: { _ in nil }, now: { clock.now })
-        try await destination.uploadPDF(from: source, sha256: digest.sha256, size: digest.size, progress: nil)
-        #expect(f.store.uploads.filter { $0.hasPrefix("PDFs/") }.count == 1)
-        clock.set(Self.olderDate.addingTimeInterval(3_600))
-        #expect(try await destination.mayReusePDF(sha256: digest.sha256, size: digest.size))
-        f.store.reset()
-        try await destination.uploadPDF(from: source, sha256: digest.sha256, size: digest.size, progress: nil)
-        #expect(f.store.uploads.filter { $0.hasPrefix("PDFs/") }.isEmpty)
-        clock.set(Self.olderDate.addingTimeInterval(2 * 86_400))
-        #expect(try await destination.mayReusePDF(sha256: digest.sha256, size: digest.size) == false)
-        #expect(try await destination.hasPDF(sha256: digest.sha256, size: digest.size), "still there for a restore")
-        f.store.clock = Self.olderDate.addingTimeInterval(2 * 86_400)
-        try await destination.uploadPDF(from: source, sha256: digest.sha256, size: digest.size, progress: nil)
-        #expect(f.store.uploads.filter { $0.hasPrefix("PDFs/") }.count == 1)
-        #expect(try await destination.mayReusePDF(sha256: digest.sha256, size: digest.size))
     }
 
     @Test func pdfObjectNamesAreKeyedHashes() async throws {

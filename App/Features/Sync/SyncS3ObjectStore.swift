@@ -24,6 +24,8 @@ nonisolated enum SyncStorageError: Error, Hashable, Sendable, LocalizedError {
 /// - An object over `maxBytes` (`S3Error.isObjectTooLarge`) is `SyncError.objectTooLarge`.
 /// - A missing object: `get` and `head` return `nil`, `download` throws
 ///   `SyncError.objectNotFound`, `delete` succeeds.
+/// - `list` and `head` pass on the service's last-modified times (`LastModified`, `Last-Modified`),
+///   which housekeeping and the blob-reuse rule judge ages by.
 /// - Every ETag is the service's, quotes included. An object listed, read or headed without one
 ///   throws `SyncStorageError.missingETag` (a conditional write needs it, and an absent ETag must
 ///   never read as "unchanged"); a put whose answer has none is S3Kit's `unexpectedResponse`.
@@ -45,7 +47,7 @@ nonisolated struct SyncS3ObjectStore: SyncObjectStore, CustomStringConvertible, 
     func list(prefix: String) async throws -> [SyncObjectInfo] {
         try await client.list(prefix: prefix).map { object in
             guard let eTag = object.eTag, !eTag.isEmpty else { throw SyncStorageError.missingETag(key: object.key) }
-            return SyncObjectInfo(key: object.key, eTag: eTag, size: object.size)
+            return SyncObjectInfo(key: object.key, eTag: eTag, size: object.size, lastModified: object.lastModified)
         }
     }
 
@@ -91,7 +93,7 @@ nonisolated struct SyncS3ObjectStore: SyncObjectStore, CustomStringConvertible, 
     func head(_ key: String) async throws -> SyncObjectHead? {
         guard let head = try await client.head(key: key) else { return nil }
         guard let eTag = head.eTag, !eTag.isEmpty else { throw SyncStorageError.missingETag(key: key) }
-        return SyncObjectHead(size: head.size, eTag: eTag, metadata: head.metadata)
+        return SyncObjectHead(size: head.size, eTag: eTag, metadata: head.metadata, lastModified: head.lastModified)
     }
 
     func delete(_ key: String) async throws {
