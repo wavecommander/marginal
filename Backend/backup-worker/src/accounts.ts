@@ -6,7 +6,7 @@ import { revokeAppleAuthorization } from "./appleSignIn";
 import { fromBase64 } from "./bytes";
 import type { AccountResponse, DeleteAccountResponse, DeviceInfo, SignInResponse, SignOutResponse } from "./contract";
 import * as db from "./db";
-import { withDevTestEntitlement } from "./devEntitlement";
+import { storageLimit, withDevTestEntitlement } from "./devEntitlement";
 import type { Env, Settings } from "./env";
 import { Refusal, json, optionalStringField, readJsonBody, stringField } from "./http";
 import { identityHash, newAccountId, newFolderKey, newSessionId, newSessionToken, sessionTokenHash, type Provider } from "./identity";
@@ -15,7 +15,7 @@ import { logEvent, shortKey } from "./log";
 import { authenticate, requireSession, sessionTokenField } from "./requestAuth";
 import { deleteBudget, type Deps } from "./service";
 import { emptyAccountFolders, folderFor } from "./storage";
-import { accessAt, allowanceFor, primaryOf, subscriptionInfo } from "./subscription";
+import { accessAt, primaryOf, subscriptionInfo } from "./subscription";
 import { MAX_TTL_SECONDS } from "./tempCredentials";
 import { currentUsage } from "./usage";
 
@@ -166,14 +166,15 @@ async function accountResponse(env: Env, settings: Settings, deps: Deps, account
     label: session.label,
     current: session.sessionId === currentSessionId,
   }));
-  const primary = primaryOf(withDevTestEntitlement(await db.listSubscribers(env.DB, account.accountId), account, settings, now).candidates, now, settings);
+  const choice = withDevTestEntitlement(await db.listSubscribers(env.DB, account.accountId), account, settings, now);
+  const primary = primaryOf(choice.candidates, now, settings);
   let subscription: AccountResponse["subscription"] = null;
   let usage: AccountResponse["usage"] = null;
   if (primary) {
     subscription = subscriptionInfo(primary, accessAt(primary, now, settings), settings);
     const counted = await currentUsage(env, primary, folderFor(account.folderKey, primary.namespace), now, settings);
-    const allowance = allowanceFor(primary, settings);
-    usage = { bytes: counted.bytes, allowanceBytes: allowance, overAllowance: counted.bytes > allowance || !counted.complete, countedAt: iso(counted.countedAt) };
+    const limit = storageLimit(primary, choice.devTest, counted, settings);
+    usage = { bytes: counted.bytes, allowanceBytes: limit.allowanceBytes, overAllowance: limit.overAllowance, countedAt: iso(counted.countedAt) };
   }
   return {
     accountId: account.accountId,

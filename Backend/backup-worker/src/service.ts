@@ -8,7 +8,7 @@ import { attestPolicy, verifyAttestation } from "./appAttest";
 import { fromBase64, hex, randomBytes, sha256, toBase64 } from "./bytes";
 import type { AttestResponse, ChallengeResponse, DeleteMyDataResponse, HealthResponse, SessionResponse } from "./contract";
 import * as db from "./db";
-import { devTestEntitlement, devTestEntitlementApplies, withDevTestEntitlement } from "./devEntitlement";
+import { devTestEntitlement, devTestEntitlementApplies, storageLimit, withDevTestEntitlement } from "./devEntitlement";
 import { bindSubscription, recordNotification } from "./entitlement";
 import { readSettings, type Env, type Settings } from "./env";
 import { Refusal, json, optionalStringField, problem, readJsonBody, stringField } from "./http";
@@ -16,7 +16,7 @@ import { JwksCache, type JwksSource, type OutboundFetch } from "./idToken";
 import { logError, logEvent, shortKey } from "./log";
 import { CHALLENGE_BYTES, authenticate, requireSession, sessionTokenField, useChallenge } from "./requestAuth";
 import { deleteFolder, emptyAccountFolders, folderFor } from "./storage";
-import { DAY_MS, accessAt, allowanceFor, primaryOf, subscriptionInfo, type Subscriber } from "./subscription";
+import { DAY_MS, accessAt, primaryOf, subscriptionInfo, type Subscriber } from "./subscription";
 import { ACTIONS, createTempCredentials, type AccessMode } from "./tempCredentials";
 import { currentUsage } from "./usage";
 
@@ -202,9 +202,9 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
   }
 
   const folder = folderFor(account.folderKey, subscriber.namespace);
-  const allowance = allowanceFor(subscriber, settings);
   const usage = await currentUsage(env, subscriber, folder, now, settings);
-  const overAllowance = usage.bytes > allowance || !usage.complete;
+  // `dev` only: a session served by the dev test entitlement has no storage cap.
+  const { allowanceBytes: allowance, overAllowance } = storageLimit(subscriber, devTest, usage, settings);
   const mode: AccessMode = access.kind === "read-only" ? "read-only" : overAllowance ? "read-delete" : "read-write";
 
   // Look again right before minting: an account deletion may have started during the steps

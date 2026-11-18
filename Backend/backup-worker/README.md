@@ -275,13 +275,17 @@ secrets if a configured build ever left your hands.
 | Who you are | Apple's or Google's signed ID token | A dev test token the app mints for the named user; hashed in its own `dev-test:` namespace, so it can never reach a real Apple or Google account |
 | Subscription | A verified App Store transaction | The dev test entitlement, with no transaction |
 | Genuine app | App Attest | Bypassed with `APP_ATTEST_BYPASS_SECRET` |
-| Storage | `users/` (App Store) or `sandbox/` | `sandbox/` with the sandbox allowance (100 MB) |
+| Storage | `users/` (App Store) or `sandbox/` | `sandbox/` with no storage cap |
 
 **`DEV_TEST_ENTITLEMENT`** (`dev` only, optional; `src/devEntitlement.ts`): a product ID from
 `PRODUCT_ALLOWANCES`. With it, and with the dev test issuer on, every account whose sign-in is a
 dev test identity is served by `/v1/session` and `/v1/account` as subscribed: `state` `active`,
-`environment` `Xcode`, its `sandbox/` folder, the sandbox allowance, `expiresAt` a day ahead,
-always (`read-delete` over the allowance). A real Apple or Google account never gets it. Whether
+`environment` `Xcode`, its `sandbox/` folder, `expiresAt` a day ahead, always, and **no storage
+cap** (owner decision, 18 November 2026): `usage.allowanceBytes` is 9007199254740991 (the
+largest whole number JSON carries exactly, a figure to show and not a limit that is applied) and
+`overAllowance` is always false, so it is never `read-delete`, even when its folder is too large
+to count in full. A dev test account served from a real purchase it presented keeps that
+purchase's allowance. A real Apple or Google account never gets it. Whether
 an account's identity is a dev test one is `accounts.identity_dev_test` (migration `0005`), set
 with the identity at sign-in and whenever the sign-in changes. The entitlement is **never
 stored**: App Store notifications cannot find it, the lapse cron never sees it, deleting the

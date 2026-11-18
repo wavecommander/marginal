@@ -113,7 +113,7 @@ function sandboxTransaction(overrides: Record<string, unknown> = {}): Record<str
 }
 
 describe("the dev test entitlement, in dev with the dev test issuer on", () => {
-  it("gives a dev test account a read-write session in sandbox/ with the sandbox allowance, with no transaction and nothing stored", async () => {
+  it("gives a dev test account a read-write session in sandbox/ with no storage cap, with no transaction and nothing stored", async () => {
     for (const provider of ["apple", "google"] as const) {
       const reader = await signedIn(dev, provider, devToken(dev, newSubject(provider)));
       expect(await devTestFlag(reader.accountId)).toBe(1);
@@ -122,12 +122,12 @@ describe("the dev test entitlement, in dev with the dev test issuer on", () => {
       expect(body.storage.prefix).toMatch(/^sandbox\/[0-9a-f]{64}\/$/);
       expect(body.subscription).toMatchObject({ state: "active", environment: "Xcode", productId: PRODUCT, endedAt: null, readOnlyUntil: null, deleteAfter: null });
       expect(Date.parse(body.subscription.expiresAt!)).toBeGreaterThan(NOW);
-      expect(body.usage).toMatchObject({ bytes: 0, allowanceBytes: SANDBOX_ALLOWANCE, overAllowance: false });
+      expect(body.usage).toMatchObject({ bytes: 0, allowanceBytes: Number.MAX_SAFE_INTEGER, overAllowance: false });
       expect(body.credentials.accessKeyId).toBeTruthy();
       // The account screen says the same, and nothing was written for it.
       const screen = await accountScreen(dev, reader);
       expect(screen.subscription).toMatchObject({ state: "active", environment: "Xcode", productId: PRODUCT });
-      expect(screen.usage).toMatchObject({ allowanceBytes: SANDBOX_ALLOWANCE });
+      expect(screen.usage).toMatchObject({ allowanceBytes: Number.MAX_SAFE_INTEGER, overAllowance: false });
       expect(await rowsFor(reader.accountId)).toEqual({ accounts: 1, device_sessions: 1, subscribers: 0 });
     }
     const sessionLines = logged.filter((line) => line.includes('"session"'));
@@ -136,16 +136,18 @@ describe("the dev test entitlement, in dev with the dev test issuer on", () => {
     for (const line of logged) expect(line).not.toContain(DEV_SIGNIN_SECRET);
   });
 
-  it("stays active a year on; over the allowance it is read-delete like any sandbox subscription", async () => {
+  it("stays active a year on, and has no storage cap: past the sandbox allowance it is still read-write", async () => {
     const reader = await signedIn(dev, "apple", devToken(dev, newSubject("apple")));
     const prefix = (await sessionOk(dev, reader)).storage.prefix;
     dev.clock.now = new Date(NOW + 365 * DAY);
     expect((await sessionOk(dev, reader)).mode).toBe("read-write");
     await putObjects(prefix, 2, SANDBOX_ALLOWANCE);
     dev.clock.now = new Date(NOW + 366 * DAY);
-    const over = await sessionOk(dev, reader);
-    expect(over.mode).toBe("read-delete");
-    expect(over.usage.overAllowance).toBe(true);
+    const large = await sessionOk(dev, reader);
+    expect(large.usage.bytes).toBeGreaterThan(SANDBOX_ALLOWANCE);
+    expect(large.mode).toBe("read-write");
+    expect(large.usage).toMatchObject({ allowanceBytes: Number.MAX_SAFE_INTEGER, overAllowance: false });
+    expect((await accountScreen(dev, reader)).usage).toMatchObject({ allowanceBytes: Number.MAX_SAFE_INTEGER, overAllowance: false });
   });
 
   it("never applies to a real Apple or Google identity, even with the same subject", async () => {

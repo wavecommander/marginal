@@ -22,7 +22,8 @@
 //   switch is off;
 // - deleting the account leaves nothing of it behind: there is nothing to delete.
 // It is the account's `sandbox/` folder (the presented transaction environment is `Xcode`,
-// local development) with the sandbox allowance, always active (its `expiresAt` is a day from
+// local development) with NO storage cap (owner decision, 18 November 2026: a dev test account
+// is for trying real libraries; see `storageLimit`), always active (its `expiresAt` is a day from
 // now, every time). A real purchase the account presents binds exactly as without the switch
 // (its refusals, such as another account's purchase, still apply); the session is then served
 // from the better of the two, so an old StoreKit Testing purchase on a simulator cannot make a
@@ -32,7 +33,28 @@
 import type * as db from "./db";
 import type { Settings } from "./env";
 import { devTestIssuerEnabled } from "./idToken";
-import { DAY_MS, type Subscriber } from "./subscription";
+import { DAY_MS, allowanceFor, type Subscriber } from "./subscription";
+
+/**
+ * What a session served by the dev test entitlement reports as its allowance: the largest whole
+ * number of bytes JSON carries exactly. It is a figure to show, not a limit that is applied.
+ */
+export const DEV_TEST_ALLOWANCE_BYTES = Number.MAX_SAFE_INTEGER;
+
+/**
+ * The storage limit for the entitlement a request is served from. A session or account screen
+ * served by the dev test entitlement itself (`served === devTest`) has no cap: it is never over
+ * its allowance, whatever it holds, and even when its folder is too large to count in full.
+ * Anything else, including a dev test account served from a real purchase it presented, keeps
+ * its product's or the sandbox allowance.
+ */
+export function storageLimit(
+  served: Subscriber, devTest: Subscriber | undefined, counted: { bytes: number; complete: boolean }, settings: Settings,
+): { allowanceBytes: number; overAllowance: boolean } {
+  if (devTest !== undefined && served === devTest) return { allowanceBytes: DEV_TEST_ALLOWANCE_BYTES, overAllowance: false };
+  const allowanceBytes = allowanceFor(served, settings);
+  return { allowanceBytes, overAllowance: counted.bytes > allowanceBytes || !counted.complete };
+}
 
 /** Whether an account with this identity has the dev test entitlement now. */
 export function devTestEntitlementApplies(account: Pick<db.Account, "devTest">, settings: Settings): boolean {
