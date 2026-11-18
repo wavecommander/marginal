@@ -190,7 +190,9 @@ nonisolated enum BackupSubscriptionError: LocalizedError, Hashable, Sendable {
         case .networkUnavailable:
             "Couldn’t reach the App Store. Check your internet connection and try again."
         case .purchasesNotAllowed:
-            "Purchases aren’t allowed on this iPad. Check Screen Time settings, or ask the person who manages it."
+            DeviceKind.current.pick(
+                iPad: "Purchases aren’t allowed on this iPad. Check Screen Time settings, or ask the person who manages it.",
+                iPhone: "Purchases aren’t allowed on this iPhone. Check Screen Time settings, or ask the person who manages it.")
         case .storeFailed:
             "The App Store couldn’t complete that. Try again later."
         }

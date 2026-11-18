@@ -5,7 +5,7 @@ import XCTest
 /// Apple, Google or Cloudflare account is needed.
 ///
 /// The rule under every test (owner decision 7): signing out, signing out everywhere, changing
-/// the sign-in, an ended session and a deleted account leave the library on the iPad exactly as
+/// the sign-in, an ended session and a deleted account leave the library on the device exactly as
 /// it was. After each, a book is opened and its note edited.
 @MainActor
 final class CloudAccountUITests: XCTestCase {
@@ -123,6 +123,7 @@ final class CloudAccountUITests: XCTestCase {
     private func signIn(_ app: XCUIApplication, _ button: String) {
         let element = any(app, button)
         XCTAssertTrue(element.waitForExistence(timeout: 15), app.debugDescription)
+        scrollTo(element, in: app)
         element.tap()
         XCTAssertTrue(any(app, ID.signInApple).waitForNonExistence(timeout: 15), "signed in: \(app.debugDescription)")
     }
@@ -137,6 +138,8 @@ final class CloudAccountUITests: XCTestCase {
     /// The signed-out offer: both sign-in buttons, no Subscribe or Restore Purchases.
     private func expectSignedOut(_ app: XCUIApplication) {
         XCTAssertTrue(any(app, ID.offer).waitForExistence(timeout: 15), app.debugDescription)
+        // On an iPhone the signed-out notice can push the buttons below the fold.
+        scrollTo(app.buttons[ID.signInGoogle].firstMatch, in: app)
         XCTAssertTrue(any(app, ID.signInApple).waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons[ID.signInGoogle].exists, "both sign-ins at equal weight")
         let apple = any(app, ID.signInApple).frame, google = app.buttons[ID.signInGoogle].firstMatch.frame
@@ -164,8 +167,17 @@ final class CloudAccountUITests: XCTestCase {
         if !before.isEmpty, before != "Write a note…" {
             XCTAssertTrue((note.value as? String)?.contains(before) == true, "what was there is still there")
         }
+        // In a narrow window (an iPhone) the notes are a sheet over the reader: close it first.
+        if Fixtures.deviceName == "iPhone", app.isShown(.notes) {
+            // The keyboard and the sheet cover the toolbar: drag the sheet down by its top edge.
+            let top = note.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -40))
+            top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99)))
+            if app.isShown(.notes) { _ = app.setPanel(.notes, shown: false) }
+            XCTAssertTrue(app.toggle(of: .notes).wait(until: "label != %@", ReaderPanel.notes.shownLabel, timeout: 10),
+                          "notes sheet closes: \(app.debugDescription)")
+        }
         app.navigationBars.buttons["Library"].firstMatch.tap()
-        XCTAssertTrue(cell.waitForExistence(timeout: 10))
+        XCTAssertTrue(cell.waitForExistence(timeout: 10), "back in the Library: \(app.debugDescription)")
     }
 
     private func backUpNow(_ app: XCUIApplication) {
@@ -205,7 +217,7 @@ final class CloudAccountUITests: XCTestCase {
 
         signIn(app, ID.signInApple)
         XCTAssertTrue(waitFor(accountRow(app), "label CONTAINS 'Signed in with Apple'"), app.debugDescription)
-        XCTAssertTrue(any(app, ID.accountSignIn).label.contains("reader@privaterelay.appleid.com"), "the email, on this iPad")
+        XCTAssertTrue(any(app, ID.accountSignIn).label.contains("reader@privaterelay.appleid.com"), "the email, on this device")
         scrollToTop(app)
         tap(ID.subscribe, in: app)
         backUpNow(app)
@@ -215,9 +227,13 @@ final class CloudAccountUITests: XCTestCase {
         let device = any(app, ID.device0)
         scrollTo(device, in: app)
         XCTAssertTrue(device.waitForExistence(timeout: 10), "the devices are listed: \(app.debugDescription)")
+        XCTAssertTrue(device.label.hasPrefix("This \(Fixtures.deviceName)"), "this device by its kind: \(device.label)")
+        let other = any(app, "cloud.account.device.1")
+        scrollTo(other, in: app)
+        XCTAssertTrue(other.label.hasPrefix("Another device"), "a device whose label can't be opened: \(other.label)")
 
         tap(ID.signOut, in: app)
-        confirm(app, "Sign Out", saying: ["stay on this iPad", "won’t be backed up"])
+        confirm(app, "Sign Out", saying: ["stay on this \(Fixtures.deviceName)", "won’t be backed up"])
         expectSignedOut(app)
         closeSettings(app)
         editNote(app, "Signed out ")
@@ -231,7 +247,7 @@ final class CloudAccountUITests: XCTestCase {
         XCTAssertFalse(any(app, ID.signedOutNotice).exists)
     }
 
-    /// Sign Out of All Devices: this iPad is signed out too, and keeps its library.
+    /// Sign Out of All Devices: this device is signed out too, and keeps its library.
     func testSignOutOfAllDevicesKeepsTheLibrary() {
         let app = launch("active")
         openCloud(app)
@@ -251,7 +267,7 @@ final class CloudAccountUITests: XCTestCase {
         XCTAssertTrue(any(app, ID.status).waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(waitFor(accountRow(app), "label CONTAINS 'Signed in with Apple'", timeout: 15), app.debugDescription)
         tap(ID.changeSignIn, in: app)
-        confirm(app, "Continue", saying: ["First confirm with Apple, then sign in with Google", "books on this iPad aren’t touched"],
+        confirm(app, "Continue", saying: ["First confirm with Apple, then sign in with Google", "books on this \(Fixtures.deviceName) aren’t touched"],
                 thenAnotherAlert: true)
         let changed = app.alerts.firstMatch
         XCTAssertTrue(changed.buttons["Sign Out of All Devices…"].waitForExistence(timeout: 15),
@@ -285,7 +301,7 @@ final class CloudAccountUITests: XCTestCase {
     }
 
     /// Delete Account: the confirmation says the books stay and the subscription isn't
-    /// cancelled; afterwards the iPad is signed out with the library intact.
+    /// cancelled; afterwards the device is signed out with the library intact.
     func testDeletingTheAccountKeepsTheLibrary() {
         let app = launch("active")
         openCloud(app)

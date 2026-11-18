@@ -65,7 +65,9 @@ nonisolated enum AppAttestError: LocalizedError, Hashable, Sendable {
         case .temporarilyUnavailable:
             "Couldn’t confirm with Apple that this is the genuine Tactile Texts app. Try again in a few minutes."
         case .keyInvalidated:
-            "This iPad needs to confirm again that it’s running the genuine Tactile Texts app. Try again."
+            DeviceKind.current.pick(
+                iPad: "This iPad needs to confirm again that it’s running the genuine Tactile Texts app. Try again.",
+                iPhone: "This iPhone needs to confirm again that it’s running the genuine Tactile Texts app. Try again.")
         case .failed(let code):
             "Couldn’t confirm that this is the genuine Tactile Texts app (error \(code)). Try again later."
         }

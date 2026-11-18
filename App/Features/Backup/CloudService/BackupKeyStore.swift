@@ -41,11 +41,16 @@ nonisolated enum BackupKeyStoreError: LocalizedError, Hashable, Sendable {
     var errorDescription: String? {
         switch self {
         case .keyAlreadyExists:
-            "This iPad already has a backup encryption key."
+            DeviceKind.current.pick(iPad: "This iPad already has a backup encryption key.",
+                                    iPhone: "This iPhone already has a backup encryption key.")
         case .noKey:
-            "This iPad doesn’t have the key for your cloud backups. Enter your recovery key to use them."
+            DeviceKind.current.pick(
+                iPad: "This iPad doesn’t have the key for your cloud backups. Enter your recovery key to use them.",
+                iPhone: "This iPhone doesn’t have the key for your cloud backups. Enter your recovery key to use them.")
         case .storedKeyUnreadable:
-            "The backup encryption key saved on this iPad can’t be read. Enter your recovery key to use your cloud backups."
+            DeviceKind.current.pick(
+                iPad: "The backup encryption key saved on this iPad can’t be read. Enter your recovery key to use your cloud backups.",
+                iPhone: "The backup encryption key saved on this iPhone can’t be read. Enter your recovery key to use your cloud backups.")
         case .keychain(let status):
             "Tactile Texts couldn’t use the Keychain to keep your backup encryption key (error \(status))."
         }

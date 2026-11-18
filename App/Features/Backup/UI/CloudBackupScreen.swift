@@ -359,8 +359,8 @@ private struct CloudAccountAlerts: View {
 
     private func message(_ alert: CloudBackupScreenModel.AccountAlert) -> String {
         switch alert {
-        case .signOut: CloudAccountText.signOutMessage
-        case .signOutEverywhere: CloudAccountText.signOutAllMessage
+        case .signOut: CloudAccountText.signOutMessage()
+        case .signOutEverywhere: CloudAccountText.signOutAllMessage()
         case .change(let provider): CloudAccountText.changeConfirmMessage(from: current, to: provider)
         case .delete: CloudAccountText.deleteMessage(provider: current)
         case .changed: CloudAccountText.changedMessage
@@ -395,7 +395,7 @@ private struct CloudSignInSection: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AccessibilityID.CloudBackup.signedOutNotice)
             }
-            Text(CloudAccountText.signInIntro)
+            Text(CloudAccountText.signInIntro())
                 .foregroundStyle(.secondary)
             VStack(spacing: Space.s) {
                 if signIn.availableProviders.contains(.apple) {
@@ -513,7 +513,7 @@ private struct CloudAccountSection: View {
                         LabeledContent {
                             Text(CloudAccountText.lastUsed(device.lastUsedAt) ?? "")
                         } label: {
-                            Text(signIn.name(of: device) + (device.isCurrent && signIn.name(of: device) != "This iPad" ? " (this iPad)" : ""))
+                            Text(signIn.name(of: device))
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier(AccessibilityID.CloudBackup.device(index))
@@ -530,7 +530,7 @@ private struct CloudAccountSection: View {
                 Button("Delete Account…", role: .destructive) { model.accountAlert = .delete }
                     .accessibilityIdentifier(AccessibilityID.CloudBackup.deleteAccount)
             } footer: {
-                Text(CloudAccountText.accountFooter)
+                Text(CloudAccountText.accountFooter())
             }
             // A backup or restore under way finishes first.
             .disabled(signIn.activity != nil || environment.backupService.isBusy)
@@ -814,7 +814,9 @@ private struct CloudBackupStatusView: View {
         } header: {
             Text("Recovery Key")
         } footer: {
-            Text("Backups are encrypted on this iPad. Your recovery key opens them if the key on your devices is ever lost.")
+            Text(DeviceKind.current.pick(
+                iPad: "Backups are encrypted on this iPad. Your recovery key opens them if the key on your devices is ever lost.",
+                iPhone: "Backups are encrypted on this iPhone. Your recovery key opens them if the key on your devices is ever lost."))
         }
     }
 

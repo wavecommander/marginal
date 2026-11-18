@@ -307,7 +307,8 @@ Restore › Tactile Texts Cloud.
 - [ ] **Sign in with Apple.** Signed out, the page shows the system's Sign in with Apple button
       and Sign in with Google at the same size. Sign in with Apple shows Apple's sheet; after it
       the Account section says "Signed in with Apple" with the email (or the private relay
-      address) and lists this iPad. The Worker's logs show a sign-in and no email.
+      address) and lists "This iPad" ("This iPhone" on an iPhone). The Worker's logs show a sign-in
+      and no email.
 - [ ] **Sign in with Google, and the nonce.** Sign out, then Sign in with Google: Google's page
       opens in the sign-in sheet, and after choosing an account the page is signed in (a new
       account if this Google identity never signed in). This is the check that Google returns
@@ -319,13 +320,15 @@ Restore › Tactile Texts Cloud.
       page offers Sign Out of All Devices. Change back to Apple the same way. Choosing a Google
       account that already has its own Tactile Texts Cloud account is refused with that
       explanation and nothing changes. Cancelling either step changes nothing.
-- [ ] **The key on a second iPad, per account.** Sign in to the same account on a second iPad
-      with the same Apple Account and iCloud Keychain on: the page waits for the key, and after
-      a while lists the backups without the recovery key; the second iPad's name appears in the
-      first iPad's device list once its key has arrived. On an iPad signed in to a different
+- [ ] **The key on a second device, per account.** Sign in to the same account on an iPhone
+      (and on a second iPad) with the same Apple Account and iCloud Keychain on: the page waits
+      for the key, and after a while lists the backups without the recovery key; the iPhone
+      appears in the iPad's device list as an iPhone, by its name, once its key has arrived (and
+      the iPad in the iPhone's list as an iPad); each lists itself as "This iPhone" or "This
+      iPad". The text on each names the device it is on. On a device signed in to a different
       Tactile Texts Cloud account, the first account's key is never used.
-- [ ] **Sign Out of All Devices, seen on the other iPad.** On iPad A, Sign Out of All Devices:
-      A is signed out at once. On iPad B, open the Tactile Texts Cloud page (or wait for its next
+- [ ] **Sign Out of All Devices, seen on the other device.** On iPad A, Sign Out of All Devices:
+      A is signed out at once. On iPhone B, open the Tactile Texts Cloud page (or wait for its next
       automatic backup): it says it was signed out and that its books aren't backed up; its
       library opens and edits as before. Sign in again on B and the backups are there.
 - [ ] **Delete Account and Apple's revocation.** Signed in with Apple: Delete Account… asks first
@@ -336,8 +339,8 @@ Restore › Tactile Texts Cloud.
       Signing in again makes a new, empty account that the subscription binds to.
 - [ ] **Apple revocation from Settings.** Signed in with Apple, stop using Sign in with Apple for
       Tactile Texts in Settings › Apple Account: back in the app (or at the next launch) the page
-      says this iPad was signed out; the library is unchanged.
-- [ ] **Automatic backup is on for a new subscriber.** On an iPad that never set up automatic
+      says this iPad (or iPhone) was signed out; the library is unchanged.
+- [ ] **Automatic backup is on for a new subscriber.** On a device that never set up automatic
       backups, sign in and subscribe: Settings › Backup & Restore shows automatic backup on, to
       Tactile Texts Cloud. Turning it off stays off after signing out and in again.
 - [ ] **Offer and purchase.** Signed in, the offer shows the sandbox price and period, Terms of

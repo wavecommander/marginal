@@ -146,7 +146,9 @@ nonisolated struct CloudBackupBanner: Equatable, Sendable {
                                      message: CloudBackupRecoveryKeyText.arrivingNote, actions: [.tryAgain, .enterRecoveryKey])
         case .needsRecoveryKey(.differentKey):
             return CloudBackupBanner(tone: .warning, title: "Recovery Key Needed",
-                                     message: "Your backups were made with a different key from the one on this iPad. Enter your recovery key to use them.",
+                                     message: DeviceKind.current.pick(
+                                         iPad: "Your backups were made with a different key from the one on this iPad. Enter your recovery key to use them.",
+                                         iPhone: "Your backups were made with a different key from the one on this iPhone. Enter your recovery key to use them."),
                                      actions: [.enterRecoveryKey])
         }
     }
@@ -211,7 +213,10 @@ nonisolated enum CloudBackupStatusText {
         return min(1, max(0, Double(usage.bytes) / Double(usage.allowanceBytes)))
     }
 
-    static let backUpFooter = "Backups are encrypted on this iPad. \(BackupUIText.retention)"
+    static var backUpFooter: String {
+        DeviceKind.current.pick(iPad: "Backups are encrypted on this iPad. \(BackupUIText.retention)",
+                                iPhone: "Backups are encrypted on this iPhone. \(BackupUIText.retention)")
+    }
 
     /// Under Back Up Now when it is off: why.
     static func backUpRefusedFooter(_ status: CloudBackupAccount.Status) -> String? {
@@ -234,10 +239,18 @@ nonisolated enum CloudBackupOfferText {
     static let readOnlyDays = 30
     static let deleteAfterDays = 60
 
-    static let intro = "Back up your notes, highlights, bookmarks, ink and PDFs to \(CloudServiceError.serviceName), and restore them on this iPad or a new one. Backups can run automatically once a day."
+    static var intro: String {
+        DeviceKind.current.pick(
+            iPad: "Back up your notes, highlights, bookmarks, ink and PDFs to \(CloudServiceError.serviceName), and restore them on this iPad or another device. Backups can run automatically once a day.",
+            iPhone: "Back up your notes, highlights, bookmarks, ink and PDFs to \(CloudServiceError.serviceName), and restore them on this iPhone or another device. Backups can run automatically once a day.")
+    }
 
-    static let encryptedTitle = "Encrypted on This iPad"
-    static let encrypted = "Your backups are encrypted on this iPad before they leave it, and nobody else can read them: not Tactile Texts, and not the company that stores them. Only their sizes and dates can be seen."
+    static var encryptedTitle: String { DeviceKind.current.pick(iPad: "Encrypted on This iPad", iPhone: "Encrypted on This iPhone") }
+    static var encrypted: String {
+        DeviceKind.current.pick(
+            iPad: "Your backups are encrypted on this iPad before they leave it, and nobody else can read them: not Tactile Texts, and not the company that stores them. Only their sizes and dates can be seen.",
+            iPhone: "Your backups are encrypted on this iPhone before they leave it, and nobody else can read them: not Tactile Texts, and not the company that stores them. Only their sizes and dates can be seen.")
+    }
 
     static let recoveryKeyTitle = "Your Recovery Key"
     static let recoveryKey = "Your first backup makes a recovery key. Your other devices get the key through iCloud Keychain; if it is ever lost, the recovery key is the only way to open your backups. Nobody can recover them without it, so keep it somewhere safe."
@@ -366,7 +379,11 @@ nonisolated enum CloudBackupRecoveryKeyText {
         """
     }
 
-    static let explanation = "This key opens your backups if your devices lose the key they keep in iCloud Keychain. Nobody, including Tactile Texts, can open your backups without it. Keep it somewhere safe and private, away from this iPad: printed, or in a password manager."
+    static var explanation: String {
+        DeviceKind.current.pick(
+            iPad: "This key opens your backups if your devices lose the key they keep in iCloud Keychain. Nobody, including Tactile Texts, can open your backups without it. Keep it somewhere safe and private, away from this iPad: printed, or in a password manager.",
+            iPhone: "This key opens your backups if your devices lose the key they keep in iCloud Keychain. Nobody, including Tactile Texts, can open your backups without it. Keep it somewhere safe and private, away from this iPhone: printed, or in a password manager.")
+    }
 
     static let promptIntro = "Your first backup to \(CloudServiceError.serviceName) is done. Save your recovery key now: without it, nobody can open your backups if the key on your devices is lost."
 
@@ -415,27 +432,38 @@ nonisolated enum CloudBackupRecoveryKeyLogic {
 // MARK: - Signing in and the account
 
 /// The account's words: signing in, the account section, and each sign-in change's confirmation.
-/// Every confirmation says what happens to the books on this iPad (they stay as they are) and to
-/// what is kept in the cloud (owner decision 7).
+/// Every confirmation says what happens to the books on this device (they stay as they are) and
+/// to what is kept in the cloud (owner decision 7). Text that names the device is written once
+/// per `DeviceKind` as whole sentences (see `DeviceKind`); `device` defaults to this one.
 nonisolated enum CloudAccountText {
     static let name = CloudServiceError.serviceName
 
     static let signInHeader = "Sign In"
-    static let signInIntro = "Sign in to subscribe and back up. Your books, notes and ink stay on this iPad whether or not you sign in; signing in only gives your backups an account to belong to. \(name) keeps no name or email address."
-    static let lostAccess = "If you lose access to the Apple Account or Google Account you sign in with, the account can’t be reached; the books on your iPads are unaffected."
+    static func signInIntro(_ device: DeviceKind = .current) -> String {
+        device.pick(
+            iPad: "Sign in to subscribe and back up. Your books, notes and ink stay on this iPad whether or not you sign in; signing in only gives your backups an account to belong to. \(name) keeps no name or email address.",
+            iPhone: "Sign in to subscribe and back up. Your books, notes and ink stay on this iPhone whether or not you sign in; signing in only gives your backups an account to belong to. \(name) keeps no name or email address.")
+    }
+    static let lostAccess = "If you lose access to the Apple Account or Google Account you sign in with, the account can’t be reached; the books on your devices are unaffected."
 
     /// "Sign in with Apple", "Sign in with Google".
     static func signInTitle(_ provider: CloudSignInProvider) -> String { "Sign in with \(provider.name)" }
 
-    /// What the page says after this iPad was signed out without the reader asking here.
-    static func signedOutNotice(_ reason: CloudBackupSignIn.SignedOutReason) -> String {
+    /// What the page says after this device was signed out without the reader asking here.
+    static func signedOutNotice(_ reason: CloudBackupSignIn.SignedOutReason, device: DeviceKind = .current) -> String {
         switch reason {
         case .sessionEnded:
-            "This iPad was signed out of \(name), perhaps from another device. Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up to \(name). Sign in again to carry on."
+            device.pick(
+                iPad: "This iPad was signed out of \(name), perhaps from another device. Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up to \(name). Sign in again to carry on.",
+                iPhone: "This iPhone was signed out of \(name), perhaps from another device. Your books, notes and ink on this iPhone are just as they were, but they aren’t being backed up to \(name). Sign in again to carry on.")
         case .appleRevoked:
-            "Sign in with Apple was turned off for Tactile Texts, so this iPad was signed out of \(name). Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up there."
+            device.pick(
+                iPad: "Sign in with Apple was turned off for Tactile Texts, so this iPad was signed out of \(name). Your books, notes and ink on this iPad are just as they were, but they aren’t being backed up there.",
+                iPhone: "Sign in with Apple was turned off for Tactile Texts, so this iPhone was signed out of \(name). Your books, notes and ink on this iPhone are just as they were, but they aren’t being backed up there.")
         case .accountDeleted:
-            "Your \(name) account and its backups have been deleted. Your books, notes and ink on this iPad are just as they were. Your subscription isn’t cancelled: use Manage Subscription in your Apple Account settings to stop paying."
+            device.pick(
+                iPad: "Your \(name) account and its backups have been deleted. Your books, notes and ink on this iPad are just as they were. Your subscription isn’t cancelled: use Manage Subscription in your Apple Account settings to stop paying.",
+                iPhone: "Your \(name) account and its backups have been deleted. Your books, notes and ink on this iPhone are just as they were. Your subscription isn’t cancelled: use Manage Subscription in your Apple Account settings to stop paying.")
         }
     }
 
@@ -444,7 +472,31 @@ nonisolated enum CloudAccountText {
     static func signedInWith(_ provider: CloudSignInProvider) -> String { "Signed in with \(provider.name)" }
     static func changeTitle(to provider: CloudSignInProvider) -> String { "Change to Sign in with \(provider.name)…" }
     static let devicesHeader = "Signed-In Devices"
-    static let accountFooter = "Signing out or deleting the account never changes the books on this iPad: they stay here, open and editable."
+    static func accountFooter(_ device: DeviceKind = .current) -> String {
+        device.pick(iPad: "Signing out or deleting the account never changes the books on this iPad: they stay here, open and editable.",
+                    iPhone: "Signing out or deleting the account never changes the books on this iPhone: they stay here, open and editable.")
+    }
+
+    /// The device that is asking, in the device list: "This iPad", "This iPhone".
+    static func thisDevice(_ device: DeviceKind = .current) -> String {
+        device.pick(iPad: "This iPad", iPhone: "This iPhone")
+    }
+    /// A device whose name can't be read (no key here yet, or none sent).
+    static let anotherDevice = "Another device"
+
+    /// Another device in the list: its name, with its kind when the name doesn't already say it
+    /// ("Reading Phone (iPhone)", "Ben’s iPad"); its kind alone without a name; otherwise
+    /// "Another device".
+    static func otherDevice(name: String?, kind: DeviceKind?) -> String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch (trimmed.isEmpty, kind) {
+        case (true, nil): return anotherDevice
+        case (true, let kind?): return kind.name
+        case (false, nil): return trimmed
+        case (false, let kind?):
+            return trimmed.localizedCaseInsensitiveContains(kind.name) ? trimmed : "\(trimmed) (\(kind.name))"
+        }
+    }
 
     /// "Last used 15 December 2026".
     static func lastUsed(_ date: Date?, dateText: (Date) -> String = CloudServiceError.day) -> String? {
@@ -454,16 +506,27 @@ nonisolated enum CloudAccountText {
     // Confirmations
 
     static let signOutTitle = "Sign Out of \(name)?"
-    static let signOutMessage = "Your books, notes and ink stay on this iPad exactly as they are, but they won’t be backed up to \(name) until you sign in again. Your backups stay in your account."
+    static func signOutMessage(_ device: DeviceKind = .current) -> String {
+        device.pick(
+            iPad: "Your books, notes and ink stay on this iPad exactly as they are, but they won’t be backed up to \(name) until you sign in again. Your backups stay in your account.",
+            iPhone: "Your books, notes and ink stay on this iPhone exactly as they are, but they won’t be backed up to \(name) until you sign in again. Your backups stay in your account.")
+    }
     static let signOutButton = "Sign Out"
 
     static let signOutAllTitle = "Sign Out on Every Device?"
-    static let signOutAllMessage = "Every device signed in to this account is signed out, this iPad included. The books on each device stay as they are, and your backups stay in your account. Nothing is backed up until you sign in again."
+    static func signOutAllMessage(_ device: DeviceKind = .current) -> String {
+        device.pick(
+            iPad: "Every device signed in to this account is signed out, this iPad included. The books on each device stay as they are, and your backups stay in your account. Nothing is backed up until you sign in again.",
+            iPhone: "Every device signed in to this account is signed out, this iPhone included. The books on each device stay as they are, and your backups stay in your account. Nothing is backed up until you sign in again.")
+    }
     static let signOutAllButton = "Sign Out of All Devices"
 
     static func changeConfirmTitle(to provider: CloudSignInProvider) -> String { "Change to Sign in with \(provider.name)?" }
-    static func changeConfirmMessage(from current: CloudSignInProvider, to provider: CloudSignInProvider) -> String {
-        "First confirm with \(current.name), then sign in with \(provider.name). Your account, its backups, its subscription and its key stay the same, and the books on this iPad aren’t touched. Afterwards you sign in with \(provider.name) only; other devices stay signed in."
+    static func changeConfirmMessage(from current: CloudSignInProvider, to provider: CloudSignInProvider,
+                                     device: DeviceKind = .current) -> String {
+        device.pick(
+            iPad: "First confirm with \(current.name), then sign in with \(provider.name). Your account, its backups, its subscription and its key stay the same, and the books on this iPad aren’t touched. Afterwards you sign in with \(provider.name) only; other devices stay signed in.",
+            iPhone: "First confirm with \(current.name), then sign in with \(provider.name). Your account, its backups, its subscription and its key stay the same, and the books on this iPhone aren’t touched. Afterwards you sign in with \(provider.name) only; other devices stay signed in.")
     }
     static let changeButton = "Continue"
 
@@ -476,8 +539,10 @@ nonisolated enum CloudAccountText {
     }
 
     static let deleteTitle = "Delete Your \(name) Account?"
-    static func deleteMessage(provider: CloudSignInProvider) -> String {
-        "Every backup and PDF kept in \(name) is deleted for good, and the account is removed. The books, notes and ink on this iPad stay exactly as they are. You’ll confirm with \(provider.name) first. Your subscription isn’t cancelled: use Manage Subscription to stop paying."
+    static func deleteMessage(provider: CloudSignInProvider, device: DeviceKind = .current) -> String {
+        device.pick(
+            iPad: "Every backup and PDF kept in \(name) is deleted for good, and the account is removed. The books, notes and ink on this iPad stay exactly as they are. You’ll confirm with \(provider.name) first. Your subscription isn’t cancelled: use Manage Subscription to stop paying.",
+            iPhone: "Every backup and PDF kept in \(name) is deleted for good, and the account is removed. The books, notes and ink on this iPhone stay exactly as they are. You’ll confirm with \(provider.name) first. Your subscription isn’t cancelled: use Manage Subscription to stop paying.")
     }
     static let deleteButton = "Delete Account"
     static let deleting = "Deleting your account…"
@@ -491,6 +556,7 @@ nonisolated enum CloudAccountText {
         }
     }
 }
+
 
 // MARK: - The Backup screen's footnote
 

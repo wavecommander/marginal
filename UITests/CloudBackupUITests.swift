@@ -184,8 +184,8 @@ final class CloudBackupUITests: XCTestCase {
         XCTAssertTrue(subscribe.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(subscribe.label.contains("£2.99"), subscribe.label)
         XCTAssertTrue(subscribe.label.contains("a month"), subscribe.label)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'encrypted on this iPad'")).count > 0,
-                      "says backups are encrypted on the iPad")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "encrypted on this \(Fixtures.deviceName)")).count > 0,
+                      "says backups are encrypted on the device")
         let restorePurchases = app.buttons[ID.restorePurchases].firstMatch
         scrollTo(restorePurchases, in: app)
         XCTAssertTrue(restorePurchases.exists, app.debugDescription)

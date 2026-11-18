@@ -862,9 +862,9 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   to an account with Sign in with Apple or Sign in with Google; the subscription pays for the
   account and is not who the reader is. An account has exactly one sign-in at a time. There is
   still no password, and the service keeps no name or email address: the email in the ID
-  token is shown on the Account section of the iPad that signed in and is never sent. Signing
+  token is shown on the Account section of the device that signed in and is never sent. Signing
   in asks the Worker for a one-time challenge, asks Apple or Google for an ID token carrying its
-  SHA-256 as the nonce, and gets a device session back, kept in the Keychain on this iPad only
+  SHA-256 as the nonce, and gets a device session back, kept in the Keychain on this device only
   (not synchronised). Every later request carries that session and App Attest. The account's
   folder name is random. Purchases carry the account's `appAccountToken`, so the signed
   transaction names the account it pays for; a transaction is sent with every session request
@@ -875,7 +875,7 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   app has no account and the welcome sheet's "no account" stays true. Subscribe and Restore
   Purchases appear only when signed in.
 - **The library is never touched by a sign-in change** (owner decision 7). The books, notes and
-  ink on the iPad are ordinary local data. Sign Out, Sign Out of All Devices, Change the
+  ink on the device are ordinary local data. Sign Out, Sign Out of All Devices, Change the
   sign-in, a session the service ended (signed out elsewhere, or by Apple), a revoked Sign in
   with Apple authorization, a lapsed subscription and a deleted account all leave every book
   open and editable; only the service stops. Automatic cloud backup then skips, and the page
@@ -886,13 +886,20 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   committed `Config/SignInWithApple.entitlements`, `GOOGLE_SIGNIN_CLIENT_ID`), and with neither
   the service says it isn't available. A build with every setting empty has no service and no
   sign-in anywhere. Signed in, an Account section shows which sign-in and the email, the
-  signed-in devices (each named by an encrypted label only the account's key opens: "This
-  iPad" and "Another device" until the key exists), Change to Sign in with Google/Apple…, Sign
+  signed-in devices, Change to Sign in with Google/Apple…, Sign
   Out…, Sign Out of All Devices… and Delete Account…. Each asks first and says what happens to
-  the books on this iPad (they stay) and to what is in the cloud.
-  - *Sign Out* ends this iPad's session (even when the service can't be reached); the key
+  the books on this device (they stay) and to what is in the cloud.
+  - *Sign Out* ends this device's session (even when the service can't be reached); the key
     stays, so signing in again carries on. *Sign Out of All Devices* ends every session of the
-    account; other iPads find out at their next request and say so.
+    account; other devices find out at their next request and say so.
+  - *The devices* (owner decision, 17 November 2026: the app ships for iPhone and iPad, and a
+    reader's devices can be a mix). This device is "This iPhone" or "This iPad". Each device
+    sends a label sealed with the account's key, holding its name and its kind, so the Worker
+    can't read it; another device shows its name with its kind when the name doesn't say it
+    ("Reading Phone (iPhone)", "Ben’s iPad"), its kind alone when it has no name, and "Another
+    device" when no label opens here (none sent yet: the key is made by the first backup). A
+    label from before the kind was added still shows its name. Text on these pages names the
+    device it is on ("this iPhone", "this iPad"), as whole sentences per device so it localises.
   - *Change* confirms with the current sign-in, then the new one; the account, folder,
     subscription and key stay the same. A new sign-in that already has its own account is
     refused with an explanation; afterwards the page offers Sign Out of All Devices.

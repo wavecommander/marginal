@@ -145,12 +145,12 @@ struct TactileCloudBackup {
                      identity: any CloudIdentityProviding, urlSession: URLSession = .shared, s3Session: URLSession = .shared,
                      retryPolicy: S3RetryPolicy = .standard, partSize: Int64 = S3Client.defaultPartSize,
                      temporaryDirectory: URL? = nil, defaults: UserDefaults = .standard,
-                     deviceName: @escaping () -> String = { UIDevice.current.name },
+                     deviceName: @escaping () -> String = { UIDevice.current.name }, deviceKind: DeviceKind = .current,
                      now: @escaping @Sendable () -> Date = { Date() }) -> TactileCloudBackup {
         let subscription = BackupSubscription(productIDs: configuration.productIDs, store: store, now: now)
         let client = BackupServiceClient(configuration: configuration, attest: attest, urlSession: urlSession)
         let signIn = CloudBackupSignIn(client: client, identity: identity, store: sessionStore, keyStores: keyStore,
-                                       deviceName: deviceName)
+                                       deviceName: deviceName, deviceKind: deviceKind)
         let accountKeyStore = AccountScopedBackupKeyStore(factory: keyStore) { [weak signIn] in
             await MainActor.run { signIn?.accountID }
         }

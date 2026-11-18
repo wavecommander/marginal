@@ -2,6 +2,7 @@ import Foundation
 import ReaderBackup
 import ReaderSync
 import Testing
+import UIKit
 @testable import TactileTexts
 
 /// Signing in to Tactile Texts Cloud (`CloudBackupSignIn` with `CloudBackupAccount`) on fakes:
@@ -329,14 +330,15 @@ struct CloudAccountSignInTests {
         #expect(CloudBackupBanner.make(rig.account.status, errorMessage: nil, usage: nil)?.message == error.localizedDescription)
     }
 
-    @Test func theDeviceIsNamedOnlyOnceTheKeyExistsAndOnlyTheKeyOpensIt() async throws {
-        let rig = try Rig.make()
+    @Test(arguments: DeviceKind.allCases)
+    func theDeviceIsNamedOnlyOnceTheKeyExistsAndOnlyTheKeyOpensIt(kind: DeviceKind) async throws {
+        let rig = try Rig.make(deviceKind: kind)
         defer { rig.cleanUp() }
         await rig.start()
         await rig.signIn.refreshAccount()
         #expect(rig.worker.label(of: W.liveToken) == nil, "no key yet, so no name sent")
         let current = try #require(rig.signIn.accountInfo?.devices.first { $0.isCurrent })
-        #expect(rig.signIn.name(of: current) == "This iPad")
+        #expect(rig.signIn.name(of: current) == kind.pick(iPad: "This iPad", iPhone: "This iPhone"))
 
         let pdf = try rig.pdf()
         try await rig.destination.uploadPDF(from: pdf.url, sha256: pdf.sha256, size: pdf.size, progress: nil) // makes the key
@@ -344,30 +346,106 @@ struct CloudAccountSignInTests {
         let label = try #require(rig.worker.label(of: W.liveToken))
         #expect(!label.contains("Rig iPad"), "the service can't read it")
         let key = try #require(try await rig.keyStore.load())
-        #expect(SyncKeys(key: key).openDeviceLabel(label) == "Rig iPad")
+        #expect(CloudDeviceLabel.open(label, with: SyncKeys(key: key)) == CloudDeviceLabel(name: "Rig iPad", kind: kind))
+        #expect(CloudDeviceLabel.open(label, with: SyncKeys(key: .generate())) == nil, "only the account's key opens it")
         let named = try #require(rig.signIn.accountInfo?.devices.first { $0.isCurrent })
-        #expect(rig.signIn.name(of: named) == "Rig iPad")
-        let other = BackupServiceDevice(sessionID: "x", createdAt: nil, lastUsedAt: nil, label: "junk", isCurrent: false)
-        #expect(rig.signIn.name(of: other) == "Another device")
+        #expect(rig.signIn.name(of: named) == kind.pick(iPad: "This iPad", iPhone: "This iPhone"), "this device is always This …")
+        for unreadable: String? in ["junk", nil] {
+            let other = BackupServiceDevice(sessionID: "x", createdAt: nil, lastUsedAt: nil, label: unreadable, isCurrent: false)
+            #expect(rig.signIn.name(of: other) == "Another device")
+        }
+    }
+
+    @Test func anOlderLabelWithoutTheKindIsSentAgainWithIt() async throws {
+        let key = BackupEncryptionKey.generate()
+        let rig = try Rig.make(key: key, deviceKind: .iPhone)
+        defer { rig.cleanUp() }
+        let keys = SyncKeys(key: key)
+        await rig.signIn.refreshAccount()
+        #expect(CloudDeviceLabel.open(try #require(rig.worker.label(of: W.liveToken)), with: keys)?.kind == .iPhone)
+        rig.worker.setLabel(keys.sealDeviceLabel("Rig iPad"), of: W.liveToken) // as a version before the kind wrote it
+        await rig.signIn.refreshAccount()
+        #expect(CloudDeviceLabel.open(try #require(rig.worker.label(of: W.liveToken)), with: keys)
+                == CloudDeviceLabel(name: "Rig iPad", kind: .iPhone))
+    }
+
+    @Test func anotherDeviceShowsItsNameAndKindAsFarAsItsLabelSays() async throws {
+        let key = BackupEncryptionKey.generate()
+        let rig = try Rig.make(key: key)
+        defer { rig.cleanUp() }
+        let keys = SyncKeys(key: key)
+        // Other devices sign in with labels of every shape, then this one reads the list.
+        let shapes: [(String, String)] = [
+            (CloudDeviceLabel(name: "Reading Phone", kind: .iPhone).sealed(with: keys), "Reading Phone (iPhone)"),
+            (CloudDeviceLabel(name: "Ben’s iPad", kind: .iPad).sealed(with: keys), "Ben’s iPad"),
+            (CloudDeviceLabel(name: "iPhone", kind: .iPhone).sealed(with: keys), "iPhone"),
+            (CloudDeviceLabel(name: nil, kind: .iPad).sealed(with: keys), "iPad"),
+            (keys.sealDeviceLabel("Old Label Device"), "Old Label Device"), // written before the kind
+            (SyncKeys(key: .generate()).sealDeviceLabel("Elsewhere"), "Another device"),
+        ]
+        for (sealed, _) in shapes { rig.worker.addSession(label: sealed) }
+        await rig.signIn.refreshAccount()
+        let others = (rig.signIn.accountInfo?.devices ?? []).filter { !$0.isCurrent }
+        #expect(others.map { rig.signIn.name(of: $0) }.sorted() == shapes.map(\.1).sorted())
+    }
+
+    @Test func aLabelRoundTripsWithAndWithoutItsKind() {
+        let keys = SyncKeys(key: .generate())
+        for label in [CloudDeviceLabel(name: "Ben’s iPhone", kind: .iPhone), CloudDeviceLabel(name: "Studio", kind: .iPad),
+                      CloudDeviceLabel(name: nil, kind: .iPhone), CloudDeviceLabel(name: "No Kind", kind: nil)] {
+            #expect(CloudDeviceLabel.open(label.sealed(with: keys), with: keys) == label)
+        }
+        // A label made before the kind existed is the bare name; it opens as before.
+        #expect(CloudDeviceLabel.open(keys.sealDeviceLabel("Ben’s iPad"), with: keys) == CloudDeviceLabel(name: "Ben’s iPad", kind: nil))
+        // A kind this version doesn't know reads as no kind.
+        #expect(CloudDeviceLabel(plaintext: "\u{1E}9Desk") == CloudDeviceLabel(name: "Desk", kind: nil))
+        #expect(CloudDeviceLabel(name: "Desk", kind: .iPhone).plaintext == "\u{1E}1Desk")
+        // Long names are cut at a character, so the marker and the kind always fit the 64 bytes
+        // `SyncKeys` seals.
+        let long = CloudDeviceLabel(name: String(repeating: "あ", count: 500), kind: .iPad)
+        let opened = CloudDeviceLabel.open(long.sealed(with: keys), with: keys)
+        #expect(opened?.kind == .iPad)
+        #expect(opened?.name == String(repeating: "あ", count: 20), "20 three-byte characters fit in 62 bytes")
+        #expect(long.sealed(with: keys).count <= 1024)
+        #expect(!String(describing: long).contains("あ"), "the name isn't described")
+    }
+
+    @Test func theDeviceKindComesFromTheIdiomAndTheModel() {
+        #expect(DeviceKind(modelIdentifier: "iPhone17,1") == .iPhone)
+        #expect(DeviceKind(modelIdentifier: "iPod9,1") == .iPhone)
+        #expect(DeviceKind(modelIdentifier: "iPad16,3") == .iPad)
+        #expect(DeviceKind(modelIdentifier: "arm64") == .iPad, "an iPad app on a Mac")
+        #expect(DeviceKind.current == (UIDevice.current.userInterfaceIdiom == .phone ? .iPhone : .iPad))
+        #expect(DeviceKind.iPhone.name == "iPhone" && DeviceKind.iPad.name == "iPad")
+        #expect(DeviceKind.iPhone.pick(iPad: 1, iPhone: 2) == 2 && DeviceKind.iPad.pick(iPad: 1, iPhone: 2) == 1)
+        #expect(CloudAccountText.thisDevice(.iPhone) == "This iPhone" && CloudAccountText.thisDevice(.iPad) == "This iPad")
     }
 
     // MARK: What the confirmations say
 
-    @Test func everyDestructiveConfirmationSaysTheBooksStayAndWhatHappensInTheCloud() {
+    @Test(arguments: DeviceKind.allCases)
+    func everyDestructiveConfirmationSaysTheBooksStayAndWhatHappensInTheCloud(device: DeviceKind) {
         typealias T = CloudAccountText
-        for message in [T.signOutMessage, T.signOutAllMessage, T.deleteMessage(provider: .apple),
-                        T.changeConfirmMessage(from: .apple, to: .google)] {
-            #expect(message.contains("this iPad") || message.contains("each device"), "the books: \(message)")
+        let here = "this \(device.name)", otherKind = device.pick(iPad: "iPhone", iPhone: "iPad")
+        let notices = [CloudBackupSignIn.SignedOutReason.sessionEnded, .appleRevoked, .accountDeleted].map {
+            T.signedOutNotice($0, device: device)
         }
-        #expect(T.signOutMessage.contains("backups stay in your account"))
-        #expect(T.signOutAllMessage.contains("backups stay in your account"))
-        #expect(T.deleteMessage(provider: .apple).contains("deleted for good"))
-        #expect(T.deleteMessage(provider: .apple).contains("subscription isn’t cancelled")
-                && T.deleteMessage(provider: .apple).contains("Manage Subscription"))
-        #expect(T.changeConfirmMessage(from: .apple, to: .google).contains("First confirm with Apple, then sign in with Google"))
-        for reason: CloudBackupSignIn.SignedOutReason in [.sessionEnded, .appleRevoked, .accountDeleted] {
-            #expect(T.signedOutNotice(reason).contains("just as they were"), "\(reason)")
+        let messages = [T.signOutMessage(device), T.signOutAllMessage(device), T.deleteMessage(provider: .apple, device: device),
+                        T.changeConfirmMessage(from: .apple, to: .google, device: device), T.signInIntro(device),
+                        T.accountFooter(device)] + notices
+        for message in messages {
+            #expect(message.contains(here), "names the device it is on: \(message)")
+            #expect(!message.contains(otherKind), "and not the other kind: \(message)")
         }
+        #expect(T.signOutMessage(device).contains("backups stay in your account"))
+        #expect(T.signOutAllMessage(device).contains("backups stay in your account"))
+        #expect(T.deleteMessage(provider: .apple, device: device).contains("deleted for good"))
+        #expect(T.deleteMessage(provider: .apple, device: device).contains("subscription isn’t cancelled")
+                && T.deleteMessage(provider: .apple, device: device).contains("Manage Subscription"))
+        #expect(T.changeConfirmMessage(from: .apple, to: .google, device: device)
+                    .contains("First confirm with Apple, then sign in with Google"))
+        #expect(notices.allSatisfy { $0.contains("just as they were") })
+        #expect(!T.lostAccess.contains("iPad") && !T.lostAccess.contains("iPhone"))
         #expect(CloudBackupPage.make(.signedOut, hasError: false) == .offer)
         #expect(CloudBackupBanner.make(.signedOut, errorMessage: nil, usage: nil) == nil)
         #expect(CloudBackupCapabilities.make(.signedOut) == CloudBackupCapabilities.make(.notSubscribed))

@@ -195,7 +195,7 @@ struct CloudBackupUILogicTests {
     @Test func offerStatesThePolicyWithoutAccountDates() {
         #expect(CloudBackupOfferText.ending.contains("\(CloudBackupOfferText.readOnlyDays) days"))
         #expect(CloudBackupOfferText.ending.contains("\(CloudBackupOfferText.deleteAfterDays) days"))
-        #expect(CloudBackupOfferText.encrypted.contains("encrypted on this iPad"))
+        #expect(CloudBackupOfferText.encrypted.contains("encrypted on this \(DeviceKind.current.name)"))
         #expect(CloudBackupOfferText.renewalTerms.contains("renews automatically"))
     }
 

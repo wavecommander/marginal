@@ -36,9 +36,13 @@ nonisolated enum TactileCloudError: LocalizedError, Hashable, Sendable {
             }
             return "Your backups in \(name) are over your plan’s storage allowance, so new backups can’t be made. Delete some backups to make room."
         case .needsRecoveryKey(.noKeyOnThisDevice):
-            return "This iPad doesn’t have the key to your \(name) backups yet. It arrives through iCloud Keychain from your other devices; if it doesn’t, enter your recovery key."
+            return DeviceKind.current.pick(
+                iPad: "This iPad doesn’t have the key to your \(name) backups yet. It arrives through iCloud Keychain from your other devices; if it doesn’t, enter your recovery key.",
+                iPhone: "This iPhone doesn’t have the key to your \(name) backups yet. It arrives through iCloud Keychain from your other devices; if it doesn’t, enter your recovery key.")
         case .needsRecoveryKey(.differentKey):
-            return "Your \(name) backups were made with a different key from the one on this iPad. Enter your recovery key to use them."
+            return DeviceKind.current.pick(
+                iPad: "Your \(name) backups were made with a different key from the one on this iPad. Enter your recovery key to use them.",
+                iPhone: "Your \(name) backups were made with a different key from the one on this iPhone. Enter your recovery key to use them.")
         case .recoveryKeyDoesNotMatch:
             return "That recovery key isn’t the one your \(name) backups were made with. Check it and try again."
         case .deletionUnfinished:
