@@ -252,8 +252,59 @@ enum TactileTextsSchemaV3: VersionedSchema {
     }
 }
 
+/// Version 4: `NoteModel` gains an optional `richTextData` column for inline formatting spans.
+/// The other models are unchanged and shared with earlier versions.
+enum TactileTextsSchemaV4: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [TactileTextsSchemaV2.BookModel.self, NoteModel.self, TactileTextsSchemaV3.HighlightModel.self,
+         TactileTextsSchemaV1.BookmarkModel.self, TactileTextsSchemaV1.UserHeadingModel.self]
+    }
+
+    @Model
+    final class NoteModel {
+        @Attribute(.unique) var id: UUID
+        var bookID: UUID
+        /// `NoteTarget.storageKey`.
+        var targetKey: String
+        /// Page index of a page note, `nil` for a heading note (drives `pageNotes(bookID:in:)`).
+        var pageIndex: Int?
+        /// `"<bookID>|<targetKey>"`, unique.
+        @Attribute(.unique) var compositeKey: String
+        var text: String
+        /// Optional JSON-encoded `NoteRichText` spans; `nil` for plain text (every note before v4).
+        var richTextData: Data?
+        var hasInk: Bool
+        /// JSON of `NoteBandLayout`, `nil` when there is none.
+        var bandLayoutData: Data?
+        var createdAt: Date
+        var modifiedAt: Date
+
+        init(id: UUID, bookID: UUID, targetKey: String, pageIndex: Int?, text: String,
+             richTextData: Data? = nil, hasInk: Bool, bandLayoutData: Data?,
+             createdAt: Date, modifiedAt: Date) {
+            self.id = id
+            self.bookID = bookID
+            self.targetKey = targetKey
+            self.pageIndex = pageIndex
+            self.compositeKey = NoteModel.compositeKey(bookID: bookID, targetKey: targetKey)
+            self.text = text
+            self.richTextData = richTextData
+            self.hasInk = hasInk
+            self.bandLayoutData = bandLayoutData
+            self.createdAt = createdAt
+            self.modifiedAt = modifiedAt
+        }
+
+        static func compositeKey(bookID: UUID, targetKey: String) -> String {
+            "\(bookID.uuidString)|\(targetKey)"
+        }
+    }
+}
+
 typealias BookModel = TactileTextsSchemaV2.BookModel
-typealias NoteModel = TactileTextsSchemaV1.NoteModel
+typealias NoteModel = TactileTextsSchemaV4.NoteModel
 typealias HighlightModel = TactileTextsSchemaV3.HighlightModel
 typealias BookmarkModel = TactileTextsSchemaV1.BookmarkModel
 typealias UserHeadingModel = TactileTextsSchemaV1.UserHeadingModel
@@ -264,12 +315,13 @@ typealias UserHeadingModel = TactileTextsSchemaV1.UserHeadingModel
 /// `LibraryDatabaseTests` checks every version converts down to the one before it.
 enum TactileTextsMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [TactileTextsSchemaV1.self, TactileTextsSchemaV2.self, TactileTextsSchemaV3.self]
+        [TactileTextsSchemaV1.self, TactileTextsSchemaV2.self, TactileTextsSchemaV3.self, TactileTextsSchemaV4.self]
     }
     static var stages: [MigrationStage] {
         // Each step only adds optional columns, which start out `nil`.
         [.lightweight(fromVersion: TactileTextsSchemaV1.self, toVersion: TactileTextsSchemaV2.self),
-         .lightweight(fromVersion: TactileTextsSchemaV2.self, toVersion: TactileTextsSchemaV3.self)]
+         .lightweight(fromVersion: TactileTextsSchemaV2.self, toVersion: TactileTextsSchemaV3.self),
+         .lightweight(fromVersion: TactileTextsSchemaV3.self, toVersion: TactileTextsSchemaV4.self)]
     }
 }
 
@@ -292,7 +344,7 @@ public enum ReaderStoreError: Error, Hashable, Sendable {
 
 enum SchemaFactory {
     /// This build's schema version: the last of `TactileTextsMigrationPlan.schemas`.
-    static var currentVersion: any VersionedSchema.Type { TactileTextsSchemaV3.self }
+    static var currentVersion: any VersionedSchema.Type { TactileTextsSchemaV4.self }
     static var schema: Schema { Schema(versionedSchema: currentVersion) }
 
     /// A container for the store file at `storeURL`, or in memory when `nil`.

@@ -202,8 +202,8 @@ final class SwiftDataRecordStore: RecordStore {
             throw ReaderStoreError.corruptRecord("note \(m.id) has target key \"\(m.targetKey)\"")
         }
         let layout = try m.bandLayoutData.map { try Self.decode(NoteBandLayout.self, from: $0, what: "note \(m.id) band layout") }
-        return Note(id: m.id, bookID: m.bookID, target: target, text: m.text, hasInk: m.hasInk,
-                    bandLayout: layout, createdAt: m.createdAt, modifiedAt: m.modifiedAt)
+        return Note(id: m.id, bookID: m.bookID, target: target, text: m.text, richTextData: m.richTextData,
+                    hasInk: m.hasInk, bandLayout: layout, createdAt: m.createdAt, modifiedAt: m.modifiedAt)
     }
 
     private func noteModel(id: UUID) throws -> NoteModel? {
@@ -251,8 +251,8 @@ final class SwiftDataRecordStore: RecordStore {
     /// A new, uninserted row for `note`: the one place a note's columns are computed for an insert.
     private static func newModel(_ note: Note) throws -> NoteModel {
         NoteModel(id: note.id, bookID: note.bookID, targetKey: note.target.storageKey, pageIndex: note.target.pageIndex,
-                  text: note.text, hasInk: note.hasInk, bandLayoutData: try bandLayoutData(note),
-                  createdAt: note.createdAt, modifiedAt: note.modifiedAt)
+                  text: note.text, richTextData: note.richTextData, hasInk: note.hasInk,
+                  bandLayoutData: try bandLayoutData(note), createdAt: note.createdAt, modifiedAt: note.modifiedAt)
     }
 
     private static func bandLayoutData(_ note: Note) throws -> Data? {
@@ -278,6 +278,7 @@ final class SwiftDataRecordStore: RecordStore {
         try transaction {
             if let existing {
                 existing.text = note.text
+                existing.richTextData = note.richTextData
                 existing.hasInk = note.hasInk
                 existing.bandLayoutData = layoutData
                 existing.createdAt = note.createdAt

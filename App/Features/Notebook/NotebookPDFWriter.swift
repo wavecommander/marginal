@@ -408,7 +408,8 @@ final class NotebookPDFWriter {
                                             size: snapshot.size, inkUnreadable: false)
             NotePageRenderer.draw(textOnly, in: context, at: CGPoint(x: origin.x, y: origin.y + shift * scale), width: width)
         } else if paragraphs.count != bands.count {
-            let textOnly = NotePageSnapshot(text: snapshot.text, layout: snapshot.layout, drawing: PKDrawing(),
+            let textOnly = NotePageSnapshot(text: snapshot.text, richTextData: snapshot.richTextData,
+                                            layout: snapshot.layout, drawing: PKDrawing(),
                                             size: snapshot.size, inkUnreadable: false)
             NotePageRenderer.draw(textOnly, in: context, at: origin, width: width)
         }

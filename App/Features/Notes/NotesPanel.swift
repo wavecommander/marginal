@@ -40,6 +40,8 @@ struct NotesPanel: View {
     @State private var headerHeight: CGFloat = 96
     /// Top container safe area inside the sheet (measured before `.ignoresSafeArea`).
     @State private var sheetTopInset: CGFloat = 0
+    /// Bridges rich-text formatting buttons in this panel to the active `NotePageEditorView`.
+    @State private var formatting = NoteFormattingController()
 
     private struct HighlightsKey: Equatable {
         /// `nil` on the Section tab.
@@ -442,12 +444,117 @@ struct NotesPanel: View {
     @ViewBuilder
     private func editorArea(_ metrics: NotesPanelMetrics) -> some View {
         if let model = controller.model {
-            NotePageView(model: model, session: session, zoom: zoomBinding(metrics),
-                         pageWidth: metrics.notePageWidth, showsPaperBackground: !isSystemSheet)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
+            VStack(spacing: 0) {
+                formattingBar
+                Divider()
+                NotePageView(model: model, session: session, zoom: zoomBinding(metrics),
+                             pageWidth: metrics.notePageWidth, showsPaperBackground: !isSystemSheet,
+                             formatting: formatting)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
+            }
         } else {
             NotesSectionEmptyState(session: session, controller: controller)
+        }
+    }
+
+    private var formattingBar: some View {
+        let attrs = formatting.attributes
+        let disabled = !formatting.isEditable
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                formatToggle("Bold", systemImage: "bold", active: attrs.isBold,
+                             id: NotesPanelAccessibilityID.formatBold) {
+                    formatting.toggleBold()
+                }
+                formatToggle("Italic", systemImage: "italic", active: attrs.isItalic,
+                             id: NotesPanelAccessibilityID.formatItalic) {
+                    formatting.toggleItalic()
+                }
+                formatToggle("Underline", systemImage: "underline", active: attrs.isUnderline,
+                             id: NotesPanelAccessibilityID.formatUnderline) {
+                    formatting.toggleUnderline()
+                }
+                formatToggle("Strikethrough", systemImage: "strikethrough", active: attrs.isStrikethrough,
+                             id: NotesPanelAccessibilityID.formatStrikethrough) {
+                    formatting.toggleStrikethrough()
+                }
+                formatToggle("Monospace", systemImage: "chevron.left.forwardslash.chevron.right", active: attrs.isCode,
+                             id: NotesPanelAccessibilityID.formatCode) {
+                    formatting.toggleCode()
+                }
+                Divider()
+                    .frame(height: 18)
+                    .padding(.horizontal, 2)
+                highlightMenu(active: attrs.highlight)
+                formatToggle("Clear Formatting", systemImage: "eraser", active: false,
+                             id: NotesPanelAccessibilityID.formatClear) {
+                    formatting.clearFormatting()
+                }
+                .disabled(attrs.isDefault)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+        }
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(NotesPanelAccessibilityID.formatBar)
+    }
+
+    private func formatToggle(_ title: String, systemImage: String, active: Bool,
+                              id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(active ? .semibold : .regular))
+                .frame(width: 32, height: 30)
+                .background(active ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityIdentifier(id)
+    }
+
+    private func highlightMenu(active: NoteTextHighlightColor?) -> some View {
+        Menu {
+            ForEach(NoteTextHighlightColor.allCases, id: \.self) { color in
+                Button {
+                    formatting.toggleHighlight(color)
+                } label: {
+                    Label(highlightTitle(color), systemImage: active == color ? "checkmark.circle.fill" : "circle.fill")
+                }
+            }
+            if active != nil {
+                Divider()
+                Button(role: .destructive) {
+                    if let active { formatting.toggleHighlight(active) }
+                } label: {
+                    Label("Remove Highlight", systemImage: "xmark.circle")
+                }
+            }
+        } label: {
+            Image(systemName: "highlighter")
+                .font(.subheadline.weight(active != nil ? .semibold : .regular))
+                .frame(width: 32, height: 30)
+                .background(active != nil ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(active != nil ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel("Highlight Text")
+        .accessibilityValue(active.map(highlightTitle) ?? "None")
+        .accessibilityIdentifier(NotesPanelAccessibilityID.formatHighlight)
+    }
+
+    private func highlightTitle(_ color: NoteTextHighlightColor) -> String {
+        switch color {
+        case .yellow: "Yellow"
+        case .green: "Green"
+        case .blue: "Blue"
+        case .pink: "Pink"
         }
     }
 

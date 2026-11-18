@@ -100,6 +100,8 @@ final class NotePageModel {
 
     /// The note's typed text (plain).
     private(set) var text = ""
+    /// Optional JSON-encoded `NoteRichText` spans for `text`; `nil` for plain text.
+    private(set) var richTextData: Data?
     /// Number of strokes in the note's ink.
     private(set) var strokeCount = 0
     /// `true` when the note has at least one stroke.
@@ -132,8 +134,8 @@ final class NotePageModel {
 
     /// The current note value as it would be stored (for read-only rendering of the open note).
     var currentNote: Note {
-        Note(id: noteID ?? UUID(), bookID: bookID, target: target, text: text, hasInk: hasInk,
-             bandLayout: hasInk ? ink.layout : nil, createdAt: createdAt ?? Date())
+        Note(id: noteID ?? UUID(), bookID: bookID, target: target, text: text, richTextData: richTextData,
+             hasInk: hasInk, bandLayout: hasInk ? ink.layout : nil, createdAt: createdAt ?? Date())
     }
 
     // MARK: Private
@@ -150,6 +152,7 @@ final class NotePageModel {
 
     // The store state last synchronised with (loaded, saved or merged).
     @ObservationIgnored private var baseText = ""
+    @ObservationIgnored private var baseRichTextData: Data?
     @ObservationIgnored private var baseInk: NoteInk?
     @ObservationIgnored private var baseInkData: Data?
     @ObservationIgnored private var baseRecordID: UUID?
@@ -272,10 +275,11 @@ final class NotePageModel {
         inkDidChange()
     }
 
-    /// The text view's text changed (typing, paste, dictation, Scribble, text undo/redo).
-    func userDidEditText(_ newText: String) {
-        guard newText != text else { return }
+    /// The text view's text or formatting changed (typing, paste, dictation, Scribble, formatting, undo/redo).
+    func userDidEditText(_ newText: String, richTextData newRichTextData: Data? = nil) {
+        guard newText != text || newRichTextData != richTextData else { return }
         text = newText
+        richTextData = newRichTextData
         relayoutInk()
         revision += 1
         scheduleSave()
@@ -341,6 +345,7 @@ final class NotePageModel {
         await enqueue {
             guard !self.saveToken.isRevoked else { return }
             let localText = self.text
+            let localRichTextData = self.richTextData
             let localInk = self.ink
             let localUnreadableInk = self.hasUnreadableInk
             let localBaseInkData = self.baseInkData
@@ -375,6 +380,7 @@ final class NotePageModel {
                                 bookID: self.bookID,
                                 target: self.target,
                                 text: localText,
+                                richTextData: localRichTextData,
                                 hasInk: hasInk,
                                 bandLayout: bandLayout,
                                 createdAt: record?.createdAt ?? localCreatedAt ?? Date(),
@@ -436,6 +442,7 @@ final class NotePageModel {
         debounceTask = nil
         let empty = NoteInk(layout: layout(for: ""))
         text = ""
+        richTextData = nil
         ink = empty
         strokeCount = 0
         noteID = nil
@@ -444,6 +451,7 @@ final class NotePageModel {
         hasUnreadableInk = false
         remoteChangePending = false
         baseText = ""
+        baseRichTextData = nil
         baseInk = empty
         baseInkData = nil
         baseRecordID = nil
@@ -456,9 +464,9 @@ final class NotePageModel {
         editor?.noteModelDidChangeInk(self)
     }
 
-    /// `true` while text or ink differ from what was last stored.
+    /// `true` while text, formatting or ink differ from what was last stored.
     var hasUnsavedChanges: Bool {
-        text != baseText || inkGeneration != baseInkGeneration
+        text != baseText || richTextData != baseRichTextData || inkGeneration != baseInkGeneration
     }
 
     /// `true` while sync must leave this note alone (`SyncSurface.note`): a stroke in progress,
@@ -537,7 +545,7 @@ final class NotePageModel {
             // a stroke or a text composition is in progress: then only an unchanged store is
             // written over, and the merge waits for the stroke or composition to end.
             let (record, data) = try await readStore()
-            if record?.id != baseRecordID || (record?.text ?? "") != baseText || data != baseInkData {
+            if record?.id != baseRecordID || (record?.text ?? "") != baseText || record?.richTextData != baseRichTextData || data != baseInkData {
                 if strokeInProgress || editor?.isComposingText == true {
                     remoteChangePending = true
                     scheduleSave()
@@ -568,12 +576,14 @@ final class NotePageModel {
     private func write(existing record: Note?) async throws {
         guard !saveToken.isRevoked else { return }
         let snapshotText = text
+        let snapshotRichTextData = richTextData
         let snapshotInk = ink
         let snapshotGeneration = inkGeneration
         let now = Date()
         let inkPresent = !snapshotInk.isEmpty || hasUnreadableInk
         let id = record?.id ?? noteID ?? UUID()
-        let note = Note(id: id, bookID: bookID, target: target, text: snapshotText, hasInk: inkPresent,
+        let note = Note(id: id, bookID: bookID, target: target, text: snapshotText,
+                        richTextData: snapshotRichTextData, hasInk: inkPresent,
                         bandLayout: hasUnreadableInk ? record?.bandLayout : (snapshotInk.isEmpty ? nil : snapshotInk.layout),
                         createdAt: record?.createdAt ?? createdAt ?? now, modifiedAt: now)
         if note.isEmpty {
@@ -605,6 +615,7 @@ final class NotePageModel {
             }
         }
         baseText = snapshotText
+        baseRichTextData = snapshotRichTextData
         baseInk = snapshotInk
         baseInkGeneration = snapshotGeneration
     }
@@ -623,14 +634,15 @@ final class NotePageModel {
     /// Adopts the stored state, merging unsaved local edits (see the type's reconcile rule).
     private func reconcile(record: Note?, inkData: Data?, initial: Bool) {
         editor?.commitPendingInput(to: self)
-        let localTextDirty = !initial && text != baseText
+        let localTextDirty = !initial && (text != baseText || richTextData != baseRichTextData)
         let localInkDirty = !initial && inkGeneration != baseInkGeneration
 
         let remoteText = record?.text ?? ""
+        let remoteRichTextData = record?.richTextData
         var remoteInk: NoteInk?
         hasUnreadableInk = false
         if let inkData {
-            let fallback = record?.bandLayout ?? layout(for: remoteText)
+            let fallback = record?.bandLayout ?? layout(for: remoteText, richTextData: remoteRichTextData)
             do {
                 // Ink this system cannot show in full (`InkContentSupport`: from a newer system)
                 // is unreadable here: never overwritten or deleted.
@@ -643,11 +655,13 @@ final class NotePageModel {
 
         // Text: last writer wins (unsaved local text wins).
         let finalText = localTextDirty ? text : remoteText
-        if finalText != text {
+        let finalRichTextData = localTextDirty ? richTextData : remoteRichTextData
+        if finalText != text || finalRichTextData != richTextData {
             text = finalText
+            richTextData = finalRichTextData
             editor?.noteModelDidReplaceText(self)
         }
-        let currentLayout = layout(for: finalText)
+        let currentLayout = layout(for: finalText, richTextData: finalRichTextData)
         ink.relayout(to: currentLayout)
 
         // Ink.
@@ -674,6 +688,7 @@ final class NotePageModel {
         }
         baseRecordID = record?.id
         baseText = remoteText
+        baseRichTextData = remoteRichTextData
         baseInk = remote
         baseInkData = inkData
         inkGeneration += 1
@@ -704,13 +719,13 @@ final class NotePageModel {
 
     // MARK: Ink helpers
 
-    private func layout(for text: String) -> NoteBandLayout {
-        editor?.liveBandLayout(for: text) ?? NotePageLayoutEngine.shared.bandLayout(for: text)
+    private func layout(for text: String, richTextData: Data? = nil) -> NoteBandLayout {
+        editor?.liveBandLayout(for: text) ?? NotePageLayoutEngine.shared.bandLayout(for: text, richTextData: richTextData)
     }
 
     /// Re-anchors the ink to the layout of the current text (after a text change).
     func relayoutInk() {
-        let newLayout = layout(for: text)
+        let newLayout = layout(for: text, richTextData: richTextData)
         if ink.relayout(to: newLayout) {
             editor?.noteModelDidChangeInk(self)
         }

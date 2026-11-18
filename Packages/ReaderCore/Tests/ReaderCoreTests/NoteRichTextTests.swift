@@ -1,0 +1,62 @@
+import Foundation
+import Testing
+@testable import ReaderCore
+
+@Suite("NoteRichText")
+struct NoteRichTextTests {
+    @Test func emptyOrDefaultSpansEncodeAsNil() {
+        #expect(NoteRichText(spans: []).encoded() == nil)
+        let onlyDefault = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 5, attributes: .default)
+        ])
+        #expect(onlyDefault.spans.isEmpty)
+        #expect(onlyDefault.encoded() == nil)
+    }
+
+    @Test func adjacentIdenticalSpansMergeAndRoundTrip() {
+        let bold = NoteTextAttributes(isBold: true)
+        let italic = NoteTextAttributes(isItalic: true)
+        let rich = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 3, attributes: bold),
+            NoteTextSpan(location: 3, length: 2, attributes: bold),
+            NoteTextSpan(location: 6, length: 4, attributes: italic)
+        ])
+        #expect(rich.spans.count == 2)
+        #expect(rich.spans[0] == NoteTextSpan(location: 0, length: 5, attributes: bold))
+        #expect(rich.spans[1] == NoteTextSpan(location: 6, length: 4, attributes: italic))
+
+        let data = rich.encoded()
+        #expect(data != nil)
+        #expect(NoteRichText.decoded(from: data) == rich)
+    }
+
+    @Test func clampingTruncatesAndDropsOutOfRangeSpans() {
+        let rich = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true)),
+            NoteTextSpan(location: 3, length: 10, attributes: NoteTextAttributes(isUnderline: true)),
+            NoteTextSpan(location: 15, length: 2, attributes: NoteTextAttributes(isCode: true))
+        ])
+        let clamped = rich.clamped(toUTF16Length: 6)
+        #expect(clamped.spans.count == 2)
+        #expect(clamped.spans[1].location == 3)
+        #expect(clamped.spans[1].length == 3)
+        #expect(rich.clamped(toUTF16Length: 0).spans.isEmpty)
+    }
+
+    @Test func noteJSONWithoutRichTextDataDecodesAsNil() throws {
+        let legacyJSON = """
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "bookID": "00000000-0000-0000-0000-000000000002",
+          "target": "page:0",
+          "text": "Legacy note",
+          "hasInk": false,
+          "createdAt": 0,
+          "modifiedAt": 0
+        }
+        """
+        let note = try JSONDecoder().decode(Note.self, from: Data(legacyJSON.utf8))
+        #expect(note.text == "Legacy note")
+        #expect(note.richTextData == nil)
+    }
+}

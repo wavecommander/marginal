@@ -38,6 +38,15 @@ nonisolated enum NotesPanelAccessibilityID {
     static let sectionEmpty = "notesPanel.sectionEmpty"
     /// "Add Heading at This Page…" (where the page is in no section).
     static let addHeading = "notesPanel.addHeading"
+    /// Rich-text formatting bar controls.
+    static let formatBar = "notesPanel.formatBar"
+    static let formatBold = "notesPanel.format.bold"
+    static let formatItalic = "notesPanel.format.italic"
+    static let formatUnderline = "notesPanel.format.underline"
+    static let formatStrikethrough = "notesPanel.format.strikethrough"
+    static let formatCode = "notesPanel.format.code"
+    static let formatHighlight = "notesPanel.format.highlight"
+    static let formatClear = "notesPanel.format.clear"
     /// Delete Note (the header button).
     static let deleteNote = "notes.deleteNote"
     /// Undo Delete pill button shown after deleting a note.
