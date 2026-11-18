@@ -48,6 +48,9 @@ struct SyncApplyIntent: Codable, Hashable, Sendable {
     var oldLocal: SyncContent
     /// The book as the round means to leave it here.
     var target: SyncContent
+    /// `true` when `newBase` keeps a busy surface as the old base had it, so it is not the
+    /// head's as a whole (absent, in records written before it existed: whole).
+    var newBaseIsPartial: Bool? = nil
 }
 
 /// The engine's own small files in its directory, beside the bases and version records:

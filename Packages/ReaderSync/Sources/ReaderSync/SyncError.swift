@@ -51,15 +51,15 @@ public enum SyncError: Error, LocalizedError, Hashable, Sendable {
         case .contentMismatch:
             "Part of a synced book in Tactile Texts Cloud doesn’t match what was saved."
         case .newerFormatVersion:
-            "Your books were synced by a newer version of Tactile Texts. Update the app on this iPad to keep syncing."
+            "Your books were synced by a newer version of Tactile Texts. Update the app on this device to keep syncing."
         case .rollback:
-            "Tactile Texts Cloud offered an older copy of a book than this iPad has already seen, so it wasn’t used."
+            "Tactile Texts Cloud offered an older copy of a book than this device has already seen, so it wasn’t used."
         case .invalidName:
             "A synced book has an invalid name."
         case .invalidHead:
             "A book couldn’t be prepared for syncing."
         case .baseUnreadable, .rollbackRecordUnreadable:
-            "This iPad’s sync record for a book can’t be read."
+            "This device’s sync record for a book can’t be read."
         }
     }
 }

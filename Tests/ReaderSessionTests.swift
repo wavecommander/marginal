@@ -487,6 +487,25 @@ struct ReaderSessionTests {
         #expect(target(.nextPage, 12, 12) == nil)
     }
 
+    /// `ReaderPDFController.selection(_:containsViewPoint:in:)` matches points inside the selected
+    /// text's lines and rejects points elsewhere on the page or outside any page.
+    @Test func selectionContainsViewPointChecksSelectedLineBounds() async throws {
+        let host = try await makeLinkedHost()
+        let pdfView = host.session.pdf.view
+        let page = try #require(host.session.pdf.page(at: 0))
+        let selection = try #require(page.selection(for: NSRange(location: 0, length: 5)))
+        let line = try #require(selection.selectionsByLine().first)
+        let lineBounds = line.bounds(for: page)
+        let insideView = pdfView.convert(CGPoint(x: lineBounds.midX, y: lineBounds.midY), from: page)
+        let blankOnPage = pdfView.convert(CGPoint(x: lineBounds.maxX + 80, y: lineBounds.minY - 80), from: page)
+        let outsidePage = CGPoint(x: -20, y: -20)
+
+        #expect(ReaderPDFController.selection(selection, containsViewPoint: insideView, in: pdfView))
+        #expect(!ReaderPDFController.selection(selection, containsViewPoint: blankOnPage, in: pdfView))
+        #expect(!ReaderPDFController.selection(selection, containsViewPoint: outsidePage, in: pdfView))
+        await host.close()
+    }
+
     /// A link followed from mid-page records that exact place; a link that lands in the section
     /// the reader is already in adds no entry (design), so Back then leaves the section.
     @Test func linksFromMidPageAndWithinTheSectionFollowTheRules() async throws {

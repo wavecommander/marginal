@@ -352,6 +352,17 @@ the end-to-end test was rewritten for accounts but has not been run against `wra
 Nothing has been checked on a real iPad, against real Apple or Google sign-in (Google's nonce
 included), or against R2 through the Swift code; those are in `docs/DEVICE_CHECKLIST.md`.
 
+**C4a, 17 November 2026: built, on its own branch, not yet merged.** The engine wired to the
+library (`App/Features/Sync/`): `SyncLibrary` over `LibraryStore` (revision tokens from the
+change hub, busy surfaces from open editors, changes written record by record with a sync
+origin under `BookWriteGate`), `SyncInkMerger` over `StrokeMerge`, the content-version rule,
+the S3 store over `S3Kit`, the key check, `SyncService` (one engine per account, pull-only,
+one job at a time, sign-in changes) and `-syncTestFolder`; one book per PDF on every road and
+the launch merge of duplicates. Two engine changes in `ReaderSync` (a note ink merge names its
+notes; a base keeping a busy surface never passes for the head's). C4b (the Sync switch and
+status, scheduling, PDF download policy, the Library's per-book state) is next. Not run on a
+device or against R2.
+
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`
 apply to every package.

@@ -12,20 +12,29 @@ struct ReaderCommands: Commands {
     @FocusedValue(WindowContext.self) private var window
     private var session: ReaderSession? { slot?.session }
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Library Window") {
-                if let window { window.openNewLibraryWindow() } else { openWindow(id: WindowID.library) }
+            if supportsMultipleWindows {
+                Button("New Library Window") {
+                    if let window { window.openNewLibraryWindow() } else { openWindow(id: WindowID.library) }
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                Button("Open in New Window") {
+                    if let session { window?.openReaderInNewWindow(bookID: session.book.id) }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(session == nil)
             }
-            .keyboardShortcut("n", modifiers: .command)
-            Button("Open in New Window") {
-                if let session { window?.openReaderInNewWindow(bookID: session.book.id) }
-            }
-            .keyboardShortcut("n", modifiers: [.command, .option])
-            .disabled(session == nil)
             Button("Open Notebook") {
-                if let session { window?.openNotebookInNewWindow(bookID: session.book.id) }
+                if let session {
+                    if supportsMultipleWindows {
+                        window?.openNotebookInNewWindow(bookID: session.book.id)
+                    } else {
+                        window?.openNotebook(bookID: session.book.id)
+                    }
+                }
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
             .disabled(session == nil)

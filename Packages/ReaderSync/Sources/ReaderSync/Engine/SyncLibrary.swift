@@ -216,6 +216,28 @@ public enum SyncInkBase: Hashable, Sendable {
     case ink(Data)
 }
 
+/// The notes behind a note ink merge, as each archive has them: the app lays out the merged text
+/// to anchor the merged ink, and each side's text (and `bandLayout`, the fallback for ink data
+/// without its own layout) to read that side's ink as the editor would.
+public struct SyncInkNotes: Hashable, Sendable {
+    /// The merged note (its text is what the merged ink is anchored to).
+    public var merged: Note
+    /// The note of `decision.local`, `decision.remote` and `decision.base`, when there is one.
+    public var local: Note?
+    public var remote: Note?
+    public var base: Note?
+    /// The note of each of `decision.absorbed`, in order.
+    public var absorbed: [Note?]
+
+    public init(merged: Note, local: Note?, remote: Note?, base: Note?, absorbed: [Note?] = []) {
+        self.merged = merged
+        self.local = local
+        self.remote = remote
+        self.base = base
+        self.absorbed = absorbed
+    }
+}
+
 /// One ink merge the engine asks for.
 public struct SyncInkMergeRequest: Sendable {
     public enum Kind: Hashable, Sendable {
@@ -235,13 +257,17 @@ public struct SyncInkMergeRequest: Sendable {
     public var base: SyncInkBase
     /// For a note: the ink of each of `decision.absorbed`, in order, added as a union.
     public var absorbed: [Data?]
+    /// For a note: the notes the inks belong to (`nil` for a page).
+    public var notes: SyncInkNotes?
 
-    public init(kind: Kind, local: Data?, remote: Data?, base: SyncInkBase, absorbed: [Data?] = []) {
+    public init(kind: Kind, local: Data?, remote: Data?, base: SyncInkBase, absorbed: [Data?] = [],
+                notes: SyncInkNotes? = nil) {
         self.kind = kind
         self.local = local
         self.remote = remote
         self.base = base
         self.absorbed = absorbed
+        self.notes = notes
     }
 }
 

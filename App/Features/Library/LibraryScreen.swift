@@ -13,6 +13,7 @@ struct LibraryScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
 
     @AppStorage(LibrarySort.storageKey) private var sortRaw = LibrarySort.recentlyOpened.rawValue
     @State private var model: LibraryModel?
@@ -389,13 +390,17 @@ struct LibraryScreen: View {
             Divider()
         }
         Button("Open", systemImage: "book") { open(book) }
-        Button("Open in New Window", systemImage: "macwindow.badge.plus") {
-            window.openReaderInNewWindow(bookID: book.id)
+        if supportsMultipleWindows {
+            Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                window.openReaderInNewWindow(bookID: book.id)
+            }
         }
         Divider()
         Button("Open Notebook", systemImage: "book.pages") { window.openNotebook(bookID: book.id) }
-        Button("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus") {
-            window.openNotebookInNewWindow(bookID: book.id)
+        if supportsMultipleWindows {
+            Button("Open Notebook in New Window", systemImage: "rectangle.stack.badge.plus") {
+                window.openNotebookInNewWindow(bookID: book.id)
+            }
         }
         Divider()
         Button("Rename…", systemImage: "pencil") {

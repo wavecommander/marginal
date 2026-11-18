@@ -377,6 +377,20 @@ final class NotebookUITests: XCTestCase {
         XCTAssertTrue(row(app, ID.pageNote(33)).label.contains("Added while the Notebook was open."))
     }
 
+    func testRowContextMenuNewWindowOptionFollowsMultiWindowSupport() {
+        let app = launch()
+        let note = row(app, ID.pageNote(5))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.press(forDuration: 1.0)
+        XCTAssertTrue(app.buttons["Open"].firstMatch.waitForExistence(timeout: 5))
+        let openInNewWindow = app.buttons["Open in New Window"].firstMatch
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(openInNewWindow.exists, "Open in New Window is hidden on iPhone")
+        } else {
+            XCTAssertTrue(openInNewWindow.exists, "Open in New Window is shown on iPad")
+        }
+    }
+
     // MARK: Screenshots
 
     func testScreenshotLandscape() throws {

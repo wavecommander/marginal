@@ -65,7 +65,23 @@ ones even where the mockup draws an approximation.
   generated at import and is read like any other, and the original file is kept unchanged beside
   it, so the book's file size counts both. A converted book records the format it came from and
   the original file's name, and says "Converted from …" in the Library's book menu and the
-  reader's More menu. Converting the same file again makes a new book.
+  reader's More menu. Converting the same file again makes a new book, as long as the two
+  conversions' PDFs differ: a conversion whose PDF is byte for byte one a book already holds goes
+  to that book (one book per PDF, below).
+- **One book per PDF** (owner decision, 17 November 2026). Two PDFs with the same full SHA-256
+  never appear as two books. Every road that adds a book checks the hash (kept beside the book in
+  `document.sha256`, written at import from this version on) as well as the fingerprint, and goes
+  to the book that already holds the PDF: importing a PDF (a converted book's generated PDF
+  imported directly opens the converted book, and supplies its PDF if it is missing), a
+  conversion, a restore (a backed-up book whose PDF a book here holds is that book: Merge or
+  Replace as for the same ID), a book arriving from sync, and Locate PDF… (a PDF another book
+  holds is refused, naming that book). A library that already holds two books with one PDF (from
+  an earlier version) has them merged at launch, before sync or any import: the existing
+  add-only merge into the older book, which keeps its ID, title and reading position; nothing is
+  removed (notes on one page are combined paragraph by paragraph, ink is the union, highlights,
+  bookmarks and headings are kept), then the newer book is deleted and its windows close as for a
+  delete; windows on the older book stay open. A pair whose handwriting this iPad cannot read in
+  full is left as it is. The newer book's kept original (of a conversion) goes with it.
 - **Outline**: a tree of headings. It starts from the PDF's own outline and merges in headings the
   reader adds by hand ("Add heading at page N"). A PDF with no outline is fully usable: the reader
   builds the tree as they go.
@@ -484,6 +500,11 @@ Added by the owner after the first plan. These rules apply to every screen and e
 - **System chrome.** Navigation bars and toolbars are the system ones, so window controls and the
   menu bar get their space without custom layout. Every reader action has a menu bar command with a
   keyboard shortcut, and commands act on the focused window.
+  On iPadOS 26 and later, the Reader's top bar is transparent (bar background and top scroll-edge
+  effect hidden), its title and subtitle sit in a Liquid Glass capsule that fades out and returns
+  in sync with the page pill, and the PDF view and wide-layout pane backgrounds extend behind it
+  so showing and hiding the bar leaves the reading layout in place; earlier systems keep the
+  standard navigation bar.
 - **Files and drag and drop.** A PDF opened from Files or another app is imported and shown in a
   window: Files lists Tactile Texts under a PDF's Open With, and the share sheet offers it too.
   PDFs can be dropped onto the Library to import them. The same holds for the formats the app
@@ -912,6 +933,29 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   between sessions, not within one.
 - **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
   them, then removes the key from the Keychain (on every device, since it is synchronised).
+- **Sync** (as built 17 November 2026, package C4a of `docs/CLOUD_SYNC_PLAN.md`: the data layer
+  only; the Sync switch, status line, join sheet, scheduling and PDF download policy are C4b's,
+  and nothing runs a round until then). One sync service for the app, one engine per signed-in
+  account, its state in `Application Support/Sync/<account>/` (outside `Books/`, so backups,
+  restores and older versions never see it; excluded from the device's own backup, so a device
+  restored from one joins afresh). Before any round the key is checked as for backups (no key
+  here while the account holds data, or another key: the page asks for the recovery key; no
+  round). A read-only or over-allowance session pulls and does not push. A round never runs
+  during a backup or restore, and one starting stops it (one job at a time).
+  - *Changes from the account are written record by record and file by file*, with sync's own
+    change origin, so every window reloads what it shows as for another window's change and no
+    window closes. A page with a stroke in progress or not yet saved, and a note being edited or
+    with changes not yet saved, is left for the next round; editors save what is pending first.
+  - *The reading position*: the page is written to the book (the later one wins), so the book
+    opens there next time; an open reader is not moved and does not write its own page back
+    until the reader moves on.
+  - *Handwriting from a newer system* (owner rule, `docs/CLOUD_SYNC_FINDINGS.md` §3): a page or
+    note whose stored ink needs a newer PencilKit than this iPad has (or that it cannot read in
+    full) is never pushed and never written over by this iPad; the reader and the note editor
+    treat it as unreadable (shown as nothing, read-only). A device check.
+  - *Deleted on another device*: the book is deleted here as by Delete (its windows close), unless
+    the reader is working in it or edited it since, when the edit wins. Exported PDFs of a book
+    deleted this way are kept.
 - **Automatic backup is on by default for a signed-in subscriber** (owner decision, 17 November
   2026), to Tactile Texts Cloud, the first time the account is seen able to back up, unless the
   reader already set automatic backups up (switched them on or off, or chose a destination). A

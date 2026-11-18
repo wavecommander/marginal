@@ -24,6 +24,13 @@ nonisolated enum ReaderLayout {
         return false
     }
 
+    /// iPadOS 26+ (Liquid Glass): the navigation bar floats transparently over the reader contents
+    /// and appears/disappears on top of them instead of reserving a top bar band.
+    static var usesTransparentTopBar: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     static func notesWidth(requested: Double, windowWidth: CGFloat) -> CGFloat {
         let maximum = max(CGFloat(ReaderSession.defaultNotesPanelWidth), windowWidth / 2)
         return min(max(CGFloat(requested), CGFloat(ReaderSession.defaultNotesPanelWidth)), maximum)
@@ -38,6 +45,9 @@ struct ReaderScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    @Environment(\.launchOptions) private var launchOptions
+    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverOn
+    @Environment(\.accessibilitySwitchControlEnabled) private var isSwitchControlOn
     /// Search panels on screen (each counts from its appearance until its dismissal has
     /// finished). A count, not a flag: when search reopens while the last panel is still going,
     /// the new panel's appearance and the old one's disappearance can come in either order.
@@ -146,7 +156,8 @@ struct ReaderScreen: View {
         }
         .navigationTitle(session.book.title)
         .navigationBarTitleDisplayMode(.inline)
-        .readerSubtitle(title: session.book.title, subtitle: subtitle)
+        .readerSubtitle(title: session.book.title, subtitle: subtitle, isFaded: isPillFaded)
+        .readerTransparentTopBar()
         .toolbar { toolbarContent }
         // A maximized page has the whole window: no toolbar, no status bar. The way back is a
         // finger tap on the page (`ReaderPDFController`), Escape or View ▸ Exit Maximized Page.
@@ -173,8 +184,15 @@ struct ReaderScreen: View {
             if session.isContentsShown {
                 ContentsSidebar(session: session)
                     .frame(width: ReaderSession.contentsSidebarWidth)
+                    .background {
+                        if ReaderLayout.usesTransparentTopBar {
+                            Color(uiColor: .systemGroupedBackground)
+                                .extendsIntoTransparentTopBar()
+                        }
+                    }
                     .paneContainer(AccessibilityID.Reader.contentsPane)
                 Divider()
+                    .extendsIntoTransparentTopBar()
             }
             pageArea
             if session.isNotesShown {
@@ -230,6 +248,7 @@ struct ReaderScreen: View {
             // moves above it.
             ReaderPDFViewRepresentable(session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
+                .extendsIntoTransparentTopBar()
                 .ignoresSafeArea(.keyboard)
                 // Scrolling sideways, a rightward drag back through the pages must not leave
                 // the book (as on the notes pane, TSOFT-225). The left-edge swipe still goes back.
@@ -245,7 +264,7 @@ struct ReaderScreen: View {
                 // A maximized page has the whole window, without the pill (owner decision,
                 // 17 November 2026).
                 if !session.isMaximized {
-                    PagePill(session: session)
+                    PagePill(session: session, isFaded: isPillFaded)
                         .padding(pillAtTop ? .top : .bottom, 14)
                         .transition(.opacity)
                 }
@@ -277,6 +296,12 @@ struct ReaderScreen: View {
     }
 
     // MARK: Title
+
+    /// Shared fade state for the bottom page pill and (on iPadOS 26+) the top title pill.
+    private var isPillFaded: Bool {
+        session.isPagePillIdle && !session.isGoToPageVisible && !isVoiceOverOn && !isSwitchControlOn
+            && !launchOptions.pagePillStaysVisible
+    }
 
     /// The reader's place only; markup mode does not add a prefix (the filled Markup button
     /// shows the mode; design, "Markup controls").
@@ -315,9 +340,9 @@ struct ReaderScreen: View {
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
                     .toolbarGlyph()
             }
-            notesToggle.toolbarGlyph()
             // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
             markupToggle.toolbarGlyph()
+            notesToggle.toolbarGlyph()
             if !session.isNarrowLayout {
                 BookmarkButton(session: session).toolbarGlyph()
             }
@@ -663,7 +688,7 @@ private struct NotesSidePane: View {
                 .frame(width: layoutWidth)
                 .frame(width: visibleWidth, alignment: .leading)
                 .clipped()
-                .background(Color(uiColor: .systemBackground))
+                .background(Color(uiColor: .systemBackground).extendsIntoTransparentTopBar())
                 .backSwipeGuard()
                 .paneContainer(AccessibilityID.Reader.notesPane)
         }
@@ -671,12 +696,15 @@ private struct NotesSidePane: View {
 
     private var handle: some View {
         ZStack {
-            Rectangle().fill(Color(uiColor: .separator)).frame(width: 1)
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(width: 1)
+                .extendsIntoTransparentTopBar()
             Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 5, height: 44)
         }
         .frame(width: 12)
         .frame(maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground))
+        .background(Color(uiColor: .systemBackground).extendsIntoTransparentTopBar())
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .gesture(drag)
@@ -754,9 +782,7 @@ private struct NotesSidePane: View {
 /// or Switch Control (nothing on screen says where it went), or with `-pagePillStaysVisible`.
 private struct PagePill: View {
     @Bindable var session: ReaderSession
-    @Environment(\.launchOptions) private var launchOptions
-    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverOn
-    @Environment(\.accessibilitySwitchControlEnabled) private var isSwitchControlOn
+    let isFaded: Bool
     @State private var text = ""
     @FocusState private var isFieldFocused: Bool
     /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
@@ -769,15 +795,25 @@ private struct PagePill: View {
             if session.isGoToPageVisible {
                 HStack(spacing: 8) {
                     TextField("Page", text: $text)
-                        .keyboardType(.numbersAndPunctuation)
+                        .keyboardType(.asciiCapableNumberPad)
                         .submitLabel(.go)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 90)
                         .focused($isFieldFocused)
                         .onSubmit(submit)
+                        .onChange(of: text) { _, newValue in
+                            let filtered = PageNumbering.digitsOnly(newValue)
+                            if filtered != newValue {
+                                text = filtered
+                            }
+                        }
                         .accessibilityLabel("Go to page")
                         .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
                     Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
+                    Button("Go", action: submit)
+                        .foregroundStyle(.white.opacity(text.isEmpty ? 0.45 : 1))
+                        .disabled(text.isEmpty)
+                        .accessibilityIdentifier(AccessibilityID.Reader.goToPageGo)
                     Button("Cancel") { session.isGoToPageVisible = false }
                         .foregroundStyle(.white)
                 }
@@ -808,11 +844,7 @@ private struct PagePill: View {
         }
         .font(.subheadline.weight(.medium))
         .background(Capsule().fill(Color.black.opacity(0.78)))
-        .opacity(isFaded ? 0 : 1)
-        .allowsHitTesting(!isFaded)
-        .accessibilityHidden(isFaded)
-        // A slow fade out, a quick return.
-        .animation(.easeInOut(duration: isFaded ? 0.6 : 0.2), value: isFaded)
+        .pillIdleFade(isFaded)
         .onAppear { session.revealPagePill() }
         .onChange(of: session.isGoToPageVisible) { _, visible in
             if !visible { session.revealPagePill() }  // count the idle time from closing the field
@@ -826,11 +858,6 @@ private struct PagePill: View {
                 session.markup.reassertToolPicker()
             }
         }
-    }
-
-    private var isFaded: Bool {
-        session.isPagePillIdle && !session.isGoToPageVisible && !isVoiceOverOn && !isSwitchControlOn
-            && !launchOptions.pagePillStaysVisible
     }
 
     private func submit() {
@@ -851,14 +878,32 @@ private extension View {
             .accessibilityIdentifier(identifier)
     }
 
-    /// The title with its subtitle (the current section). iPadOS 26+: the system subtitle.
-    /// Earlier: a two-line principal toolbar item (`AccessibilityID.Reader.titleBlock`, one
-    /// combined accessibility element "title, subtitle"). Gated path: the only place that uses
-    /// `navigationSubtitle`.
+    /// The title with its subtitle (the current section). iPadOS 26+: a Liquid Glass capsule
+    /// that fades in sync with the bottom page pill. Earlier: a two-line principal toolbar item
+    /// (`AccessibilityID.Reader.titleBlock`, one combined accessibility element "title, subtitle").
     @ViewBuilder
-    func readerSubtitle(title: String, subtitle: String) -> some View {
+    func readerSubtitle(title: String, subtitle: String, isFaded: Bool) -> some View {
         if #available(iOS 26.0, *) {
-            self.navigationSubtitle(subtitle)
+            self.toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 0) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 3)
+                    .glassEffect(.regular, in: Capsule())
+                    .pillIdleFade(isFaded)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(AccessibilityID.Reader.titleBlock)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
         } else {
             self.toolbar {
                 ToolbarItem(placement: .principal) {
@@ -872,12 +917,39 @@ private extension View {
             }
         }
     }
+
+    /// Fades a floating pill out slowly after idle and brings it back quickly on movement.
+    func pillIdleFade(_ isFaded: Bool) -> some View {
+        opacity(isFaded ? 0 : 1)
+            .allowsHitTesting(!isFaded)
+            .accessibilityHidden(isFaded)
+            .animation(.easeInOut(duration: isFaded ? 0.6 : 0.2), value: isFaded)
+    }
+
+    /// Hides the navigation bar's background and top scroll-edge effect on iPadOS 26+ so the
+    /// Liquid Glass bar floats transparently over the reader contents.
+    @ViewBuilder
+    func readerTransparentTopBar() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+                .scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            self
+        }
+    }
+
+    /// Lets a view or pane background extend behind the transparent iPadOS 26+ top bar while
+    /// preserving the top safe area at the iPadOS 17 floor.
+    func extendsIntoTransparentTopBar() -> some View {
+        ignoresSafeArea(.container, edges: ReaderLayout.usesTransparentTopBar ? .top : [])
+    }
 }
 
 /// Measures the toolbar's search button for the search popover (TSOFT-216).
 ///
 /// A popover attached to a toolbar button has the bar button item as its source, and on
-/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (notes, Markup,
+/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (Markup, notes,
 /// bookmark, search, More) into the popover: the popover covers the bar while it is open (those
 /// buttons are gone), and on the owner's iPad the button was left looking selected after the
 /// morph back. Attached to the reader with the button's frame as its anchor rect, it is a plain

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import ReaderBackup
 import ReaderCore
 
 /// One import in progress, observable by every Library window.
@@ -381,9 +382,13 @@ final class ImportService {
                 progress: { fraction in Task { @MainActor in job.set(fraction: fraction, during: .copying) } })
             try Task.checkCancellation()
             job.set(phase: .finishing)
+            if let existing = try await bookHolding(staged.digest, stagedPDF: staging.appendingPathComponent(fileName), job: job) {
+                await ImportPipeline.remove(staging)
+                return .existing(existing)
+            }
             let book = Book(id: bookID, title: Self.title(forFileName: name), fingerprint: probe.fingerprint,
                             fileName: fileName, pageCount: staged.pageCount, fileSize: staged.fileSize)
-            let outcome = try commit(book, staging: staging, displayName: fileName)
+            let outcome = try commit(book, staging: staging, displayName: fileName, digest: staged.digest)
             if staged.isScanned, case .imported(let committed) = outcome {
                 await markScanned(committed.id)
                 detectedScans.insert(committed.id)
@@ -429,13 +434,20 @@ final class ImportService {
                                          options: options, outputFileName: Self.convertedFileName(forFileName: name),
                                          staging: staging, consume: item.consumeSource, size: item.probe.size, job: job)
             job.set(phase: .finishing)
+            // Converting a file whose PDF comes out identical to one a book already holds goes
+            // to that book (one book per PDF): "Converting the same file again makes a new book"
+            // only while the two PDFs differ.
+            if let existing = try await bookHolding(made.staged.digest, stagedPDF: made.converted.pdf, job: job) {
+                await ImportPipeline.remove(staging)
+                return .existing(existing)
+            }
             let title = made.converted.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let book = Book(id: bookID, title: title.flatMap { $0.isEmpty ? nil : $0 } ?? Self.title(forFileName: name),
                             fingerprint: item.probe.fingerprint, fileName: made.converted.pdf.lastPathComponent,
                             pageCount: made.staged.pageCount, fileSize: made.staged.fileSize + made.originalSize,
                             sourceFormat: item.format, originalFileName: name, converterVersion: converter.version)
             try Task.checkCancellation()
-            let outcome = try commit(book, staging: staging, displayName: name)
+            let outcome = try commit(book, staging: staging, displayName: name, digest: made.staged.digest)
             // No notice for a converted book: one made from pictures was described as pictures by
             // the Convert to PDF sheet; search makes the offer.
             if made.staged.isScanned, case .imported(let committed) = outcome { await markScanned(committed.id) }
@@ -488,11 +500,18 @@ final class ImportService {
 
     // MARK: Commit
 
-    /// The commit step. No suspension point between the fingerprint check, the rename and the
-    /// save.
-    private func commit(_ book: Book, staging: URL, displayName: String) throws -> ImportOutcome {
+    /// The commit step. No suspension point between the fingerprint and hash checks, the rename
+    /// and the save.
+    private func commit(_ book: Book, staging: URL, displayName: String, digest: ContentDigest?) throws -> ImportOutcome {
         if let existing = try storeBook(fingerprint: book.fingerprint) {
             try? FileManager.default.removeItem(at: staging)  // a concurrent import of the same file won
+            return .existing(existing)
+        }
+        // One book per PDF: a book committed meanwhile (another window's import, a restore, sync)
+        // holds this PDF. Its sidecar says so: every road that adds a book writes one.
+        if let digest, let id = LibraryPDFIndex.bookIDs(withSidecarSHA256: digest.sha256, in: store).first,
+           let existing = try storeBook(id: id) {
+            try? FileManager.default.removeItem(at: staging)
             return .existing(existing)
         }
         let fileManager = FileManager.default
@@ -510,6 +529,19 @@ final class ImportService {
             throw ImportError.storage(fileName: displayName, reason: String(describing: error))
         }
         return .imported(book)
+    }
+
+    /// One book per PDF (owner decision 8): the book that already holds the PDF with `digest`
+    /// (by any route: a direct import of a converted book's generated PDF, a conversion that
+    /// made the same bytes), or `nil`. When that book lacks its PDF, the staged copy supplies it
+    /// (as an import whose fingerprint matched would).
+    private func bookHolding(_ digest: ContentDigest?, stagedPDF: URL, job: ImportJob) async throws -> Book? {
+        guard let digest, let existing = try await LibraryPDFIndex.book(holding: digest, in: store) else { return nil }
+        if !store.hasDocument(existing) {
+            try await restoreMissingDocument(of: existing, from: stagedPDF, isGeneratedPDF: existing.isConverted,
+                                             size: digest.size, job: job)
+        }
+        return existing
     }
 
     /// A new book found scanned starts "not decided" (best effort: without the state the book
@@ -637,6 +669,10 @@ final class ImportService {
                 expected: expected, bookTitle: book.title, size: size ?? book.fileSize,
                 progress: { fraction in Task { @MainActor in job.set(fraction: fraction, during: .copying) } })
             try Task.checkCancellation()
+            // One book per PDF: a file that another book already holds is that book's.
+            if let other = try await LibraryPDFIndex.book(holding: staged.digest, in: store, excluding: [book.id]) {
+                throw ImportError.pdfInAnotherBook(bookTitle: book.title, otherTitle: other.title)
+            }
             job.set(phase: .finishing)
             try commitLink(bookID: book.id, staged: staged)
         } catch {

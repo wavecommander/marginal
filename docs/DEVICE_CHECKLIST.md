@@ -372,6 +372,31 @@ Restore › Tactile Texts Cloud.
       next backup makes a new key), and the subscription is still active in Manage
       Subscription.
 
+### Sync (C4a: data layer; the UI comes with C4b)
+
+Needs two devices on one account (an iPad and an iPhone where possible), each with the key,
+and a build where C4b's Sync switch exists. Until then these wait.
+
+- [ ] **Ink from a newer system.** One device on a newer iPadOS draws with an ink only it has
+      (Reed Pen on iPadOS 26) on a page and in a note; the older device shows that page and note
+      without the strokes or as unreadable, cannot draw on them, and after several rounds the
+      newer device still has every stroke. Record what `requiredContentVersion` the older system
+      reports for such a drawing.
+- [ ] **Stroke identity across devices.** A stroke drawn on one device and erased on the other is
+      erased on both; strokes drawn on the same page on both while offline are all there after
+      both sync.
+- [ ] **A note edited on both.** Text added on each device to one note, with handwriting on each
+      side's new paragraph: after both sync, each paragraph appears once and each stroke sits on
+      the paragraph it was written on, on both devices.
+- [ ] **An open window.** With the book open on the receiving device, a change from the other
+      device appears without the window closing; a page being drawn on at that moment keeps the
+      stroke and gets the other device's strokes on the next round; the reader is not moved by a
+      synced reading position, and the book opens at it next time.
+- [ ] **Background time.** How much of one note and one page of ink reaches the account in the
+      time after the app is put away (`docs/CLOUD_SYNC_FINDINGS.md` §6).
+- [ ] **Real R2.** Rounds against the development bucket through the Worker's temporary
+      credentials: conditional head writes, a 412 race between two devices, ETags in listings.
+
 ## Scanned books
 
 What the simulator could not establish (`docs/SCANNED_BOOKS_FINDINGS.md`): PDFKit's own reading

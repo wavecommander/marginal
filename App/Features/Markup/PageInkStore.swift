@@ -169,9 +169,14 @@ enum PageInkPersistence {
         }
     }
 
-    /// Decodes off the main actor; `nil` when unreadable.
+    /// Decodes off the main actor; `nil` when unreadable, including a drawing this system
+    /// cannot show in full (`InkContentSupport`: ink from a newer system), which is therefore
+    /// shown as nothing and never written over here.
     nonisolated static func decode(_ data: Data) async -> PKDrawing? {
-        await Task.detached(priority: .userInitiated) { try? PKDrawing(data: data) }.value
+        await Task.detached(priority: .userInitiated) { () -> PKDrawing? in
+            guard let drawing = try? PKDrawing(data: data), !InkContentSupport.needsNewerSystem(pageInk: data) else { return nil }
+            return drawing
+        }.value
     }
 
     /// Encodes off the main actor.

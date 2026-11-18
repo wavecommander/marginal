@@ -183,11 +183,22 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// A finger tap on the page maximizes it (no toolbar, no panes); markup can be turned on
-    /// while maximized (⇧⌘A) and carries on with the tool picker up; Escape ends it, and the
-    /// panes and the Markup toggle are back as they were. A tap on the page in markup mode
-    /// with finger drawing (`-inkAnyInput`) is ink, so it does not end it.
+    /// while maximized (⇧⌘A) and carries on with the tool picker up; ending maximize brings the
+    /// panes, page pill, and Markup toggle back as they were.
+    ///
+    /// In markup mode, tapping the page (simulating a finger) accounts for whether "Draw with
+    /// finger" is enabled:
+    /// - Enabled (`-inkAnyInput`, `fingerDraws=yes`): a tap draws (`undo=yes`) and does not
+    ///   maximize or un-maximize.
+    /// - Disabled (`-inkPencilOnly`, `fingerDraws=no`): a tap does not draw (`undo=no`) and
+    ///   maximizes / un-maximizes while keeping markup on.
     func testTapMaximizesAndKeepsMarkupOn() {
-        let app = openSmall(["-notesPanel", "page", "-exposeMarkupState", "-inkAnyInput"])
+        verifyTapMaximize(extraArgs: ["-inkAnyInput"])
+        verifyTapMaximize(extraArgs: ["-inkPencilOnly"])
+    }
+
+    private func verifyTapMaximize(extraArgs: [String]) {
+        let app = openSmall(["-notesPanel", "page", "-exposeMarkupState"] + extraArgs)
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let contents = element(app, ReaderID.contentsPane)
         let notes = element(app, ReaderID.notesPane)
@@ -206,15 +217,45 @@ final class ReaderUITests: XCTestCase {
         app.typeKey("a", modifierFlags: [.command, .shift])
         XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 10),
                       "markup comes on while the page is maximized")
-        page.tap()
-        XCTAssertFalse(markup.waitForExistence(timeout: 2), "a finger that draws does not end it")
+        let fingerDraws = (state.value as? String)?.contains("fingerDraws=yes") == true
 
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
-        XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
-        XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
-        XCTAssertTrue(pill(app).waitForExistence(timeout: 5), "the page pill is back")
-        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+        if fingerDraws {
+            page.tap()
+            XCTAssertFalse(markup.waitForExistence(timeout: 2),
+                           "with Draw with finger enabled, a finger tap draws and does not end maximize")
+            XCTAssertTrue(waitForValue(state, containing: "undo=yes", timeout: 5),
+                          "the finger tap drew on the page")
+
+            // Asking for a pane (`⌃⌘S` Show Contents) ends maximize while keeping markup on.
+            app.typeKey("s", modifierFlags: [.command, .control])
+            XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
+            XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
+            XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
+            XCTAssertTrue(pill(app).waitForExistence(timeout: 5), "the page pill is back")
+            XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+
+            page.tap()
+            XCTAssertTrue(markup.exists,
+                          "with Draw with finger enabled, a finger tap draws and does not maximize")
+            XCTAssertFalse(markup.waitForNonExistence(timeout: 1.5))
+        } else {
+            page.tap()
+            XCTAssertTrue(markup.waitForExistence(timeout: 5),
+                          "with Draw with finger disabled, a tap on the maximized page ends maximize")
+            XCTAssertTrue(contents.waitForExistence(timeout: 5))
+            XCTAssertTrue(notes.waitForExistence(timeout: 5))
+            XCTAssertTrue(pill(app).waitForExistence(timeout: 5))
+            XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+            XCTAssertTrue(waitForValue(state, containing: "undo=no", timeout: 2),
+                          "the finger tap did not draw")
+
+            page.tap()
+            XCTAssertTrue(markup.waitForNonExistence(timeout: 5),
+                          "with Draw with finger disabled, a finger tap maximizes even in markup mode")
+            page.tap()
+            XCTAssertTrue(markup.waitForExistence(timeout: 5), "and tapping again ends maximize")
+        }
+
         markup.tap()
         XCTAssertTrue(waitForValue(state, containing: "markup=off", timeout: 10), "markup can be left")
 
@@ -569,20 +610,20 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(toggle, "Markup"), "outlined again")
     }
 
-    /// Trailing toolbar icons appear left-to-right as: Notes, Markup, Bookmark, Search, More.
+    /// Trailing toolbar icons appear left-to-right as: Markup, Notes, Bookmark, Search, More.
     func testTrailingToolbarButtonOrder() {
         let app = openSmall()
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
-        let notes = app.buttons[ReaderID.notesToggle].firstMatch
         let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let notes = app.buttons[ReaderID.notesToggle].firstMatch
         let bookmark = app.buttons[ReaderID.bookmark].firstMatch
         let search = app.buttons[ReaderID.search].firstMatch
         let more = app.buttons[ReaderID.more].firstMatch
-        for button in [notes, markup, bookmark, search, more] {
+        for button in [markup, notes, bookmark, search, more] {
             XCTAssertTrue(button.waitForExistence(timeout: 5))
         }
-        XCTAssertLessThanOrEqual(notes.frame.maxX, markup.frame.minX, "Notes before Markup")
-        XCTAssertLessThanOrEqual(markup.frame.maxX, bookmark.frame.minX, "Markup before Bookmark")
+        XCTAssertLessThanOrEqual(markup.frame.maxX, notes.frame.minX, "Markup before Notes")
+        XCTAssertLessThanOrEqual(notes.frame.maxX, bookmark.frame.minX, "Notes before Bookmark")
         XCTAssertLessThanOrEqual(bookmark.frame.maxX, search.frame.minX, "Bookmark before Search")
         XCTAssertLessThanOrEqual(search.frame.maxX, more.frame.minX, "Search before More")
     }
@@ -630,6 +671,44 @@ final class ReaderUITests: XCTestCase {
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.45)).press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Probe"].firstMatch.waitForExistence(timeout: 5)
                       || app.menuItems["Probe"].firstMatch.waitForExistence(timeout: 2))
+    }
+
+    func testSingleTapOffSelectedTextDeselectsWithoutMaximizing() {
+        let app = openSmall(["-openPage", "3", "-exposeSelection"])
+        XCTAssertTrue(selectionProbe(app).waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"), "opened at page 3")
+        let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let pdfView = app.otherElements[ReaderID.pdfView].firstMatch
+
+        let wordPoint = selectAmber(app)
+        XCTAssertNotEqual(selectionProbe(app).label, "none")
+        XCTAssertTrue(markup.exists, "long-pressing to select text does not maximize the page")
+
+        // Tapping on the selected word keeps the selection.
+        wordPoint.tap()
+        XCTAssertFalse(UIWait.until(timeout: 0.6) { selectionProbe(app).label == "none" },
+                       "tapping on selected text keeps the selection")
+        XCTAssertTrue(markup.exists, "tapping on selected text does not maximize")
+
+        // Single-tapping blank page space off the text clears the selection without maximizing.
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "single tap on blank space deselects")
+        XCTAssertTrue(markup.exists, "deselecting tap does not maximize the page")
+
+        // With nothing selected, the next single tap on the page maximizes it (and back).
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "tap with no selection maximizes")
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "tap on maximized page exits")
+
+        // Single-tapping in the margin outside the page also clears the selection without maximizing.
+        selectAmber(app)
+        XCTAssertNotEqual(selectionProbe(app).label, "none")
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "single tap in the margin deselects")
+        XCTAssertTrue(markup.exists)
     }
 
     // MARK: Select All selects the paragraph
@@ -702,7 +781,8 @@ final class ReaderUITests: XCTestCase {
 
         // ⌘A on a fresh word selection.
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.6)).tap()
-        _ = UIWait.until(timeout: 5) { selectionProbe(app).label == "none" }  // the tap cleared the selection
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "the tap cleared the selection")
         let wordPoint = selectAmber(app)
         // After a long press, XCUITest's synthesized ⌘A reaches the app only with the next touch
         // on the page (measured with a route trace: the app then runs Select All on
@@ -749,6 +829,37 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(openNotebookInNewWindow.exists, "Open Notebook in New Window is shown on iPad")
         }
     }
+
+    func testGoToPageFieldUsesNumberPadAndRejectsNonDigits() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = openSmall()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        pill(app).tap()
+        let field = app.textFields[ReaderID.goToPageField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "number pad appears")
+        XCTAssertTrue(keyboard.keys["1"].exists || keyboard.buttons["1"].exists, "num pad has digit keys")
+        XCTAssertFalse(keyboard.keys["A"].exists || keyboard.keys["a"].exists || keyboard.keys["Q"].exists || keyboard.keys["q"].exists,
+                       "num pad does not show letter keys")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(keyboard.keys["."].exists || keyboard.keys["-"].exists || keyboard.keys["/"].exists,
+                           "num pad does not show punctuation keys")
+        }
+
+        let goButton = app.buttons[ReaderID.goToPageGo].firstMatch
+        XCTAssertTrue(goButton.exists)
+        XCTAssertFalse(goButton.isEnabled, "Go is disabled while the field is empty")
+
+        field.typeText("1")
+        field.typeText("a")
+        field.typeText("-")
+        field.typeText("2")
+        XCTAssertEqual(field.value as? String, "12", "non-digits are stripped")
+        XCTAssertTrue(goButton.isEnabled)
+        goButton.tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 12 of 12"))
+    }
 }
 
 /// Mirrors `AccessibilityID.Reader` in the app (the test target cannot import it).
@@ -764,6 +875,7 @@ enum ReaderID {
     static let more = "reader.toolbar.more"
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
+    static let goToPageGo = "reader.goToPageGo"
     static let contentsPane = "reader.pane.contents"
     static let contentsOverlay = "reader.pane.contentsOverlay"
     static let notesPane = "reader.pane.notes"

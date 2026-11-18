@@ -19,6 +19,11 @@ public enum PageNumbering {
         displayNumber - 1
     }
 
+    /// Strips everything except ASCII digits (`0`–`9`), for numeric page-number input fields.
+    public static func digitsOnly(_ input: String) -> String {
+        input.filter { $0.isASCII && $0.isNumber }
+    }
+
     /// `true` when `pageIndex` names a page of a book with `pageCount` pages
     /// (`0 <= pageIndex < pageCount`).
     public static func isValid(_ pageIndex: Int, pageCount: Int) -> Bool {

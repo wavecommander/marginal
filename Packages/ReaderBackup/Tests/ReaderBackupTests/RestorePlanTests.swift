@@ -91,6 +91,19 @@ struct RestorePlanTests {
         #expect(result.items[0].replacedBookIDs == [Self.id(8), Self.id(1)])
     }
 
+    /// One book per PDF (owner decision 8): a local book holding the same PDF is the same book,
+    /// whatever its ID and fingerprint (a converted book and its generated PDF imported directly).
+    @Test func matchesBySameFullHash() {
+        let sha = Self.hash("a")
+        let result = plan([Self.entry(1, fingerprint: "original", sha: sha)],
+                          [Self.local(7, fingerprint: "generated", sha: sha.uppercased()),
+                           Self.local(8, fingerprint: "other", sha: Self.hash("b")),
+                           Self.local(9, fingerprint: "unknown", sha: nil)])
+        #expect(result.items[0].status == .inLibrary)
+        #expect(result.items[0].replacedBookIDs == [Self.id(7)])
+        #expect(result.items[0].defaultAction == .merge)
+    }
+
     @Test func pdfFromTheArchiveComesFirst() {
         let sha = Self.hash("a")
         let result = plan([Self.entry(1, fingerprint: "f1", sha: sha, embedded: true)],
@@ -114,7 +127,8 @@ struct RestorePlanTests {
                           destination: [Self.hash("b")])
         #expect(result.items[0].pdfSource == .localBook(Self.id(4)))
         #expect(result.items[0].status == .inLibrary, "the fingerprint match is replaced")
-        #expect(result.items[0].replacedBookIDs == [Self.id(3)])
+        // One book per PDF (owner decision 8): the book holding the same PDF is the same book too.
+        #expect(result.items[0].replacedBookIDs == [Self.id(3), Self.id(4)])
     }
 
     @Test func orALocalBookWithTheSameFingerprintWhenItsHashIsUnknown() {

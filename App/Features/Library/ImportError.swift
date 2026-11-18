@@ -14,6 +14,9 @@ nonisolated enum ImportError: Error, Equatable, LocalizedError, Sendable {
     /// The file is not the PDF the book's notes were made on: its fingerprint, or its full
     /// SHA-256 (the book's `document.sha256`), differs. Refused; nothing is linked or imported.
     case pdfMismatch(bookTitle: String)
+    /// Locate PDF…: the file is the PDF another book in the Library already holds (one book per
+    /// PDF, owner decision 8, 17 November 2026). `otherTitle` is that book's title.
+    case pdfInAnotherBook(bookTitle: String, otherTitle: String)
     /// A format the app recognises but cannot import. `kind` names it; `nil` is a format the app
     /// could convert but has no converter for (yet), or one a converter turned down.
     case unsupportedFormat(fileName: String, kind: UnsupportedImportFormat?)
@@ -30,7 +33,7 @@ nonisolated enum ImportError: Error, Equatable, LocalizedError, Sendable {
              .unreadable(let name, _), .storage(let name, _), .unsupportedFormat(let name, _),
              .conversionFailed(let name, _):
             name
-        case .cancelled, .pdfMismatch:
+        case .cancelled, .pdfMismatch, .pdfInAnotherBook:
             ""
         }
     }
@@ -72,6 +75,9 @@ nonisolated enum ImportError: Error, Equatable, LocalizedError, Sendable {
         case .pdfMismatch(let title):
             String(localized: "This file isn’t the PDF the notes in “\(title)” were made on, so it can’t be linked to that book. Choose the original PDF.",
                    comment: "Alert message when a file chosen with Locate PDF is not the book's PDF. The argument is the book's title.")
+        case .pdfInAnotherBook(let title, let other):
+            String(localized: "This PDF is already in your Library as “\(other)”, so it can’t also be linked to “\(title)”.",
+                   comment: "Alert message when a file chosen with Locate PDF is the PDF of another book. Arguments: the book's title, then the other book's title.")
         case .cancelled:
             String(localized: "The import was cancelled.", comment: "Import alert message.")
         }
@@ -120,7 +126,7 @@ nonisolated enum ImportError: Error, Equatable, LocalizedError, Sendable {
             String(localized: "Copy-Protected Book", comment: "Import alert title: the file has DRM.")
         case .conversionFailed:
             String(localized: "Couldn't Convert", comment: "Import alert title: converting the file to PDF failed.")
-        case .pdfMismatch:
+        case .pdfMismatch, .pdfInAnotherBook:
             String(localized: "Wrong PDF", comment: "Import alert title: the chosen file is not the book's PDF.")
         case .cancelled:
             String(localized: "Import Cancelled", comment: "Import alert title.")
@@ -157,6 +163,9 @@ nonisolated enum ImportError: Error, Equatable, LocalizedError, Sendable {
         case .pdfMismatch:
             String(localized: "It isn’t the PDF this book’s notes were made on.",
                    comment: "Convert to PDF sheet, 'can't be imported' list: reason under a file name.")
+        case .pdfInAnotherBook(_, let other):
+            String(localized: "It’s already in your Library as “\(other)”.",
+                   comment: "Convert to PDF sheet, 'can't be imported' list: reason under a file name. The argument is the other book's title.")
         case .cancelled:
             String(localized: "Cancelled.", comment: "Convert to PDF sheet, 'can't be imported' list: reason under a file name.")
         }

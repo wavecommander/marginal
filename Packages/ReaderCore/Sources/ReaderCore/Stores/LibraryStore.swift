@@ -44,6 +44,8 @@ public enum LibraryStoreError: Error, Hashable, Sendable {
 /// - `highlights.deleteHighlight(id)` → `.highlightsChanged(bookID, page)` if it existed.
 /// - `bookmarks.setBookmarked(b, bookID, page)` → `.bookmarksChanged(bookID, page)` only if the
 ///   page's bookmark state actually changed.
+/// - `bookmarks.save(b)` (a record stored verbatim, by merge and sync) → `.bookmarksChanged` for
+///   each other page a replaced bookmark was on, then for `b`'s page; nothing if unchanged.
 /// - `headings.save(h)` → `.userHeadingsChanged(h.bookID)`; `deleteUserHeading(id)` → the same
 ///   for its book if it existed.
 /// - `savePageInk`/`deletePageInk` → `.pageInkChanged(bookID, page)`;

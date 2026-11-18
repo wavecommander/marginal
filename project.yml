@@ -37,7 +37,7 @@ targets:
       - package: ReaderStore
       - package: ReaderBackup
       - package: S3Kit
-      # Only `SyncKeys` for now: the device names Tactile Texts Cloud's account screen shows.
+      # Sync (App/Features/Sync) and the device names on the account screen (`SyncKeys`).
       - package: ReaderSync
       - package: GoogleSignInKit
     settings:

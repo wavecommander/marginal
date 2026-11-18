@@ -12,6 +12,9 @@ struct ModelTests {
         #expect(PageNumbering.label(forPageIndex: 0) == "p. 1")
         #expect(PageNumbering.label(forPageRange: 300...339) == "pp. 301\u{2013}340")
         #expect(PageNumbering.label(forPageRange: 4...4) == "p. 5")
+        #expect(PageNumbering.digitsOnly("123") == "123")
+        #expect(PageNumbering.digitsOnly("a1b-2.3 ²١") == "123")
+        #expect(PageNumbering.digitsOnly("abc") == "")
     }
 
     @Test func noteTargetStorageKeys() throws {

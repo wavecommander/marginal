@@ -464,6 +464,28 @@ final class SwiftDataRecordStore: RecordStore {
         return try context.fetchCount(FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.compositeKey == key })) > 0
     }
 
+    func storeBookmarkRecord(_ bookmark: Bookmark) throws -> [Bookmark] {
+        try requireBook(bookmark.bookID)
+        let id = bookmark.id
+        var byID = FetchDescriptor<BookmarkModel>(predicate: #Predicate { $0.id == id })
+        byID.fetchLimit = 1
+        let existing = try context.fetch(byID).first
+        let others = try bookmarkModels(bookID: bookmark.bookID, pageIndex: bookmark.pageIndex).filter { $0.id != id }
+        let replaced = (existing.map { [value($0)] } ?? []) + others.map(value)
+        try transaction {
+            for m in others { context.delete(m) }
+            if let m = existing {
+                m.bookID = bookmark.bookID
+                m.pageIndex = bookmark.pageIndex
+                m.compositeKey = BookmarkModel.compositeKey(bookID: bookmark.bookID, pageIndex: bookmark.pageIndex)
+                m.createdAt = bookmark.createdAt
+            } else {
+                context.insert(Self.newModel(bookmark))
+            }
+        }
+        return replaced
+    }
+
     func storeBookmark(_ bookmarked: Bool, bookID: UUID, pageIndex: Int) throws -> Bool {
         let existing = try bookmarkModels(bookID: bookID, pageIndex: pageIndex)
         if bookmarked {

@@ -100,9 +100,14 @@ public struct RestorePlan: Hashable, Sendable {
         let destination = Set(destinationPDFHashes.map { $0.lowercased() })
         items = manifest.books.map { entry in
             let book = entry.book
-            let matches = localLibrary.filter { $0.book.id == book.id || $0.book.fingerprint == book.fingerprint }
-            let status: Status = matches.isEmpty ? .new : .inLibrary
+            // One book per PDF (owner decision 8, 17 November 2026): a local book whose PDF has the
+            // backup book's full SHA-256 is the same book even when the fingerprints differ (a
+            // converted book and its generated PDF imported directly).
             let hash = entry.pdf.sha256.lowercased()
+            let matches = localLibrary.filter {
+                $0.book.id == book.id || $0.book.fingerprint == book.fingerprint || $0.sha256?.lowercased() == hash
+            }
+            let status: Status = matches.isEmpty ? .new : .inLibrary
 
             let source: PDFSource
             if entry.pdf.embedded {

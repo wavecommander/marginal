@@ -337,6 +337,22 @@ struct EncryptedBackupDestinationTests {
         #expect(f.dir.allPaths().filter { $0.contains("partial") }.isEmpty)
     }
 
+    /// Sync writes only its own objects: it leaves the key check first, so a device with
+    /// another key is told so rather than finding everything damaged.
+    @Test func preparingForWritingLeavesTheKeyCheckAndRefusesAnotherKey() async throws {
+        let f = try EncryptedFixture()
+        #expect(try await f.destination().checkKey() == .nothingStored)
+        try await f.destination().prepareForWriting()
+        let keyCheck = try #require(try f.storeContents()[EncryptedBackupDestination.keyCheckObjectName])
+        #expect(try f.storeContents().count == 1)
+        #expect(try await f.destination().checkKey() == .matches)
+        try await f.destination().prepareForWriting()   // again: nothing more is written
+        #expect(try f.storeContents()[EncryptedBackupDestination.keyCheckObjectName] == keyCheck)
+        await #expect(throws: BackupError.wrongEncryptionKey) {
+            try await f.destination(key: BackupEncryptionKey.generate()).prepareForWriting()
+        }
+    }
+
     @Test func theKeyCheckTellsAWrongKeyFromAnEmptyStore() async throws {
         let f = try EncryptedFixture()
         let right = f.destination()
