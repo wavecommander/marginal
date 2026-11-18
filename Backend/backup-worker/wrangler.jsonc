@@ -47,13 +47,15 @@
     // The Cloudflare account that owns the bucket, and the bucket's S3 endpoint host
     // (`<account id>.r2.cloudflarestorage.com`, or the jurisdiction form such as
     // `<account id>.eu.r2.cloudflarestorage.com`). Not secrets.
-    "R2_ACCOUNT_ID": "",
-    "R2_S3_HOST": "",
+    "R2_ACCOUNT_ID": "32e09135eef221254b0a2e469bd6fe43",
+    "R2_S3_HOST": "32e09135eef221254b0a2e469bd6fe43.r2.cloudflarestorage.com",
     "R2_BUCKET_NAME": "tactile-texts-backups-dev",
     "APP_BUNDLE_ID": "software.tactile.texts",
     // The 10-character App ID prefix (team ID) from the Apple Developer account. App Attest
     // checks `<team ID>.<bundle ID>`. Empty until the owner fills it in.
-    "APPLE_TEAM_ID": "",
+    // The dev deployment uses a placeholder: real devices reach it through the App Attest bypass
+    // for now. Set the real team ID here (it is not a secret) when dev should verify App Attest.
+    "APPLE_TEAM_ID": "DEV0000000",
     // The app's numeric Apple ID in App Store Connect. Required in production; optional here.
     "APP_APPLE_ID": "",
     // Google OAuth client IDs (comma-separated) whose ID tokens are accepted: the app's iOS
@@ -82,8 +84,8 @@
     {
       "binding": "DB",
       "database_name": "tactile-backup-dev",
-      // Placeholder: local development needs no real ID. Replace it when the database exists.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // The dev deployment's database (created 18 November 2026). Local development ignores the ID.
+      "database_id": "f9f1ba61-e11c-4ed1-adef-0e9418443d15",
       "migrations_dir": "migrations"
     }
   ],
