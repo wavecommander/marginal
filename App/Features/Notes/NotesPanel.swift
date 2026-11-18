@@ -479,14 +479,9 @@ struct NotesPanel: View {
                              id: NotesPanelAccessibilityID.formatStrikethrough) {
                     formatting.toggleStrikethrough()
                 }
-                formatToggle("Monospace", systemImage: "chevron.left.forwardslash.chevron.right", active: attrs.isCode,
-                             id: NotesPanelAccessibilityID.formatCode) {
-                    formatting.toggleCode()
-                }
                 Divider()
                     .frame(height: 18)
                     .padding(.horizontal, 2)
-                highlightMenu(active: attrs.highlight)
                 formatToggle("Clear Formatting", systemImage: "eraser", active: false,
                              id: NotesPanelAccessibilityID.formatClear) {
                     formatting.clearFormatting()
@@ -516,46 +511,6 @@ struct NotesPanel: View {
         .accessibilityLabel(title)
         .accessibilityAddTraits(active ? .isSelected : [])
         .accessibilityIdentifier(id)
-    }
-
-    private func highlightMenu(active: NoteTextHighlightColor?) -> some View {
-        Menu {
-            ForEach(NoteTextHighlightColor.allCases, id: \.self) { color in
-                Button {
-                    formatting.toggleHighlight(color)
-                } label: {
-                    Label(highlightTitle(color), systemImage: active == color ? "checkmark.circle.fill" : "circle.fill")
-                }
-            }
-            if active != nil {
-                Divider()
-                Button(role: .destructive) {
-                    if let active { formatting.toggleHighlight(active) }
-                } label: {
-                    Label("Remove Highlight", systemImage: "xmark.circle")
-                }
-            }
-        } label: {
-            Image(systemName: "highlighter")
-                .font(.subheadline.weight(active != nil ? .semibold : .regular))
-                .frame(width: 32, height: 30)
-                .background(active != nil ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
-                .foregroundStyle(active != nil ? Color.accentColor : Color.primary)
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.highlight)
-        .accessibilityLabel("Highlight Text")
-        .accessibilityValue(active.map(highlightTitle) ?? "None")
-        .accessibilityIdentifier(NotesPanelAccessibilityID.formatHighlight)
-    }
-
-    private func highlightTitle(_ color: NoteTextHighlightColor) -> String {
-        switch color {
-        case .yellow: "Yellow"
-        case .green: "Green"
-        case .blue: "Blue"
-        case .pink: "Pink"
-        }
     }
 
     /// Smoothly blends the sheet's translucent Liquid Glass header into `NotePageStyle.paperColor`

@@ -26,8 +26,6 @@ final class NoteFormattingController {
     func toggleItalic() { editor?.toggleItalic() }
     func toggleUnderline() { editor?.toggleUnderline() }
     func toggleStrikethrough() { editor?.toggleStrikethrough() }
-    func toggleCode() { editor?.toggleCode() }
-    func toggleHighlight(_ color: NoteTextHighlightColor) { editor?.toggleHighlight(color) }
     func clearFormatting() { editor?.clearFormatting() }
 }
 

@@ -34,7 +34,7 @@ struct NoteRichTextTests {
         let rich = NoteRichText(spans: [
             NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true)),
             NoteTextSpan(location: 3, length: 10, attributes: NoteTextAttributes(isUnderline: true)),
-            NoteTextSpan(location: 15, length: 2, attributes: NoteTextAttributes(isCode: true))
+            NoteTextSpan(location: 15, length: 2, attributes: NoteTextAttributes(isStrikethrough: true))
         ])
         let clamped = rich.clamped(toUTF16Length: 6)
         #expect(clamped.spans.count == 2)
@@ -61,13 +61,13 @@ struct NoteRichTextTests {
     }
 
     @Test func markdownRendersInlineStylesAndKeepsSpacesOutsideMarkers() {
-        let text = "Hello bold world\nSecond code line"
+        let text = "Hello bold world\nSecond italic line"
         let rich = NoteRichText(spans: [
             NoteTextSpan(location: 6, length: 5, attributes: NoteTextAttributes(isBold: true)), // "bold "
-            NoteTextSpan(location: 24, length: 4, attributes: NoteTextAttributes(isItalic: true, isCode: true))
+            NoteTextSpan(location: 24, length: 6, attributes: NoteTextAttributes(isItalic: true, isStrikethrough: true))
         ]).encoded()
         let md = NoteRichText.markdown(for: text, richTextData: rich)
-        #expect(md == "Hello **bold** world\nSecond *`code`* line")
+        #expect(md == "Hello **bold** world\nSecond ~~*italic*~~ line")
     }
 
     @Test func threeWaySyncMergePreservesFormattingPerParagraph() {
@@ -81,7 +81,7 @@ struct NoteRichTextTests {
                          text: "First\nSecond", richTextData: localRich)
 
         let remoteRich = NoteRichText(spans: [
-            NoteTextSpan(location: 6, length: 6, attributes: NoteTextAttributes(isItalic: true, highlight: .yellow))
+            NoteTextSpan(location: 6, length: 6, attributes: NoteTextAttributes(isItalic: true, isUnderline: true))
         ]).encoded()
         let remote = Note(id: noteID, bookID: bookID, target: .page(0),
                           text: "First\nSecond", richTextData: remoteRich)
@@ -94,7 +94,7 @@ struct NoteRichTextTests {
         let decoded = NoteRichText.decoded(from: merged.richTextData)
         #expect(decoded?.spans == [
             NoteTextSpan(location: 0, length: 5, attributes: NoteTextAttributes(isBold: true)),
-            NoteTextSpan(location: 6, length: 6, attributes: NoteTextAttributes(isItalic: true, highlight: .yellow))
+            NoteTextSpan(location: 6, length: 6, attributes: NoteTextAttributes(isItalic: true, isUnderline: true))
         ])
     }
 

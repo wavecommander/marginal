@@ -259,8 +259,8 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         let layout = NoteBandLayout(pageWidth: 612.25, paragraphs: [NoteParagraphBand(text: "p1", top: 0.1, height: 20.3),
                                                                      NoteParagraphBand(text: "", top: 20.4, height: 18)], trailingTop: 38.4)
         let richData = NoteRichText(spans: [
-            NoteTextSpan(location: 0, length: 5, attributes: NoteTextAttributes(isBold: true, highlight: .yellow)),
-            NoteTextSpan(location: 6, length: 5, attributes: NoteTextAttributes(isItalic: true, isCode: true))
+            NoteTextSpan(location: 0, length: 5, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
+            NoteTextSpan(location: 6, length: 5, attributes: NoteTextAttributes(isItalic: true, isStrikethrough: true))
         ]).encoded()
         let note = Note(bookID: book.id, target: .heading(odd), text: "line1\nline2 😀", richTextData: richData,
                         hasInk: true, bandLayout: layout,
@@ -780,7 +780,7 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
 
         let richData = NoteRichText(spans: [
             NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
-            NoteTextSpan(location: 5, length: 4, attributes: NoteTextAttributes(highlight: .green))
+            NoteTextSpan(location: 5, length: 4, attributes: NoteTextAttributes(isItalic: true))
         ]).encoded()
         let richNote = Note(bookID: book.id, target: .page(2), text: "bold note", richTextData: richData,
                             createdAt: created, modifiedAt: created)

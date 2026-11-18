@@ -586,13 +586,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     func toggleItalic() { applyFormatting { $0.isItalic.toggle() } }
     func toggleUnderline() { applyFormatting { $0.isUnderline.toggle() } }
     func toggleStrikethrough() { applyFormatting { $0.isStrikethrough.toggle() } }
-    func toggleCode() { applyFormatting { $0.isCode.toggle() } }
-
-    func toggleHighlight(_ color: NoteTextHighlightColor) {
-        applyFormatting { attrs in
-            attrs.highlight = (attrs.highlight == color) ? nil : color
-        }
-    }
 
     func clearFormatting() {
         applyFormatting { $0 = .default }
@@ -629,8 +622,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
                 if targetAttributes.isItalic != was.isItalic { updated.isItalic = targetAttributes.isItalic }
                 if targetAttributes.isUnderline != was.isUnderline { updated.isUnderline = targetAttributes.isUnderline }
                 if targetAttributes.isStrikethrough != was.isStrikethrough { updated.isStrikethrough = targetAttributes.isStrikethrough }
-                if targetAttributes.isCode != was.isCode { updated.isCode = targetAttributes.isCode }
-                if targetAttributes.highlight != was.highlight { updated.highlight = targetAttributes.highlight }
             }
             storage.setAttributes(NotePageStyle.uiAttributes(for: updated), range: subRange)
         }

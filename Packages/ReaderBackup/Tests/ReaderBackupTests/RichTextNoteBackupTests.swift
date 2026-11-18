@@ -14,11 +14,11 @@ struct RichTextNoteBackupTests {
         let book = Book(id: Self.bookID, title: "Rich Notes Book", fingerprint: "fp-rich",
                         fileName: "rich.pdf", pageCount: 20, fileSize: 1024, addedAt: Self.date)
         let richData = NoteRichText(spans: [
-            NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true, highlight: .yellow)),
-            NoteTextSpan(location: 5, length: 4, attributes: NoteTextAttributes(isItalic: true, isCode: true))
+            NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
+            NoteTextSpan(location: 5, length: 4, attributes: NoteTextAttributes(isItalic: true, isStrikethrough: true))
         ]).encoded()
         let richNote = Note(id: UUID(uuidString: "6D000000-0000-4000-8000-000000000010")!,
-                            bookID: Self.bookID, target: .page(1), text: "bold code",
+                            bookID: Self.bookID, target: .page(1), text: "bold text",
                             richTextData: richData, createdAt: Self.date, modifiedAt: Self.date)
         let plainNote = Note(id: UUID(uuidString: "6D000000-0000-4000-8000-000000000011")!,
                              bookID: Self.bookID, target: .page(2), text: "plain note",

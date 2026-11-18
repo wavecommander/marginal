@@ -1,13 +1,5 @@
 import Foundation
 
-/// Highlight background colours available for note text.
-public enum NoteTextHighlightColor: String, Codable, Hashable, Sendable, CaseIterable {
-    case yellow
-    case green
-    case blue
-    case pink
-}
-
 /// Inline formatting attributes for a run of note text.
 ///
 /// Stored as pure Swift values in `NoteRichText` so `ReaderCore` stays platform-independent and
@@ -17,24 +9,19 @@ public struct NoteTextAttributes: Codable, Hashable, Sendable {
     public var isItalic: Bool
     public var isUnderline: Bool
     public var isStrikethrough: Bool
-    public var isCode: Bool
-    public var highlight: NoteTextHighlightColor?
 
     public init(isBold: Bool = false, isItalic: Bool = false, isUnderline: Bool = false,
-                isStrikethrough: Bool = false, isCode: Bool = false,
-                highlight: NoteTextHighlightColor? = nil) {
+                isStrikethrough: Bool = false) {
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderline = isUnderline
         self.isStrikethrough = isStrikethrough
-        self.isCode = isCode
-        self.highlight = highlight
     }
 
     public static let `default` = NoteTextAttributes()
 
     public var isDefault: Bool {
-        !isBold && !isItalic && !isUnderline && !isStrikethrough && !isCode && highlight == nil
+        !isBold && !isItalic && !isUnderline && !isStrikethrough
     }
 }
 
@@ -180,9 +167,6 @@ public struct NoteRichText: Codable, Hashable, Sendable {
         guard !core.isEmpty else { return segment }
 
         var wrapped = core
-        if attributes.isCode {
-            wrapped = wrapped.contains("`") ? "`` \(wrapped) ``" : "`\(wrapped)`"
-        }
         if attributes.isBold && attributes.isItalic {
             wrapped = "***\(wrapped)***"
         } else if attributes.isBold {
@@ -195,9 +179,6 @@ public struct NoteRichText: Codable, Hashable, Sendable {
         }
         if attributes.isUnderline {
             wrapped = "<u>\(wrapped)</u>"
-        }
-        if attributes.highlight != nil {
-            wrapped = "==\(wrapped)=="
         }
         return leading + wrapped + trailing
     }

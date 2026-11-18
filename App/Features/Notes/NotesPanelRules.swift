@@ -44,8 +44,6 @@ nonisolated enum NotesPanelAccessibilityID {
     static let formatItalic = "notesPanel.format.italic"
     static let formatUnderline = "notesPanel.format.underline"
     static let formatStrikethrough = "notesPanel.format.strikethrough"
-    static let formatCode = "notesPanel.format.code"
-    static let formatHighlight = "notesPanel.format.highlight"
     static let formatClear = "notesPanel.format.clear"
     /// Delete Note (the header button).
     static let deleteNote = "notes.deleteNote"

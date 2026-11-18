@@ -19,19 +19,19 @@ struct NotePageRichTextTests {
         editor.textView.text = "Hello rich world"
         editor.textViewDidChange(editor.textView)
 
-        // Apply Bold + Yellow highlight to "rich" (UTF-16 range 6..<10).
+        // Apply Bold + Underline to "rich" (UTF-16 range 6..<10).
         editor.textView.selectedRange = NSRange(location: 6, length: 4)
         editor.toggleBold()
-        editor.toggleHighlight(.yellow)
+        editor.toggleUnderline()
         #expect(editor.currentFormattingAttributes.isBold)
-        #expect(editor.currentFormattingAttributes.highlight == .yellow)
+        #expect(editor.currentFormattingAttributes.isUnderline)
 
-        // Apply Italic + Code to "world" (UTF-16 range 11..<16).
+        // Apply Italic + Strikethrough to "world" (UTF-16 range 11..<16).
         editor.textView.selectedRange = NSRange(location: 11, length: 5)
         editor.toggleItalic()
-        editor.toggleCode()
+        editor.toggleStrikethrough()
         #expect(editor.currentFormattingAttributes.isItalic)
-        #expect(editor.currentFormattingAttributes.isCode)
+        #expect(editor.currentFormattingAttributes.isStrikethrough)
 
         await model.flush()
 
@@ -49,11 +49,11 @@ struct NotePageRichTextTests {
 
         editor2.textView.selectedRange = NSRange(location: 6, length: 4)
         #expect(editor2.currentFormattingAttributes.isBold)
-        #expect(editor2.currentFormattingAttributes.highlight == .yellow)
+        #expect(editor2.currentFormattingAttributes.isUnderline)
 
         editor2.textView.selectedRange = NSRange(location: 11, length: 5)
         #expect(editor2.currentFormattingAttributes.isItalic)
-        #expect(editor2.currentFormattingAttributes.isCode)
+        #expect(editor2.currentFormattingAttributes.isStrikethrough)
 
         // Clear formatting on "world" and verify plain-text parts stay default.
         editor2.clearFormatting()
@@ -85,7 +85,7 @@ struct NotePageRichTextTests {
     @Test func swiftUIAttributedTextTrimsAndShiftsFormattingOffsets() {
         let richData = NoteRichText(spans: [
             NoteTextSpan(location: 2, length: 4, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
-            NoteTextSpan(location: 7, length: 4, attributes: NoteTextAttributes(isStrikethrough: true, highlight: .blue))
+            NoteTextSpan(location: 7, length: 4, attributes: NoteTextAttributes(isStrikethrough: true))
         ]).encoded()
         let note = Note(bookID: UUID(), target: .page(0), text: "\n Bold text\n", richTextData: richData)
         let attr = NotePageStyle.swiftUIAttributedText(for: note)
@@ -94,6 +94,5 @@ struct NotePageRichTextTests {
         #expect(runs.count == 3)
         #expect(runs[0].underlineStyle == .single)
         #expect(runs[2].strikethroughStyle == .single)
-        #expect(runs[2].backgroundColor != nil)
     }
 }

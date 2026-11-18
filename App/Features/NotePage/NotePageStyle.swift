@@ -77,50 +77,13 @@ nonisolated enum NotePageStyle {
         [.font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.label]
     }
 
-    /// Custom attribute keys used to round-trip code and semantic highlight colours losslessly.
-    static let codeAttributeKey = NSAttributedString.Key("software.tactile.texts.noteCode")
-    static let highlightAttributeKey = NSAttributedString.Key("software.tactile.texts.noteHighlight")
-
-    /// Dynamic highlight background colour for a `NoteTextHighlightColor`.
-    static func highlightUIColor(for color: NoteTextHighlightColor) -> UIColor {
-        switch color {
-        case .yellow:
-            UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.55, green: 0.45, blue: 0.08, alpha: 0.55)
-                    : UIColor(red: 1.0, green: 0.92, blue: 0.35, alpha: 0.55)
-            }
-        case .green:
-            UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.14, green: 0.48, blue: 0.24, alpha: 0.50)
-                    : UIColor(red: 0.55, green: 0.92, blue: 0.62, alpha: 0.45)
-            }
-        case .blue:
-            UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.14, green: 0.36, blue: 0.62, alpha: 0.55)
-                    : UIColor(red: 0.58, green: 0.82, blue: 1.0, alpha: 0.45)
-            }
-        case .pink:
-            UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.58, green: 0.18, blue: 0.36, alpha: 0.52)
-                    : UIColor(red: 1.0, green: 0.68, blue: 0.80, alpha: 0.45)
-            }
-        }
-    }
-
     /// Note font for inline attributes, always at `fontSize` so `lineHeight` stays fixed.
     static func font(for attributes: NoteTextAttributes) -> UIFont {
         let weight: UIFont.Weight = attributes.isBold ? .bold : .regular
-        let base: UIFont = attributes.isCode
-            ? .monospacedSystemFont(ofSize: fontSize, weight: weight)
-            : .systemFont(ofSize: fontSize, weight: weight)
+        let base = UIFont.systemFont(ofSize: fontSize, weight: weight)
         var traits: UIFontDescriptor.SymbolicTraits = []
         if attributes.isBold { traits.insert(.traitBold) }
         if attributes.isItalic { traits.insert(.traitItalic) }
-        if attributes.isCode { traits.insert(.traitMonoSpace) }
         guard !traits.isEmpty,
               let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
             return base
@@ -141,13 +104,6 @@ nonisolated enum NotePageStyle {
         if attributes.isStrikethrough {
             result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
-        if attributes.isCode {
-            result[codeAttributeKey] = true
-        }
-        if let highlight = attributes.highlight {
-            result[highlightAttributeKey] = highlight.rawValue
-            result[.backgroundColor] = highlightUIColor(for: highlight)
-        }
         return result
     }
 
@@ -159,10 +115,8 @@ nonisolated enum NotePageStyle {
         let isItalic = traits.contains(.traitItalic)
         let isUnderline = (uiAttributes[.underlineStyle] as? Int ?? 0) != 0
         let isStrikethrough = (uiAttributes[.strikethroughStyle] as? Int ?? 0) != 0
-        let isCode = (uiAttributes[codeAttributeKey] as? Bool == true) || traits.contains(.traitMonoSpace)
-        let highlight = (uiAttributes[highlightAttributeKey] as? String).flatMap(NoteTextHighlightColor.init(rawValue:))
         return NoteTextAttributes(isBold: isBold, isItalic: isItalic, isUnderline: isUnderline,
-                                  isStrikethrough: isStrikethrough, isCode: isCode, highlight: highlight)
+                                  isStrikethrough: isStrikethrough)
     }
 
     /// Note text as an attributed string with the note attributes and optional inline formatting.
@@ -244,8 +198,8 @@ nonisolated enum NotePageStyle {
             guard let stringRange = Range(NSRange(location: start, length: end - start), in: trimmed),
                   let attrRange = Range(stringRange, in: result) else { continue }
             let attrs = span.attributes
-            if attrs.isCode || attrs.isBold || attrs.isItalic {
-                var font: Font = attrs.isCode ? .system(.body, design: .monospaced) : .body
+            if attrs.isBold || attrs.isItalic {
+                var font: Font = .body
                 if attrs.isBold { font = font.bold() }
                 if attrs.isItalic { font = font.italic() }
                 result[attrRange].font = font
@@ -255,9 +209,6 @@ nonisolated enum NotePageStyle {
             }
             if attrs.isStrikethrough {
                 result[attrRange].strikethroughStyle = .single
-            }
-            if let highlight = attrs.highlight {
-                result[attrRange].backgroundColor = Color(uiColor: highlightUIColor(for: highlight))
             }
         }
         return result
