@@ -88,4 +88,16 @@ public protocol BackupDestination: Sendable {
     /// Downloads the PDF with this hash to the local file `file`, verified (see above). Throws
     /// `pdfNotAtDestination` when it is not there.
     func downloadPDF(sha256: String, to file: URL, progress: BackupProgress?) async throws
+
+    /// Whether a backup may rely on the PDF already held instead of uploading it: `hasPDF`, and
+    /// where the destination's PDFs can be removed by housekeeping (Tactile Texts Cloud, whose
+    /// `PDFs/` sync shares), also written recently enough that it cannot be about to go. The
+    /// default is `hasPDF`.
+    func mayReusePDF(sha256: String, size: Int64) async throws -> Bool
+}
+
+extension BackupDestination {
+    public func mayReusePDF(sha256: String, size: Int64) async throws -> Bool {
+        try await hasPDF(sha256: sha256, size: size)
+    }
 }

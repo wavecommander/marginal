@@ -77,7 +77,7 @@ struct SyncHeadTests {
         #expect(ids.allSatisfy(SyncHead.isValidWriteID))
     }
 
-    @Test func theVersionRules() {
+    @Test func theVersionRules() throws {
         typealias Rules = SyncVersionRules
         // Same format, same level: read and push.
         #expect(Rules.access(formatVersion: 1, writerLevel: 1, appFormatVersion: 1, appLevel: 1) == .readAndPush)
@@ -96,9 +96,24 @@ struct SyncHeadTests {
         // An older format is read.
         #expect(Rules.access(formatVersion: 1, writerLevel: 1, appFormatVersion: 2, appLevel: 2) == .readAndPush)
         // This app's own constants, and a head's own access.
-        #expect(SyncFormat.formatVersion == 1 && SyncFormat.writerLevel == 1)
+        #expect(SyncFormat.formatVersion == 1 && SyncFormat.writerLevel == 2)
+        #expect(SyncFormat.ordinaryHeadLevel == 1 && SyncFormat.tombstoneLevel == 2)
         var head = Sample.head()
+        #expect(head.writerLevel == SyncFormat.ordinaryHeadLevel, "ordinary heads stay writable by level-1 apps")
         #expect(head.access() == .readAndPush)
+        #expect(head.access(appLevel: 1) == .readAndPush)
+        // A tombstone: level 2, so a level-1 app pulls it but never pushes over it.
+        var deleted = head
+        deleted.deletedAt = Sample.date
+        #expect(!deleted.isTombstone)
+        let tombstone = deleted.tombstone(version: 9, deviceID: Sample.deviceID, deviceName: "Test iPad", at: Sample.date)
+        #expect(tombstone.isTombstone && tombstone.isDeleted && tombstone.isWellFormed)
+        #expect(tombstone.version == 9 && tombstone.previousVersion == head.version && tombstone.deletedAt == Sample.date)
+        #expect(tombstone.references.blobs.isEmpty && tombstone.references.pdf == head.references.pdf)
+        #expect(tombstone.writerLevel == SyncFormat.tombstoneLevel)
+        #expect(tombstone.access(appLevel: 1) == .readOnly(requiredLevel: 2))
+        #expect(tombstone.access() == .readAndPush)
+        #expect(try SyncHead.decode(try tombstone.encoded(), key: "k") == tombstone)
         head.writerLevel = SyncFormat.writerLevel + 1
         #expect(head.access() == .readOnly(requiredLevel: SyncFormat.writerLevel + 1))
         #expect(head.access(appLevel: SyncFormat.writerLevel + 1) == .readAndPush)

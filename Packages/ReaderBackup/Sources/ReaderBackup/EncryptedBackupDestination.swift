@@ -105,13 +105,16 @@ public struct EncryptedBackupDestination: BackupDestination, CustomStringConvert
     private let names: ObjectNames
     private let temporaryDirectory: URL
     private let availableCapacity: AvailableCapacity
+    private let now: @Sendable () -> Date
     private let keyState = KeyState()
 
     /// A destination keeping `store`'s objects encrypted with `key`. Temporary files go in
-    /// `temporaryDirectory`, whose free space `availableCapacity` reports.
+    /// `temporaryDirectory`, whose free space `availableCapacity` reports. `now` is the clock
+    /// the PDF reuse rule compares the store's dates with (`mayReusePDF`).
     public init(id: String, displayName: String, store: any BackupBlobStore, key: BackupEncryptionKey,
                 temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-                availableCapacity: @escaping AvailableCapacity = EncryptedBackupDestination.volumeAvailableCapacity) {
+                availableCapacity: @escaping AvailableCapacity = EncryptedBackupDestination.volumeAvailableCapacity,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.id = id
         self.displayName = displayName
         self.store = store
@@ -119,6 +122,7 @@ public struct EncryptedBackupDestination: BackupDestination, CustomStringConvert
         self.names = ObjectNames(key: key)
         self.temporaryDirectory = temporaryDirectory
         self.availableCapacity = availableCapacity
+        self.now = now
     }
 
     public var description: String { "EncryptedBackupDestination(id: \(id), displayName: \(displayName))" }
@@ -223,13 +227,36 @@ public struct EncryptedBackupDestination: BackupDestination, CustomStringConvert
         return try await store.size(of: .pdf(objectName)) == Self.encryptedPDFSize(sha256: hash, size: size, objectName: objectName)
     }
 
+    /// `hasPDF`, and, when the store keeps dates, written within `pdfReuseAge` (by this
+    /// device's clock): sync's housekeeping removes a PDF nothing refers to once it is seven days
+    /// old, so a backup must not rely on an old one without writing it again (`uploadPDF` then
+    /// does, which makes its date fresh).
+    public func mayReusePDF(sha256: String, size: Int64) async throws -> Bool {
+        let hash = try Self.validHash(sha256)
+        try await requireKey(forWriting: false)
+        return try await holdsReusablePDF(hash: hash, size: size)
+    }
+
+    /// A backup relies on an existing PDF object only if it was written within this (one day).
+    public static let pdfReuseAge: TimeInterval = 86_400
+
+    private func holdsReusablePDF(hash: String, size: Int64) async throws -> Bool {
+        let objectName = names.pdfObjectName(sha256: hash)
+        let object = BackupBlobKey.pdf(objectName)
+        guard try await store.size(of: object) == Self.encryptedPDFSize(sha256: hash, size: size, objectName: objectName) else {
+            return false
+        }
+        guard let written = try await store.lastModified(of: object) else { return true }
+        return written > now().addingTimeInterval(-Self.pdfReuseAge)
+    }
+
     public func uploadPDF(from file: URL, sha256: String, size: Int64, progress: BackupProgress?) async throws {
         let hash = try Self.validHash(sha256)
         try await requireKey(forWriting: true)
         let objectName = names.pdfObjectName(sha256: hash)
         let object = BackupBlobKey.pdf(objectName)
         let encryptedSize = Self.encryptedPDFSize(sha256: hash, size: size, objectName: objectName)
-        if try await store.size(of: object) == encryptedSize {
+        if try await holdsReusablePDF(hash: hash, size: size) {
             progress?(1)
             return
         }

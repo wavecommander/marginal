@@ -7,10 +7,21 @@ public enum SyncFormat {
     /// The head format version this code writes, and the highest it reads. A head (or head
     /// envelope) with a higher one stops sync for the account (`SyncVersionRules`).
     public static let formatVersion = 1
-    /// This app's writer level: raised by a release that stores something in a head or a
-    /// records blob that an older release would drop if it wrote the book back. Every head this
-    /// app writes carries it.
-    public static let writerLevel = 1
+    /// This app's writer level: the highest head writer level it may write over (it reads every
+    /// level, `SyncVersionRules`). Raised by a release that stores something in a head or a
+    /// records blob that an older release would drop, or misread, if it wrote the book back.
+    ///
+    /// Level 2 (C5, 18 November 2026) adds the **tombstone**: a deleted head whose content has
+    /// been collected (`SyncHead.isTombstone`). A level-1 app would read its missing records as
+    /// damage, so a tombstone carries level 2 and such an app pulls it (deleting its own
+    /// unchanged copy) but never pushes over it.
+    public static let writerLevel = 2
+    /// The level a head carries: the lowest app level that can write it back without loss. An
+    /// ordinary head (live or deleted with its content) needs nothing above level 1, so older
+    /// apps keep syncing every ordinary book.
+    public static let ordinaryHeadLevel = 1
+    /// The level a tombstone carries.
+    public static let tombstoneLevel = 2
 }
 
 /// A book's head: one small encrypted object at `Sync/v1/books/<book key>` saying what the
@@ -25,7 +36,8 @@ public enum SyncFormat {
 public struct SyncHead: Codable, Hashable, Sendable {
     /// The head format version it was written in (`SyncFormat.formatVersion`).
     public var formatVersion: Int
-    /// The writer level of the app that wrote it (`SyncFormat.writerLevel`).
+    /// The lowest app writer level that may write over it (`SyncFormat.ordinaryHeadLevel`, or
+    /// `tombstoneLevel` for a tombstone; a newer app's own levels above).
     public var writerLevel: Int
     /// 1 for a book's first head, then one more for each head written over it.
     public var version: Int
@@ -47,7 +59,7 @@ public struct SyncHead: Codable, Hashable, Sendable {
     /// The content that makes up the book now.
     public var references: SyncReferences
 
-    public init(formatVersion: Int = SyncFormat.formatVersion, writerLevel: Int = SyncFormat.writerLevel,
+    public init(formatVersion: Int = SyncFormat.formatVersion, writerLevel: Int = SyncFormat.ordinaryHeadLevel,
                 version: Int, previousVersion: Int?, writeID: String = SyncHead.makeWriteID(), deviceID: UUID,
                 deviceName: String, modifiedAt: Date, deletedAt: Date? = nil, book: SyncBookInfo,
                 references: SyncReferences) {
@@ -66,6 +78,23 @@ public struct SyncHead: Codable, Hashable, Sendable {
 
     /// Whether the head says the book was deleted.
     public var isDeleted: Bool { deletedAt != nil }
+
+    /// Whether the head is a **tombstone**: deleted, and more than 30 days ago, so housekeeping
+    /// has let its content go. It keeps the deletion, the version and the dates (and the PDF's
+    /// digest, which binds it to its book key) and refers to nothing: its records are
+    /// `SyncReferences.noRecords` and it has no files. It cannot be restored. It stays so that a
+    /// device offline for longer still learns the book was deleted (its unchanged copy is
+    /// deleted, an edited one goes back up as it is) and so that no device's rollback guard ever
+    /// sees the book's versions start again.
+    public var isTombstone: Bool { isDeleted && references.isEmpty }
+
+    /// This deleted head as a tombstone: version `version`, written by `device` at `date`.
+    public func tombstone(version: Int, deviceID: UUID, deviceName: String, at date: Date) -> SyncHead {
+        SyncHead(formatVersion: SyncFormat.formatVersion, writerLevel: max(writerLevel, SyncFormat.tombstoneLevel),
+                 version: version, previousVersion: self.version, deviceID: deviceID, deviceName: deviceName,
+                 modifiedAt: date, deletedAt: deletedAt ?? date, book: book,
+                 references: SyncReferences(records: SyncReferences.noRecords, pdf: references.pdf))
+    }
 
     /// What this app may do with the book (`SyncVersionRules.access`).
     public func access(appFormatVersion: Int = SyncFormat.formatVersion,
@@ -203,8 +232,18 @@ public struct SyncReferences: Codable, Hashable, Sendable {
         self.conversion = conversion
     }
 
-    /// Every blob the head names (not the PDF), without repeats.
+    /// The records digest of a tombstone: the SHA-256 of no bytes, size 0. No records blob is
+    /// ever empty (its JSON has at least the book), so this names nothing.
+    public static let noRecords = ContentDigest(sha256: ContentHash.sha256(of: Data()), size: 0)
+
+    /// Whether it refers to no content at all (a tombstone's references): no records, no files.
+    public var isEmpty: Bool {
+        records == Self.noRecords && pageInk.isEmpty && noteInk.isEmpty && cover == nil && conversion == nil
+    }
+
+    /// Every blob the head names (not the PDF), without repeats; none for a tombstone's.
     public var blobs: [ContentDigest] {
+        guard !isEmpty else { return [] }
         var seen = Set<ContentDigest>()
         var all = [records] + pageInk.map(\.content) + noteInk.map(\.content)
         if let cover { all.append(cover) }

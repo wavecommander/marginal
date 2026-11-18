@@ -22,6 +22,27 @@ public enum SyncLayout {
     public static let historyPrefix = root + "history/"
     /// `PDFs/`
     public static let pdfsPrefix = BackupBlobFolder.pdfs.rawValue + "/"
+    /// `Sync/v1/clock`: a few bytes housekeeping writes to read the store's clock (no content;
+    /// an older app never lists it).
+    public static let clockKey = root + "clock"
+
+    /// The book key and version in a history object's key (`Sync/v1/history/<book key>/<n>`),
+    /// or `nil` for any other key.
+    public static func historyEntry(fromKey key: String) -> (bookKey: String, version: Int)? {
+        guard key.hasPrefix(historyPrefix) else { return nil }
+        let rest = key.dropFirst(historyPrefix.count)
+        guard let slash = rest.firstIndex(of: "/") else { return nil }
+        let bookKey = String(rest[..<slash])
+        guard isValidName(bookKey), let version = version(fromHistoryKey: key, bookKey: bookKey) else { return nil }
+        return (bookKey, version)
+    }
+
+    /// The blob name in a blob's key (`Sync/v1/blobs/<name>`), or `nil` for any other key.
+    public static func blobName(fromKey key: String) -> String? {
+        guard key.hasPrefix(blobsPrefix) else { return nil }
+        let name = String(key.dropFirst(blobsPrefix.count))
+        return isValidName(name) ? name : nil
+    }
 
     /// `Sync/v1/books/<book key>`
     public static func headKey(bookKey: String) throws -> String {

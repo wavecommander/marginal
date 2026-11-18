@@ -8,11 +8,30 @@ public struct SyncHeadListing: Hashable, Sendable {
     /// Compare with the ETag a device last saw to skip unchanged heads.
     public var eTag: String
     public var size: Int64
+    /// When the head was last written, by the store's clock (`nil` when it did not say).
+    public var lastModified: Date?
 
-    public init(bookKey: String, eTag: String, size: Int64) {
+    public init(bookKey: String, eTag: String, size: Int64, lastModified: Date? = nil) {
         self.bookKey = bookKey
         self.eTag = eTag
         self.size = size
+        self.lastModified = lastModified
+    }
+}
+
+/// One history object in a listing.
+public struct SyncHistoryListing: Hashable, Sendable {
+    public var bookKey: String
+    public var version: Int
+    public var eTag: String
+    /// When it was written (so roughly when its head was replaced), by the store's clock.
+    public var lastModified: Date?
+
+    public init(bookKey: String, version: Int, eTag: String, lastModified: Date?) {
+        self.bookKey = bookKey
+        self.version = version
+        self.eTag = eTag
+        self.lastModified = lastModified
     }
 }
 
@@ -127,6 +146,12 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
         self.encryptFile = encryptFile
     }
 
+    /// The same keys over another plain store (housekeeping's budgeted view of the same account).
+    func over(_ other: any SyncObjectStore) -> EncryptedSyncStore {
+        EncryptedSyncStore(store: other, key: keys.master, temporaryDirectory: temporaryDirectory, randomness: randomness,
+                           encryptFile: encryptFile)
+    }
+
     public var description: String { "EncryptedSyncStore(redacted)" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [], displayStyle: .struct) }
@@ -154,7 +179,9 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
     /// not head keys are left out.
     public func listHeads() async throws -> [SyncHeadListing] {
         try await store.list(prefix: SyncLayout.headsPrefix).compactMap { object in
-            SyncLayout.bookKey(fromHeadKey: object.key).map { SyncHeadListing(bookKey: $0, eTag: object.eTag, size: object.size) }
+            SyncLayout.bookKey(fromHeadKey: object.key).map {
+                SyncHeadListing(bookKey: $0, eTag: object.eTag, size: object.size, lastModified: object.lastModified)
+            }
         }
     }
 
@@ -200,9 +227,28 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
 
     /// The versions in the book's history, ascending.
     public func historyVersions(bookKey: String) async throws -> [Int] {
+        try await history(bookKey: bookKey).map(\.version)
+    }
+
+    /// The book's history objects, ascending by version, with their ETags and dates.
+    public func history(bookKey: String) async throws -> [SyncHistoryListing] {
         try await store.list(prefix: SyncLayout.historyPrefix(bookKey: bookKey))
-            .compactMap { SyncLayout.version(fromHistoryKey: $0.key, bookKey: bookKey) }
-            .sorted()
+            .compactMap { object in
+                SyncLayout.version(fromHistoryKey: object.key, bookKey: bookKey).map {
+                    SyncHistoryListing(bookKey: bookKey, version: $0, eTag: object.eTag, lastModified: object.lastModified)
+                }
+            }
+            .sorted { $0.version < $1.version }
+    }
+
+    /// Every book's history objects, from one listing of `Sync/v1/history/` (housekeeping).
+    /// Keys that are not history keys are left out.
+    public func allHistory() async throws -> [SyncHistoryListing] {
+        try await store.list(prefix: SyncLayout.historyPrefix).compactMap { object in
+            SyncLayout.historyEntry(fromKey: object.key).map {
+                SyncHistoryListing(bookKey: $0.bookKey, version: $0.version, eTag: object.eTag, lastModified: object.lastModified)
+            }
+        }
     }
 
     /// The book's head as it was at `version`, or `nil` when history does not hold it.
@@ -228,22 +274,32 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
     }
 
     /// Stores `data` as a blob, unless it is already there, and returns its SHA-256 and size.
+    /// `reuseIfWrittenAfter`: see `putBlob(fileAt:reuseIfWrittenAfter:)`.
     @discardableResult
-    public func putBlob(_ data: Data) async throws -> ContentDigest {
+    public func putBlob(_ data: Data, reuseIfWrittenAfter: Date? = nil) async throws -> ContentDigest {
         let file = try temporaryFile()
         defer { removeQuietly(file) }
         try mappingFileErrors(file) { try data.write(to: file) }
-        return try await putBlob(fileAt: file)
+        return try await putBlob(fileAt: file, reuseIfWrittenAfter: reuseIfWrittenAfter)
     }
 
     /// Stores the file as a blob, unless it is already there, and returns its SHA-256 and size.
     /// Throws `BackupError.sourceFileChanged` if the file changes while it is read.
+    ///
+    /// **The reuse rule** (housekeeping's race, `SyncHousekeeping`): with `reuseIfWrittenAfter`,
+    /// a blob already stored is relied on only when the store says it was written after that
+    /// date; an older one is written again, so its date is fresh and housekeeping (which removes
+    /// only blobs at least seven days old) cannot be removing it while this push relies on it.
+    /// A store that reports no dates is trusted as before (housekeeping removes nothing there).
     @discardableResult
-    public func putBlob(fileAt file: URL) async throws -> ContentDigest {
+    public func putBlob(fileAt file: URL, reuseIfWrittenAfter: Date? = nil) async throws -> ContentDigest {
         let content = try ContentHash.digest(ofFileAt: file)
         let key = try blobKey(sha256: content.sha256)
         let metadata = blobMetadata(content, key: key)
-        if try await store.head(key)?.size == Self.encryptedSize(of: content, metadata: metadata) { return content }
+        if let existing = try await store.head(key), existing.size == Self.encryptedSize(of: content, metadata: metadata),
+           Self.mayReuse(existing, after: reuseIfWrittenAfter) {
+            return content
+        }
         let sealed = try temporaryFile()
         defer { removeQuietly(sealed) }
         let encrypted = try encryptFile(file, sealed, keys.content, metadata)
@@ -284,6 +340,39 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
         try await store.delete(blobKey(sha256: content.sha256))
     }
 
+    /// Every object under `Sync/v1/blobs/`, with its date (housekeeping).
+    public func listBlobs() async throws -> [SyncObjectInfo] {
+        try await store.list(prefix: SyncLayout.blobsPrefix)
+    }
+
+    /// Every object under `PDFs/`, with its date (housekeeping).
+    public func listPDFs() async throws -> [SyncObjectInfo] {
+        try await store.list(prefix: SyncLayout.pdfsPrefix)
+    }
+
+    /// Deletes one object by its key (housekeeping, which decided the key is unreferenced).
+    func deleteObject(_ key: String) async throws {
+        try await store.delete(key)
+    }
+
+    /// One object's size, ETag and date, by its key (housekeeping's last look before removing).
+    func objectHead(_ key: String) async throws -> SyncObjectHead? {
+        try await store.head(key)
+    }
+
+    static func mayReuse(_ existing: SyncObjectHead, after date: Date?) -> Bool {
+        guard let date, let written = existing.lastModified else { return true }
+        return written > date
+    }
+
+    /// The store's clock now: writes `Sync/v1/clock` (a few bytes, no content) and reads back
+    /// when the store says it was written. `nil` when the store keeps no dates. Housekeeping
+    /// judges every age against this, never against this device's clock.
+    func storeTime() async throws -> Date? {
+        _ = try await store.put(Data("clock\n".utf8), at: SyncLayout.clockKey, metadata: [:], condition: nil)
+        return try await store.head(SyncLayout.clockKey)?.lastModified
+    }
+
     // MARK: PDFs
 
     /// Whether the PDF object is stored, at its exact encrypted size.
@@ -293,11 +382,15 @@ public struct EncryptedSyncStore: Sendable, CustomStringConvertible, CustomDebug
     }
 
     /// Uploads the PDF at `file`, whose SHA-256 and size are `pdf`, unless it is already there.
-    /// Throws `contentMismatch` when the file is not `pdf`.
-    public func uploadPDF(fileAt file: URL, content pdf: ContentDigest) async throws {
+    /// Throws `contentMismatch` when the file is not `pdf`. `reuseIfWrittenAfter`: the reuse
+    /// rule of `putBlob(fileAt:reuseIfWrittenAfter:)`.
+    public func uploadPDF(fileAt file: URL, content pdf: ContentDigest, reuseIfWrittenAfter: Date? = nil) async throws {
         let key = try pdfKey(sha256: pdf.sha256)
         let metadata = pdfMetadata(pdf, key: key)
-        if try await store.head(key)?.size == Self.encryptedSize(of: pdf, metadata: metadata) { return }
+        if let existing = try await store.head(key), existing.size == Self.encryptedSize(of: pdf, metadata: metadata),
+           Self.mayReuse(existing, after: reuseIfWrittenAfter) {
+            return
+        }
         let sealed = try temporaryFile()
         defer { removeQuietly(sealed) }
         let encrypted = try encryptFile(file, sealed, keys.master, metadata)

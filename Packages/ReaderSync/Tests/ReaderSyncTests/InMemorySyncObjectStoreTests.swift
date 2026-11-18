@@ -130,4 +130,31 @@ struct InMemorySyncObjectStoreTests {
         store.clearCalls()
         #expect(store.calls.isEmpty)
     }
+
+    @Test func everyWriteIsStampedWithTheClockAndListAndHeadReportIt() async throws {
+        let store = InMemorySyncObjectStore()
+        #expect(store.now == InMemorySyncObjectStore.epoch)
+        _ = try await store.put(Data("a".utf8), at: "Sync/a", metadata: [:], condition: nil)
+        store.advance(by: 3_600)
+        _ = try await store.put(Data("b".utf8), at: "Sync/b", metadata: [:], condition: nil)
+        #expect(try await store.list(prefix: "Sync/").map(\.lastModified)
+            == [InMemorySyncObjectStore.epoch, InMemorySyncObjectStore.epoch.addingTimeInterval(3_600)])
+        // Writing the same bytes again keeps the ETag and moves the date, as S3 does.
+        let eTag = try #require(try await store.head("Sync/a")).eTag
+        store.advance(by: 60)
+        _ = try await store.put(Data("a".utf8), at: "Sync/a", metadata: [:], condition: nil)
+        let again = try #require(try await store.head("Sync/a"))
+        #expect(again.eTag == eTag && again.lastModified == store.now)
+        store.setLastModified(InMemorySyncObjectStore.epoch, of: "Sync/a")
+        #expect(try await store.head("Sync/a")?.lastModified == InMemorySyncObjectStore.epoch)
+        // A step slipped in just before a call.
+        let ran = Collected<Bool>()
+        store.beforeNextCall(.delete, keyPrefix: "Sync/b") {
+            ran.append(store.object("Sync/b") != nil)
+        }
+        try await store.delete("Sync/a")
+        #expect(ran.values.isEmpty, "only the matching call")
+        try await store.delete("Sync/b")
+        #expect(ran.values == [true] && store.keys.isEmpty)
+    }
 }

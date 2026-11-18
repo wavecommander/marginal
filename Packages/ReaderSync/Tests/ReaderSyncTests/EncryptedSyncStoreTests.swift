@@ -47,7 +47,8 @@ struct EncryptedSyncStoreTests {
         }
         #expect(try await s.sync.readHead(bookKey: s.bookKey) == SyncHeadRead(head: second, eTag: eTag2))
         #expect(try await s.sync.listHeads() == [SyncHeadListing(bookKey: s.bookKey, eTag: eTag2,
-                                                                 size: Int64(s.objects.object(s.headKey)!.data.count))])
+                                                                 size: Int64(s.objects.object(s.headKey)!.data.count),
+                                                                 lastModified: s.objects.now)])
         #expect(s.temporaryFilesAreGone)
     }
 
