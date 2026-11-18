@@ -340,9 +340,9 @@ struct ReaderScreen: View {
                     .accessibilityIdentifier(AccessibilityID.Reader.redo)
                     .toolbarGlyph()
             }
-            notesToggle.toolbarGlyph()
             // Markup's state is its glyph alone (filled while on), in the label colour like the rest.
             markupToggle.toolbarGlyph()
+            notesToggle.toolbarGlyph()
             if !session.isNarrowLayout {
                 BookmarkButton(session: session).toolbarGlyph()
             }
@@ -949,7 +949,7 @@ private extension View {
 /// Measures the toolbar's search button for the search popover (TSOFT-216).
 ///
 /// A popover attached to a toolbar button has the bar button item as its source, and on
-/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (notes, Markup,
+/// iPadOS 26+ the system then morphs the button's whole Liquid Glass group (Markup, notes,
 /// bookmark, search, More) into the popover: the popover covers the bar while it is open (those
 /// buttons are gone), and on the owner's iPad the button was left looking selected after the
 /// morph back. Attached to the reader with the button's frame as its anchor rect, it is a plain

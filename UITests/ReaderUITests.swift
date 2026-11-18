@@ -610,20 +610,20 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(toggle, "Markup"), "outlined again")
     }
 
-    /// Trailing toolbar icons appear left-to-right as: Notes, Markup, Bookmark, Search, More.
+    /// Trailing toolbar icons appear left-to-right as: Markup, Notes, Bookmark, Search, More.
     func testTrailingToolbarButtonOrder() {
         let app = openSmall()
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
-        let notes = app.buttons[ReaderID.notesToggle].firstMatch
         let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let notes = app.buttons[ReaderID.notesToggle].firstMatch
         let bookmark = app.buttons[ReaderID.bookmark].firstMatch
         let search = app.buttons[ReaderID.search].firstMatch
         let more = app.buttons[ReaderID.more].firstMatch
-        for button in [notes, markup, bookmark, search, more] {
+        for button in [markup, notes, bookmark, search, more] {
             XCTAssertTrue(button.waitForExistence(timeout: 5))
         }
-        XCTAssertLessThanOrEqual(notes.frame.maxX, markup.frame.minX, "Notes before Markup")
-        XCTAssertLessThanOrEqual(markup.frame.maxX, bookmark.frame.minX, "Markup before Bookmark")
+        XCTAssertLessThanOrEqual(markup.frame.maxX, notes.frame.minX, "Markup before Notes")
+        XCTAssertLessThanOrEqual(notes.frame.maxX, bookmark.frame.minX, "Notes before Bookmark")
         XCTAssertLessThanOrEqual(bookmark.frame.maxX, search.frame.minX, "Bookmark before Search")
         XCTAssertLessThanOrEqual(search.frame.maxX, more.frame.minX, "Search before More")
     }
