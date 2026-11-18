@@ -166,7 +166,8 @@ struct ReaderScreen: View {
         .animation(.default, value: session.isMaximized)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session,
-                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact)
+                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact,
+                       isSystemSheet: true)
                 .presentationDetents([.medium, .large])
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)

@@ -19,14 +19,17 @@ struct NotePageView: UIViewRepresentable {
     @Binding var zoom: CGFloat
     var pageWidth: CGFloat = NotePageStyle.pageWidth
     var isMarkup = false
+    var showsPaperBackground = true
 
     init(model: NotePageModel, session: ReaderSession?, zoom: Binding<CGFloat>,
-         pageWidth: CGFloat = NotePageStyle.pageWidth, isMarkup: Bool = false) {
+         pageWidth: CGFloat = NotePageStyle.pageWidth, isMarkup: Bool = false,
+         showsPaperBackground: Bool = true) {
         self.model = model
         self.session = session
         self._zoom = zoom
         self.pageWidth = pageWidth
         self.isMarkup = isMarkup
+        self.showsPaperBackground = showsPaperBackground
     }
 
     func makeUIView(context: Context) -> NotePageEditorView {
@@ -35,6 +38,7 @@ struct NotePageView: UIViewRepresentable {
         view.pageWidth = pageWidth
         view.zoom = zoom
         view.isMarkupStandalone = isMarkup
+        view.showsPaperBackground = showsPaperBackground
         return view
     }
 
@@ -43,6 +47,7 @@ struct NotePageView: UIViewRepresentable {
         view.pageWidth = pageWidth
         if abs(view.zoom - NotePageStyle.clampZoom(zoom)) > 0.001 { view.zoom = zoom }
         view.isMarkupStandalone = isMarkup
+        view.showsPaperBackground = showsPaperBackground
         let binding = $zoom
         view.onZoomChange = { newZoom in
             if abs(binding.wrappedValue - newZoom) > 0.001 { binding.wrappedValue = newZoom }

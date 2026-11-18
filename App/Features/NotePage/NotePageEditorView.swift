@@ -90,6 +90,14 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         didSet { if session == nil { applyMode(isMarkupStandalone) } }
     }
 
+    /// Whether the editor paints its own opaque paper and panel backgrounds. `false` when hosted
+    /// inside a translucent sheet whose own gradient provides the paper surface underneath.
+    var showsPaperBackground = true {
+        didSet {
+            if showsPaperBackground != oldValue { applyBackgroundColors() }
+        }
+    }
+
     /// The reader window's session (tool picker, undo routing, flush, drawing policy).
     private(set) weak var session: ReaderSession?
 
@@ -126,7 +134,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         self.session = session
         super.init(frame: .zero)
         accessibilityIdentifier = NotePageAccessibilityID.editor
-        backgroundColor = .systemBackground
+        applyBackgroundColors()
 
         scrollView.delegate = self
         scrollView.minimumZoomScale = NotePageStyle.zoomRange.lowerBound
@@ -145,7 +153,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         // `.label` text, the placeholder and the canvas's ink all resolve against the trait
         // collection the editor is in and change live with it. PencilKit draws the stored
         // strokes converted for the appearance; the drawing itself is never touched.
-        pageView.backgroundColor = NotePageStyle.paperColor
         pageView.editor = self
         scrollView.addSubview(pageView)
 
@@ -198,6 +205,12 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // MARK: Layout
+
+    private func applyBackgroundColors() {
+        isOpaque = showsPaperBackground
+        backgroundColor = showsPaperBackground ? .systemBackground : .clear
+        pageView.backgroundColor = showsPaperBackground ? NotePageStyle.paperColor : .clear
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()

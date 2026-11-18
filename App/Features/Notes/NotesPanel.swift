@@ -34,6 +34,11 @@ struct NotesPanel: View {
     @State private var deleteCandidate: NotePageModel?
     /// The shown page's highlights (Page note tab; empty on the Section tab).
     @State private var highlights: [Highlight] = []
+    /// Height of the padded header, used to end the sheet's translucent-to-paper gradient smoothly
+    /// just into the top of the note area.
+    @State private var headerHeight: CGFloat = 96
+    /// Top container safe area inside the sheet (measured before `.ignoresSafeArea`).
+    @State private var sheetTopInset: CGFloat = 0
 
     private struct HighlightsKey: Equatable {
         /// `nil` on the Section tab.
@@ -45,11 +50,15 @@ struct NotesPanel: View {
     /// window). Given by the shell from the window's own size classes: inside a sheet the
     /// environment's are the sheet's (compact in a regular iPad window too).
     private let isCompactWindow: Bool
+    /// Presented inside the iOS 26+ system `.sheet`: blends the sheet's translucent Liquid Glass
+    /// top smoothly into `NotePageStyle.paperColor` instead of leaving a sharp cut around the editor.
+    private let isSystemSheet: Bool
 
-    init(session: ReaderSession, isCompactWindow: Bool = false) {
+    init(session: ReaderSession, isCompactWindow: Bool = false, isSystemSheet: Bool = false) {
         self.session = session
         self.controller = session.notesPanel
         self.isCompactWindow = isCompactWindow
+        self.isSystemSheet = isSystemSheet
     }
 
     var body: some View {
@@ -63,13 +72,24 @@ struct NotesPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 10)
                     .padding(.bottom, 8)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if height > 0 { headerHeight = height }
+                    }
                 content(metrics)
+            }
+            .onChange(of: proxy.safeAreaInsets.top, initial: true) { _, inset in
+                sheetTopInset = inset
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
         }
         // The editor insets itself for the keyboard and scrolls the cursor into view; SwiftUI's
         // own avoidance would also push the whole panel up.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .background {
+            if isSystemSheet {
+                sheetGradientBackground
+            }
+        }
         .onAppear { controller.refresh() }
         // Loaded here, not in the list, so the region under the note can go when there are none.
         // Re-read whenever highlights change in any window (`revisions.highlights`).
@@ -402,12 +422,33 @@ struct NotesPanel: View {
     @ViewBuilder
     private func editorArea(_ metrics: NotesPanelMetrics) -> some View {
         if let model = controller.model {
-            NotePageView(model: model, session: session, zoom: zoomBinding(metrics), pageWidth: metrics.notePageWidth)
+            NotePageView(model: model, session: session, zoom: zoomBinding(metrics),
+                         pageWidth: metrics.notePageWidth, showsPaperBackground: !isSystemSheet)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
         } else {
             NotesSectionEmptyState(session: session, controller: controller)
         }
+    }
+
+    /// Smoothly blends the sheet's translucent Liquid Glass header into `NotePageStyle.paperColor`
+    /// so the note area and bottom/side safe areas have no abrupt tonal seams before expanding.
+    private var sheetGradientBackground: some View {
+        GeometryReader { proxy in
+            let transitionEnd = max(sheetTopInset + headerHeight + 12, 1)
+            let totalHeight = max(proxy.size.height, transitionEnd)
+            let endFraction = min(transitionEnd / totalHeight, 1)
+            let paper = Color(uiColor: NotePageStyle.paperColor)
+            let steps = 8
+            let stops: [Gradient.Stop] = (0...steps).map { step in
+                let t = Double(step) / Double(steps)
+                let smooth = t * t * (3 - 2 * t)
+                let alpha = 0.2 + 0.8 * smooth
+                return Gradient.Stop(color: paper.opacity(alpha), location: CGFloat(t) * endFraction)
+            }
+            LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
     }
 
     /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker and
