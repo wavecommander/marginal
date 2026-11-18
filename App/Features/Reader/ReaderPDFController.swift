@@ -884,6 +884,7 @@ final class ReaderPDFView: PDFView {
     /// routed to `selectParagraphs()`.
     func applyPDFKitPolicies() {
         PDFKitWorkarounds.disableScrollsToTop(in: self)
+        PDFKitWorkarounds.configureTransparentTopBarScroll(in: self)
         PDFKitWorkarounds.hideTextInputProxies(in: self)
         if let documentView { PDFKitWorkarounds.routeSelectAll(from: documentView) }
     }
