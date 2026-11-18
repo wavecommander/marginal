@@ -123,4 +123,36 @@ final class ScrollDirectionUITests: XCTestCase {
         waitForScroll(back, "vertical", "the More menu turns it back")
         XCTAssertEqual(settledAnchor(back).page, 5, "switching back keeps the page")
     }
+
+    /// Go to page while scrolling sideways lands on the typed page and stays there once the
+    /// field and the keyboard have gone (portrait and landscape).
+    func testGoToPageWhileScrollingHorizontally() {
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small)
+                                                  + ["-openBook", "small", "-scrollDirection", "horizontal",
+                                                     "-pagePillStaysVisible"] + Self.probes)
+            waitForReader(app)
+            waitForScroll(app, "horizontal", "opened sideways")
+            for target in [9, 4, 12] {
+                let pill = app.buttons["reader.pagePill"].firstMatch
+                XCTAssertTrue(pill.waitForExistence(timeout: 10))
+                pill.tap()
+                let field = app.textFields["reader.goToPageField"].firstMatch
+                XCTAssertTrue(field.waitForExistence(timeout: 5), "go-to-page field")
+                field.waitForKeyboardFocus()
+                field.typeText("\(target)\n")
+                XCTAssertTrue(field.waitForGone(), "the field closed")
+                _ = app.keyboards.firstMatch.waitForGone()
+                let anchor = settledAnchor(app)
+                let label = UIWait.settled(interval: 0.5) { pill.label }
+                XCTAssertEqual(label, "Page \(target) of 12", "\(orientation.rawValue): pill on page \(target)")
+                // The last page cannot reach the left edge when two pages fit side by side.
+                let lastPageClamped = target == 12 && anchor.page == 11 && anchor.x > 0
+                XCTAssertTrue(anchor.page == target || lastPageClamped,
+                              "\(orientation.rawValue): lands on page \(target): \(anchor)")
+            }
+            app.terminate()
+        }
+    }
 }
