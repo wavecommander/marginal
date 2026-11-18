@@ -788,15 +788,25 @@ private struct PagePill: View {
             if session.isGoToPageVisible {
                 HStack(spacing: 8) {
                     TextField("Page", text: $text)
-                        .keyboardType(.numbersAndPunctuation)
+                        .keyboardType(.asciiCapableNumberPad)
                         .submitLabel(.go)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 90)
                         .focused($isFieldFocused)
                         .onSubmit(submit)
+                        .onChange(of: text) { _, newValue in
+                            let filtered = PageNumbering.digitsOnly(newValue)
+                            if filtered != newValue {
+                                text = filtered
+                            }
+                        }
                         .accessibilityLabel("Go to page")
                         .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
                     Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
+                    Button("Go", action: submit)
+                        .foregroundStyle(.white.opacity(text.isEmpty ? 0.45 : 1))
+                        .disabled(text.isEmpty)
+                        .accessibilityIdentifier(AccessibilityID.Reader.goToPageGo)
                     Button("Cancel") { session.isGoToPageVisible = false }
                         .foregroundStyle(.white)
                 }

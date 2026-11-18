@@ -226,6 +226,7 @@ nonisolated enum AccessibilityID {
         /// The "312 of 742" pill; its label is "Page 312 of 742".
         static let pagePill = "reader.pagePill"
         static let goToPageField = "reader.goToPageField"
+        static let goToPageGo = "reader.goToPageGo"
 
         // Panes
         static let contentsPane = "reader.pane.contents"

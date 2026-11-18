@@ -788,6 +788,37 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(openNotebookInNewWindow.exists, "Open Notebook in New Window is shown on iPad")
         }
     }
+
+    func testGoToPageFieldUsesNumberPadAndRejectsNonDigits() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = openSmall()
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        pill(app).tap()
+        let field = app.textFields[ReaderID.goToPageField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "number pad appears")
+        XCTAssertTrue(keyboard.keys["1"].exists || keyboard.buttons["1"].exists, "num pad has digit keys")
+        XCTAssertFalse(keyboard.keys["A"].exists || keyboard.keys["a"].exists || keyboard.keys["Q"].exists || keyboard.keys["q"].exists,
+                       "num pad does not show letter keys")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(keyboard.keys["."].exists || keyboard.keys["-"].exists || keyboard.keys["/"].exists,
+                           "num pad does not show punctuation keys")
+        }
+
+        let goButton = app.buttons[ReaderID.goToPageGo].firstMatch
+        XCTAssertTrue(goButton.exists)
+        XCTAssertFalse(goButton.isEnabled, "Go is disabled while the field is empty")
+
+        field.typeText("1")
+        field.typeText("a")
+        field.typeText("-")
+        field.typeText("2")
+        XCTAssertEqual(field.value as? String, "12", "non-digits are stripped")
+        XCTAssertTrue(goButton.isEnabled)
+        goButton.tap()
+        XCTAssertTrue(waitForLabel(pill(app), "Page 12 of 12"))
+    }
 }
 
 /// Mirrors `AccessibilityID.Reader` in the app (the test target cannot import it).
@@ -803,6 +834,7 @@ enum ReaderID {
     static let more = "reader.toolbar.more"
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
+    static let goToPageGo = "reader.goToPageGo"
     static let contentsPane = "reader.pane.contents"
     static let contentsOverlay = "reader.pane.contentsOverlay"
     static let notesPane = "reader.pane.notes"
