@@ -66,6 +66,9 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// `-inkAnyInput`: PencilKit drawing policy "any input", so UI tests can draw with touches.
     var inkAnyInput = false
 
+    /// `-inkPencilOnly`: PencilKit drawing policy "pencil only" (Draw with Finger off, UI tests).
+    var inkPencilOnly = false
+
     /// `-markup`: start the reader in markup mode.
     var markup = false
 
@@ -252,6 +255,8 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 resetState = true
             case "-inkAnyInput":
                 inkAnyInput = true
+            case "-inkPencilOnly":
+                inkPencilOnly = true
             case "-markup":
                 markup = true
             case "-maximized":

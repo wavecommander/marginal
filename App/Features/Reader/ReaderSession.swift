@@ -91,6 +91,8 @@ final class ReaderSession: Identifiable {
         #if DEBUG
         /// `-inkAnyInput`: canvases draw with any input.
         var inkAnyInput = false
+        /// `-inkPencilOnly`: canvases draw with Pencil only (Draw with Finger off).
+        var inkPencilOnly = false
         /// `-selectionMenuProbe` (UI tests only).
         var selectionMenuProbe = false
         /// `-markupProbeSurface` (UI tests only): register a `MarkupProbeSurface`.
@@ -104,6 +106,7 @@ final class ReaderSession: Identifiable {
         // nothing can set them and the code behind them is never reached.
         // (`exposesMarkupState` below is still stored; nothing sets it in a release build.)
         var inkAnyInput: Bool { false }
+        var inkPencilOnly: Bool { false }
         var selectionMenuProbe: Bool { false }
         var markupProbeSurface: Bool { false }
         var exposesViewportAnchor: Bool { false }
@@ -376,7 +379,10 @@ final class ReaderSession: Identifiable {
             notesTab = tab
         }
 
-        self.markup = ReaderMarkupController(drawingPolicy: configuration.inkAnyInput ? .anyInput : .default,
+        let policy: PKCanvasViewDrawingPolicy = if configuration.inkAnyInput { .anyInput }
+            else if configuration.inkPencilOnly { .pencilOnly }
+            else { .default }
+        self.markup = ReaderMarkupController(drawingPolicy: policy,
                                              hardwareKeyboard: configuration.hardwareKeyboard)
         self.pdf = ReaderPDFController(session: self)
         markup.session = self
@@ -624,6 +630,16 @@ final class ReaderSession: Identifiable {
 
     /// The drawing policy every canvas must use (`.default`; `.anyInput` under `-inkAnyInput`).
     var drawingPolicy: PKCanvasViewDrawingPolicy { markup.drawingPolicy }
+
+    /// Whether a direct finger touch on a canvas draws in markup mode (Draw with Finger on,
+    /// no Pencil in use, or `-inkAnyInput`).
+    var fingerDrawsInMarkup: Bool {
+        switch drawingPolicy {
+        case .anyInput: true
+        case .pencilOnly: false
+        default: !UIPencilInteraction.prefersPencilOnlyDrawing
+        }
+    }
 
     // MARK: Panels
 

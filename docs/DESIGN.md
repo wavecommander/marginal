@@ -485,9 +485,10 @@ Added by the owner after the first plan. These rules apply to every screen and e
   menu bar get their space without custom layout. Every reader action has a menu bar command with a
   keyboard shortcut, and commands act on the focused window.
   On iPadOS 26 and later, the Reader's top bar is transparent (bar background and top scroll-edge
-  effect hidden), its title and subtitle sit in a Liquid Glass capsule, and the PDF view and
-  wide-layout pane backgrounds extend behind it so showing and hiding the bar leaves the reading
-  layout in place; earlier systems keep the standard navigation bar.
+  effect hidden), its title and subtitle sit in a Liquid Glass capsule that fades out and returns
+  in sync with the page pill, and the PDF view and wide-layout pane backgrounds extend behind it
+  so showing and hiding the bar leaves the reading layout in place; earlier systems keep the
+  standard navigation bar.
 - **Files and drag and drop.** A PDF opened from Files or another app is imported and shown in a
   window: Files lists Tactile Texts under a PDF's Open With, and the share sheet offers it too.
   PDFs can be dropped onto the Library to import them. The same holds for the formats the app

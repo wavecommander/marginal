@@ -69,6 +69,7 @@ final class ReaderSlot {
         #if DEBUG
         // Test switches from the launch arguments; a release build has none (`LaunchOptions`).
         configuration.inkAnyInput = options.inkAnyInput
+        configuration.inkPencilOnly = options.inkPencilOnly
         configuration.selectionMenuProbe = options.selectionMenuProbe
         configuration.markupProbeSurface = options.markupProbeSurface
         configuration.exposesViewportAnchor = options.exposeViewportAnchor
