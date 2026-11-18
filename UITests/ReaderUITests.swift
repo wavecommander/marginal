@@ -424,16 +424,23 @@ final class ReaderUITests: XCTestCase {
         let app = openSmall(["-notesPanel", "page"])
         let sheet = element(app, ReaderID.notesSheet)
         XCTAssertTrue(sheet.waitForExistence(timeout: 15))
-        app.buttons["reader.toolbar.search"].firstMatch.tap()
+        openNarrowSearch(app)
         XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10), "search did not open")
         app.buttons["search.done"].firstMatch.tap()
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back")
-        // One tap on the search button opens search again over the returned sheet.
-        app.buttons["reader.toolbar.search"].firstMatch.tap()
+        // Opening search from More works again over the returned sheet.
+        openNarrowSearch(app)
         XCTAssertTrue(app.buttons["search.done"].firstMatch.waitForExistence(timeout: 10),
                       "search did not reopen after the notes sheet came back")
         app.buttons["search.done"].firstMatch.tap()
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back a second time")
+    }
+
+    private func openNarrowSearch(_ app: XCUIApplication) {
+        app.buttons[ReaderID.more].firstMatch.tap()
+        let item = app.buttons[ReaderID.search].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "Search in More menu")
+        item.tap()
     }
 
     func testAlsoOpenWindowShowsSecondReaderWithIndependentPage() {
@@ -641,6 +648,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// Trailing toolbar icons appear left-to-right as: Markup, Notes, Bookmark, Search, More.
+    /// In narrow layouts Search moves into the More menu while Bookmark stays in the bar.
     func testTrailingToolbarButtonOrder() {
         let app = openSmall()
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
@@ -656,6 +664,15 @@ final class ReaderUITests: XCTestCase {
         XCTAssertLessThanOrEqual(notes.frame.maxX, bookmark.frame.minX, "Notes before Bookmark")
         XCTAssertLessThanOrEqual(bookmark.frame.maxX, search.frame.minX, "Bookmark before Search")
         XCTAssertLessThanOrEqual(search.frame.maxX, more.frame.minX, "Search before More")
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(search.waitForNonExistence(timeout: 5), "Search leaves the toolbar in narrow layouts")
+        XCTAssertTrue(bookmark.exists, "Bookmark stays in the toolbar in narrow layouts")
+        XCTAssertLessThanOrEqual(markup.frame.maxX, notes.frame.minX)
+        XCTAssertLessThanOrEqual(notes.frame.maxX, bookmark.frame.minX)
+        XCTAssertLessThanOrEqual(bookmark.frame.maxX, more.frame.minX)
+        more.tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "Search is inside More in narrow layouts")
     }
 
     /// With a registered surface that takes first responder (as a canvas does), the picker stays.

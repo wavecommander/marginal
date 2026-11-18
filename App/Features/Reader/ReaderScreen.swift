@@ -1007,8 +1007,9 @@ private struct SearchAnchorReader: UIViewRepresentable {
             }
         }
 
-        /// The search item's frame. Should the system ever lay the toolbar out without it (none
-        /// seen), the popover hangs from the reader's top trailing corner instead.
+        /// The search item's frame (or the More button's frame in narrow layouts, where search lives
+        /// inside More). Should the system ever lay the toolbar out without either (none seen), the
+        /// popover hangs from the reader's top trailing corner instead.
         private func searchItemFrame() -> CGRect {
             var responder: UIResponder? = self
             while let next = responder?.next {
@@ -1016,7 +1017,8 @@ private struct SearchAnchorReader: UIViewRepresentable {
                     let navigationItem = controller.navigationItem
                     let items = navigationItem.trailingItemGroups.flatMap(\.barButtonItems)
                         + (navigationItem.rightBarButtonItems ?? [])
-                    if let item = items.first(where: { $0.title == SearchAnchorReader.searchTitle }),
+                    if let item = items.first(where: { $0.title == SearchAnchorReader.searchTitle })
+                        ?? items.first(where: { $0.title == "More" }),
                        let frame = item.frame(in: self) {
                         return frame
                     }

@@ -12,6 +12,7 @@ import XCTest
 final class SearchUITests: XCTestCase {
     private enum ID {
         static let searchButton = "reader.toolbar.search"
+        static let moreButton = "reader.toolbar.more"
         static let markupToggle = "reader.toolbar.markup"
         static let notesSheet = "reader.pane.notesSheet"
         static let pagePill = "reader.pagePill"
@@ -229,16 +230,24 @@ final class SearchUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch
         if #available(iOS 26.0, *) { XCTAssertTrue(sheet.waitForExistence(timeout: 15), "no notes sheet") }
-        baseline = settledImage(of: button)
-        openAndClose(app, baseline, "Done in the narrow layout") { app.buttons[ID.done].firstMatch.tap() }
+        let more = app.buttons[ID.moreButton].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "no More button in narrow layout")
+        baseline = settledImage(of: more)
+        openAndClose(app, baseline, "Done in the narrow layout", checking: more, open: {
+            more.tap()
+            let item = app.buttons[ID.searchButton].firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "Search in More menu")
+            item.tap()
+        }) { app.buttons[ID.done].firstMatch.tap() }
         if #available(iOS 26.0, *) { XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the notes sheet did not come back") }
     }
 
     /// Opens search (the toolbar button by default), checks the panel's place, closes it with
-    /// `close` and waits for the search button to look like `baseline` again.
+    /// `close` and waits for the checked toolbar button to look like `baseline` again.
     private func openAndClose(_ app: XCUIApplication, _ baseline: UIImage, _ route: String,
+                              checking checkedButton: XCUIElement? = nil,
                               open: (() -> Void)? = nil, close: () -> Void) {
-        let button = app.buttons[ID.searchButton].firstMatch
+        let button = checkedButton ?? app.buttons[ID.searchButton].firstMatch
         let done = app.buttons[ID.done].firstMatch
         if let open {
             open()
@@ -340,7 +349,10 @@ final class SearchUITests: XCTestCase {
         app.buttons[ID.done].firstMatch.tap()
         XCUIDevice.shared.orientation = .portrait
         sleep(2)
-        app.buttons[ID.searchButton].firstMatch.tap()
+        app.buttons[ID.moreButton].firstMatch.tap()
+        let searchItem = app.buttons[ID.searchButton].firstMatch
+        XCTAssertTrue(searchItem.waitForExistence(timeout: 5))
+        searchItem.tap()
         XCTAssertTrue(app.buttons[ID.done].firstMatch.waitForExistence(timeout: 30))
         sleep(1)
         swipe(app.collectionViews[ID.results].firstMatch, up: true)

@@ -232,7 +232,15 @@ final class ScannedBooksUITests: XCTestCase {
     // MARK: Helpers
 
     private func openSearch(_ app: XCUIApplication) {
-        app.buttons[ID.searchButton].firstMatch.tap()
+        let search = app.buttons[ID.searchButton].firstMatch
+        if search.exists {
+            search.tap()
+        } else {
+            app.buttons["reader.toolbar.more"].firstMatch.tap()
+            let item = app.buttons[ID.searchButton].firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "Search in More menu")
+            item.tap()
+        }
         XCTAssertTrue(app.buttons[ID.searchDone].firstMatch.waitForExistence(timeout: 30), "the search panel did not open")
         sleep(1)  // the panel focuses its field 150 ms after presenting
     }
