@@ -420,7 +420,9 @@ nonisolated enum CloudServiceError: LocalizedError, Hashable, Sendable {
 ///   reset, a new key is registered and the request is sent again, **once**.
 /// - Where App Attest is unsupported (the simulator), the request carries `X-App-Attest-Bypass`
 ///   when a bypass secret is configured (only the `dev` Worker honours it); otherwise it fails
-///   with `appAttestUnavailable` without asking the service.
+///   with `appAttestUnavailable` without asking the service. A debug build with a bypass secret
+///   sends it on every device, real ones included, and never attests (`usesBypass`); release
+///   builds have no secret.
 /// - Authenticated requests are sent one at a time, so assertion counters reach the service in
 ///   the order they were made.
 ///
@@ -442,13 +444,17 @@ actor BackupServiceClient {
     /// - Parameters:
     ///   - baseURL: the service, `https://host[:port]` (no path).
     ///   - attest: App Attest (`DeviceAppAttestClient` in the app).
-    ///   - attestBypassSecret: the `dev` Worker's bypass secret, used only where App Attest is
-    ///     unsupported; `nil` for none.
+    ///   - attestBypassSecret: the `dev` Worker's bypass secret; `nil` for none. Debug builds
+    ///     only (ignored in release): sent instead of App Attest on every device.
     ///   - urlSession: every request (tests pass a stubbed one).
     init(baseURL: URL, attest: any AppAttestClient, attestBypassSecret: String? = nil, urlSession: URLSession = .shared) {
         self.baseURL = baseURL
         self.attest = attest
+        #if DEBUG
         self.attestBypassSecret = attestBypassSecret.flatMap { $0.isEmpty ? nil : $0 }
+        #else
+        self.attestBypassSecret = nil
+        #endif
         self.urlSession = urlSession
     }
 
@@ -572,9 +578,23 @@ actor BackupServiceClient {
         }
     }
 
+    /// Whether a request carries the bypass instead of an assertion. Where App Attest is
+    /// unsupported (the simulator), always (failing without a secret). In debug builds, also
+    /// wherever a bypass secret is configured, even on a device that has App Attest: a debug
+    /// build on a real iPad or iPhone against the `dev` Worker uses the bypass, since the app's
+    /// App Attest is not set up there (and a development key would not match the Worker's App
+    /// ID). Release builds never hold a secret.
+    nonisolated static func usesBypass(secret: String?, attestSupported: Bool) -> Bool {
+        #if DEBUG
+        return secret != nil || !attestSupported
+        #else
+        return !attestSupported
+        #endif
+    }
+
     private func attempt(_ template: RequestBody, challenge given: BackupServiceChallenge?) async throws -> Data {
         var headers: [String: String] = [:]
-        let useBypass = !attest.isSupported
+        let useBypass = Self.usesBypass(secret: attestBypassSecret, attestSupported: attest.isSupported)
         if useBypass {
             guard let attestBypassSecret else { throw CloudServiceError.appAttestUnavailable }
             headers[Self.bypassHeader] = attestBypassSecret

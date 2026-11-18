@@ -15,8 +15,9 @@ import S3Kit
 /// - `BACKUP_PRODUCT_IDS`: the subscription product IDs, separated by commas
 ///   (`software.tactile.texts.backup.standard`).
 /// - `BACKUP_SERVICE_ATTEST_BYPASS` (optional, **development only**): the `dev` Worker's
-///   `APP_ATTEST_BYPASS_SECRET`, sent as `X-App-Attest-Bypass` where App Attest is not
-///   supported (the simulator). Only debug builds read it; it ends up in the built app's
+///   `APP_ATTEST_BYPASS_SECRET`, sent as `X-App-Attest-Bypass` instead of App Attest (on the
+///   simulator, which has none, and on a real device, whose App Attest is not set up for the
+///   `dev` Worker). Only debug builds read it; it ends up in the built app's
 ///   Info.plist, so it is for development builds against the `dev` Worker only, never for a
 ///   build that leaves the developer's hands. The production Worker ignores the header.
 /// - `BACKUP_SERVICE_DEV_SIGNIN` and `BACKUP_SERVICE_DEV_USER` (optional, **development only**,

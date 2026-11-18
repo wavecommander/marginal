@@ -110,6 +110,32 @@ struct BackupCloudServiceClientTests {
         #expect(!worker.log.contains("POST /v1/attest"))
     }
 
+    /// A debug build on a real device (App Attest supported) against the `dev` Worker over HTTPS:
+    /// the configured bypass is sent and nothing is attested (the app's App Attest is not set up).
+    @Test func aDebugBuildOnARealDeviceSendsTheBypassToAnHTTPSHost() async throws {
+        let worker = W(r2: nil)
+        let attest = FakeAppAttestClient(isSupported: true)
+        let configuration = try #require(BackupServiceConfiguration(host: "tactile-backup-dev.example.workers.dev",
+                                                                    productIDs: "a.b", attestBypass: W.bypass))
+        #expect(configuration.baseURL.scheme == "https" && configuration.attestBypassSecret == W.bypass)
+        let client = BackupServiceClient(baseURL: URL(string: "https://\(W.host)")!, attest: attest,
+                                         attestBypassSecret: configuration.attestBypassSecret, urlSession: worker.stub.session)
+        let session = try await client.session(sessionToken: W.liveToken, signedTransaction: nil, signedRenewalInfo: nil)
+        #expect(session.mode == .readWrite)
+        #expect(worker.bypassed == 1 && worker.attests == 0)
+        let request = try #require(worker.stub.requests("POST", pathPrefix: "/v1/session").first)
+        #expect(request.headers["x-app-attest-bypass"] == W.bypass)
+        #expect(request.headers["x-app-attest-key-id"] == nil && request.headers["x-app-attest-assertion"] == nil)
+        #expect(!worker.log.contains("POST /v1/attest"))
+    }
+
+    @Test func theBypassRule() {
+        #expect(BackupServiceClient.usesBypass(secret: nil, attestSupported: true) == false, "App Attest, as in a release build")
+        #expect(BackupServiceClient.usesBypass(secret: nil, attestSupported: false) == true, "fails: no secret")
+        #expect(BackupServiceClient.usesBypass(secret: "s", attestSupported: false) == true)
+        #expect(BackupServiceClient.usesBypass(secret: "s", attestSupported: true) == true, "debug builds only")
+    }
+
     @Test func withoutAppAttestOrABypassNothingIsSent() async throws {
         let worker = W(r2: nil)
         await #expect(throws: CloudServiceError.appAttestUnavailable) {
