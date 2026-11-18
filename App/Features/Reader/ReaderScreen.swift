@@ -24,6 +24,13 @@ nonisolated enum ReaderLayout {
         return false
     }
 
+    /// iPadOS 26+ (Liquid Glass): the navigation bar floats transparently over the reader contents
+    /// and appears/disappears on top of them instead of reserving a top bar band.
+    static var usesTransparentTopBar: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     static func notesWidth(requested: Double, windowWidth: CGFloat) -> CGFloat {
         let maximum = max(CGFloat(ReaderSession.defaultNotesPanelWidth), windowWidth / 2)
         return min(max(CGFloat(requested), CGFloat(ReaderSession.defaultNotesPanelWidth)), maximum)
@@ -147,6 +154,7 @@ struct ReaderScreen: View {
         .navigationTitle(session.book.title)
         .navigationBarTitleDisplayMode(.inline)
         .readerSubtitle(title: session.book.title, subtitle: subtitle)
+        .readerTransparentTopBar()
         .toolbar { toolbarContent }
         // A maximized page has the whole window: no toolbar, no status bar. The way back is a
         // finger tap on the page (`ReaderPDFController`), Escape or View ▸ Exit Maximized Page.
@@ -173,8 +181,15 @@ struct ReaderScreen: View {
             if session.isContentsShown {
                 ContentsSidebar(session: session)
                     .frame(width: ReaderSession.contentsSidebarWidth)
+                    .background {
+                        if ReaderLayout.usesTransparentTopBar {
+                            Color(uiColor: .systemGroupedBackground)
+                                .extendsIntoTransparentTopBar()
+                        }
+                    }
                     .paneContainer(AccessibilityID.Reader.contentsPane)
                 Divider()
+                    .extendsIntoTransparentTopBar()
             }
             pageArea
             if session.isNotesShown {
@@ -230,6 +245,7 @@ struct ReaderScreen: View {
             // moves above it.
             ReaderPDFViewRepresentable(session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
+                .extendsIntoTransparentTopBar()
                 .ignoresSafeArea(.keyboard)
                 // Scrolling sideways, a rightward drag back through the pages must not leave
                 // the book (as on the notes pane, TSOFT-225). The left-edge swipe still goes back.
@@ -663,7 +679,7 @@ private struct NotesSidePane: View {
                 .frame(width: layoutWidth)
                 .frame(width: visibleWidth, alignment: .leading)
                 .clipped()
-                .background(Color(uiColor: .systemBackground))
+                .background(Color(uiColor: .systemBackground).extendsIntoTransparentTopBar())
                 .backSwipeGuard()
                 .paneContainer(AccessibilityID.Reader.notesPane)
         }
@@ -671,12 +687,15 @@ private struct NotesSidePane: View {
 
     private var handle: some View {
         ZStack {
-            Rectangle().fill(Color(uiColor: .separator)).frame(width: 1)
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(width: 1)
+                .extendsIntoTransparentTopBar()
             Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 5, height: 44)
         }
         .frame(width: 12)
         .frame(maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground))
+        .background(Color(uiColor: .systemBackground).extendsIntoTransparentTopBar())
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .gesture(drag)
@@ -858,7 +877,25 @@ private extension View {
     @ViewBuilder
     func readerSubtitle(title: String, subtitle: String) -> some View {
         if #available(iOS 26.0, *) {
-            self.navigationSubtitle(subtitle)
+            self.toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 0) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 3)
+                    .glassEffect(.regular, in: Capsule())
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(AccessibilityID.Reader.titleBlock)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
         } else {
             self.toolbar {
                 ToolbarItem(placement: .principal) {
@@ -871,6 +908,25 @@ private extension View {
                 }
             }
         }
+    }
+
+    /// Hides the navigation bar's background and top scroll-edge effect on iPadOS 26+ so the
+    /// Liquid Glass bar floats transparently over the reader contents.
+    @ViewBuilder
+    func readerTransparentTopBar() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+                .scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            self
+        }
+    }
+
+    /// Lets a view or pane background extend behind the transparent iPadOS 26+ top bar while
+    /// preserving the top safe area at the iPadOS 17 floor.
+    func extendsIntoTransparentTopBar() -> some View {
+        ignoresSafeArea(.container, edges: ReaderLayout.usesTransparentTopBar ? .top : [])
     }
 }
 

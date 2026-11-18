@@ -44,6 +44,15 @@ enum PDFKitWorkarounds {
         }
     }
 
+    /// Configures PDFKit's internal scroll view on iPadOS 26+ so the transparent navigation bar
+    /// floats directly over the pages without a scroll-edge blur.
+    static func configureTransparentTopBarScroll(in pdfView: PDFView) {
+        guard #available(iOS 26.0, *), let scrollView = scrollView(of: pdfView) else { return }
+        if !scrollView.topEdgeEffect.isHidden {
+            scrollView.topEdgeEffect.isHidden = true
+        }
+    }
+
     // MARK: PDFKit's own views
 
     /// Whether `view`, a subview of `pdfView`, is PDFKit's own (its scroll view, the document
