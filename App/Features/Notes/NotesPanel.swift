@@ -196,14 +196,10 @@ struct NotesPanel: View {
     private var pageTitle: some View {
         let page = controller.shownPage ?? session.currentPageIndex
         return VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: "Page \(PageNumbering.displayNumber(forPageIndex: page))")
-                    .font(.title3.bold())
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier(NotesPanelAccessibilityID.title)
-                Spacer(minLength: 8)
-                statusLabel
-            }
+            Text(verbatim: "Page \(PageNumbering.displayNumber(forPageIndex: page))")
+                .font(.title3.bold())
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(NotesPanelAccessibilityID.title)
             deferredCaption
         }
     }
@@ -226,11 +222,7 @@ struct NotesPanel: View {
                         pagesButton(heading)
                     }
                 }
-                HStack {
-                    deferredCaption
-                    Spacer(minLength: 8)
-                    statusLabel
-                }
+                deferredCaption
             }
         }
     }
@@ -346,16 +338,6 @@ struct NotesPanel: View {
             return first == last ? "p. \(first)" : "pp. \(first)\u{2013}\(last)"
         }
         return heading.startPage.map { "p. \(PageNumbering.displayNumber(forPageIndex: $0))" }
-    }
-
-    private var statusLabel: some View {
-        let status = controller.model?.statusText ?? ""
-        let empty = controller.model?.saveState == .empty
-        return Text(status.isEmpty ? " " : status)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(empty ? "Empty" : status)
-            .accessibilityIdentifier(NotesPanelAccessibilityID.status)
     }
 
     @ViewBuilder
