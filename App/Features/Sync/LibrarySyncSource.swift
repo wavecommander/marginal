@@ -45,14 +45,11 @@ nonisolated enum LibrarySyncError: Error, Hashable, Sendable, LocalizedError {
     case pdfUnknown(bookID: UUID)
     /// The PDF downloaded for a book is not the book's PDF.
     case pdfMismatch(bookID: UUID)
-    /// A book from the account names a file this app does not accept.
-    case invalidFileName(String)
 
     var errorDescription: String? {
         switch self {
         case .pdfUnknown: "This book’s PDF isn’t on this device, so it can’t be synced until you locate it."
         case .pdfMismatch: "The PDF from Tactile Texts Cloud isn’t this book’s PDF, so it wasn’t used."
-        case .invalidFileName: "A synced book has a file name this version of Tactile Texts can’t use."
         }
     }
 }
@@ -178,8 +175,10 @@ final class LibrarySyncCore {
         if taken || !LibraryPDFIndex.bookIDs(withSidecarSHA256: new.pdf.sha256, in: store).isEmpty {
             throw SyncLibraryError.changedSinceSnapshot(bookID: id)
         }
-        let fileName = ImportPipeline.documentFileName(ImportPipeline.sanitizedFileName(book.fileName))
-        guard !fileName.isEmpty, !fileName.hasPrefix(".") else { throw LibrarySyncError.invalidFileName(book.fileName) }
+        // The file name is this device's to choose (sync carries no file names of its own): the
+        // account's, made safe.
+        var fileName = ImportPipeline.documentFileName(ImportPipeline.sanitizedFileName(book.fileName))
+        if fileName.isEmpty || fileName.hasPrefix(".") { fileName = "book.pdf" }
         book.fileName = fileName
         book.pageCount = max(book.pageCount, new.info.pageCount)
         let directory = store.bookDirectoryURL(bookID: id)

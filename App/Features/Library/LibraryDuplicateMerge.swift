@@ -62,8 +62,10 @@ enum LibraryDuplicateMerge {
     }
 
     /// Merges book `absorbedID` into book `keptID` (see the type), then deletes it.
+    /// - Parameter stopBeforeDeleting: tests: stop where a crash after the writes would (the
+    ///   newer book still there).
     static func merge(_ absorbedID: UUID, into keptID: UUID, store: LibraryStore, origin: ChangeOrigin,
-                      inkMerger: any SyncInkMerger = AppSyncInkMerger()) async throws {
+                      inkMerger: any SyncInkMerger = AppSyncInkMerger(), stopBeforeDeleting: Bool = false) async throws {
         let pause = await BookWriteGate.shared.pause([keptID, absorbedID])
         defer { BookWriteGate.shared.resume(pause) }
         guard let local = try store.archive(bookID: keptID), let incoming = try store.archive(bookID: absorbedID) else { return }
@@ -146,6 +148,7 @@ enum LibraryDuplicateMerge {
         try await writer.writeFiles(bookID: keptID, write: write, remove: [])
         try await writer.settleNotes(bookID: keptID, noteIDs: Set(archive.notes.map(\.id)))
         try await adoptPDF(of: incoming.book, into: local.book, store: store, origin: origin)
+        if stopBeforeDeleting { return }
         do {
             try await store.deleteBook(id: absorbedID, origin: origin)
         } catch LibraryStoreError.bookFilesNotRemoved {
