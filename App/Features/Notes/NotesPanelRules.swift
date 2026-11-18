@@ -49,8 +49,6 @@ nonisolated enum NotesPanelAccessibilityID {
     static let deleteNote = "notes.deleteNote"
     /// Undo Delete pill button shown after deleting a note.
     static let undoDelete = "notes.undoDelete"
-    /// "Open in Notebook".
-    static let openNotebook = "notesPanel.openNotebook"
 }
 
 /// When the notes panel header carries its own Markup switch (and ink Undo/Redo while markup is on):

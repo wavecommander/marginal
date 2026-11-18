@@ -27,7 +27,6 @@ struct NotesPanel: View {
     @Bindable var session: ReaderSession
     private let controller: NotesPanelController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(WindowContext.self) private var window: WindowContext?
     /// The reader hid the lists under (or beside) the note in a narrow panel. Remembered, like
     /// the level picker's own collapse.
     @AppStorage(NotesPanelRegions.collapsedKey) private var isLowerRegionCollapsed = false
@@ -385,7 +384,7 @@ struct NotesPanel: View {
     private var hasLowerRegion: Bool {
         switch session.notesTab {
         case .page: !highlights.isEmpty
-        case .section: controller.shownHeading != nil || window != nil
+        case .section: controller.shownHeading != nil
         }
     }
 
@@ -515,8 +514,7 @@ struct NotesPanel: View {
         .ignoresSafeArea()
     }
 
-    /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker and
-    /// "Open in Notebook".
+    /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker.
     private var lowerRegion: some View {
         VStack(alignment: .leading, spacing: 6) {
             switch session.notesTab {
@@ -530,16 +528,6 @@ struct NotesPanel: View {
                                      hasNote: { session.notebook?.section(for: $0)?.note != nil },
                                      choose: { controller.chooseLevel($0) })
                         .padding(.top, 12)
-                }
-                if let window {
-                    Button { window.openNotebook(bookID: session.book.id) } label: {
-                        Label("Open in Notebook", systemImage: "book.pages")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier(NotesPanelAccessibilityID.openNotebook)
                 }
             }
         }
