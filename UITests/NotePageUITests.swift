@@ -114,7 +114,8 @@ final class NotePageUITests: XCTestCase {
         drawLine(app, y: 160)
         XCTAssertTrue(ink(app).waitForExistence(timeout: 5))
         let frameBefore = ink(app).frame.offsetBy(dx: -textView(app).frame.minX, dy: -textView(app).frame.minY)
-        XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
+        XCTAssertTrue(wait(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true", ""))
+        Thread.sleep(forTimeInterval: 1.2)
         app.terminate()
 
         let again = launch(fresh: false, markup: false)

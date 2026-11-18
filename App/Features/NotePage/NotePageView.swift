@@ -12,9 +12,13 @@ final class NoteFormattingController {
     @ObservationIgnored weak var editor: NotePageEditorView?
 
     func attach(_ editor: NotePageEditorView) {
+        guard self.editor !== editor else { return }
         self.editor = editor
-        attributes = editor.currentFormattingAttributes
-        isEditable = editor.textView.isEditable
+        let attrs = editor.currentFormattingAttributes
+        let editable = editor.textView.isEditable
+        Task { @MainActor [weak self] in
+            self?.update(attributes: attrs, isEditable: editable)
+        }
     }
 
     func update(attributes: NoteTextAttributes, isEditable: Bool) {

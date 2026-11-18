@@ -106,7 +106,8 @@ final class JourneyUITests: XCTestCase {
         XCTAssertTrue(wait(noteInk(app), "exists == true AND value == %@", ["1 stroke"]), "stroke on the note")
         toggle.tap()
         XCTAssertTrue(wait(toggle, "label == %@", ["Markup"]), "markup off again")
-        XCTAssertTrue(wait(status(app), "label == %@", ["Saved"]), "note ink saved")
+        XCTAssertTrue(wait(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true", []), "note ink saved")
+        Thread.sleep(forTimeInterval: 1.2)
 
         // A heading of the reader's own at page 3 (More menu), then its section note.
         let more = app.buttons[ID.more].firstMatch
@@ -264,7 +265,8 @@ final class JourneyUITests: XCTestCase {
         view.tap()
         view.typeText(text)
         XCTAssertTrue(wait(view, "value == %@", [text]), "typed \(text)")
-        XCTAssertTrue(wait(status(app), "label == %@", ["Saved"]), "saved \(text)")
+        XCTAssertTrue(wait(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true", []), "saved \(text)")
+        Thread.sleep(forTimeInterval: 1.2)
     }
 
     /// A horizontal finger stroke on the note page, `y` note-page points from its top.

@@ -472,6 +472,7 @@ struct NotesPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .disabled(disabled)
         .opacity(disabled ? 0.45 : 1)
         .accessibilityElement(children: .contain)

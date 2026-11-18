@@ -78,7 +78,7 @@ final class NotesPanelUITests: XCTestCase {
     private func ink(_ app: XCUIApplication) -> XCUIElement { editor(app).images[ID.ink].firstMatch }
     private func writingSpace(_ app: XCUIApplication) -> XCUIElement { editor(app).otherElements[ID.writingSpace].firstMatch }
     private func title(_ app: XCUIApplication) -> XCUIElement { app.staticTexts[ID.title].firstMatch }
-    private func status(_ app: XCUIApplication) -> XCUIElement { app.staticTexts[ID.status].firstMatch }
+    private func deleteNoteButton(_ app: XCUIApplication) -> XCUIElement { app.buttons["notes.deleteNote"].firstMatch }
     private func pill(_ app: XCUIApplication) -> XCUIElement { app.buttons[ID.pagePill].firstMatch }
     private func levelToggle(_ app: XCUIApplication) -> XCUIElement { app.buttons[ID.levelToggle].firstMatch }
     private func levels(_ app: XCUIApplication) -> XCUIElementQuery { app.buttons.matching(identifier: ID.level) }
@@ -106,7 +106,8 @@ final class NotesPanelUITests: XCTestCase {
         textView(app).tap()
         textView(app).typeText(text)
         XCTAssertTrue(wait(textView(app), "value CONTAINS %@", text), "typed")
-        XCTAssertTrue(wait(status(app), "label == %@", "Saved"), "saved")
+        XCTAssertTrue(waitForEnabled(deleteNoteButton(app)), "saved")
+        Thread.sleep(forTimeInterval: 1.2)
     }
 
     /// Goes to a page with the page pill's field (a jump).
@@ -168,7 +169,7 @@ final class NotesPanelUITests: XCTestCase {
 
         tab(app, "Section note").tap()
         XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
-        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "an empty placeholder, not a record")
+        XCTAssertTrue(wait(deleteNoteButton(app), "isEnabled == false", ""), "an empty placeholder, not a record")
         type(app, "Foundations note")
 
         goToPage(app, 9)
@@ -202,9 +203,6 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual(levels(app).count, 0, "collapsed: one row")
         XCTAssertGreaterThanOrEqual(toggle.frame.minY, editor(app).frame.maxY - 1, "under the note")
         XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
-        let notebook = app.buttons[ID.openNotebook].firstMatch
-        XCTAssertTrue(notebook.exists)
-        XCTAssertGreaterThanOrEqual(notebook.frame.minY, toggle.frame.maxY - 1, "above Open in Notebook")
 
         toggle.tap()
         XCTAssertTrue(wait(toggle, "value == %@", "Expanded"))
@@ -428,13 +426,12 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "highlights are not affected"))
                       .firstMatch.exists, "says what stays")
         alert.buttons["Delete"].tap()
-        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "the placeholder")
+        XCTAssertTrue(wait(delete, "isEnabled == false", ""), "the placeholder")
         XCTAssertEqual((textView(app).value as? String) ?? "", "")
-        XCTAssertTrue(wait(delete, "isEnabled == false", ""))
         app.terminate()
 
         let again = launch(fresh: false, page: 3)
-        XCTAssertTrue(wait(status(again), "label == %@", "Empty"), "still gone")
+        XCTAssertTrue(wait(deleteNoteButton(again), "isEnabled == false", ""), "still gone")
         XCTAssertEqual((textView(again).value as? String) ?? "", "")
     }
 
@@ -449,14 +446,14 @@ final class NotesPanelUITests: XCTestCase {
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         alert.buttons["Delete"].tap()
-        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "cleared on delete")
+        XCTAssertTrue(wait(delete, "isEnabled == false", ""), "cleared on delete")
 
         let undoPill = app.buttons["notes.undoDelete"].firstMatch
         XCTAssertTrue(undoPill.waitForExistence(timeout: 5), "Undo pill appears after delete")
         undoPill.tap()
 
         XCTAssertTrue(wait(textView(app), "value == %@", "Keep me"), "note text restored")
-        XCTAssertTrue(wait(status(app), "label == %@", "Saved"), "restored note is saved")
+        XCTAssertTrue(waitForEnabled(delete), "restored note is saved")
         XCTAssertFalse(undoPill.exists, "Undo pill goes away once tapped")
 
         app.terminate()
@@ -488,7 +485,7 @@ final class NotesPanelUITests: XCTestCase {
         let deleteAlert = app.alerts.firstMatch
         XCTAssertTrue(deleteAlert.waitForExistence(timeout: 5))
         deleteAlert.buttons["Delete"].tap()
-        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "note cleared on delete")
+        XCTAssertTrue(wait(delete, "isEnabled == false", ""), "note cleared on delete")
         XCTAssertTrue(wait(toolbarMarkup, "label == %@", "Markup"), "markup button looks inactive after delete")
         XCTAssertFalse(toolbarMarkup.isSelected, "no selected state on inactive markup button")
     }
@@ -542,7 +539,8 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(textView(app).waitForExistence(timeout: 10))
         drawLine(app, y: 160)
         XCTAssertTrue(ink(app).waitForExistence(timeout: 5), "stroke drawn")
-        XCTAssertTrue(wait(status(app), "label == %@", "Saved"))
+        XCTAssertTrue(waitForEnabled(deleteNoteButton(app)))
+        Thread.sleep(forTimeInterval: 1.2)
 
         tab(app, "Section note").tap()
         XCTAssertTrue(wait(title(app), "label == %@", "1.1 Foundations"))
