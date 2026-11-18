@@ -287,7 +287,7 @@ final class ReaderSession: Identifiable {
     // MARK: Page pill
 
     /// How long the page pill stays after the page last moved.
-    static let pagePillIdleDelay: Duration = .seconds(3)
+    static let pagePillIdleDelay: Duration = .seconds(2)
     /// The page has not moved for `pagePillIdleDelay`, so the page pill fades out until it
     /// moves again (`revealPagePill()`). The pill itself decides when it never fades.
     private(set) var isPagePillIdle = false
