@@ -679,8 +679,9 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// a maximized page. A tap on a link, on a highlight (its menu), one that clears a selection
     /// or a search mark, or one that stops a scroll does not.
     @objc private func handleMaximizeTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended, let session, !touchDownBlocksMaximizeTap, !fingerDrawsOnPage,
-              !session.isSearchVisible else { return }
+        let hasSelection = view.currentSelection.map { !$0.pages.isEmpty } ?? false
+        guard recognizer.state == .ended, let session, !touchDownBlocksMaximizeTap, !hasSelection,
+              !fingerDrawsOnPage, !session.isSearchVisible else { return }
         let point = recognizer.location(in: view)
         guard let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
         let pointInPage = view.convert(point, to: page)
@@ -737,17 +738,33 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
         updateAnchorProbe()
     }
 
-    /// A single tap on a page goes to highlights first (a tap on a highlight opens its menu
-    /// and is consumed), then to the search if there is one (it clears its mark).
+    /// A single tap clears a text selection when it lands outside the selected text (PDFKit's
+    /// own tap deselection does not fire alongside the bridge's simultaneous tap recognisers),
+    /// then goes to highlights (a tap on a highlight opens its menu and is consumed), then to
+    /// the search if there is one (it clears its mark).
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended, let session,
-              session.highlights != nil || session.searchModelIfCreated != nil else { return }
+        guard recognizer.state == .ended else { return }
         let point = recognizer.location(in: view)
-        guard let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
+        if let selection = view.currentSelection, !selection.pages.isEmpty,
+           !Self.selection(selection, containsViewPoint: point, in: view) {
+            view.clearSelection()
+        }
+        guard let session,
+              session.highlights != nil || session.searchModelIfCreated != nil,
+              let page = view.page(for: point, nearest: false), let index = pageIndex(of: page) else { return }
         let tap = ReaderPageTap(pageIndex: index, page: page, pointInPage: view.convert(point, to: page),
                                 pointInView: point, view: view)
         if session.highlights?.handleTap(tap) == true { return }
         session.searchModelIfCreated?.pageWasTapped()
+    }
+
+    /// Whether `point` (in `pdfView`'s coordinates) lies on any line of `selection`.
+    static func selection(_ selection: PDFSelection, containsViewPoint point: CGPoint, in pdfView: PDFView) -> Bool {
+        guard let page = pdfView.page(for: point, nearest: false) else { return false }
+        let pointInPage = pdfView.convert(point, to: page)
+        return selection.selectionsByLine().contains { line in
+            line.pages.contains(page) && line.bounds(for: page).contains(pointInPage)
+        }
     }
 
     private func reportVisiblePages() {

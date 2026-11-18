@@ -632,6 +632,44 @@ final class ReaderUITests: XCTestCase {
                       || app.menuItems["Probe"].firstMatch.waitForExistence(timeout: 2))
     }
 
+    func testSingleTapOffSelectedTextDeselectsWithoutMaximizing() {
+        let app = openSmall(["-openPage", "3", "-exposeSelection"])
+        XCTAssertTrue(selectionProbe(app).waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(pill(app), "Page 3 of 12"), "opened at page 3")
+        let markup = app.buttons[ReaderID.markupToggle].firstMatch
+        let pdfView = app.otherElements[ReaderID.pdfView].firstMatch
+
+        let wordPoint = selectAmber(app)
+        XCTAssertNotEqual(selectionProbe(app).label, "none")
+        XCTAssertTrue(markup.exists, "long-pressing to select text does not maximize the page")
+
+        // Tapping on the selected word keeps the selection.
+        wordPoint.tap()
+        XCTAssertFalse(UIWait.until(timeout: 0.6) { selectionProbe(app).label == "none" },
+                       "tapping on selected text keeps the selection")
+        XCTAssertTrue(markup.exists, "tapping on selected text does not maximize")
+
+        // Single-tapping blank page space off the text clears the selection without maximizing.
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "single tap on blank space deselects")
+        XCTAssertTrue(markup.exists, "deselecting tap does not maximize the page")
+
+        // With nothing selected, the next single tap on the page maximizes it (and back).
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "tap with no selection maximizes")
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "tap on maximized page exits")
+
+        // Single-tapping in the margin outside the page also clears the selection without maximizing.
+        selectAmber(app)
+        XCTAssertNotEqual(selectionProbe(app).label, "none")
+        pdfView.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "single tap in the margin deselects")
+        XCTAssertTrue(markup.exists)
+    }
+
     // MARK: Select All selects the paragraph
 
     private func selectionProbe(_ app: XCUIApplication) -> XCUIElement {
@@ -702,7 +740,8 @@ final class ReaderUITests: XCTestCase {
 
         // ⌘A on a fresh word selection.
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.6)).tap()
-        _ = UIWait.until(timeout: 5) { selectionProbe(app).label == "none" }  // the tap cleared the selection
+        XCTAssertTrue(UIWait.until(timeout: 5) { selectionProbe(app).label == "none" },
+                      "the tap cleared the selection")
         let wordPoint = selectAmber(app)
         // After a long press, XCUITest's synthesized ⌘A reaches the app only with the next touch
         // on the page (measured with a route trace: the app then runs Select All on
