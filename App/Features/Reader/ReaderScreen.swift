@@ -41,6 +41,7 @@ nonisolated enum ReaderLayout {
 /// pill and go-to-page field. Feature panes are the placeholders other packages replace.
 struct ReaderScreen: View {
     @Bindable var session: ReaderSession
+    var isOnTop: Bool = true
     @Environment(WindowContext.self) private var window
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -67,6 +68,9 @@ struct ReaderScreen: View {
     @State private var isSearchAnchored = false
     /// Current detent of the narrow notes sheet, so the panel knows when it covers the whole screen.
     @State private var notesSheetDetent: PresentationDetent = .medium
+    /// `true` once `isOnTop` has settled after a `NavigationStack` pop transition, so UIKit does
+    /// not drop the `.sheet` presentation mid-transition and reset `isNotesVisible`.
+    @State private var isOnTopSettled = true
 
     var body: some View {
         let isCompactWindow = horizontalSizeClass == .compact || verticalSizeClass == .compact
@@ -178,6 +182,15 @@ struct ReaderScreen: View {
                 .presentationDragIndicator(.visible)
                 .paneContainer(AccessibilityID.Reader.notesSheet)
                 .environment(session)
+        }
+        .onChange(of: isOnTop, initial: true) { _, onTop in
+            if !onTop { isOnTopSettled = false }
+        }
+        .task(id: isOnTop) {
+            guard isOnTop, !isOnTopSettled else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, isOnTop else { return }
+            isOnTopSettled = true
         }
         .onChange(of: session.isNotesVisible) { _, visible in
             if !visible { notesSheetDetent = .medium }
@@ -297,18 +310,22 @@ struct ReaderScreen: View {
     }
 
     private var notesSheetBinding: Binding<Bool> {
-        // While search is up the sheet steps aside (one presentation at a time) without
-        // changing `isNotesVisible`, and it comes back once the search panel's dismissal has
-        // finished (presenting earlier would be dropped). Only a dismissal by the reader (swipe
-        // down) hides the notes. The note page saves on disappearing, so nothing is lost.
+        // While search is up or another screen (such as the Notebook) is pushed on top of the
+        // reader, the sheet steps aside (one presentation at a time) without changing
+        // `isNotesVisible`, and it comes back once the reader is back on top and the search
+        // panel's dismissal has finished (presenting earlier would be dropped). Only a dismissal by
+        // the reader (swipe down) hides the notes. The note page saves on disappearing, so nothing
+        // is lost.
         Binding(get: {
-                    ReaderLayout.usesSystemNotesSheet && session.isNarrowLayout && session.isNotesShown
+                    isOnTop && isOnTopSettled && ReaderLayout.usesSystemNotesSheet
+                        && session.isNarrowLayout && session.isNotesShown
                         && !session.isSearchVisible && !isSearchPanelOnScreen && !isRepresentingSearch
                         && !session.isSearchReopenQueued && session.closeReason == nil
                 },
                 set: { shown in
-                    guard session.isNarrowLayout, !session.isMaximized, !session.isSearchVisible,
-                          !isSearchPanelOnScreen, !isRepresentingSearch, !session.isSearchReopenQueued else { return }
+                    guard isOnTop, isOnTopSettled, session.isNarrowLayout, !session.isMaximized,
+                          !session.isSearchVisible, !isSearchPanelOnScreen, !isRepresentingSearch,
+                          !session.isSearchReopenQueued else { return }
                     session.isNotesVisible = shown
                 })
     }

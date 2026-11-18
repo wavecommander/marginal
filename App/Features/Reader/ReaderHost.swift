@@ -30,7 +30,7 @@ struct ReaderHost: View {
     var body: some View {
         Group {
             if let session {
-                ReaderScreen(session: session)
+                ReaderScreen(session: session, isOnTop: isOnTop)
                     .onChange(of: session.restorableState) { _, state in
                         storedState = try? JSONEncoder().encode(state)
                         window.setReaderState(state, for: bookID)

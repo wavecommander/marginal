@@ -336,6 +336,34 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(wait(title(app), "label == %@", "1 Linear Systems"))
     }
 
+    /// Opening the Notebook from a narrow reader dismisses the notes sheet so it does not stay
+    /// over the Notebook, and returning to the reader brings the sheet back.
+    func testOpeningNotebookDismissesNarrowNotesSheetAndRestoresOnBack() {
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = launch(fresh: true, page: 3, orientation: .portrait)
+        let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "notes sheet shown")
+
+        let more = app.buttons["reader.toolbar.more"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "More menu")
+        more.tap()
+        let notebookItem = app.buttons["Notebook"].firstMatch
+        XCTAssertTrue(notebookItem.waitForExistence(timeout: 5), "Notebook in More menu")
+        notebookItem.tap()
+
+        XCTAssertTrue(app.segmentedControls["notebook.typeFilter"].firstMatch.waitForExistence(timeout: 10),
+                      "Notebook screen shown")
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5),
+                      "notes sheet dismissed while Notebook is open")
+
+        let back = app.navigationBars.buttons["BackButton"].firstMatch
+        if back.exists { back.tap() } else { app.navigationBars.buttons.element(boundBy: 0).tap() }
+        XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 10),
+                      "returned to the reader")
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10),
+                      "notes sheet restored on returning to the reader")
+    }
+
     /// Narrow sheet: the header's button hides the lists under the note and shows them again,
     /// and the choice is still there after a relaunch. A regular-size iPad window keeps Markup
     /// in the toolbar only (the header's own Markup button is for compact screens). The note
