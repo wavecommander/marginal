@@ -280,6 +280,44 @@ struct BackupSchedulerTests {
         #expect(task.completions == [true])
     }
 
+    @Test func syncSharesTheBackgroundTaskWhileItsSwitchIsOn() async throws {
+        let rig = try await SchedulerRig(enabled: false)
+        defer { rig.tearDown() }
+        let companion = FakeCompanion()
+        rig.scheduler.companion = companion
+        rig.scheduler.registerBackgroundTask()
+        // No backup pending: nothing submitted until sync wants time.
+        rig.scheduler.scenePhaseChanged(.background)
+        #expect(rig.taskScheduler.submitted.isEmpty)
+        companion.wants = true
+        rig.scheduler.scenePhaseChanged(.background)
+        let request = try #require(rig.taskScheduler.submitted.last)
+        #expect(request.requiresNetworkConnectivity)
+        #expect(request.earliestBeginDate == rig.clock.now.addingTimeInterval(BackupScheduler.companionInterval))
+
+        // The system runs the task: the backup's check, then sync, then it completes once.
+        let task = FakeBackgroundTask()
+        rig.taskScheduler.launch(id, with: task)
+        #expect(await Support.waitUntil { !task.completions.isEmpty })
+        #expect(companion.runs == 1)
+        #expect(task.completions == [true])
+
+        // Expiring stops sync's run too.
+        let second = FakeBackgroundTask()
+        companion.hold = SyncTestGate()
+        rig.taskScheduler.launch(id, with: second)
+        #expect(await Support.waitUntil { companion.hold?.isWaiting == true })
+        second.expire()
+        #expect(companion.cancels == 1)
+        #expect(second.completions == [false])
+        companion.hold?.open()
+
+        // Sync off again: nothing pending, the task is cancelled.
+        companion.wants = false
+        rig.scheduler.scenePhaseChanged(.background)
+        #expect(rig.taskScheduler.calls.last == "cancel:\(id)")
+    }
+
     @Test func aFailedBackgroundRunCompletesOnceAndReschedulesAfterTheBackOff() async throws {
         let rig = try await SchedulerRig()
         defer { rig.tearDown() }

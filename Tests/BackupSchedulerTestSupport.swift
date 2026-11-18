@@ -282,3 +282,21 @@ final class SchedulerRig {
         try? FileManager.default.removeItem(at: store.rootDirectory)
     }
 }
+
+/// Work sharing the background task (sync), as the scheduler sees it.
+@MainActor
+final class FakeCompanion: BackupBackgroundCompanion {
+    var wants = false
+    var hold: SyncTestGate?
+    private(set) var runs = 0
+    private(set) var cancels = 0
+
+    var wantsBackgroundTime: Bool { wants }
+
+    func runInBackgroundTask() async {
+        runs += 1
+        if let hold { await hold.wait() }
+    }
+
+    func cancelBackgroundTaskRun() { cancels += 1 }
+}
