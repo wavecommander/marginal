@@ -76,6 +76,11 @@ export interface Account {
   folderKey: string;
   provider: Provider;
   identityHash: string;
+  /**
+   * The identity is the dev test issuer's (a `dev-test:` namespace), not a real Apple or Google
+   * one. Only the `dev` deployment ever makes such an account.
+   */
+  devTest: boolean;
   appAccountToken: string;
   createdAt: number;
   identityChangedAt: number;
@@ -87,6 +92,7 @@ interface AccountRow {
   folder_key: string;
   identity_provider: string;
   identity_hash: string;
+  identity_dev_test: number;
   app_account_token: string;
   created_at: number;
   identity_changed_at: number;
@@ -99,6 +105,7 @@ function accountFromRow(row: AccountRow): Account {
     folderKey: row.folder_key,
     provider: row.identity_provider === "google" ? "google" : "apple",
     identityHash: row.identity_hash,
+    devTest: row.identity_dev_test === 1,
     appAccountToken: row.app_account_token,
     createdAt: row.created_at,
     identityChangedAt: row.identity_changed_at,
@@ -127,11 +134,11 @@ export function getAccountByAppAccountToken(db: D1Database, token: string): Prom
 export async function insertAccount(db: D1Database, account: Account): Promise<boolean> {
   const result = await db
     .prepare(
-      `INSERT INTO accounts (account_id, folder_key, identity_provider, identity_hash, app_account_token, created_at, identity_changed_at, deleting_since)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+      `INSERT INTO accounts (account_id, folder_key, identity_provider, identity_hash, identity_dev_test, app_account_token, created_at, identity_changed_at, deleting_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
        ON CONFLICT DO NOTHING`,
     )
-    .bind(account.accountId, account.folderKey, account.provider, account.identityHash, account.appAccountToken, account.createdAt, account.identityChangedAt)
+    .bind(account.accountId, account.folderKey, account.provider, account.identityHash, account.devTest ? 1 : 0, account.appAccountToken, account.createdAt, account.identityChangedAt)
     .run();
   return (result.meta.changes ?? 0) === 1;
 }
@@ -139,7 +146,8 @@ export async function insertAccount(db: D1Database, account: Account): Promise<b
 /**
  * Replaces the account's one identity with another, in one statement: it applies only if the
  * account still has `oldHash`, is not being deleted, and no account has `newHash`. The unique
- * index on the hash backs that last check against a concurrent sign-in.
+ * index on the hash backs that last check against a concurrent sign-in. `newDevTest` says whether
+ * the new identity is the dev test issuer's; it changes with the identity, in the same statement.
  */
 export async function changeIdentity(
   db: D1Database,
@@ -147,16 +155,17 @@ export async function changeIdentity(
   oldHash: string,
   provider: Provider,
   newHash: string,
+  newDevTest: boolean,
   now: number,
 ): Promise<"changed" | "in-use" | "stale"> {
   try {
     const result = await db
       .prepare(
-        `UPDATE accounts SET identity_provider = ?, identity_hash = ?, identity_changed_at = ?
+        `UPDATE accounts SET identity_provider = ?, identity_hash = ?, identity_dev_test = ?, identity_changed_at = ?
          WHERE account_id = ? AND identity_hash = ? AND deleting_since IS NULL
            AND NOT EXISTS (SELECT 1 FROM accounts WHERE identity_hash = ?)`,
       )
-      .bind(provider, newHash, now, accountId, oldHash, newHash)
+      .bind(provider, newHash, newDevTest ? 1 : 0, now, accountId, oldHash, newHash)
       .run();
     if ((result.meta.changes ?? 0) === 1) return "changed";
   } catch (error) {
@@ -489,6 +498,8 @@ export async function markDataDeleted(db: D1Database, accountId: string, namespa
 export interface DeletionCandidate {
   subscriber: Subscriber;
   folderKey: string;
+  /** The account's identity is the dev test issuer's (`dev` only; see devEntitlement.ts). */
+  accountDevTest: boolean;
 }
 
 /**
@@ -504,12 +515,12 @@ export async function deletionCandidates(
 ): Promise<DeletionCandidate[]> {
   const result = await db
     .prepare(
-      `SELECT s.*, a.folder_key AS folder_key FROM subscribers s JOIN accounts a ON a.account_id = s.account_id
+      `SELECT s.*, a.folder_key AS folder_key, a.identity_dev_test AS identity_dev_test FROM subscribers s JOIN accounts a ON a.account_id = s.account_id
        WHERE s.data_deleted_at IS NULL AND (s.account_id, s.namespace) > (?, ?)
          AND ((s.revoked_at IS NOT NULL AND s.revoked_at <= ?) OR (s.revoked_at IS NULL AND s.expires_at <= ?))
        ORDER BY s.account_id, s.namespace LIMIT ?`,
     )
     .bind(after.accountId, after.namespace, cutoff, cutoff, limit)
-    .all<SubscriberRow & { folder_key: string }>();
-  return result.results.map((row) => ({ subscriber: fromRow(row), folderKey: row.folder_key }));
+    .all<SubscriberRow & { folder_key: string; identity_dev_test: number }>();
+  return result.results.map((row) => ({ subscriber: fromRow(row), folderKey: row.folder_key, accountDevTest: row.identity_dev_test === 1 }));
 }

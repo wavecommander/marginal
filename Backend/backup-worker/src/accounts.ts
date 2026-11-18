@@ -6,6 +6,7 @@ import { revokeAppleAuthorization } from "./appleSignIn";
 import { fromBase64 } from "./bytes";
 import type { AccountResponse, DeleteAccountResponse, DeviceInfo, SignInResponse, SignOutResponse } from "./contract";
 import * as db from "./db";
+import { withDevTestEntitlement } from "./devEntitlement";
 import type { Env, Settings } from "./env";
 import { Refusal, json, optionalStringField, readJsonBody, stringField } from "./http";
 import { identityHash, newAccountId, newFolderKey, newSessionId, newSessionToken, sessionTokenHash, type Provider } from "./identity";
@@ -47,6 +48,7 @@ export async function signIn(provider: Provider, request: Request, env: Env, set
       folderKey: newFolderKey(),
       provider,
       identityHash: hash,
+      devTest: verified.issuer === "dev-test",
       appAccountToken: crypto.randomUUID().toLowerCase(),
       createdAt: now,
       identityChangedAt: now,
@@ -106,7 +108,8 @@ export async function changeSignIn(request: Request, env: Env, settings: Setting
   if (await db.getAccountByIdentity(env.DB, nextHash)) throw new Refusal("identity-in-use", "new identity has an account");
 
   // 3. The swap, in one statement: never two identities, never none.
-  const outcome = await db.changeIdentity(env.DB, account.accountId, account.identityHash, fields.newProvider, nextHash, deps.now().getTime());
+  const nextDevTest = next.issuer === "dev-test";
+  const outcome = await db.changeIdentity(env.DB, account.accountId, account.identityHash, fields.newProvider, nextHash, nextDevTest, deps.now().getTime());
   if (outcome === "in-use") throw new Refusal("identity-in-use", "new identity has an account");
   if (outcome === "stale") throw new Refusal("identity-mismatch", "account changed meanwhile");
   logEvent("sign-in-changed", { account: shortKey(account.accountId), from: account.provider, to: fields.newProvider });
@@ -115,7 +118,7 @@ export async function changeSignIn(request: Request, env: Env, settings: Setting
   if (account.provider === "apple") {
     await revokeAppleAuthorization(fields.currentAuthorizationCode!, settings, deps.fetch, deps.now(), "sign-in-changed");
   }
-  const changed: db.Account = { ...account, provider: fields.newProvider, identityHash: nextHash };
+  const changed: db.Account = { ...account, provider: fields.newProvider, identityHash: nextHash, devTest: nextDevTest };
   return json(200, await accountResponse(env, settings, deps, changed, session.sessionId));
 }
 
@@ -163,7 +166,7 @@ async function accountResponse(env: Env, settings: Settings, deps: Deps, account
     label: session.label,
     current: session.sessionId === currentSessionId,
   }));
-  const primary = primaryOf(await db.listSubscribers(env.DB, account.accountId), now, settings);
+  const primary = primaryOf(withDevTestEntitlement(await db.listSubscribers(env.DB, account.accountId), account, settings, now).candidates, now, settings);
   let subscription: AccountResponse["subscription"] = null;
   let usage: AccountResponse["usage"] = null;
   if (primary) {
