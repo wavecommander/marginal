@@ -163,8 +163,7 @@ final class CloudAccountUITests: XCTestCase {
         note.tap()
         note.typeText(text)
         XCTAssertTrue(waitFor(note, "value CONTAINS %@".replacingOccurrences(of: "%@", with: "'\(text)'")), "typed: \(String(describing: note.value))")
-        XCTAssertTrue(waitFor(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true"), "the note saves")
-        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertTrue(waitFor(app.staticTexts[ID.noteStatus].firstMatch, "label == 'Saved'"), "the note saves")
         if !before.isEmpty, before != "Write a note…" {
             XCTAssertTrue((note.value as? String)?.contains(before) == true, "what was there is still there")
         }

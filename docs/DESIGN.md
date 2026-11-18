@@ -265,9 +265,9 @@ ones even where the mockup draws an approximation.
   - *Section note tab, under the note:* the level picker, at the bottom of the panel. It is the
     heading path, shallowest first, with the shown heading marked and a mark on each level that
     has a note; choosing a level shows that heading's note. It can be collapsed to a single row
-    that names the shown heading, it starts collapsed, and the choice is remembered. Below it,
-    "Open in Notebook". There is no "Page notes in this section" list: the Notebook lists a
-    section's page notes.
+    that names the shown heading, it starts collapsed, and the choice is remembered. There is no
+    "Open in Notebook" button here (removed, 18 November 2026: the Notebook is reached from the
+    toolbar) and no "Page notes in this section" list: the Notebook lists a section's page notes.
 - **Highlights** are made from a text selection through the edit menu (colour choices). Tapping
   a highlight offers recolour and delete. **Text highlights are made with a finger, outside
   markup mode** (owner decision for now): on the current SDK text cannot be selected while the
@@ -312,7 +312,10 @@ ones even where the mockup draws an approximation.
   and shows a brief Undo pill button that restores the note and its ink. The same action and
   Undo pill are offered on a note's row in the Notebook and Library search results. The change
   shows in every window.
-- **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
+- **Autosave** everywhere, debounced. There is no Save button and no visible save status in the
+  notes panel (removed, 18 November 2026); the state ("Edited", "Saving…", "Saved", "Not saved",
+  or "Empty" for the placeholder) is kept as a hidden accessibility element (`notePage.status`)
+  for VoiceOver and as the UI tests' save signal.
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts, and its exported marked-up PDFs (counted as "exported
   PDFs"; see "Export Marked-Up PDF").
@@ -1094,7 +1097,7 @@ switching between development branches).
 | Ink storage | One file per page, `Application Support/Books/<bookID>/ink/<page>.drawing`, and one per note, `.../notes/<noteID>.drawing`; atomic writes | Keeps megabytes of strokes out of the database; one surface's write cannot corrupt another. |
 | Note page | A fixed-width, non-scrolling text view with a `PKCanvasView` of the same content size over it, both inside one zooming scroll view | Text and ink share one coordinate space at every zoom; the outer scroll view owns scrolling and pinch. |
 | Note ink anchoring | Strokes are stored per paragraph band in band-local coordinates, with the band layout saved alongside; the displayed drawing is composed from the bands' current positions | Typing above a marked-up paragraph moves its ink with it, and a font-metric change between OS versions shifts bands instead of misplacing ink. |
-| Note text | Plain text with a fixed font size on the note page; larger text comes from zoom | A fixed layout is what keeps ink registered. Dynamic Type sets the default zoom. |
+| Note text | Text with a fixed font size and line height on the note page, with inline bold, italic, underline and strikethrough (formatting bar above the note, ⌘B/⌘I/⌘U); larger text comes from zoom | A fixed layout is what keeps ink registered: formatting never changes the size or line height, and text pasted or dropped from elsewhere keeps only those four styles (no fonts, sizes, colours, links or images). Dynamic Type sets the default zoom. |
 | Tool picker | One shared `PKToolPicker` owned by the reader session; page canvases and the note canvas register with it | One tool and colour selection across both surfaces. |
 | Heading identity | A stable anchor derived from the node's outline path, title and start page, with a fallback match on title plus page | PDF outline items carry no ID, and notes must survive relaunch. |
 | Core logic | A pure-Swift package (`ReaderCore`) with no PDFKit or SwiftData imports | Outline, anchoring, scoping and export are testable with `swift test` in seconds. |
@@ -1224,6 +1227,12 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
    `software.tactile.texts`.
 2. Notes are plain text under the ink in version 1 (no bold, lists are typed dashes). Rich text
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
+   *Experiment (`exp/rich-text-notes`, 18 November 2026):* inline bold, italic, underline and
+   strikethrough at the fixed font size and line height, stored as spans beside the plain text
+   (`Note.richTextData`, schema version 4). Open for the owner: a version without it (an older
+   build, or one restored from a newer backup) keeps the text but drops the formatting of any
+   note it saves, and once such a build syncs, its unformatted notes win the merge and the
+   formatting is lost on every device. Acceptable, or must older builds be kept off sync first?
 3. ~~Exporting an annotated PDF copy of the book.~~ Settled: in version 1 (owner request
    TSOFT-229, 16 November 2026), built as "Export Marked-Up PDF" (see "Export").
 4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build

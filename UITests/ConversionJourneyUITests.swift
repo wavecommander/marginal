@@ -323,8 +323,7 @@ final class ConversionJourneyUITests: XCTestCase {
         view.tap()
         view.typeText(text)
         XCTAssertTrue(wait(view, "value == %@", [text]), "typed \(text)")
-        XCTAssertTrue(wait(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true", []), "saved \(text)")
-        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertTrue(wait(app.staticTexts[ID.noteStatus].firstMatch, "label == %@", ["Saved"]), "saved \(text)")
     }
 
     // MARK: Highlights (as in HighlightsUITests, with the phrase's own font)

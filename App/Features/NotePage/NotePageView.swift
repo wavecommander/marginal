@@ -15,7 +15,7 @@ final class NoteFormattingController {
         guard self.editor !== editor else { return }
         self.editor = editor
         let attrs = editor.currentFormattingAttributes
-        let editable = editor.textView.isEditable
+        let editable = editor.isFormattingEnabled
         Task { @MainActor [weak self] in
             self?.update(attributes: attrs, isEditable: editable)
         }

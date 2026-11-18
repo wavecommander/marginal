@@ -648,8 +648,15 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         textViewDidChange(textView)
     }
 
+    /// `true` between the text view's begin and end editing: the formatting bar works only then,
+    /// since a toggle without a caret has nothing to apply to.
+    private var isTextFocused = false
+
+    /// Whether the formatting controls can act now (see `isTextFocused`).
+    var isFormattingEnabled: Bool { textView.isEditable && isTextFocused }
+
     func notifyFormattingChange() {
-        onFormattingChange?(currentFormattingAttributes, textView.isEditable)
+        onFormattingChange?(currentFormattingAttributes, isFormattingEnabled)
     }
 
     // MARK: Keyboard
@@ -699,6 +706,17 @@ extension NotePageEditorView: UIScrollViewDelegate {
 
 extension NotePageEditorView: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
+        if textView.markedTextRange == nil {
+            // Paste and drop keep their source's styles: back to the note's own.
+            let selection = textView.selectedRange
+            let before = textView.textStorage.length
+            if NotePageStyle.sanitize(textView.textStorage) {
+                let removed = before - textView.textStorage.length
+                let location = min(max(0, selection.location - removed), textView.textStorage.length)
+                textView.selectedRange = NSRange(location: location,
+                                                 length: removed == 0 ? selection.length : 0)
+            }
+        }
         updatePlaceholder()
         bandLayout = nil
         let richData = NotePageStyle.extractRichTextData(from: textView.attributedText)
@@ -715,10 +733,14 @@ extension NotePageEditorView: UITextViewDelegate {
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        isTextFocused = true
         currentModel?.setEditingText(true)
+        notifyFormattingChange()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
+        isTextFocused = false
+        notifyFormattingChange()
         currentModel?.setEditingText(false)
         currentModel?.textEditingDidSettle()
         session?.markup.reassertToolPicker()

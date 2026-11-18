@@ -146,41 +146,68 @@ public struct NoteRichText: Codable, Hashable, Sendable {
         }
         cuts = Array(Set(cuts)).sorted()
 
+        // Markers open and close only where a style starts or ends, nested outermost first, and
+        // stay inside the surrounding whitespace, so neighbouring styled runs stay valid Markdown.
         var result = ""
+        var open: [MarkdownMarker] = []
+        func close(downTo count: Int) {
+            guard open.count > count else { return }
+            let trailing = String(result.reversed().prefix(while: { $0.isWhitespace }).reversed())
+            result.removeLast(trailing.count)
+            while open.count > count { result += open.removeLast().closing }
+            result += trailing
+        }
         for i in 0..<(cuts.count - 1) {
             let segStart = cuts[i]
             let segEnd = cuts[i + 1]
             let segment = nsText.substring(with: NSRange(location: segStart, length: segEnd - segStart))
+            if segment.allSatisfy(\.isWhitespace) {
+                result += segment
+                continue
+            }
             let attrs = spans.first { $0.location <= segStart && $0.location + $0.length >= segEnd }?.attributes ?? .default
-            result += wrapMarkdown(segment, attributes: attrs)
+            let wanted = MarkdownMarker.markers(for: attrs)
+            let kept = zip(open, wanted).prefix(while: { $0 == $1 }).count
+            close(downTo: kept)
+            let leading = String(segment.prefix(while: { $0.isWhitespace }))
+            result += leading
+            for marker in wanted.dropFirst(kept) {
+                result += marker.opening
+                open.append(marker)
+            }
+            result += segment.dropFirst(leading.count)
         }
+        close(downTo: 0)
         return result
     }
 
-    private static func wrapMarkdown(_ segment: String, attributes: NoteTextAttributes) -> String {
-        guard !attributes.isDefault, !segment.isEmpty else { return segment }
-        // Keep leading/trailing whitespace outside inline markers.
-        let leading = String(segment.prefix(while: { $0.isWhitespace }))
-        let remainder = segment.dropFirst(leading.count)
-        let trailing = String(remainder.reversed().prefix(while: { $0.isWhitespace }).reversed())
-        let core = String(remainder.dropLast(trailing.count))
-        guard !core.isEmpty else { return segment }
+    private enum MarkdownMarker: Equatable {
+        case underline, strikethrough, bold, italic
 
-        var wrapped = core
-        if attributes.isBold && attributes.isItalic {
-            wrapped = "***\(wrapped)***"
-        } else if attributes.isBold {
-            wrapped = "**\(wrapped)**"
-        } else if attributes.isItalic {
-            wrapped = "*\(wrapped)*"
+        static func markers(for attributes: NoteTextAttributes) -> [MarkdownMarker] {
+            var result: [MarkdownMarker] = []
+            if attributes.isUnderline { result.append(.underline) }
+            if attributes.isStrikethrough { result.append(.strikethrough) }
+            if attributes.isBold { result.append(.bold) }
+            if attributes.isItalic { result.append(.italic) }
+            return result
         }
-        if attributes.isStrikethrough {
-            wrapped = "~~\(wrapped)~~"
+
+        var opening: String {
+            switch self {
+            case .underline: "<u>"
+            case .strikethrough: "~~"
+            case .bold: "**"
+            case .italic: "*"
+            }
         }
-        if attributes.isUnderline {
-            wrapped = "<u>\(wrapped)</u>"
+
+        var closing: String {
+            switch self {
+            case .underline: "</u>"
+            default: opening
+            }
         }
-        return leading + wrapped + trailing
     }
 
     // MARK: Paragraph-aware formatting merge
@@ -268,17 +295,23 @@ public struct NoteRichText: Codable, Hashable, Sendable {
             let rZero = rSrc.flatMap { $0 < remoteRanges.count ? spans(in: remoteSpans, within: remoteRanges[$0], shiftedTo: NSRange(location: 0, length: dstRange.length)) : nil } ?? []
             let bZero = bSrc.flatMap { $0 < baseRanges.count ? spans(in: baseSpans, within: baseRanges[$0], shiftedTo: NSRange(location: 0, length: dstRange.length)) : nil } ?? []
 
+            // Spans are offsets into one side's paragraph text: only a side whose paragraph
+            // text is the merged paragraph's can give it formatting (the other side's is dropped).
+            let dstText = (mergedText as NSString).substring(with: dstRange)
+            let lMatches = lSrc.map { $0 < localRanges.count && paragraphText(local.note.text, localRanges[$0]) == dstText } ?? false
+            let rMatches = rSrc.map { $0 < remoteRanges.count && paragraphText(remote.note.text, remoteRanges[$0]) == dstText } ?? false
+
             let chosenZero: [NoteTextSpan]
-            if lSrc != nil && rSrc != nil {
+            if lMatches && rMatches {
                 // If local kept base formatting and remote changed it, adopt remote's formatting.
                 if lZero == bZero && rZero != bZero {
                     chosenZero = rZero
                 } else {
                     chosenZero = lZero
                 }
-            } else if lSrc != nil {
+            } else if lMatches {
                 chosenZero = lZero
-            } else if rSrc != nil {
+            } else if rMatches {
                 chosenZero = rZero
             } else {
                 chosenZero = []
@@ -291,6 +324,22 @@ public struct NoteRichText: Codable, Hashable, Sendable {
             }
         }
         return NoteRichText(spans: mergedSpans).encoded()
+    }
+
+    private static func paragraphText(_ text: String, _ range: NSRange) -> String {
+        (text as NSString).substring(with: range)
+    }
+
+    /// The spans inside `utf16Range` of the text, moved to start at 0 (a slice of the text).
+    public func slice(utf16Range: NSRange) -> NoteRichText {
+        let end = utf16Range.location + utf16Range.length
+        let sliced: [NoteTextSpan] = spans.compactMap { span in
+            let start = max(utf16Range.location, span.location)
+            let spanEnd = min(end, span.location + span.length)
+            guard start < spanEnd else { return nil }
+            return NoteTextSpan(location: start - utf16Range.location, length: spanEnd - start, attributes: span.attributes)
+        }
+        return NoteRichText(version: version, spans: sliced)
     }
 
     private static func spans(in all: [NoteTextSpan], within srcRange: NSRange, shiftedTo dstRange: NSRange) -> [NoteTextSpan] {

@@ -131,6 +131,29 @@ nonisolated enum NotePageStyle {
         return mutable
     }
 
+    /// Brings text pasted or dropped from elsewhere to the note's own attributes: removes
+    /// attachments (images) and keeps only bold, italic, underline and strikethrough, so the
+    /// live layout is the one stored text lays out to. Returns `true` when it changed anything.
+    @discardableResult
+    static func sanitize(_ storage: NSTextStorage) -> Bool {
+        let whole = NSRange(location: 0, length: storage.length)
+        var attachments: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: whole, options: .reverse) { value, range, _ in
+            if value != nil { attachments.append(range) }
+        }
+        var restyle: [(NSRange, [NSAttributedString.Key: Any])] = []
+        storage.enumerateAttributes(in: whole, options: []) { attrs, range, _ in
+            let canonical = uiAttributes(for: noteAttributes(from: attrs))
+            if !NSDictionary(dictionary: attrs).isEqual(to: canonical) { restyle.append((range, canonical)) }
+        }
+        guard !attachments.isEmpty || !restyle.isEmpty else { return false }
+        storage.beginEditing()
+        for (range, canonical) in restyle { storage.setAttributes(canonical, range: range) }
+        for range in attachments { storage.deleteCharacters(in: range) }  // last first (`.reverse`)
+        storage.endEditing()
+        return true
+    }
+
     /// Serialises inline formatting spans from an attributed string; `nil` when all text is plain.
     static func extractRichTextData(from attributedString: NSAttributedString) -> Data? {
         let length = attributedString.length

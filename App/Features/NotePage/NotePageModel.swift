@@ -276,13 +276,20 @@ final class NotePageModel {
     }
 
     /// The text view's text or formatting changed (typing, paste, dictation, Scribble, formatting, undo/redo).
-    func userDidEditText(_ newText: String, richTextData newRichTextData: Data? = nil) {
+    func userDidEditText(_ newText: String, richTextData newRichTextData: Data?) {
         guard newText != text || newRichTextData != richTextData else { return }
         text = newText
         richTextData = newRichTextData
         relayoutInk()
         revision += 1
         scheduleSave()
+    }
+
+    /// Sets the text from code (not the text view): the note keeps its formatting, clamped to
+    /// the new text.
+    func userDidEditText(_ newText: String) {
+        let kept = NoteRichText.decoded(from: richTextData)?.clamped(toUTF16Length: newText.utf16.count).encoded()
+        userDidEditText(newText, richTextData: kept)
     }
 
     /// A stroke began on the canvas: remote changes and autosaves wait until it ends.

@@ -434,9 +434,24 @@ struct NotesPanel: View {
                     .ignoresSafeArea(.keyboard, edges: .bottom)
                     .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
             }
+            .overlay(alignment: .topLeading) { saveStatus(model) }
         } else {
             NotesSectionEmptyState(session: session, controller: controller)
         }
+    }
+
+    /// The save state, not shown on screen (the panel has no status label) but kept for
+    /// VoiceOver and as the UI tests' save signal ("Saved", "Empty").
+    private func saveStatus(_ model: NotePageModel) -> some View {
+        let status = model.statusText
+        return Text(status.isEmpty ? " " : status)
+            .font(.footnote)
+            .foregroundStyle(.clear)
+            .frame(width: 1, height: 1)
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityLabel(model.saveState == .empty ? "Empty" : status)
+            .accessibilityIdentifier(NotesPanelAccessibilityID.status)
     }
 
     private var formattingBar: some View {

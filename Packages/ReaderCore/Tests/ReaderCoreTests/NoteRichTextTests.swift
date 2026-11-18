@@ -70,6 +70,42 @@ struct NoteRichTextTests {
         #expect(md == "Hello **bold** world\nSecond ~~*italic*~~ line")
     }
 
+    @Test func markdownOpensAndClosesMarkersOnlyAtStyleBoundaries() {
+        let rich = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 2, attributes: NoteTextAttributes(isBold: true)),
+            NoteTextSpan(location: 2, length: 2, attributes: NoteTextAttributes(isBold: true, isItalic: true))
+        ]).encoded()
+        #expect(NoteRichText.markdown(for: "abcd", richTextData: rich) == "**ab*cd***")
+    }
+
+    @Test func sliceKeepsSpansInsideTheRangeFromZero() {
+        let rich = NoteRichText(spans: [
+            NoteTextSpan(location: 2, length: 6, attributes: NoteTextAttributes(isBold: true))
+        ])
+        #expect(rich.slice(utf16Range: NSRange(location: 5, length: 10)).spans
+                == [NoteTextSpan(location: 0, length: 3, attributes: NoteTextAttributes(isBold: true))])
+    }
+
+    /// Local bolds a word, remote rewrites the paragraph: remote's text wins, and local's offsets
+    /// (into the old text) are not laid over it.
+    @Test func threeWayMergeTakesFormattingOnlyFromTheSideWhoseTextWon() {
+        let bookID = UUID()
+        let noteID = UUID()
+        let base = Note(id: noteID, bookID: bookID, target: .page(0), text: "Hello world")
+        let localRich = NoteRichText(spans: [
+            NoteTextSpan(location: 6, length: 5, attributes: NoteTextAttributes(isBold: true))
+        ]).encoded()
+        let local = Note(id: noteID, bookID: bookID, target: .page(0), text: "Hello world", richTextData: localRich)
+        let remote = Note(id: noteID, bookID: bookID, target: .page(0), text: "Oh, Hello world")
+
+        let book = Book(id: bookID, title: "B", fingerprint: "fp", fileName: "b.pdf", pageCount: 1, fileSize: 1)
+        let merged = BookMerge.merge(local: BookArchive(book: book, notes: [local]),
+                                     remote: BookArchive(book: book, notes: [remote]),
+                                     base: BookArchive(book: book, notes: [base])).archive.notes[0]
+        #expect(merged.text == "Oh, Hello world")
+        #expect(merged.richTextData == nil)
+    }
+
     @Test func threeWaySyncMergePreservesFormattingPerParagraph() {
         let bookID = UUID()
         let noteID = UUID()

@@ -100,8 +100,7 @@ final class BackupUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), "note text view")
         field.tap()
         field.typeText(text)
-        XCTAssertTrue(waitFor(app.buttons["notes.deleteNote"].firstMatch, "isEnabled == true"), "note saved")
-        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertTrue(waitFor(app.staticTexts[ID.noteStatus].firstMatch, "label == 'Saved'"), "note saved")
         app.navigationBars.buttons["Library"].firstMatch.tap()
         XCTAssertTrue(book(app, "small").waitForExistence(timeout: 10))
     }
