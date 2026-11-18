@@ -23,6 +23,9 @@ nonisolated enum SyncWaitReason: Hashable, Sendable {
     case editInProgress
     /// A book was synced by a newer version of the app, which must be updated to send changes.
     case needsNewerApp
+    /// The account holds data in a newer format than this app reads: sync stops for the account
+    /// until the app is updated, and nothing changed (`SyncEngineError.formatTooNew`).
+    case accountNeedsNewerApp
 }
 
 /// Where sync stands, for the status line (C4b).
@@ -64,6 +67,9 @@ final class SyncService {
     private(set) var lastReport: SyncReport?
     /// When a round last ended with everything agreed.
     private(set) var lastSyncedAt: Date?
+    /// How many rounds this service has started (each `syncNow` that ran one), for the
+    /// scheduler's tests and the UI tests' debug readout.
+    private(set) var roundsStarted = 0
 
     @ObservationIgnored let library: LibrarySyncCore
     @ObservationIgnored let access: any SyncAccountProvider
@@ -154,6 +160,7 @@ final class SyncService {
     }
 
     private func round(joinConfirmed: Bool) async {
+        roundsStarted += 1
         await waitUntilReady()
         if backupService?.job != nil {
             status = .waiting(.backupOrRestore)
@@ -182,6 +189,9 @@ final class SyncService {
             if case .syncing = status { status = .idle }
         } catch SyncEngineError.joinConfirmationRequired {
             status = .needsJoinConfirmation
+        } catch SyncEngineError.formatTooNew {
+            // A newer app wrote the account's format: nothing changed; the app must be updated.
+            status = .waiting(.accountNeedsNewerApp)
         } catch SyncEngineError.roundInProgress {
             // Another caller's round (a download, say) holds the engine; this one ends quietly.
             status = .idle
@@ -220,6 +230,19 @@ final class SyncService {
             engine = (account.accountID, account.key, made)
             return (made, account.mode)
         }
+    }
+
+    // MARK: Synced books
+
+    /// The books on this device the signed-in account's engine has agreed with at least once
+    /// (it holds a base for them): their PDFs are in the account, so one that is missing here
+    /// can be downloaded. Empty when signed out. Read from the engine's directory (`bases/`, as
+    /// `SyncEngine` lays it out), so it holds across launches.
+    func syncedBookIDs() async -> Set<UUID> {
+        guard let accountID = await access.currentAccountID(),
+              let directory = try? accountDirectory(accountID) else { return [] }
+        let bases = SyncBaseStore(root: directory.appendingPathComponent("bases", isDirectory: true))
+        return Set((try? bases.bookIDs()) ?? [])
     }
 
     // MARK: Status

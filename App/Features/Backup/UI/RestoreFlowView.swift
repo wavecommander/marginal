@@ -27,6 +27,7 @@ struct RestoreFlowView: View {
         .onAppear {
             guard model == nil else { return }
             let model = RestoreFlowModel(request: request, service: environment.backupService, store: environment.store)
+            model.syncIsOn = { [weak sync = environment.sync] in sync?.isOn == true }
             self.model = model
             model.start()
         }

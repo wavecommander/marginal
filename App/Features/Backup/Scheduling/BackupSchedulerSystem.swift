@@ -117,3 +117,15 @@ final class SystemBackupAppLifecycle: BackupAppLifecycle {
         UIApplication.shared.endBackgroundTask(identifier)
     }
 }
+
+/// Work that shares the backup's background processing task (sync, `SyncScheduler`).
+@MainActor
+protocol BackupBackgroundCompanion: AnyObject {
+    /// Whether the task should be submitted for this work (with the network required), even
+    /// when no backup is pending.
+    var wantsBackgroundTime: Bool { get }
+    /// Runs in the task, after the backup's run.
+    func runInBackgroundTask() async
+    /// The task's time is running out: stop at once.
+    func cancelBackgroundTaskRun()
+}

@@ -152,6 +152,37 @@ nonisolated enum AccessibilityID {
     }
 
     /// The restore sheet: preview, progress and summary.
+    /// Sync (C4b): the section on the Tactile Texts Cloud page, the join sheet, and the states
+    /// in the Library and the reader.
+    enum Sync {
+        static let section = "sync.section"
+        static let toggle = "sync.toggle"
+        /// The status line; its value names the state (`SyncSectionView.statusValue`).
+        static let status = "sync.status"
+        /// The status line's button (Try Again, Enter Recovery Key…, Review…).
+        static let statusAction = "sync.status.action"
+        static let syncNow = "sync.now"
+        static let pdfPolicy = "sync.pdfPolicy"
+        /// DEBUG with `-syncTestFolder`: the rounds this launch has started, as its value.
+        static let debugRounds = "sync.debug.rounds"
+        // The join sheet
+        static let joinSheet = "sync.join"
+        static let joinOnlyHere = "sync.join.onlyHere"
+        static let joinOnlyInAccount = "sync.join.onlyInAccount"
+        static let joinInBoth = "sync.join.inBoth"
+        static let joinConfirm = "sync.join.confirm"
+        static let joinNotNow = "sync.join.notNow"
+        // The Library
+        /// A synced book's PDF download state: `library.book.<title>.download` (value: the state).
+        static func download(_ title: String) -> String { "library.book.\(title).download" }
+        /// A book that is not yet up to date: `library.book.<title>.syncState`.
+        static func bookState(_ title: String) -> String { "library.book.\(title).syncState" }
+        // The reader (a synced book opened without its PDF)
+        static let readerDownload = "reader.syncDownload"
+        static let readerDownloadCancel = "reader.syncDownload.cancel"
+        static let readerDownloadRetry = "reader.syncDownload.retry"
+    }
+
     enum Restore {
         static let sheet = "restore.sheet"
         static let header = "restore.header"

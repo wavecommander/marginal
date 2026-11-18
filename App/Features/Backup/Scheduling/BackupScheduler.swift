@@ -65,6 +65,12 @@ final class BackupScheduler {
     let destinations: BackupDestinationRegistry
     /// Awaited before every run (`AppEnvironment` sets it to its launch work).
     var waitUntilReady: @MainActor () async -> Void
+    /// Other work that shares the background processing task (sync, `SyncScheduler`): while it
+    /// wants time, the task is submitted even with no backup pending, and when the system runs
+    /// the task it runs after the backup. `nil`: the task is the backup's alone.
+    weak var companion: (any BackupBackgroundCompanion)?
+    /// How soon the task is asked for when only the companion wants it.
+    nonisolated static let companionInterval: TimeInterval = 15 * 60
 
     /// `false` in a process that reset state, until automatic backups are switched on in it.
     private(set) var isArmed: Bool
@@ -248,9 +254,11 @@ final class BackupScheduler {
     /// task rescheduled and completed unsuccessfully.
     func handleBackgroundTask(_ task: any BackupBackgroundTaskHandle) {
         let completion = BackgroundTaskCompletion(task)
+        let companion = companion
         task.expirationHandler = { [weak self] in
             backupSchedulerLog.notice("background task expired")
             self?.cancelRun()
+            companion?.cancelBackgroundTaskRun()
             self?.scheduleBackgroundTask()
             completion.complete(success: false)
         }
@@ -262,6 +270,7 @@ final class BackupScheduler {
             } else {
                 outcome = await runIfDue(.backgroundTask)
             }
+            if let companion, companion.wantsBackgroundTime { await companion.runInBackgroundTask() }
             scheduleBackgroundTask()
             switch outcome {
             case .failed, .cancelled, .busy: completion.complete(success: false)
@@ -276,20 +285,29 @@ final class BackupScheduler {
     func scheduleBackgroundTask() {
         guard isBackgroundTaskRegistered, isArmed else { return }
         flushPendingChange()
-        guard settings.isEnabled, let id = settings.destinationID else {
-            cancelBackgroundTask()
-            return
-        }
-        var inputs = dueInputs(destination: destinations.destination(id: id) == nil ? .notRegistered : .available)
-        inputs.serviceIsBusy = false
         let current = now()
-        guard let due = BackupDueRule.nextDueDate(inputs, now: current) else {
+        let companionWants = companion?.wantsBackgroundTime == true
+        var due: Date?
+        var requiresNetwork = false
+        if settings.isEnabled, let id = settings.destinationID {
+            var inputs = dueInputs(destination: destinations.destination(id: id) == nil ? .notRegistered : .available)
+            inputs.serviceIsBusy = false
+            due = BackupDueRule.nextDueDate(inputs, now: current)
+            requiresNetwork = Self.requiresNetwork(destinationID: id)
+        }
+        if companionWants {
+            // Sync needs the network, and asks again within `companionInterval`.
+            let companionDue = current.addingTimeInterval(Self.companionInterval)
+            due = min(due ?? companionDue, companionDue)
+            requiresNetwork = true
+        }
+        guard let due else {
             cancelBackgroundTask()
             return
         }
         let request = BackupBackgroundTaskRequest(identifier: Self.taskIdentifier,
                                                   earliestBeginDate: due > current ? due : nil,
-                                                  requiresNetworkConnectivity: Self.requiresNetwork(destinationID: id),
+                                                  requiresNetworkConnectivity: requiresNetwork,
                                                   requiresExternalPower: false)
         do {
             try taskScheduler.submit(request)

@@ -231,7 +231,7 @@ struct LibraryScreen: View {
                     progressRows
                     if !isSearching, let book = LibraryLogic.continueReading(all) {
                         ContinueReadingCard(book: book, annotationCount: model.continueAnnotationCount,
-                                            isMissingPDF: model.isMissingPDF(book),
+                                            isMissingPDF: showsPDFMissing(book, model),
                                             onResume: { open(book) },
                                             onNotebook: { window.openNotebook(bookID: book.id) })
                     }
@@ -274,7 +274,7 @@ struct LibraryScreen: View {
                     .map { LibrarySearchResultsView.BookCount(book: $0, count: counts[$0.id] ?? 0) },
                 titleMatches: LibraryLogic.titleMatches(all, query: query, sort: sort),
                 query: query,
-                isMissingPDF: { model.isMissingPDF($0) },
+                isMissingPDF: { showsPDFMissing($0, model) },
                 openBook: { open($0) },
                 openAt: { book, page, heading in open(book, pageIndex: page, notesHeading: heading) },
                 openInNewWindow: { book, page, heading in
@@ -346,8 +346,24 @@ struct LibraryScreen: View {
         }
     }
 
+    /// "PDF missing" (and Locate PDF…) is for a book whose PDF is gone; a synced book whose PDF is
+    /// in the account shows its download state instead.
+    private func showsPDFMissing(_ book: Book, _ model: LibraryModel) -> Bool {
+        model.isMissingPDF(book) && syncBadge(book) == nil
+    }
+
+    /// A synced book without its PDF (sync on): its download state.
+    private func syncBadge(_ book: Book) -> SyncPDFBadge? {
+        environment.sync?.pdfs.badge(for: book.id)
+    }
+
     private func cell(for book: Book) -> some View {
         let isMissing = model?.isMissingPDF(book) ?? false
+        let download = isMissing ? syncBadge(book) : nil
+        let syncState = environment.sync?.bookState(book.id)
+        var label = MissingPDFText.cellAccessibilityLabel(LibraryLogic.accessibilityLabel(book), isMissing: isMissing && download == nil)
+        if let download { label += ", \(download.text)" }
+        if let syncState { label += ", \(syncState.title)" }
         return Button {
             open(book)
         } label: {
@@ -357,10 +373,21 @@ struct LibraryScreen: View {
                     .overlay { BookCoverView(book: book, isMissingPDF: isMissing) }
                     .bookCoverStyle()
                     .overlay(alignment: .bottomLeading) {
-                        if isMissing {
+                        if let download {
+                            SyncPDFDownloadBadge(badge: download)
+                                .padding(Space.s)
+                                .accessibilityIdentifier(AccessibilityID.Sync.download(book.title))
+                        } else if isMissing {
                             PDFMissingBadge()
                                 .padding(Space.s)
                                 .accessibilityIdentifier(AccessibilityID.Library.pdfMissing(book.title))
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if let syncState {
+                            SyncBookStateMark(state: syncState)
+                                .padding(Space.xs)
+                                .accessibilityIdentifier(AccessibilityID.Sync.bookState(book.title))
                         }
                     }
                     .onDrag { LibraryActivity.itemProvider(bookID: book.id, title: book.title) }
@@ -378,13 +405,20 @@ struct LibraryScreen: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.lift)
-        .accessibilityLabel(MissingPDFText.cellAccessibilityLabel(LibraryLogic.accessibilityLabel(book), isMissing: isMissing))
+        .accessibilityLabel(label)
         .accessibilityIdentifier(AccessibilityID.Library.book(book.title))
         .contextMenu { menu(for: book) }
     }
 
     @ViewBuilder
     private func menu(for book: Book) -> some View {
+        if let state = environment.sync?.bookState(book.id) {
+            SyncBookStateMenuSection(state: state)
+        }
+        if model?.isMissingPDF(book) == true, syncBadge(book) != nil, let pdfs = environment.sync?.pdfs {
+            Button(String(localized: "Download PDF", comment: "Library: context menu item that downloads a synced book's PDF now."),
+                   systemImage: "icloud.and.arrow.down") { pdfs.requestNow(book.id) }
+        }
         if model?.isMissingPDF(book) == true {
             Button(MissingPDFText.locateTitle, systemImage: "doc.badge.plus") { presentImporter(.locatePDF(book)) }
             Divider()
@@ -513,7 +547,11 @@ struct LibraryScreen: View {
     /// Opens the book in place (at `pageIndex`, with `notesHeading`'s note in the notes panel,
     /// when given), or, when its PDF is missing, offers Locate PDF… and the Notebook.
     private func open(_ book: Book, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
-        if model?.isMissingPDF(book) == true {
+        if model?.isMissingPDF(book) == true, environment.sync?.pdfs.isSyncedWithoutPDF(book.id) == true {
+            // A synced book: the reader downloads its PDF first (with Cancel), then opens it.
+            environment.sync?.pdfs.requestNow(book.id)
+            window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
+        } else if model?.isMissingPDF(book) == true {
             missingPrompt = book
         } else {
             window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
@@ -615,8 +653,10 @@ struct LibraryScreen: View {
             do {
                 let summary = try await environment.store.deletionSummary(bookID: book.id)
                 let exports = environment.markedUpExports.records(for: book.id).filter { $0.isRunning || $0.isFinished }.count
-                deletePrompt = DeletePrompt(book: book, message: LibraryLogic.deletionMessage(title: book.title, summary: summary,
-                                                                                             exportedPDFs: exports))
+                var message = LibraryLogic.deletionMessage(title: book.title, summary: summary, exportedPDFs: exports)
+                // Sync carries the deletion to the other devices (Recently Deleted is not built yet).
+                if environment.sync?.isOn == true { message += " " + SyncNoticeText.deleteCarried }
+                deletePrompt = DeletePrompt(book: book, message: message)
             } catch {
                 errorMessage = "Couldn't look up what deleting “\(book.title)” removes: \(error)"
             }

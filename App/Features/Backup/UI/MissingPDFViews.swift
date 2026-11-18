@@ -134,6 +134,17 @@ struct ReaderUnavailableView: View {
     @State private var observation: StoreChangeObservation?
 
     var body: some View {
+        if let pdfs = environment.sync?.pdfs, pdfs.isSyncedWithoutPDF(book.id) {
+            // A synced book whose PDF is in the account: it downloads first, then opens.
+            SyncPDFReaderDownloadView(book: book, pdfs: pdfs)
+                .task(id: book.id) { watchForDocument() }
+                .onDisappear { observation = nil }
+        } else {
+            unavailable
+        }
+    }
+
+    private var unavailable: some View {
         ContentUnavailableView {
             Label("Cannot Open Book", systemImage: "exclamationmark.triangle")
         } description: {
@@ -152,12 +163,19 @@ struct ReaderUnavailableView: View {
         .locatePDF(for: $locateTarget) { _ in reopen() }
         .task(id: book.id) {
             isMissing = await !Self.documentExists(book, store: environment.store)
-            observation = environment.store.hub.observe { event in
-                guard case .bookSaved(let id) = event.change, id == book.id else { return }
-                if environment.store.hasDocument(book) { reopen() }
-            }
+            watchForDocument()
         }
         .onDisappear { observation = nil }
+    }
+
+    /// Reopens the book once its PDF is in place (linked here or in any window, or downloaded).
+    private func watchForDocument() {
+        guard observation == nil else { return }
+        let store = environment.store
+        observation = store.hub.observe { event in
+            guard case .bookSaved(let id) = event.change, id == book.id else { return }
+            if store.hasDocument(book) { reopen() }
+        }
     }
 
     private func reopen() {

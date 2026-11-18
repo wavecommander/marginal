@@ -50,6 +50,8 @@ final class RestoreFlowModel {
     var restorePDFs = true
     /// The replace confirmation waiting for an answer.
     var confirmation: RestorePreviewLogic.Confirmation?
+    /// Whether Sync is on (the replace confirmation then says the change reaches the other devices).
+    @ObservationIgnored var syncIsOn: () -> Bool = { false }
     /// Set when the sheet should go away by itself (the reader cancelled opening).
     private(set) var shouldClose = false
 
@@ -174,7 +176,7 @@ final class RestoreFlowModel {
     /// Restore asks first when a ticked book is set to Replace with Backup.
     func requestRestore() {
         guard case .preview = stage, !actions.isEmpty else { return }
-        if let confirmation = RestorePreviewLogic.confirmation(selected: selectedWithActions) {
+        if let confirmation = RestorePreviewLogic.confirmation(selected: selectedWithActions, syncOn: syncIsOn()) {
             self.confirmation = confirmation
         } else {
             restore()
