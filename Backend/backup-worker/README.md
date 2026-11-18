@@ -66,7 +66,9 @@ npm run prove
 ### The app against `wrangler dev` (end to end)
 
 `TactileTextsTests/BackupCloudServiceEndToEndTests` runs the app's own client against a local
-`wrangler dev` that mints real temporary credentials for the real development bucket. The
+`wrangler dev` that mints real temporary credentials for the real development bucket: a backup,
+restore and account deletion, and sync between two libraries in one process (including Recently
+Deleted and housekeeping). It removes everything it wrote. The
 simulator has neither App Attest nor a way to get a real Apple or Google ID token for a test
 run, so the test uses the `dev` deployment's two development switches: the App Attest bypass,
 and the dev test issuer (below), which it signs in through by minting its own tokens. What it

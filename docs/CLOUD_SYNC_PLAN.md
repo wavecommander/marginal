@@ -382,6 +382,31 @@ in the restore and delete confirmations, and `-syncTestSeedBook` for UI tests. N
 status. Device checks are in `docs/DEVICE_CHECKLIST.md`. C4 is done apart from those; C5 is
 next.
 
+**C5, 18 November 2026: built, on its own branch, not yet merged.** In `ReaderSync`: last-modified
+times on every object listing and head (S3's own; the folder store's file dates; a settable clock
+in the in-memory store); Recently Deleted (`recentlyDeleted`, `restoreDeleted`: the head becomes
+live one version above the highest seen and the book is made here at once; refused cleanly when
+content is gone); earlier versions (`versions`, `restoreVersion`: the version becomes an ordinary
+local change that the next round pushes, removals included); housekeeping (`housekeep`: history
+past 30 days, tombstones for deletions past 30 days, blobs and PDFs nothing refers to past seven
+days, PDFs only after every snapshot was read, nothing at all when anything is unreadable, ages by
+the store's clock, bounded per run, resumable, repairs of missing blobs this device holds). Format
+and engine changes: tombstones carry writer level 2 (the app's level is now 2; ordinary heads stay
+level 1, so a level-1 app keeps syncing them); history is written before the head that replaces
+it; a push rewrites a stored blob older than a day instead of relying on it, re-checks its uploads
+when more than an hour passes before the head write, and checks once a day that the blobs it keeps
+are there; a backup to Tactile Texts Cloud likewise rewrites a PDF older than a day. In the app:
+the Recently Deleted list on the Tactile Texts Cloud page, Earlier Versions… in the Library with a
+restore safety copy (Undo Last Restore), the Delete Book confirmation's 30 days, and housekeeping
+after a full round at most once a day. **Verified**: the six packages' tests (fault injection at
+every store call and every step of housekeeping, the race with a push as deterministic
+interleavings), the app tests with two real libraries, the UI test, and the end-to-end test against
+`wrangler dev` and the real development bucket (two libraries in one process: a note, a highlight,
+page ink and a deletion cross; Recently Deleted restores; housekeeping removes nothing; R2 moves an
+object's date when it is written again; every object opaque; all removed). **Still needs real
+devices**: the C5 entries in `docs/DEVICE_CHECKLIST.md` (two devices, background time, a device
+clock that is wrong), and the deployed Worker. The plan's sync packages are done apart from those.
+
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`
 apply to every package.
@@ -433,6 +458,10 @@ Done when:
   last synced.
 - **Clocks** matter only for the reading position and for which wording comes first in the
   history view. No merge rule that keeps or drops work depends on a device's clock.
+- **Housekeeping's one open moment** (C5): a push that rewrites an old blob in the instant between
+  housekeeping's last look at it and its removal can leave a head naming a missing blob. Pulls of
+  that book then fail with nothing changed, and the device that pushed it puts it back (its next
+  push after a day, or its next housekeeping run). S3 has no conditional delete that would close it.
 - **Availability-gated paths**: none planned. Everything named exists at iPadOS 17.0; C0
   confirms against the installed SDK.
 - **Cost**: polling is one list request per device every two minutes while the app is open,
