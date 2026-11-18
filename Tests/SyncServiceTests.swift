@@ -329,6 +329,39 @@ struct SyncServiceTests {
         await sync.syncNow()
         guard case .upToDate = sync.status else { Issue.record("\(sync.status)"); return }
     }
+
+    @Test func theSyncedBooksAreThoseWithABaseAndRoundsAreCounted() async throws {
+        let folder = try BackupTestSupport.scratch("SyncSynced")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let objects = InMemorySyncObjectStore()
+        let keyStore = InMemoryBackupKeyStore(key: S.key)
+        let a = try SyncTestDevice("A", objects: objects), b = try SyncTestDevice("B", objects: objects)
+        defer { a.cleanUp(); b.cleanUp() }
+        let accessA = access(folder, keyStore: keyStore, objects: objects)
+        let serviceA = service(a, access: accessA)
+        let serviceB = service(b, access: access(folder, keyStore: keyStore, objects: objects))
+        let bookA = try await a.importBook()
+        #expect(await serviceA.syncedBookIDs().isEmpty, "never synced")
+        await serviceA.syncNow()
+        #expect(serviceA.roundsStarted == 1)
+        #expect(await serviceA.syncedBookIDs().isEmpty, "not joined yet")
+        await serviceA.confirmJoin()
+        #expect(serviceA.roundsStarted == 2)
+        #expect(await serviceA.syncedBookIDs() == [bookA.id])
+
+        // The book arrives on B without its PDF; it is synced, so its PDF can be downloaded.
+        await serviceB.confirmJoin()
+        let arrived = try #require(try b.store.books.allBooks().first)
+        #expect(!b.store.hasDocument(arrived))
+        #expect(await serviceB.syncedBookIDs() == [arrived.id])
+        try await serviceB.downloadPDF(bookID: arrived.id)
+        #expect(b.store.hasDocument(arrived))
+
+        // Signed out: none.
+        accessA.accountID = nil
+        serviceA.signInChanged()
+        #expect(await serviceA.syncedBookIDs().isEmpty)
+    }
 }
 
 /// A gate a test opens.

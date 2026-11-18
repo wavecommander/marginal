@@ -944,9 +944,8 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   between sessions, not within one.
 - **Deleting.** Delete My Cloud Backups empties the user's folder and the Worker's record of
   them, then removes the key from the Keychain (on every device, since it is synchronised).
-- **Sync** (as built 17 November 2026, package C4a of `docs/CLOUD_SYNC_PLAN.md`: the data layer
-  only; the Sync switch, status line, join sheet, scheduling and PDF download policy are C4b's,
-  and nothing runs a round until then). One sync service for the app, one engine per signed-in
+- **Sync** (as built 17 November 2026, packages C4a and C4b of `docs/CLOUD_SYNC_PLAN.md`; the
+  data layer first, then what the reader sees and when it runs, below). One sync service for the app, one engine per signed-in
   account, its state in `Application Support/Sync/<account>/` (outside `Books/`, so backups,
   restores and older versions never see it; excluded from the device's own backup, so a device
   restored from one joins afresh). Before any round the key is checked as for backups (no key
@@ -967,6 +966,72 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   - *Deleted on another device*: the book is deleted here as by Delete (its windows close), unless
     the reader is working in it or edited it since, when the edit wins. Exported PDFs of a book
     deleted this way are kept.
+- **Sync as the reader meets it** (as built 17 November 2026, C4b). Text says "this device",
+  since an account's devices may be iPads and iPhones.
+  - *The Sync section* is on the Tactile Texts Cloud page, beside the Account section, for an
+    account that can use the service (active, over the allowance, read-only, or waiting for the
+    recovery key); it is absent signed out, unsubscribed, lapsed, refunded or deleted, and in a
+    build without the service, so such a build shows no sync anywhere. It holds the **Sync
+    switch**, a **status line**, **Sync Now** (while on) and **Download PDFs**. Every window
+    shows the same switch and line.
+  - *The switch* is a preference kept per account (`sync.enabled.<account>`), off until the reader
+    turns it on. Signed out it reads as off and the books stay as they are; signing back in to the
+    same account resumes with the switch as it was, another account starts off. Turning it on runs
+    the first round. Turning it off stops the round in progress and any download, and no further
+    rounds run.
+  - *The join.* A device that has never synced with the account joins add-only. When it has books
+    and so does the account, the first round changes nothing and a sheet says how many books are
+    only on this device, only in the account and on both, that books on both are merged (each
+    side's notes, highlights, bookmarks and ink kept), that books only on one side are added to
+    the other, and that nothing is removed from either: Join, or Not Now, which turns the switch
+    off again (swiping the sheet away counts as Not Now). A device with no books, or an empty
+    account, joins without asking.
+  - *The status line* says, in plain words: off; waiting to sync; syncing; up to date with when it
+    last synced; waiting for the network (changes are kept); paused while a backup or restore
+    runs; the subscription has ended or the storage is full, so changes from other devices still
+    arrive and changes on this device wait; up to date except what the reader is working on; some
+    books (or the whole library) synced by a newer version, so the app must be updated; waiting
+    for the key or a different key, with Enter Recovery Key… (the existing flow); waiting for the
+    join to be confirmed, with Review…; or that sync couldn't finish, with the reason and Try
+    Again.
+  - *When it runs*: about three seconds after a library change settles (any change a backup would
+    hold, from any window, a restore included; sync's own writes and recognised text do not
+    count); at once when the app goes to the background, inside a background-time assertion, the
+    round stopped cleanly if that time runs out; when the app or any of its windows becomes
+    active; every two minutes while the app is in front; and in the backup's background
+    processing task, which is submitted (with the network required, within 15 minutes) whenever
+    the switch is on, whether or not a backup is due. Never while the switch is off, signed out, or
+    while a backup or restore runs. After a failed round (or the network gone) automatic rounds
+    wait 30 seconds, doubling to at most 15 minutes; a successful round, Sync Now and turning the
+    switch on reset the wait, and the network coming back runs a round at once. No push
+    notifications.
+  - *PDFs* (owner decision 5). Download PDFs is "Automatically on Wi‑Fi" (the default) or "Only
+    when I open a book", a preference for this device. Automatically: after a round in front, the
+    missing PDFs of synced books download one at a time, only on a network that is neither
+    expensive (cellular, a hotspot) nor in Low Data Mode; a download stops if the network turns so,
+    and carries on later. In the Library such a book shows its state on the cover in place of "PDF
+    missing": Not downloaded, Waiting to download, Downloading…, or Download failed (its context
+    menu has Download PDF, and Locate PDF… as before). Tapping it, or opening it any other way
+    (Continue Reading, search results, another window, a restored window), opens the reader,
+    which downloads the PDF first on any network, with a spinner (the account reports no
+    progress) and Cancel, then opens the book; a failure says why with Try Again, and the
+    Notebook stays open to it. A book the reader asks for goes before automatic ones. A book that
+    did not come from sync, or any book while the switch is off, keeps "PDF missing" and Locate
+    PDF… exactly as before.
+  - *Each book's state*: a book that the last round left not up to date (the reader was working
+    in it, changes wait in a pull-only session, a newer version wrote it, or it failed) has a
+    small mark on its cover, and its context menu says why. Books that are up to date have
+    nothing. There are no per-conflict prompts anywhere.
+  - *Restore and delete with sync on*: the Replace with Backup and Undo Last Restore
+    confirmations add that the change is also carried to the reader's other devices; Delete Book
+    adds that the book is also removed from the other devices. Nothing promises it can be brought
+    back from the account: Recently Deleted is a later package (C5); until then a snapshot backup
+    is the way back.
+  - *Tests*: `-syncTestFolder <path>` with `-cloudBackupUITest active` runs sync against a folder
+    (its account follows the fake service's sign-in), and `-syncTestSeedBook <pdf>` (repeatable)
+    has a second "device" with its own temporary library put those books in that account through
+    the real engine before launch work ends. Debug builds only; a `-resetState` launch forgets
+    every account's switch and the device's sync state, so it joins afresh.
 - **Automatic backup is on by default for a signed-in subscriber** (owner decision, 17 November
   2026), to Tactile Texts Cloud, the first time the account is seen able to back up, unless the
   reader already set automatic backups up (switched them on or off, or chose a destination). A

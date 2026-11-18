@@ -102,7 +102,7 @@ final class BackupScreenModel {
     func requestUndo() {
         refreshLastRestore()
         guard let lastRestore, !service.isBusy else { return }
-        undoConfirmation = UndoRestoreLogic.confirmation(lastRestore)
+        undoConfirmation = UndoRestoreLogic.confirmation(lastRestore, syncOn: environment.sync?.isOn == true)
     }
 
     func undoLastRestore() {

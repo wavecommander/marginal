@@ -51,7 +51,11 @@ struct WindowRootView: View {
         }
         .task { await applyLaunchPlanIfFirstWindow() }
         .onChange(of: environment.markedUpExports.revealRequest) { _, _ in showRequestedExports() }
-        .onChange(of: scenePhase) { _, _ in showRequestedExports() }
+        .onChange(of: scenePhase) { _, phase in
+            showRequestedExports()
+            // This window coming forward: sync runs a round (the app's own activation does too).
+            if phase == .active { environment.sync?.scheduler.windowBecameActive() }
+        }
     }
 
     /// A marked-up export's notification was opened: the window in front shows that book's

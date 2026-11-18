@@ -155,6 +155,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// test key, read-write and signed in as `sync-test`, with no network (`LocalSyncAccess`).
     /// Several launches, or two simulators, sharing the folder sync through it.
     var syncTestFolder: URL?
+    /// `-syncTestSeedBook <absolute path to a PDF>` (DEBUG, UI tests; repeatable): before launch
+    /// work finishes, a second "device" (its own temporary library) imports each PDF and syncs
+    /// with the `-syncTestFolder` account through the real engine, so the account holds those
+    /// books, with no PDF on this device (`SyncTestSeed`). Ignored without `-syncTestFolder`.
+    var syncTestSeedBooks: [URL] = []
     #endif
 
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
@@ -360,6 +365,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
                 if let path = value(after: index) {
                     index += 1
                     if path.hasPrefix("/") { syncTestFolder = URL(fileURLWithPath: path, isDirectory: true) }
+                }
+            case "-syncTestSeedBook":
+                if let path = value(after: index) {
+                    index += 1
+                    if path.hasPrefix("/") { syncTestSeedBooks.append(URL(fileURLWithPath: path)) }
                 }
             #endif
             case "-accent":

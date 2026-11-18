@@ -51,6 +51,10 @@ final class AppEnvironment {
     @ObservationIgnored let syncService: SyncService?
     /// The library side of sync, shared by every account's engine (`nil` with `syncService`).
     @ObservationIgnored let syncLibrary: LibrarySyncCore?
+    /// Sync as the reader meets it: the switch, the scheduler, PDF downloads and the join (`nil`
+    /// with `syncService`). The Sync section appears only on the Tactile Texts Cloud page, so a
+    /// build without the service shows no sync anywhere.
+    @ObservationIgnored let sync: SyncController?
     /// The change origin of the launch-time merge of books with one PDF.
     @ObservationIgnored let duplicateMergeOrigin = ChangeOrigin(label: "duplicate books")
     /// The one text-recognition queue for scanned books (started after launch work). The
@@ -124,7 +128,12 @@ final class AppEnvironment {
         // Sync, over the service when the build has it (C4b decides when it runs).
         var syncAccess: (any SyncAccountProvider)?
         #if DEBUG
-        if let folder = launchOptions.syncTestFolder { syncAccess = SyncTestAccess.make(folder: folder) }
+        let testAccess = launchOptions.syncTestFolder.flatMap { SyncTestAccess.make(folder: $0) }
+        if let testAccess {
+            syncAccess = testAccess
+            // With the fake service too, the test account follows its sign-in.
+            if let cloudBackup { testAccess.accountID = cloudBackup.signIn.isSignedIn ? SyncTestAccess.accountID : nil }
+        }
         #endif
         if syncAccess == nil, let cloudBackup, let connection = cloudBackup.account.connection {
             let signIn = cloudBackup.signIn
@@ -138,12 +147,31 @@ final class AppEnvironment {
                                       root: SyncService.defaultRoot(storeRoot: store.rootDirectory))
             service.backupService = backupService
             backupService.beforeJob = { [weak service] in await service?.stopForBackupJob() }
-            cloudBackup?.account.onSignInChanged = { [weak service] in service?.signInChanged() }
+            let controller = SyncController(service: service, store: store, backupService: backupService)
+            #if DEBUG
+            let signInForTest = cloudBackup?.signIn
+            cloudBackup?.account.onSignInChanged = { [weak service, weak controller, weak signInForTest] in
+                if let testAccess {
+                    testAccess.accountID = signInForTest?.isSignedIn == true ? SyncTestAccess.accountID : nil
+                }
+                service?.signInChanged()
+                controller?.signInChanged()
+            }
+            #else
+            cloudBackup?.account.onSignInChanged = { [weak service, weak controller] in
+                service?.signInChanged()
+                controller?.signInChanged()
+            }
+            #endif
+            // Sync shares the backup's background processing task.
+            backupScheduler.companion = controller.scheduler
             self.syncLibrary = core
             self.syncService = service
+            self.sync = controller
         } else {
             self.syncLibrary = nil
             self.syncService = nil
+            self.sync = nil
         }
         if let cloudBackup {
             backupDestinations.register(cloudBackup.destination)
@@ -158,6 +186,7 @@ final class AppEnvironment {
         backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
         backupScheduler.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
         syncService?.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
+        if let sync { Task { await sync.start() } }
     }
 
     /// Saves every open reader's and note editor's pending text and ink, and waits for it (the
@@ -183,6 +212,8 @@ final class AppEnvironment {
             ReaderScrollDirectionStore().removeAll()
             ReaderNotesPanelStore().removeAll()
             ReaderPositionStore().removeAll()
+            // Sync off for every account, PDFs downloaded automatically.
+            SyncSettings.reset(in: .standard)
         }
         OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
@@ -216,6 +247,8 @@ final class AppEnvironment {
                 try? FileManager.default.removeItem(at: RestoreLayout.root(storeRoot: store.rootDirectory))
                 try? FileManager.default.removeItem(at: RestoreSafetyStore.root(storeRoot: store.rootDirectory))
                 try? FileManager.default.removeItem(at: MarkedUpExportArchive.defaultRoot(storeRoot: store.rootDirectory))
+                // A fresh library has never synced: no bases, no join mark (it joins afresh).
+                try? FileManager.default.removeItem(at: SyncService.defaultRoot(storeRoot: store.rootDirectory))
             }
             return AppEnvironment(store: store, launchOptions: launchOptions)
         } catch {
@@ -271,6 +304,12 @@ final class AppEnvironment {
         if libraryRecovery == nil {
             _ = await LibraryDuplicateMerge.run(store: store, origin: duplicateMergeOrigin)
         }
+        #if DEBUG
+        // `-syncTestSeedBook`: another "device" puts books in the test account first.
+        if let folder = launchOptions.syncTestFolder, !launchOptions.syncTestSeedBooks.isEmpty {
+            await SyncTestSeed.seed(folder: folder, books: launchOptions.syncTestSeedBooks)
+        }
+        #endif
         var imported: [Book] = []
         for url in launchOptions.importFixtures {
             let result = await fixtureImporter.importFixture(at: url, confirmConversions: launchOptions.confirmConversions)

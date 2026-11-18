@@ -695,6 +695,10 @@ private struct CloudBackupStatusView: View {
             if capabilities.canDeleteEverything || model.isDeleting {
                 deleteSection
             }
+            // Sync (C4b), beside the account: only for an account that can use the service.
+            if let sync = environment.sync, SyncAvailability.showsSection(status) {
+                SyncSectionView(sync: sync, accountStatus: status, enterRecoveryKey: { model.sheet = .enterRecoveryKey })
+            }
             CloudAccountSection(model: model)
             if let notice = model.notice {
                 Section {

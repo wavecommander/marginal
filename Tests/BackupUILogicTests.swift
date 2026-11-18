@@ -126,7 +126,8 @@ struct BackupUILogicTests {
     @Test func everyBookIsTickedAndExistingOnesAreMerged() {
         let existing = book("Existing")
         let fresh = book("Fresh")
-        let plan = RestorePlan(manifest: manifest([entry(existing), entry(fresh)]), localLibrary: [local(existing)],
+        // Another PDF: a book holding the existing book's PDF is the same book (one book per PDF).
+        let plan = RestorePlan(manifest: manifest([entry(existing), entry(fresh, sha256: Self.otherSHA)]), localLibrary: [local(existing)],
                                destinationPDFHashes: [])
         let choices = RestoreChoices(plan: plan)
         #expect(choices.selection == [existing.id, fresh.id])
@@ -139,7 +140,9 @@ struct BackupUILogicTests {
 
     @Test func pdfSourceText() {
         let a = book("A"), b = book("B"), c = book("C"), d = book("D")
-        let entries = [entry(a, embedded: true), entry(b, sha256: Self.otherSHA), entry(c), entry(d, sha256: String(repeating: "c", count: 64))]
+        // `a` has a PDF of its own: one holding the local copy's PDF would be that book (one book per PDF).
+        let entries = [entry(a, embedded: true, sha256: String(repeating: "d", count: 64)), entry(b, sha256: Self.otherSHA), entry(c),
+                       entry(d, sha256: String(repeating: "c", count: 64))]
         let localCopy = book("Local copy")
         let plan = RestorePlan(manifest: manifest(entries), localLibrary: [local(localCopy)],
                                destinationPDFHashes: [Self.otherSHA])

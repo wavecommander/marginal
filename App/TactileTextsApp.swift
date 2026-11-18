@@ -31,7 +31,12 @@ struct TactileTextsApp: App {
         .commands { ReaderCommands() }
         // The app's phase (active while any window is): automatic backups run on activation and
         // schedule their background task when every window is in the background.
-        .onChange(of: scenePhase) { _, phase in environment.backupScheduler.scenePhaseChanged(phase) }
+        // Sync rounds run on activation, every two minutes in front, and at once on going to the
+        // background.
+        .onChange(of: scenePhase) { _, phase in
+            environment.backupScheduler.scenePhaseChanged(phase)
+            environment.sync?.scheduler.scenePhaseChanged(phase)
+        }
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
             WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },

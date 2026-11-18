@@ -535,13 +535,16 @@ nonisolated enum RestorePreviewLogic {
     /// The confirmation needed before restoring: `nil` unless a ticked book already in the
     /// Library is set to Replace with Backup; then it names those books.
     /// - Parameter selected: the ticked books with what restoring each does, in plan order.
-    static func confirmation(selected: [(item: RestorePlan.Item, action: RestoreAction)]) -> Confirmation? {
+    /// - Parameter syncOn: Sync is on, so the replacement is carried to the reader's other devices
+    ///   (the next round sends it like any local change); the message says so.
+    static func confirmation(selected: [(item: RestorePlan.Item, action: RestoreAction)], syncOn: Bool = false) -> Confirmation? {
         let replacing = selected.filter { $0.item.status == .inLibrary && $0.action == .replace }.map(\.item)
         guard !replacing.isEmpty else { return nil }
         let titles = BackupUIText.quotedList(replacing.map(\.entry.book.title))
         let title = replacing.count == 1 ? "Replace “\(replacing[0].entry.book.title)”?"
             : "Replace \(replacing.count.formatted(.number)) Books?"
-        let message = "Restoring replaces the notes, highlights, bookmarks and ink of \(titles) on this iPad with the backup’s. What is there now is lost, unless you undo this restore from the Backup screen."
+        var message = "Restoring replaces the notes, highlights, bookmarks and ink of \(titles) on this iPad with the backup’s. What is there now is lost, unless you undo this restore from the Backup screen."
+        if syncOn { message += " " + SyncNoticeText.restoreCarried }
         return Confirmation(title: title, message: message, confirmTitle: restoreButtonTitle(actions: selected.map(\.action)))
     }
 
@@ -765,7 +768,8 @@ nonisolated enum UndoRestoreLogic {
 
     /// The confirmation before undoing: names the books, says that work done on the changed books
     /// since the restore is lost and that the books it added are removed.
-    static func confirmation(_ record: RestoreSafetyRecord,
+    /// - Parameter syncOn: Sync is on, so the undo is carried to the reader's other devices too.
+    static func confirmation(_ record: RestoreSafetyRecord, syncOn: Bool = false,
                              dateText: (Date) -> String = BackupUIText.date) -> RestorePreviewLogic.Confirmation {
         let changed = record.changedBooks.map(\.title)
         let added = record.added.map(\.title)
@@ -783,6 +787,7 @@ nonisolated enum UndoRestoreLogic {
                 ? "\(list), which the restore added, will be removed from the Library with its notes, highlights and ink."
                 : "\(list), which the restore added, will be removed from the Library with their notes, highlights and ink.")
         }
+        if syncOn { sentences.append(SyncNoticeText.restoreCarried) }
         return RestorePreviewLogic.Confirmation(title: "Undo the Last Restore?", message: sentences.joined(separator: " "),
                                                 confirmTitle: "Undo Restore")
     }
