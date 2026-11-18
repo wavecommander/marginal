@@ -57,7 +57,8 @@ public enum MarkdownExporter {
 
         func noteBlocks(_ note: Note) -> [String] {
             var result: [String] = []
-            let text = cleanedNoteText(note.text)
+            let markdown = NoteRichText.markdown(for: note.text, richTextData: note.richTextData)
+            let text = cleanedNoteText(markdown)
             if !text.isEmpty { result.append(text) }
             if let path = imagePath(note) {
                 result.append("![Handwritten note](\(markdownDestination(path)))")

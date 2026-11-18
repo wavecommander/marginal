@@ -1,4 +1,5 @@
 import ReaderCore
+import SwiftUI
 import UIKit
 
 /// The fixed geometry and typography of a note page (design: "Note page", "Note text").
@@ -76,9 +77,95 @@ nonisolated enum NotePageStyle {
         [.font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.label]
     }
 
-    /// Note text as an attributed string with the note attributes.
-    static func attributedText(_ text: String) -> NSAttributedString {
-        NSAttributedString(string: text, attributes: textAttributes)
+    /// Note font for inline attributes, always at `fontSize` so `lineHeight` stays fixed.
+    static func font(for attributes: NoteTextAttributes) -> UIFont {
+        let weight: UIFont.Weight = attributes.isBold ? .bold : .regular
+        let base = UIFont.systemFont(ofSize: fontSize, weight: weight)
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        if attributes.isBold { traits.insert(.traitBold) }
+        if attributes.isItalic { traits.insert(.traitItalic) }
+        guard !traits.isEmpty,
+              let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
+            return base
+        }
+        return UIFont(descriptor: descriptor, size: fontSize)
+    }
+
+    /// UIKit attributes dictionary for a `NoteTextAttributes` value.
+    static func uiAttributes(for attributes: NoteTextAttributes) -> [NSAttributedString.Key: Any] {
+        var result: [NSAttributedString.Key: Any] = [
+            .font: font(for: attributes),
+            .paragraphStyle: paragraphStyle,
+            .foregroundColor: UIColor.label
+        ]
+        if attributes.isUnderline {
+            result[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if attributes.isStrikethrough {
+            result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return result
+    }
+
+    /// Extracts `NoteTextAttributes` from a UIKit attribute dictionary.
+    static func noteAttributes(from uiAttributes: [NSAttributedString.Key: Any]) -> NoteTextAttributes {
+        let font = uiAttributes[.font] as? UIFont
+        let traits = font?.fontDescriptor.symbolicTraits ?? []
+        let isBold = traits.contains(.traitBold)
+        let isItalic = traits.contains(.traitItalic)
+        let isUnderline = (uiAttributes[.underlineStyle] as? Int ?? 0) != 0
+        let isStrikethrough = (uiAttributes[.strikethroughStyle] as? Int ?? 0) != 0
+        return NoteTextAttributes(isBold: isBold, isItalic: isItalic, isUnderline: isUnderline,
+                                  isStrikethrough: isStrikethrough)
+    }
+
+    /// Note text as an attributed string with the note attributes and optional inline formatting.
+    static func attributedText(_ text: String, richTextData: Data? = nil) -> NSAttributedString {
+        let mutable = NSMutableAttributedString(string: text, attributes: textAttributes)
+        guard let richText = NoteRichText.decoded(from: richTextData) else { return mutable }
+        let clamped = richText.clamped(toUTF16Length: mutable.length)
+        for span in clamped.spans {
+            mutable.setAttributes(uiAttributes(for: span.attributes),
+                                  range: NSRange(location: span.location, length: span.length))
+        }
+        return mutable
+    }
+
+    /// Brings text pasted or dropped from elsewhere to the note's own attributes: removes
+    /// attachments (images) and keeps only bold, italic, underline and strikethrough, so the
+    /// live layout is the one stored text lays out to. Returns `true` when it changed anything.
+    @discardableResult
+    static func sanitize(_ storage: NSTextStorage) -> Bool {
+        let whole = NSRange(location: 0, length: storage.length)
+        var attachments: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: whole, options: .reverse) { value, range, _ in
+            if value != nil { attachments.append(range) }
+        }
+        var restyle: [(NSRange, [NSAttributedString.Key: Any])] = []
+        storage.enumerateAttributes(in: whole, options: []) { attrs, range, _ in
+            let canonical = uiAttributes(for: noteAttributes(from: attrs))
+            if !NSDictionary(dictionary: attrs).isEqual(to: canonical) { restyle.append((range, canonical)) }
+        }
+        guard !attachments.isEmpty || !restyle.isEmpty else { return false }
+        storage.beginEditing()
+        for (range, canonical) in restyle { storage.setAttributes(canonical, range: range) }
+        for range in attachments { storage.deleteCharacters(in: range) }  // last first (`.reverse`)
+        storage.endEditing()
+        return true
+    }
+
+    /// Serialises inline formatting spans from an attributed string; `nil` when all text is plain.
+    static func extractRichTextData(from attributedString: NSAttributedString) -> Data? {
+        let length = attributedString.length
+        guard length > 0 else { return nil }
+        var spans: [NoteTextSpan] = []
+        attributedString.enumerateAttributes(in: NSRange(location: 0, length: length), options: []) { attrs, range, _ in
+            let noteAttrs = noteAttributes(from: attrs)
+            if !noteAttrs.isDefault {
+                spans.append(NoteTextSpan(location: range.location, length: range.length, attributes: noteAttrs))
+            }
+        }
+        return NoteRichText(spans: spans).encoded()
     }
 
     /// The default zoom for a content size category: Dynamic Type scales the note page rather
@@ -105,10 +192,48 @@ nonisolated enum NotePageStyle {
         textView.textContainer.widthTracksTextView = true
         textView.font = font
         textView.typingAttributes = textAttributes
-        textView.allowsEditingTextAttributes = false
+        textView.allowsEditingTextAttributes = true
         textView.backgroundColor = .clear
         textView.adjustsFontForContentSizeCategory = false
         textView.smartInsertDeleteType = .default
         textView.dataDetectorTypes = []
+    }
+
+    /// SwiftUI `AttributedString` for read-only Notebook previews, preserving inline formatting
+    /// while respecting Dynamic Type `.body`.
+    static func swiftUIAttributedText(for note: Note) -> AttributedString {
+        let raw = note.text
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let rich = NoteRichText.decoded(from: note.richTextData)?.clamped(toUTF16Length: raw.utf16.count),
+              !rich.spans.isEmpty else {
+            return AttributedString(trimmed)
+        }
+        // Shift UTF-16 span offsets by the number of leading trimmed UTF-16 code units.
+        let leadingCount = raw.prefix(while: { $0.isWhitespace || $0.isNewline }).utf16.count
+        let trimmedUTF16Count = trimmed.utf16.count
+        var result = AttributedString(trimmed)
+
+        for span in rich.spans {
+            let start = max(0, span.location - leadingCount)
+            let end = min(trimmedUTF16Count, span.location + span.length - leadingCount)
+            guard start < end else { continue }
+            guard let stringRange = Range(NSRange(location: start, length: end - start), in: trimmed),
+                  let attrRange = Range(stringRange, in: result) else { continue }
+            let attrs = span.attributes
+            if attrs.isBold || attrs.isItalic {
+                var font: Font = .body
+                if attrs.isBold { font = font.bold() }
+                if attrs.isItalic { font = font.italic() }
+                result[attrRange].font = font
+            }
+            if attrs.isUnderline {
+                result[attrRange].underlineStyle = .single
+            }
+            if attrs.isStrikethrough {
+                result[attrRange].strikethroughStyle = .single
+            }
+        }
+        return result
     }
 }

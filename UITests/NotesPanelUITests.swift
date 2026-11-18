@@ -202,9 +202,6 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertEqual(levels(app).count, 0, "collapsed: one row")
         XCTAssertGreaterThanOrEqual(toggle.frame.minY, editor(app).frame.maxY - 1, "under the note")
         XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
-        let notebook = app.buttons[ID.openNotebook].firstMatch
-        XCTAssertTrue(notebook.exists)
-        XCTAssertGreaterThanOrEqual(notebook.frame.minY, toggle.frame.maxY - 1, "above Open in Notebook")
 
         toggle.tap()
         XCTAssertTrue(wait(toggle, "value == %@", "Expanded"))

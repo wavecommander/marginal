@@ -510,12 +510,21 @@ private struct ThreeWayMerger {
         if let b {
             let text = ParagraphMerge.mergeText(local: l.text, remote: r.text, base: b.text)
             merged.text = text.text
+            merged.richTextData = NoteRichText.mergeThreeWay(
+                local: (l, text.localIndices),
+                remote: (r, text.remoteIndices),
+                base: (b, text.baseIndices),
+                mergedText: text.text)
             member.local = .init(side: .local, noteID: l.id, paragraphMap: text.localIndices)
             member.remote = .init(side: .remote, noteID: r.id, paragraphMap: text.remoteIndices)
             member.base = .init(side: .base, noteID: b.id, paragraphMap: text.baseIndices)
         } else {
             let text = ParagraphMerge.mergeText(local: l.text, incoming: r.text)
             merged.text = text.text
+            merged.richTextData = NoteRichText.mergeTwoWay(
+                local: (l, text.localIndices),
+                incoming: (r, text.incomingIndices),
+                mergedText: text.text)
             member.local = .init(side: .local, noteID: l.id, paragraphMap: text.localIndices.map { $0 })
             member.remote = .init(side: .remote, noteID: r.id, paragraphMap: text.incomingIndices.map { $0 })
         }
@@ -558,7 +567,10 @@ private struct ThreeWayMerger {
             result.absorbed += [partner.remote, partner.base].compactMap { compose($0, text.localIndices) }
             result.absorbed += partner.absorbed.compactMap { compose($0, text.localIndices) }
             result.localNote = partner.localNote
-            result.note = folded(result.note, partner.note, text: text.text)
+            let richData = NoteRichText.mergeTwoWay(local: (partner.note, text.localIndices),
+                                                    incoming: (result.note, text.incomingIndices),
+                                                    mergedText: text.text)
+            result.note = folded(result.note, partner.note, text: text.text, richTextData: richData)
         }
         for other in rest {
             let text = ParagraphMerge.mergeText(local: result.note.text, incoming: other.note.text)
@@ -569,15 +581,19 @@ private struct ThreeWayMerger {
             // Without its base: an absorbed note's ink is added as a union.
             result.absorbed += [other.local, other.remote].compactMap { compose($0, text.incomingIndices) }
             result.absorbed += other.absorbed.compactMap { compose($0, text.incomingIndices) }
-            result.note = folded(result.note, other.note, text: text.text)
+            let richData = NoteRichText.mergeTwoWay(local: (result.note, text.localIndices),
+                                                    incoming: (other.note, text.incomingIndices),
+                                                    mergedText: text.text)
+            result.note = folded(result.note, other.note, text: text.text, richTextData: richData)
         }
         result.note.bandLayout = layout(for: result.note.text, from: [result.localNote, result.remoteNote])
         return result
     }
 
-    static func folded(_ kept: Note, _ other: Note, text: String) -> Note {
+    static func folded(_ kept: Note, _ other: Note, text: String, richTextData: Data?) -> Note {
         var note = kept
         note.text = text
+        note.richTextData = richTextData
         note.createdAt = min(kept.createdAt, other.createdAt)
         note.modifiedAt = max(kept.modifiedAt, other.modifiedAt)
         note.hasInk = kept.hasInk || other.hasInk

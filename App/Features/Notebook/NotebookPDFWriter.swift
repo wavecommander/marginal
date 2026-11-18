@@ -404,11 +404,21 @@ final class NotebookPDFWriter {
         if paragraphs.count == bands.count, let first = touched.first, let last = touched.last {
             let text = paragraphs[first...last].joined(separator: "\n")
             let shift = bands[first].top - NotePageStyle.textInsets.top
-            let textOnly = NotePageSnapshot(text: text, layout: snapshot.layout, drawing: PKDrawing(),
+            // The formatting of the drawn paragraphs, moved to the slice's start.
+            let ranges = NoteRichText.paragraphUTF16Ranges(of: snapshot.text)
+            var richTextData: Data?
+            if ranges.count == paragraphs.count {
+                let sliceRange = NSRange(location: ranges[first].location,
+                                         length: ranges[last].location + ranges[last].length - ranges[first].location)
+                richTextData = NoteRichText.decoded(from: snapshot.richTextData)?.slice(utf16Range: sliceRange).encoded()
+            }
+            let textOnly = NotePageSnapshot(text: text, richTextData: richTextData,
+                                            layout: snapshot.layout, drawing: PKDrawing(),
                                             size: snapshot.size, inkUnreadable: false)
             NotePageRenderer.draw(textOnly, in: context, at: CGPoint(x: origin.x, y: origin.y + shift * scale), width: width)
         } else if paragraphs.count != bands.count {
-            let textOnly = NotePageSnapshot(text: snapshot.text, layout: snapshot.layout, drawing: PKDrawing(),
+            let textOnly = NotePageSnapshot(text: snapshot.text, richTextData: snapshot.richTextData,
+                                            layout: snapshot.layout, drawing: PKDrawing(),
                                             size: snapshot.size, inkUnreadable: false)
             NotePageRenderer.draw(textOnly, in: context, at: origin, width: width)
         }

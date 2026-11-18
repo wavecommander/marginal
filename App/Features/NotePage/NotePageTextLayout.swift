@@ -119,22 +119,27 @@ final class NotePageLayoutEngine {
         textView.frame = CGRect(x: 0, y: 0, width: NotePageStyle.pageWidth, height: 10_000)
     }
 
-    /// Loads `text` into the engine's text view (no-op if already loaded).
-    private func load(_ text: String) {
-        if textView.text != text {
-            textView.attributedText = NotePageStyle.attributedText(text)
+    private var loadedText = ""
+    private var loadedRichTextData: Data?
+
+    /// Loads `text` and optional `richTextData` into the engine's text view (no-op if already loaded).
+    private func load(_ text: String, richTextData: Data? = nil) {
+        if loadedText != text || loadedRichTextData != richTextData || textView.text != text {
+            loadedText = text
+            loadedRichTextData = richTextData
+            textView.attributedText = NotePageStyle.attributedText(text, richTextData: richTextData)
         }
     }
 
     /// The band layout of `text` on a note page.
-    func bandLayout(for text: String) -> NoteBandLayout {
-        load(text)
+    func bandLayout(for text: String, richTextData: Data? = nil) -> NoteBandLayout {
+        load(text, richTextData: richTextData)
         return NotePageTextLayout.bandLayout(of: textView)
     }
 
     /// Draws `text` at note-page coordinates (see `NotePageTextLayout.drawText`).
-    func drawText(_ text: String, in context: CGContext) {
-        load(text)
+    func drawText(_ text: String, richTextData: Data? = nil, in context: CGContext) {
+        load(text, richTextData: richTextData)
         NotePageTextLayout.drawText(of: textView, in: context)
     }
 }

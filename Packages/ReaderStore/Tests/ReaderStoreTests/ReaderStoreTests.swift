@@ -258,7 +258,12 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         let odd = HeadingAnchor(pdfPath: [3, 0, 12], pageIndex: 40, title: "Cats/Dogs: 5/6 – naïve 😀 \\ done")
         let layout = NoteBandLayout(pageWidth: 612.25, paragraphs: [NoteParagraphBand(text: "p1", top: 0.1, height: 20.3),
                                                                      NoteParagraphBand(text: "", top: 20.4, height: 18)], trailingTop: 38.4)
-        let note = Note(bookID: book.id, target: .heading(odd), text: "line1\nline2 😀", hasInk: true, bandLayout: layout,
+        let richData = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 5, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
+            NoteTextSpan(location: 6, length: 5, attributes: NoteTextAttributes(isItalic: true, isStrikethrough: true))
+        ]).encoded()
+        let note = Note(bookID: book.id, target: .heading(odd), text: "line1\nline2 😀", richTextData: richData,
+                        hasInk: true, bandLayout: layout,
                         createdAt: Date(timeIntervalSince1970: 5.25), modifiedAt: Date(timeIntervalSince1970: 9.75))
         try store.notes.save(note)
         #expect(try store.notes.note(id: note.id) == note)
@@ -750,6 +755,45 @@ func makeBook(in store: LibraryStore, pageCount: Int = 1000, title: String = "Bo
         #expect(try reopened.highlight(id: scanned.id) == scanned)
         #expect(try reopened.highlight(id: old[0].id)?.color == .blue)
         #expect(try reopened.highlightCount(bookID: book.id) == 4)
+    }
+
+    /// A store written by version 3, holding plain notes, opens as version 4: every note is kept
+    /// with `richTextData == nil`. Then a rich-text note can be saved and both survive reopening.
+    @Test func versionThreeStoreWithNotesOpensAsVersionFour() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let storeURL = root.url.appendingPathComponent("TactileTexts.store")
+        let book = Book(title: "Has notes", fingerprint: "fp-v3", fileName: "v3.pdf", pageCount: 20, fileSize: 123,
+                        addedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let oldNoteID = UUID()
+        let created = Date(timeIntervalSince1970: 1_700_000_100)
+        do {
+            let schema = Schema(versionedSchema: TactileTextsSchemaV3.self)
+            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
+            let context = ModelContext(container)
+            context.insert(TactileTextsSchemaV2.BookModel(book))
+            context.insert(TactileTextsSchemaV1.NoteModel(id: oldNoteID, bookID: book.id,
+                                                         targetKey: NoteTarget.page(1).storageKey, pageIndex: 1,
+                                                         text: "plain v3 note", hasInk: false, bandLayoutData: nil,
+                                                         createdAt: created, modifiedAt: created))
+            try context.save()
+        }
+
+        let richData = NoteRichText(spans: [
+            NoteTextSpan(location: 0, length: 4, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
+            NoteTextSpan(location: 5, length: 4, attributes: NoteTextAttributes(isItalic: true))
+        ]).encoded()
+        let richNote = Note(bookID: book.id, target: .page(2), text: "bold note", richTextData: richData,
+                            createdAt: created, modifiedAt: created)
+        do {
+            let store = SwiftDataRecordStore(container: try SchemaFactory.makeContainer(storeURL: storeURL))
+            let migrated = try #require(try store.note(id: oldNoteID))
+            #expect(migrated.text == "plain v3 note")
+            #expect(migrated.richTextData == nil)
+            try store.save(richNote)
+        }
+        let reopened = SwiftDataRecordStore(container: try SchemaFactory.makeContainer(storeURL: storeURL))
+        #expect(try reopened.note(id: oldNoteID)?.richTextData == nil)
+        #expect(try reopened.note(id: richNote.id) == richNote)
     }
 
     /// Every text source round-trips through an in-memory container, and an unknown one (from a

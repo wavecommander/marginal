@@ -218,7 +218,7 @@ struct NotebookRowView: View {
         if note.hasInk {
             NotebookInkedNoteView(note: note, model: model)
         } else {
-            Text(note.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            Text(NotePageStyle.swiftUIAttributedText(for: note))
                 .font(.body)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
@@ -388,7 +388,7 @@ struct NotebookInkedNoteView: View {
     @State private var loadedKey: String?
 
     private var key: String {
-        "\(note.id)-\(note.modifiedAt.timeIntervalSinceReferenceDate)-\(model.inkVersions[note.id] ?? 0)-\(note.text.hashValue)"
+        "\(note.id)-\(note.modifiedAt.timeIntervalSinceReferenceDate)-\(model.inkVersions[note.id] ?? 0)-\(note.text.hashValue)-\(note.richTextData?.hashValue ?? 0)"
     }
 
     var body: some View {

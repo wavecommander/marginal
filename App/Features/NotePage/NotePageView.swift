@@ -1,6 +1,37 @@
+import Observation
 import ReaderCore
 import SwiftUI
 import UIKit
+
+/// Bridges SwiftUI rich-text formatting controls to the active `NotePageEditorView` in one panel.
+@Observable
+@MainActor
+final class NoteFormattingController {
+    private(set) var attributes: NoteTextAttributes = .default
+    private(set) var isEditable = false
+    @ObservationIgnored weak var editor: NotePageEditorView?
+
+    func attach(_ editor: NotePageEditorView) {
+        guard self.editor !== editor else { return }
+        self.editor = editor
+        let attrs = editor.currentFormattingAttributes
+        let editable = editor.isFormattingEnabled
+        Task { @MainActor [weak self] in
+            self?.update(attributes: attrs, isEditable: editable)
+        }
+    }
+
+    func update(attributes: NoteTextAttributes, isEditable: Bool) {
+        if self.attributes != attributes { self.attributes = attributes }
+        if self.isEditable != isEditable { self.isEditable = isEditable }
+    }
+
+    func toggleBold() { editor?.toggleBold() }
+    func toggleItalic() { editor?.toggleItalic() }
+    func toggleUnderline() { editor?.toggleUnderline() }
+    func toggleStrikethrough() { editor?.toggleStrikethrough() }
+    func clearFormatting() { editor?.clearFormatting() }
+}
 
 /// The editable note page for SwiftUI (the notes panel's editor). Wraps `NotePageEditorView`.
 ///
@@ -20,16 +51,18 @@ struct NotePageView: UIViewRepresentable {
     var pageWidth: CGFloat = NotePageStyle.pageWidth
     var isMarkup = false
     var showsPaperBackground = true
+    var formatting: NoteFormattingController?
 
     init(model: NotePageModel, session: ReaderSession?, zoom: Binding<CGFloat>,
          pageWidth: CGFloat = NotePageStyle.pageWidth, isMarkup: Bool = false,
-         showsPaperBackground: Bool = true) {
+         showsPaperBackground: Bool = true, formatting: NoteFormattingController? = nil) {
         self.model = model
         self.session = session
         self._zoom = zoom
         self.pageWidth = pageWidth
         self.isMarkup = isMarkup
         self.showsPaperBackground = showsPaperBackground
+        self.formatting = formatting
     }
 
     func makeUIView(context: Context) -> NotePageEditorView {
@@ -39,6 +72,10 @@ struct NotePageView: UIViewRepresentable {
         view.zoom = zoom
         view.isMarkupStandalone = isMarkup
         view.showsPaperBackground = showsPaperBackground
+        formatting?.attach(view)
+        view.onFormattingChange = { [weak formatting] attrs, editable in
+            formatting?.update(attributes: attrs, isEditable: editable)
+        }
         return view
     }
 
@@ -51,6 +88,11 @@ struct NotePageView: UIViewRepresentable {
         let binding = $zoom
         view.onZoomChange = { newZoom in
             if abs(binding.wrappedValue - newZoom) > 0.001 { binding.wrappedValue = newZoom }
+        }
+        formatting?.attach(view)
+        let formattingController = formatting
+        view.onFormattingChange = { [weak formattingController] attrs, editable in
+            formattingController?.update(attributes: attrs, isEditable: editable)
         }
     }
 

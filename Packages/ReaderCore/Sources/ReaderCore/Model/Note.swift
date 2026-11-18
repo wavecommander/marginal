@@ -72,6 +72,8 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     public var target: NoteTarget
     /// Plain text (no attributes); paragraphs are separated by newlines.
     public var text: String
+    /// Optional JSON-encoded `NoteRichText` spans for inline styling; `nil` for plain text.
+    public var richTextData: Data?
     /// `true` when the note's ink drawing has at least one stroke. Maintained by the note page editor.
     public var hasInk: Bool
     /// Band layout at the time the ink was last saved; `nil` when there is no ink.
@@ -80,12 +82,14 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     /// Last edit of text or ink. Set by the caller; repositories store it verbatim.
     public var modifiedAt: Date
 
-    public init(id: UUID = UUID(), bookID: UUID, target: NoteTarget, text: String = "", hasInk: Bool = false,
+    public init(id: UUID = UUID(), bookID: UUID, target: NoteTarget, text: String = "",
+                richTextData: Data? = nil, hasInk: Bool = false,
                 bandLayout: NoteBandLayout? = nil, createdAt: Date = Date(), modifiedAt: Date? = nil) {
         self.id = id
         self.bookID = bookID
         self.target = target
         self.text = text
+        self.richTextData = richTextData
         self.hasInk = hasInk
         self.bandLayout = bandLayout
         self.createdAt = createdAt

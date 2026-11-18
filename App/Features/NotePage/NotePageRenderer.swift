@@ -8,6 +8,8 @@ import UIKit
 struct NotePageSnapshot {
     /// The note's text.
     let text: String
+    /// Optional JSON-encoded `NoteRichText` spans for inline styling.
+    let richTextData: Data?
     /// The band layout of `text` on a note page.
     let layout: NoteBandLayout
     /// The ink in note-page coordinates (relocated from its stored layout to `layout`).
@@ -20,6 +22,16 @@ struct NotePageSnapshot {
     /// `true` when the stored ink could not be read (written by a newer app version); the
     /// snapshot then shows the text only.
     let inkUnreadable: Bool
+
+    init(text: String, richTextData: Data? = nil, layout: NoteBandLayout, drawing: PKDrawing,
+         size: CGSize, inkUnreadable: Bool) {
+        self.text = text
+        self.richTextData = richTextData
+        self.layout = layout
+        self.drawing = drawing
+        self.size = size
+        self.inkUnreadable = inkUnreadable
+    }
 
     var hasInk: Bool { !drawing.strokes.isEmpty }
 }
@@ -45,19 +57,19 @@ enum NotePageRenderer {
 
     /// Lays out a stored note. `inkData` is the note's ink as stored (`nil` for none).
     static func snapshot(note: Note, inkData: Data?) -> NotePageSnapshot {
-        snapshot(text: note.text, inkData: inkData, savedLayout: note.bandLayout)
+        snapshot(text: note.text, richTextData: note.richTextData, inkData: inkData, savedLayout: note.bandLayout)
     }
 
     /// The open note of a model, as it is now (including unsaved edits).
     static func snapshot(of model: NotePageModel) -> NotePageSnapshot {
-        let layout = NotePageLayoutEngine.shared.bandLayout(for: model.text)
+        let layout = NotePageLayoutEngine.shared.bandLayout(for: model.text, richTextData: model.richTextData)
         let drawing = model.ink.relaid(to: layout).composedDrawing()
-        return NotePageSnapshot(text: model.text, layout: layout, drawing: drawing,
+        return NotePageSnapshot(text: model.text, richTextData: model.richTextData, layout: layout, drawing: drawing,
                                 size: pageSize(layout: layout, drawing: drawing), inkUnreadable: false)
     }
 
-    static func snapshot(text: String, inkData: Data?, savedLayout: NoteBandLayout?) -> NotePageSnapshot {
-        let layout = NotePageLayoutEngine.shared.bandLayout(for: text)
+    static func snapshot(text: String, richTextData: Data? = nil, inkData: Data?, savedLayout: NoteBandLayout?) -> NotePageSnapshot {
+        let layout = NotePageLayoutEngine.shared.bandLayout(for: text, richTextData: richTextData)
         var drawing = PKDrawing()
         var unreadable = false
         if let inkData {
@@ -68,7 +80,7 @@ enum NotePageRenderer {
                 unreadable = true
             }
         }
-        return NotePageSnapshot(text: text, layout: layout, drawing: drawing,
+        return NotePageSnapshot(text: text, richTextData: richTextData, layout: layout, drawing: drawing,
                                 size: pageSize(layout: layout, drawing: drawing), inkUnreadable: unreadable)
     }
 
@@ -132,7 +144,7 @@ enum NotePageRenderer {
             }
             context.saveGState()
             context.scaleBy(x: factor, y: factor)
-            NotePageLayoutEngine.shared.drawText(snapshot.text, in: context)
+            NotePageLayoutEngine.shared.drawText(snapshot.text, richTextData: snapshot.richTextData, in: context)
             if snapshot.hasInk {
                 let page = CGRect(origin: .zero, size: snapshot.size)
                 let ink = cachedInk ?? inkImage(snapshot, scale: inkScale, traits: traits)
@@ -171,7 +183,7 @@ enum NotePageRenderer {
             context.saveGState()
             context.translateBy(x: origin.x, y: origin.y)
             context.scaleBy(x: factor, y: factor)
-            NotePageLayoutEngine.shared.drawText(snapshot.text, in: context)
+            NotePageLayoutEngine.shared.drawText(snapshot.text, richTextData: snapshot.richTextData, in: context)
             for stroke in snapshot.drawing.strokes {
                 drawStroke(stroke, in: context, imageScale: fallbackImageScale * factor)
             }

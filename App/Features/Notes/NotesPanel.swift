@@ -27,7 +27,6 @@ struct NotesPanel: View {
     @Bindable var session: ReaderSession
     private let controller: NotesPanelController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(WindowContext.self) private var window: WindowContext?
     /// The reader hid the lists under (or beside) the note in a narrow panel. Remembered, like
     /// the level picker's own collapse.
     @AppStorage(NotesPanelRegions.collapsedKey) private var isLowerRegionCollapsed = false
@@ -40,6 +39,8 @@ struct NotesPanel: View {
     @State private var headerHeight: CGFloat = 96
     /// Top container safe area inside the sheet (measured before `.ignoresSafeArea`).
     @State private var sheetTopInset: CGFloat = 0
+    /// Bridges rich-text formatting buttons in this panel to the active `NotePageEditorView`.
+    @State private var formatting = NoteFormattingController()
 
     private struct HighlightsKey: Equatable {
         /// `nil` on the Section tab.
@@ -194,14 +195,10 @@ struct NotesPanel: View {
     private var pageTitle: some View {
         let page = controller.shownPage ?? session.currentPageIndex
         return VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: "Page \(PageNumbering.displayNumber(forPageIndex: page))")
-                    .font(.title3.bold())
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier(NotesPanelAccessibilityID.title)
-                Spacer(minLength: 8)
-                statusLabel
-            }
+            Text(verbatim: "Page \(PageNumbering.displayNumber(forPageIndex: page))")
+                .font(.title3.bold())
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(NotesPanelAccessibilityID.title)
             deferredCaption
         }
     }
@@ -224,11 +221,7 @@ struct NotesPanel: View {
                         pagesButton(heading)
                     }
                 }
-                HStack {
-                    deferredCaption
-                    Spacer(minLength: 8)
-                    statusLabel
-                }
+                deferredCaption
             }
         }
     }
@@ -346,16 +339,6 @@ struct NotesPanel: View {
         return heading.startPage.map { "p. \(PageNumbering.displayNumber(forPageIndex: $0))" }
     }
 
-    private var statusLabel: some View {
-        let status = controller.model?.statusText ?? ""
-        let empty = controller.model?.saveState == .empty
-        return Text(status.isEmpty ? " " : status)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(empty ? "Empty" : status)
-            .accessibilityIdentifier(NotesPanelAccessibilityID.status)
-    }
-
     @ViewBuilder
     private var deferredCaption: some View {
         if controller.isSwitchDeferred {
@@ -401,7 +384,7 @@ struct NotesPanel: View {
     private var hasLowerRegion: Bool {
         switch session.notesTab {
         case .page: !highlights.isEmpty
-        case .section: controller.shownHeading != nil || window != nil
+        case .section: controller.shownHeading != nil
         }
     }
 
@@ -442,13 +425,89 @@ struct NotesPanel: View {
     @ViewBuilder
     private func editorArea(_ metrics: NotesPanelMetrics) -> some View {
         if let model = controller.model {
-            NotePageView(model: model, session: session, zoom: zoomBinding(metrics),
-                         pageWidth: metrics.notePageWidth, showsPaperBackground: !isSystemSheet)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
+            VStack(spacing: 0) {
+                formattingBar
+                Divider()
+                NotePageView(model: model, session: session, zoom: zoomBinding(metrics),
+                             pageWidth: metrics.notePageWidth, showsPaperBackground: !isSystemSheet,
+                             formatting: formatting)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .accessibilityLabel(session.notesTab == .page ? "Page note" : "Section note")
+            }
+            .overlay(alignment: .topLeading) { saveStatus(model) }
         } else {
             NotesSectionEmptyState(session: session, controller: controller)
         }
+    }
+
+    /// The save state, not shown on screen (the panel has no status label) but kept for
+    /// VoiceOver and as the UI tests' save signal ("Saved", "Empty").
+    private func saveStatus(_ model: NotePageModel) -> some View {
+        let status = model.statusText
+        return Text(status.isEmpty ? " " : status)
+            .font(.footnote)
+            .foregroundStyle(.clear)
+            .frame(width: 1, height: 1)
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityLabel(model.saveState == .empty ? "Empty" : status)
+            .accessibilityIdentifier(NotesPanelAccessibilityID.status)
+    }
+
+    private var formattingBar: some View {
+        let attrs = formatting.attributes
+        let disabled = !formatting.isEditable
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                formatToggle("Bold", systemImage: "bold", active: attrs.isBold,
+                             id: NotesPanelAccessibilityID.formatBold) {
+                    formatting.toggleBold()
+                }
+                formatToggle("Italic", systemImage: "italic", active: attrs.isItalic,
+                             id: NotesPanelAccessibilityID.formatItalic) {
+                    formatting.toggleItalic()
+                }
+                formatToggle("Underline", systemImage: "underline", active: attrs.isUnderline,
+                             id: NotesPanelAccessibilityID.formatUnderline) {
+                    formatting.toggleUnderline()
+                }
+                formatToggle("Strikethrough", systemImage: "strikethrough", active: attrs.isStrikethrough,
+                             id: NotesPanelAccessibilityID.formatStrikethrough) {
+                    formatting.toggleStrikethrough()
+                }
+                Divider()
+                    .frame(height: 18)
+                    .padding(.horizontal, 2)
+                formatToggle("Clear Formatting", systemImage: "eraser", active: false,
+                             id: NotesPanelAccessibilityID.formatClear) {
+                    formatting.clearFormatting()
+                }
+                .disabled(attrs.isDefault)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(NotesPanelAccessibilityID.formatBar)
+    }
+
+    private func formatToggle(_ title: String, systemImage: String, active: Bool,
+                              id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(active ? .semibold : .regular))
+                .frame(width: 32, height: 30)
+                .background(active ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityIdentifier(id)
     }
 
     /// Smoothly blends the sheet's translucent Liquid Glass header into `NotePageStyle.paperColor`
@@ -471,8 +530,7 @@ struct NotesPanel: View {
         .ignoresSafeArea()
     }
 
-    /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker and
-    /// "Open in Notebook".
+    /// Under the note (beside it in a wide sheet): the page's highlights, or the level picker.
     private var lowerRegion: some View {
         VStack(alignment: .leading, spacing: 6) {
             switch session.notesTab {
@@ -486,16 +544,6 @@ struct NotesPanel: View {
                                      hasNote: { session.notebook?.section(for: $0)?.note != nil },
                                      choose: { controller.chooseLevel($0) })
                         .padding(.top, 12)
-                }
-                if let window {
-                    Button { window.openNotebook(bookID: session.book.id) } label: {
-                        Label("Open in Notebook", systemImage: "book.pages")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier(NotesPanelAccessibilityID.openNotebook)
                 }
             }
         }

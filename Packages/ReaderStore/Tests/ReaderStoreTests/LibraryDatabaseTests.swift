@@ -101,9 +101,18 @@ struct WrittenLibrary {
         } else {
             context.insert(TactileTextsSchemaV2.BookModel(written.book))
         }
-        context.insert(TactileTextsSchemaV1.NoteModel(id: written.noteID, bookID: bookID, targetKey: NoteTarget.page(3).storageKey,
-                                                  pageIndex: 3, text: "a note", hasInk: true, bandLayoutData: nil,
-                                                  createdAt: date, modifiedAt: date))
+        if ObjectIdentifier(schema) == ObjectIdentifier(TactileTextsSchemaV4.self) {
+            let richData = NoteRichText(spans: [
+                NoteTextSpan(location: 0, length: 6, attributes: NoteTextAttributes(isBold: true))
+            ]).encoded()
+            context.insert(TactileTextsSchemaV4.NoteModel(id: written.noteID, bookID: bookID, targetKey: NoteTarget.page(3).storageKey,
+                                                         pageIndex: 3, text: "a note", richTextData: richData, hasInk: true,
+                                                         bandLayoutData: nil, createdAt: date, modifiedAt: date))
+        } else {
+            context.insert(TactileTextsSchemaV1.NoteModel(id: written.noteID, bookID: bookID, targetKey: NoteTarget.page(3).storageKey,
+                                                         pageIndex: 3, text: "a note", hasInk: true, bandLayoutData: nil,
+                                                         createdAt: date, modifiedAt: date))
+        }
         if ObjectIdentifier(schema) == ObjectIdentifier(FutureSchema.self) {
             context.insert(FutureSchema.HighlightModel(id: written.highlightID, bookID: bookID, pageIndex: 2,
                                                        text: "scanned words", createdAt: date, textSourceRaw: "liveText"))
@@ -259,6 +268,25 @@ struct WrittenLibrary {
             #expect(try ModelContext(container).fetchCount(FetchDescriptor<TactileTextsSchemaV1.HighlightModel>()) == 1)
             #expect(try ModelContext(container).fetchCount(FetchDescriptor<TactileTextsSchemaV1.UserHeadingModel>()) == 1)
         }
+    }
+
+    /// A version 4 store containing rich-text notes converts down to version 3: every note keeps
+    /// its plain text and opens cleanly in the earlier schema.
+    @Test func versionFourStoreWithRichTextConvertsDownToVersionThree() throws {
+        let root = TempRoot(); defer { root.cleanup() }
+        let written = try writeStore(TactileTextsSchemaV4.self, plan: TactileTextsMigrationPlan.self, at: storeURL(root))
+        let v3Only: [any VersionedSchema.Type] = [TactileTextsSchemaV1.self, TactileTextsSchemaV2.self, TactileTextsSchemaV3.self]
+        #expect(LibraryDatabase.state(ofStoreAt: storeURL(root), schemas: v3Only, current: TactileTextsSchemaV3.self) == .newer)
+
+        try LibraryDatabase.convertNewerStore(rootDirectory: root.url, to: TactileTextsSchemaV3.self, schemas: v3Only)
+
+        #expect(LibraryDatabase.state(ofStoreAt: storeURL(root), schemas: v3Only, current: TactileTextsSchemaV3.self) == .current)
+        let schema = Schema(versionedSchema: TactileTextsSchemaV3.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL(root))])
+        let notes = try ModelContext(container).fetch(FetchDescriptor<TactileTextsSchemaV1.NoteModel>())
+        #expect(notes.count == 1)
+        #expect(notes.first?.id == written.noteID)
+        #expect(notes.first?.text == "a note")
     }
 
     // MARK: Copies

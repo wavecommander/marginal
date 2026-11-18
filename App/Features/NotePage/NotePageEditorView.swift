@@ -79,6 +79,9 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     /// Called when the reader pinches the note to a new zoom.
     var onZoomChange: ((CGFloat) -> Void)?
 
+    /// Called when the active selection's inline formatting or editability changes.
+    var onFormattingChange: ((NoteTextAttributes, Bool) -> Void)?
+
     /// The page's width in note-page points (before zoom), at least `NotePageStyle.pageWidth`.
     /// A wider host gives the note a wider page (TSOFT-226): the text re-wraps to it at the same
     /// text size, and each stroke moves with its paragraph, as after typing.
@@ -166,6 +169,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
 
         NotePageStyle.configure(textView)
         textView.delegate = self
+        textView.formattingOwner = self
         textView.isEditable = false
         textView.accessibilityIdentifier = NotePageAccessibilityID.text
         textView.accessibilityLabel = "Note"
@@ -452,9 +456,11 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
 
     private func showModelText() {
         let text = currentModel?.text ?? ""
-        if textView.text != text {
+        let richTextData = currentModel?.richTextData
+        let currentRichData = NotePageStyle.extractRichTextData(from: textView.attributedText)
+        if textView.text != text || currentRichData != richTextData {
             let selection = textView.selectedRange
-            textView.attributedText = NotePageStyle.attributedText(text)
+            textView.attributedText = NotePageStyle.attributedText(text, richTextData: richTextData)
             textView.typingAttributes = NotePageStyle.textAttributes
             let length = (text as NSString).length
             textView.selectedRange = NSRange(location: min(selection.location, length), length: 0)
@@ -463,6 +469,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         updatePlaceholder()
         bandLayout = nil
         layoutPage()
+        notifyFormattingChange()
     }
 
     private func redisplayInk() {
@@ -512,7 +519,11 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
 
     func commitPendingInput(to model: NotePageModel) {
         guard model === currentModel else { return }
-        if textView.text != model.text { model.userDidEditText(textView.text ?? "") }
+        let currentText = textView.text ?? ""
+        let currentRichData = NotePageStyle.extractRichTextData(from: textView.attributedText)
+        if currentText != model.text || currentRichData != model.richTextData {
+            model.userDidEditText(currentText, richTextData: currentRichData)
+        }
         if !isApplyingDrawing { model.applyUserDrawing(noteCanvas.drawing) }
     }
 
@@ -558,6 +569,94 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         isRegistered = false
         session.markup.unregisterAuxiliaryResponder(textView)
         session.markup.unregister(self)
+    }
+
+    // MARK: Rich-text formatting
+
+    /// Active formatting attributes at the current selection or typing insertion point.
+    var currentFormattingAttributes: NoteTextAttributes {
+        let range = textView.selectedRange
+        if range.length > 0, range.location < textView.attributedText.length {
+            return NotePageStyle.noteAttributes(from: textView.attributedText.attributes(at: range.location, effectiveRange: nil))
+        }
+        return NotePageStyle.noteAttributes(from: textView.typingAttributes)
+    }
+
+    func toggleBold() { applyFormatting { $0.isBold.toggle() } }
+    func toggleItalic() { applyFormatting { $0.isItalic.toggle() } }
+    func toggleUnderline() { applyFormatting { $0.isUnderline.toggle() } }
+    func toggleStrikethrough() { applyFormatting { $0.isStrikethrough.toggle() } }
+
+    func clearFormatting() {
+        applyFormatting { $0 = .default }
+    }
+
+    private func applyFormatting(_ transform: (inout NoteTextAttributes) -> Void) {
+        guard textView.isEditable else { return }
+        let range = textView.selectedRange
+        if range.length > 0, range.location + range.length <= textView.textStorage.length {
+            var base = currentFormattingAttributes
+            transform(&base)
+            applyAttributedFormatting(in: range, targetAttributes: base, transform: transform)
+        } else {
+            var attrs = NotePageStyle.noteAttributes(from: textView.typingAttributes)
+            transform(&attrs)
+            textView.typingAttributes = NotePageStyle.uiAttributes(for: attrs)
+        }
+        notifyFormattingChange()
+    }
+
+    private func applyAttributedFormatting(in range: NSRange, targetAttributes: NoteTextAttributes,
+                                           transform: (inout NoteTextAttributes) -> Void) {
+        let storage = textView.textStorage
+        let was = currentFormattingAttributes
+        let previous = NSAttributedString(attributedString: storage.attributedSubstring(from: range))
+        storage.beginEditing()
+        storage.enumerateAttributes(in: range, options: []) { rawAttrs, subRange, _ in
+            var updated = NotePageStyle.noteAttributes(from: rawAttrs)
+            // Apply the toggled/cleared value uniformly across the selection.
+            if targetAttributes == .default {
+                updated = .default
+            } else {
+                if targetAttributes.isBold != was.isBold { updated.isBold = targetAttributes.isBold }
+                if targetAttributes.isItalic != was.isItalic { updated.isItalic = targetAttributes.isItalic }
+                if targetAttributes.isUnderline != was.isUnderline { updated.isUnderline = targetAttributes.isUnderline }
+                if targetAttributes.isStrikethrough != was.isStrikethrough { updated.isStrikethrough = targetAttributes.isStrikethrough }
+            }
+            storage.setAttributes(NotePageStyle.uiAttributes(for: updated), range: subRange)
+        }
+        storage.endEditing()
+        textView.typingAttributes = NotePageStyle.uiAttributes(for: targetAttributes)
+        textView.selectedRange = range
+        textView.undoManager?.registerUndo(withTarget: self) { editor in
+            let current = NSAttributedString(attributedString: editor.textView.textStorage.attributedSubstring(from: range))
+            editor.restoreAttributedSubstring(previous, in: range, redoSubstring: current)
+        }
+        textViewDidChange(textView)
+    }
+
+    private func restoreAttributedSubstring(_ substring: NSAttributedString, in range: NSRange,
+                                            redoSubstring: NSAttributedString) {
+        guard range.location + range.length <= textView.textStorage.length else { return }
+        textView.textStorage.beginEditing()
+        textView.textStorage.replaceCharacters(in: range, with: substring)
+        textView.textStorage.endEditing()
+        textView.selectedRange = range
+        textView.undoManager?.registerUndo(withTarget: self) { editor in
+            editor.restoreAttributedSubstring(redoSubstring, in: range, redoSubstring: substring)
+        }
+        textViewDidChange(textView)
+    }
+
+    /// `true` between the text view's begin and end editing: the formatting bar works only then,
+    /// since a toggle without a caret has nothing to apply to.
+    private var isTextFocused = false
+
+    /// Whether the formatting controls can act now (see `isTextFocused`).
+    var isFormattingEnabled: Bool { textView.isEditable && isTextFocused }
+
+    func notifyFormattingChange() {
+        onFormattingChange?(currentFormattingAttributes, isFormattingEnabled)
     }
 
     // MARK: Keyboard
@@ -607,23 +706,41 @@ extension NotePageEditorView: UIScrollViewDelegate {
 
 extension NotePageEditorView: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
+        if textView.markedTextRange == nil {
+            // Paste and drop keep their source's styles: back to the note's own.
+            let selection = textView.selectedRange
+            let before = textView.textStorage.length
+            if NotePageStyle.sanitize(textView.textStorage) {
+                let removed = before - textView.textStorage.length
+                let location = min(max(0, selection.location - removed), textView.textStorage.length)
+                textView.selectedRange = NSRange(location: location,
+                                                 length: removed == 0 ? selection.length : 0)
+            }
+        }
         updatePlaceholder()
         bandLayout = nil
-        currentModel?.userDidEditText(textView.text ?? "")
+        let richData = NotePageStyle.extractRichTextData(from: textView.attributedText)
+        currentModel?.userDidEditText(textView.text ?? "", richTextData: richData)
         layoutPage()
         scrollCursorIntoView()
+        notifyFormattingChange()
         if textView.markedTextRange == nil { currentModel?.textEditingDidSettle() }
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
         scrollCursorIntoView()
+        notifyFormattingChange()
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        isTextFocused = true
         currentModel?.setEditingText(true)
+        notifyFormattingChange()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
+        isTextFocused = false
+        notifyFormattingChange()
         currentModel?.setEditingText(false)
         currentModel?.textEditingDidSettle()
         session?.markup.reassertToolPicker()
@@ -746,7 +863,21 @@ extension NotePageEditorView: UIScribbleInteractionDelegate {
 /// The note's text view. Typing undo stays UIKit's own (⌘Z, the keyboard's undo key and the
 /// edit menu while the text view has focus): UIKit's text input does not register typing with an
 /// overridden `undoManager` (verified on iOS 27), so redirecting it would only break it.
-final class NoteTextView: UITextView {}
+final class NoteTextView: UITextView {
+    weak var formattingOwner: NotePageEditorView?
+
+    override func toggleBoldface(_ sender: Any?) {
+        formattingOwner?.toggleBold()
+    }
+
+    override func toggleItalics(_ sender: Any?) {
+        formattingOwner?.toggleItalic()
+    }
+
+    override func toggleUnderline(_ sender: Any?) {
+        formattingOwner?.toggleUnderline()
+    }
+}
 
 /// The note's canvas. Its own undo registration goes to a disabled manager: the note model
 /// registers ink undo itself, in band terms, so undo stays correct after the text moves strokes.
