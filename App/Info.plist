@@ -15,6 +15,8 @@
 		<string>$(BACKUP_SERVICE_ATTEST_BYPASS)</string>
 		<key>DevSignIn</key>
 		<string>$(BACKUP_SERVICE_DEV_SIGNIN)</string>
+		<key>DevUser</key>
+		<string>$(BACKUP_SERVICE_DEV_USER)</string>
 		<key>GoogleClientID</key>
 		<string>$(GOOGLE_SIGNIN_CLIENT_ID)</string>
 		<key>Host</key>

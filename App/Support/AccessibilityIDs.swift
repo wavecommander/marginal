@@ -107,6 +107,9 @@ nonisolated enum AccessibilityID {
         // Signing in (the offer, signed out)
         static let signInApple = "cloud.signIn.apple"
         static let signInGoogle = "cloud.signIn.google"
+        /// Debug builds with dev sign-in only: the "Development sign-in" caption and the test user's name.
+        static let devSignInCaption = "cloud.signIn.dev.caption"
+        static let devSignInUser = "cloud.signIn.dev.user"
         /// Why this iPad was signed out (session ended, Apple revoked, account deleted).
         static let signedOutNotice = "cloud.signedOut"
         // The account (signed in)

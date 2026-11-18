@@ -19,6 +19,10 @@ import S3Kit
 ///   supported (the simulator). Only debug builds read it; it ends up in the built app's
 ///   Info.plist, so it is for development builds against the `dev` Worker only, never for a
 ///   build that leaves the developer's hands. The production Worker ignores the header.
+/// - `BACKUP_SERVICE_DEV_SIGNIN` and `BACKUP_SERVICE_DEV_USER` (optional, **development only**,
+///   debug builds read them): the `dev` Worker's test issuer secret, which makes both sign-in
+///   buttons sign in as the named test user (`dev` by default). `scripts/dev-cloud.sh` sets
+///   these and the three above for a local `wrangler dev`.
 nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringConvertible {
     static let infoKey = "BackupService"
     static let hostKey = "Host"
@@ -27,6 +31,7 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
     static let appleSignInKey = "AppleSignIn"
     static let googleClientIDKey = "GoogleClientID"
     static let devSignInKey = "DevSignIn"
+    static let devUserKey = "DevUser"
 
     /// `https://<host>[:<port>]`, or `http://` for a loopback host. No path, no trailing slash.
     let baseURL: URL
@@ -47,6 +52,9 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
     /// The `dev` Worker's test issuer secret (`BACKUP_SERVICE_DEV_SIGNIN`), or `nil`. Debug
     /// builds only; when set, both sign-in buttons use the test issuer. Never described.
     var devSignInSecret: String?
+    /// The named test user dev sign-in signs in as (`BACKUP_SERVICE_DEV_USER`), or `nil` for
+    /// `dev` (`DevTestUser`). Debug builds only; not a secret.
+    var devUser: String?
 
     /// Whether the service is reached over plain HTTP on this machine (local development).
     var isLoopback: Bool { baseURL.scheme == "http" }
@@ -71,6 +79,7 @@ nonisolated struct BackupServiceConfiguration: Hashable, Sendable, CustomStringC
         configuration.googleClientID = (values[googleClientIDKey] as? String).flatMap(setting)
         #if DEBUG
         configuration.devSignInSecret = (values[devSignInKey] as? String).flatMap(setting)
+        configuration.devUser = (values[devUserKey] as? String).flatMap(setting)
         #endif
         return configuration
     }

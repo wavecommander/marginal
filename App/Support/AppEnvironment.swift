@@ -214,6 +214,10 @@ final class AppEnvironment {
             ReaderPositionStore().removeAll()
             // Sync off for every account, PDFs downloaded automatically.
             SyncSettings.reset(in: .standard)
+            #if DEBUG
+            // Dev sign-in signs in as the build's test user again.
+            DevTestUser.reset(in: .standard)
+            #endif
         }
         OnboardingState().applyLaunch(resetState: launchOptions.resetState, option: launchOptions.onboarding)
         if let accent = launchOptions.accent {
