@@ -582,6 +582,36 @@ final class ReaderUITests: XCTestCase {
         app.buttons["reader.markupUndo"].firstMatch.tap()
     }
 
+    /// On a portrait phone, markup mode swaps the section Back / Forward out of the toolbar for
+    /// the ink Undo / Redo, and turning markup off brings them back (design, "Section history").
+    func testPortraitPhoneMarkupHidesSectionHistoryButtons() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("the swap is for a portrait phone-shaped window")
+        }
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication.launchFresh(XCUIApplication.importing(Fixtures.small) + ["-openBook", "small"])
+        XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
+        let back = app.buttons["reader.toolbar.historyBack"].firstMatch
+        let forward = app.buttons["reader.toolbar.historyForward"].firstMatch
+        let undo = app.buttons["reader.toolbar.undo"].firstMatch
+        let toggle = app.buttons[ReaderID.markupToggle].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back shows while reading")
+        XCTAssertTrue(forward.exists, "Forward shows while reading")
+
+        toggle.tap()
+        XCTAssertTrue(waitForLabel(toggle, "Done with Markup"))
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "Undo shows in markup mode")
+        XCTAssertTrue(app.buttons["reader.toolbar.redo"].firstMatch.exists, "Redo shows in markup mode")
+        XCTAssertFalse(back.exists, "Back steps aside in markup mode")
+        XCTAssertFalse(forward.exists, "Forward steps aside in markup mode")
+
+        toggle.tap()
+        XCTAssertTrue(waitForLabel(toggle, "Markup"))
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back is back after markup")
+        XCTAssertTrue(forward.exists, "Forward is back after markup")
+        XCTAssertFalse(undo.exists, "Undo leaves with markup")
+    }
+
     /// The Markup toggle is the only switch (design, "Markup controls"): the same button in
     /// both modes, its filled glyph (no selected background) while markup is on, no Done button, and at regular width
     /// no toolbar Undo/Redo (the tool picker has its own); the rest of the toolbar stays, and

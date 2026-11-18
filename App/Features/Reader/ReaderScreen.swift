@@ -313,6 +313,12 @@ struct ReaderScreen: View {
 
     // MARK: Toolbar
 
+    /// Markup mode in a portrait phone-shaped window, where the toolbar has no room for both
+    /// the section Back / Forward and the ink Undo / Redo.
+    private var hidesSectionHistoryForMarkup: Bool {
+        session.isMarkupMode && horizontalSizeClass == .compact && verticalSizeClass == .regular
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
@@ -323,8 +329,13 @@ struct ReaderScreen: View {
             }
             .accessibilityIdentifier(AccessibilityID.Reader.contentsToggle)
             .toolbarGlyph()
-            SectionHistoryButton(session: session, direction: .back).toolbarGlyph()
-            SectionHistoryButton(session: session, direction: .forward).toolbarGlyph()
+            // In markup mode on a portrait phone (compact width, regular height) Back / Forward
+            // step aside to make room for the ink Undo / Redo; they come back when markup ends.
+            // The Go menu's Back / Forward (and their shortcuts) still work.
+            if !hidesSectionHistoryForMarkup {
+                SectionHistoryButton(session: session, direction: .back).toolbarGlyph()
+                SectionHistoryButton(session: session, direction: .forward).toolbarGlyph()
+            }
         }
         // One toolbar in both modes (design, "Markup controls"). Find works in markup mode too
         // (⇧⌘F or the search button); markup stays on.

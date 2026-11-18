@@ -116,6 +116,9 @@ ones even where the mockup draws an approximation.
 
 - **Section history** (added by the owner after the first plan). The reader toolbar has Back and
   Forward buttons that step through the sections the reader has jumped between.
+  - In markup mode in a portrait phone-shaped window (compact width, regular height) the
+    toolbar hides Back and Forward to make room for the ink Undo and Redo, and shows them again
+    when markup ends; the keyboard commands still work (owner decision, 17 November 2026).
   - A *jump* is any navigation that is not scrolling: choosing a heading in Contents, go to page,
     a bookmark, a thumbnail, a search hit, a link inside the PDF, a row in the Notebook, the level picker's heading, first or last
     page. Scrolling,
