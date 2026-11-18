@@ -73,6 +73,7 @@ enum ReaderStateProbe {
                 return ["markup=\(session.isMarkupMode ? "on" : "off")",
                         "picker=\(markup.isToolPickerVisible ? "shown" : "hidden")",
                         "shows=\(markup.toolPickerShowCount)",
+                        "fingerDraws=\(word(session.fingerDrawsInMarkup))",
                         "notes=\(session.isNotesVisible ? "shown" : "hidden")",
                         "responder=\(markup.firstResponderKind)",
                         "undo=\(word(manager?.canUndo ?? false))", "redo=\(word(manager?.canRedo ?? false))",

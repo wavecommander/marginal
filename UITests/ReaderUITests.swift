@@ -183,11 +183,22 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// A finger tap on the page maximizes it (no toolbar, no panes); markup can be turned on
-    /// while maximized (⇧⌘A) and carries on with the tool picker up; Escape ends it, and the
-    /// panes and the Markup toggle are back as they were. A tap on the page in markup mode
-    /// with finger drawing (`-inkAnyInput`) is ink, so it does not end it.
+    /// while maximized (⇧⌘A) and carries on with the tool picker up; ending maximize brings the
+    /// panes, page pill, and Markup toggle back as they were.
+    ///
+    /// In markup mode, tapping the page (simulating a finger) accounts for whether "Draw with
+    /// finger" is enabled:
+    /// - Enabled (`-inkAnyInput`, `fingerDraws=yes`): a tap draws (`undo=yes`) and does not
+    ///   maximize or un-maximize.
+    /// - Disabled (`-inkPencilOnly`, `fingerDraws=no`): a tap does not draw (`undo=no`) and
+    ///   maximizes / un-maximizes while keeping markup on.
     func testTapMaximizesAndKeepsMarkupOn() {
-        let app = openSmall(["-notesPanel", "page", "-exposeMarkupState", "-inkAnyInput"])
+        verifyTapMaximize(extraArgs: ["-inkAnyInput"])
+        verifyTapMaximize(extraArgs: ["-inkPencilOnly"])
+    }
+
+    private func verifyTapMaximize(extraArgs: [String]) {
+        let app = openSmall(["-notesPanel", "page", "-exposeMarkupState"] + extraArgs)
         XCTAssertTrue(pill(app).waitForExistence(timeout: 30))
         let contents = element(app, ReaderID.contentsPane)
         let notes = element(app, ReaderID.notesPane)
@@ -206,15 +217,45 @@ final class ReaderUITests: XCTestCase {
         app.typeKey("a", modifierFlags: [.command, .shift])
         XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 10),
                       "markup comes on while the page is maximized")
-        page.tap()
-        XCTAssertFalse(markup.waitForExistence(timeout: 2), "a finger that draws does not end it")
+        let fingerDraws = (state.value as? String)?.contains("fingerDraws=yes") == true
 
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
-        XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
-        XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
-        XCTAssertTrue(pill(app).waitForExistence(timeout: 5), "the page pill is back")
-        XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+        if fingerDraws {
+            page.tap()
+            XCTAssertFalse(markup.waitForExistence(timeout: 2),
+                           "with Draw with finger enabled, a finger tap draws and does not end maximize")
+            XCTAssertTrue(waitForValue(state, containing: "undo=yes", timeout: 5),
+                          "the finger tap drew on the page")
+
+            // Asking for a pane (`⌃⌘S` Show Contents) ends maximize while keeping markup on.
+            app.typeKey("s", modifierFlags: [.command, .control])
+            XCTAssertTrue(markup.waitForExistence(timeout: 5), "the toolbar is back")
+            XCTAssertTrue(contents.waitForExistence(timeout: 5), "Contents is back as it was")
+            XCTAssertTrue(notes.waitForExistence(timeout: 5), "the notes pane is back as it was")
+            XCTAssertTrue(pill(app).waitForExistence(timeout: 5), "the page pill is back")
+            XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+
+            page.tap()
+            XCTAssertTrue(markup.exists,
+                          "with Draw with finger enabled, a finger tap draws and does not maximize")
+            XCTAssertFalse(markup.waitForNonExistence(timeout: 1.5))
+        } else {
+            page.tap()
+            XCTAssertTrue(markup.waitForExistence(timeout: 5),
+                          "with Draw with finger disabled, a tap on the maximized page ends maximize")
+            XCTAssertTrue(contents.waitForExistence(timeout: 5))
+            XCTAssertTrue(notes.waitForExistence(timeout: 5))
+            XCTAssertTrue(pill(app).waitForExistence(timeout: 5))
+            XCTAssertTrue(waitForValue(state, containing: "markup=on picker=shown", timeout: 5))
+            XCTAssertTrue(waitForValue(state, containing: "undo=no", timeout: 2),
+                          "the finger tap did not draw")
+
+            page.tap()
+            XCTAssertTrue(markup.waitForNonExistence(timeout: 5),
+                          "with Draw with finger disabled, a finger tap maximizes even in markup mode")
+            page.tap()
+            XCTAssertTrue(markup.waitForExistence(timeout: 5), "and tapping again ends maximize")
+        }
+
         markup.tap()
         XCTAssertTrue(waitForValue(state, containing: "markup=off", timeout: 10), "markup can be left")
 

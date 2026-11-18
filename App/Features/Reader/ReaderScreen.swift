@@ -45,6 +45,9 @@ struct ReaderScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    @Environment(\.launchOptions) private var launchOptions
+    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverOn
+    @Environment(\.accessibilitySwitchControlEnabled) private var isSwitchControlOn
     /// Search panels on screen (each counts from its appearance until its dismissal has
     /// finished). A count, not a flag: when search reopens while the last panel is still going,
     /// the new panel's appearance and the old one's disappearance can come in either order.
@@ -153,7 +156,7 @@ struct ReaderScreen: View {
         }
         .navigationTitle(session.book.title)
         .navigationBarTitleDisplayMode(.inline)
-        .readerSubtitle(title: session.book.title, subtitle: subtitle)
+        .readerSubtitle(title: session.book.title, subtitle: subtitle, isFaded: isPillFaded)
         .readerTransparentTopBar()
         .toolbar { toolbarContent }
         // A maximized page has the whole window: no toolbar, no status bar. The way back is a
@@ -261,7 +264,7 @@ struct ReaderScreen: View {
                 // A maximized page has the whole window, without the pill (owner decision,
                 // 17 November 2026).
                 if !session.isMaximized {
-                    PagePill(session: session)
+                    PagePill(session: session, isFaded: isPillFaded)
                         .padding(pillAtTop ? .top : .bottom, 14)
                         .transition(.opacity)
                 }
@@ -293,6 +296,12 @@ struct ReaderScreen: View {
     }
 
     // MARK: Title
+
+    /// Shared fade state for the bottom page pill and (on iPadOS 26+) the top title pill.
+    private var isPillFaded: Bool {
+        session.isPagePillIdle && !session.isGoToPageVisible && !isVoiceOverOn && !isSwitchControlOn
+            && !launchOptions.pagePillStaysVisible
+    }
 
     /// The reader's place only; markup mode does not add a prefix (the filled Markup button
     /// shows the mode; design, "Markup controls").
@@ -773,9 +782,7 @@ private struct NotesSidePane: View {
 /// or Switch Control (nothing on screen says where it went), or with `-pagePillStaysVisible`.
 private struct PagePill: View {
     @Bindable var session: ReaderSession
-    @Environment(\.launchOptions) private var launchOptions
-    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverOn
-    @Environment(\.accessibilitySwitchControlEnabled) private var isSwitchControlOn
+    let isFaded: Bool
     @State private var text = ""
     @FocusState private var isFieldFocused: Bool
     /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
@@ -837,11 +844,7 @@ private struct PagePill: View {
         }
         .font(.subheadline.weight(.medium))
         .background(Capsule().fill(Color.black.opacity(0.78)))
-        .opacity(isFaded ? 0 : 1)
-        .allowsHitTesting(!isFaded)
-        .accessibilityHidden(isFaded)
-        // A slow fade out, a quick return.
-        .animation(.easeInOut(duration: isFaded ? 0.6 : 0.2), value: isFaded)
+        .pillIdleFade(isFaded)
         .onAppear { session.revealPagePill() }
         .onChange(of: session.isGoToPageVisible) { _, visible in
             if !visible { session.revealPagePill() }  // count the idle time from closing the field
@@ -855,11 +858,6 @@ private struct PagePill: View {
                 session.markup.reassertToolPicker()
             }
         }
-    }
-
-    private var isFaded: Bool {
-        session.isPagePillIdle && !session.isGoToPageVisible && !isVoiceOverOn && !isSwitchControlOn
-            && !launchOptions.pagePillStaysVisible
     }
 
     private func submit() {
@@ -880,12 +878,11 @@ private extension View {
             .accessibilityIdentifier(identifier)
     }
 
-    /// The title with its subtitle (the current section). iPadOS 26+: the system subtitle.
-    /// Earlier: a two-line principal toolbar item (`AccessibilityID.Reader.titleBlock`, one
-    /// combined accessibility element "title, subtitle"). Gated path: the only place that uses
-    /// `navigationSubtitle`.
+    /// The title with its subtitle (the current section). iPadOS 26+: a Liquid Glass capsule
+    /// that fades in sync with the bottom page pill. Earlier: a two-line principal toolbar item
+    /// (`AccessibilityID.Reader.titleBlock`, one combined accessibility element "title, subtitle").
     @ViewBuilder
-    func readerSubtitle(title: String, subtitle: String) -> some View {
+    func readerSubtitle(title: String, subtitle: String, isFaded: Bool) -> some View {
         if #available(iOS 26.0, *) {
             self.toolbar {
                 ToolbarItem(placement: .principal) {
@@ -901,6 +898,7 @@ private extension View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 3)
                     .glassEffect(.regular, in: Capsule())
+                    .pillIdleFade(isFaded)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(AccessibilityID.Reader.titleBlock)
                 }
@@ -918,6 +916,14 @@ private extension View {
                 }
             }
         }
+    }
+
+    /// Fades a floating pill out slowly after idle and brings it back quickly on movement.
+    func pillIdleFade(_ isFaded: Bool) -> some View {
+        opacity(isFaded ? 0 : 1)
+            .allowsHitTesting(!isFaded)
+            .accessibilityHidden(isFaded)
+            .animation(.easeInOut(duration: isFaded ? 0.6 : 0.2), value: isFaded)
     }
 
     /// Hides the navigation bar's background and top scroll-edge effect on iPadOS 26+ so the

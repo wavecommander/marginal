@@ -668,12 +668,12 @@ final class ReaderPDFController: NSObject, @preconcurrency PDFPageOverlayViewPro
     /// `-inkAnyInput`). Then a finger tap is a dot of ink, not maximize.
     private var fingerDrawsOnPage: Bool {
         guard let session, session.isMarkupMode else { return false }
-        switch session.drawingPolicy {
-        case .anyInput: return true
-        case .pencilOnly: return false
-        default: return !UIPencilInteraction.prefersPencilOnlyDrawing
-        }
+        return session.fingerDrawsInMarkup
     }
+
+    var isMaximized: Bool { session?.isMaximized == true }
+
+    func exitMaximized() { session?.setMaximized(false) }
 
     /// A single finger tap on a page, not taken by anything else: maximizes the page, or ends
     /// a maximized page. A tap on a link, on a highlight (its menu), one that clears a selection
