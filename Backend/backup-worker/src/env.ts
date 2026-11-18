@@ -52,6 +52,12 @@ export interface Env {
    * tests can sign in without Apple or Google (see idToken.ts). Must not exist in production.
    */
   DEV_TEST_SIGNIN_SECRET?: string;
+  /**
+   * `dev` only: a product ID from PRODUCT_ALLOWANCES. Gives every account whose sign-in is a dev
+   * test issuer identity an active entitlement with no App Store transaction, in `sandbox/` with
+   * the sandbox allowance (see devEntitlement.ts). Must not exist in production.
+   */
+  DEV_TEST_ENTITLEMENT?: string;
 }
 
 /** Settings parsed and checked; `readSettings` throws a plain message naming what is wrong. */
@@ -87,6 +93,8 @@ export interface Settings {
   attestBypassSecret: string | undefined;
   /** Only ever set in `dev`: the dev test issuer's key; undefined when the issuer is off. */
   devTestSigninSecret: string | undefined;
+  /** Only ever set in `dev`: the product ID of the dev test entitlement; undefined when it is off. */
+  devTestEntitlement: string | undefined;
   /** Only ever set in `dev`. */
   xcodeStoreKitCert: Uint8Array | undefined;
 }
@@ -181,6 +189,7 @@ function parseSettings(env: Env): Settings {
   // the Worker refuses to serve at all, so the mistake is loud rather than silent.
   let attestBypassSecret: string | undefined;
   let devTestSigninSecret: string | undefined;
+  let devTestEntitlement: string | undefined;
   let xcodeStoreKitCert: Uint8Array | undefined;
   if (production) {
     if (env.APP_ATTEST_BYPASS_SECRET !== undefined) {
@@ -188,6 +197,9 @@ function parseSettings(env: Env): Settings {
     }
     if (env.DEV_TEST_SIGNIN_SECRET !== undefined) {
       throw new Error("DEV_TEST_SIGNIN_SECRET must not exist in production: delete it");
+    }
+    if (env.DEV_TEST_ENTITLEMENT !== undefined) {
+      throw new Error("DEV_TEST_ENTITLEMENT must not exist in production: delete it");
     }
     if (env.XCODE_STOREKIT_CERT) throw new Error("XCODE_STOREKIT_CERT must not be set in production");
   } else {
@@ -202,6 +214,11 @@ function parseSettings(env: Env): Settings {
         throw new Error("DEV_TEST_SIGNIN_SECRET must be at least 32 characters");
       }
       devTestSigninSecret = env.DEV_TEST_SIGNIN_SECRET;
+    }
+    if (env.DEV_TEST_ENTITLEMENT !== undefined && env.DEV_TEST_ENTITLEMENT.trim() !== "") {
+      const productId = env.DEV_TEST_ENTITLEMENT.trim();
+      if (!allowances.has(productId)) throw new Error("DEV_TEST_ENTITLEMENT must be a product ID in PRODUCT_ALLOWANCES");
+      devTestEntitlement = productId;
     }
     if (env.XCODE_STOREKIT_CERT) {
       try {
@@ -238,6 +255,7 @@ function parseSettings(env: Env): Settings {
     siwa,
     attestBypassSecret,
     devTestSigninSecret,
+    devTestEntitlement,
     xcodeStoreKitCert,
   };
 }

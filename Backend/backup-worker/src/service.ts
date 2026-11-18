@@ -8,6 +8,7 @@ import { attestPolicy, verifyAttestation } from "./appAttest";
 import { fromBase64, hex, randomBytes, sha256, toBase64 } from "./bytes";
 import type { AttestResponse, ChallengeResponse, DeleteMyDataResponse, HealthResponse, SessionResponse } from "./contract";
 import * as db from "./db";
+import { devTestEntitlement, devTestEntitlementApplies, withDevTestEntitlement } from "./devEntitlement";
 import { bindSubscription, recordNotification } from "./entitlement";
 import { readSettings, type Env, type Settings } from "./env";
 import { Refusal, json, optionalStringField, problem, readJsonBody, stringField } from "./http";
@@ -172,11 +173,19 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
   const now = deps.now().getTime();
 
   let subscriber: Subscriber | undefined;
+  let devTest: Subscriber | undefined;
   if (fields.signedTransaction !== undefined) {
     const { transaction, renewal } = await verifySubscription(fields.signedTransaction, fields.signedRenewalInfo, settings, deps);
     subscriber = await bindSubscription(env.DB, settings, account, transaction, renewal, now);
+    // `dev` only: a dev test account is served from the better of the two (an old StoreKit
+    // Testing purchase on the simulator must not make it read-only).
+    devTest = devTestEntitlement(account, settings, now, [subscriber]);
+    if (devTest) subscriber = primaryOf([subscriber, devTest], now, settings);
   } else {
-    subscriber = primaryOf(await db.listSubscribers(env.DB, account.accountId), now, settings);
+    // `dev` only: a dev test account may have the dev test entitlement (devEntitlement.ts).
+    const choice = withDevTestEntitlement(await db.listSubscribers(env.DB, account.accountId), account, settings, now);
+    subscriber = primaryOf(choice.candidates, now, settings);
+    devTest = choice.devTest;
   }
   if (!subscriber) throw new Refusal("not-subscribed", "no entitlement");
 
@@ -216,7 +225,7 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
     ttlSeconds: settings.credentialTTLSeconds,
     now: new Date(now),
   });
-  logEvent("session", { account: shortKey(account.accountId), mode, environment: subscriber.environment });
+  logEvent("session", { account: shortKey(account.accountId), mode, environment: subscriber.environment, ...(subscriber === devTest ? { entitlement: "dev-test" } : {}) });
   const body: SessionResponse = {
     mode,
     credentials,
@@ -361,9 +370,11 @@ export async function runScheduled(env: Env, deps: Deps): Promise<CronResult> {
   outer: while (!result.unfinished && examined < CRON_MAX_CANDIDATES) {
     const candidates = await db.deletionCandidates(env.DB, cutoff, after, 50);
     if (candidates.length === 0) break;
-    for (const { subscriber, folderKey } of candidates) {
+    for (const { subscriber, folderKey, accountDevTest } of candidates) {
       after = { accountId: subscriber.accountId, namespace: subscriber.namespace };
       examined++;
+      // `dev` only: the dev test entitlement is using this sandbox folder (devEntitlement.ts).
+      if (subscriber.namespace === "sandbox" && devTestEntitlementApplies({ devTest: accountDevTest }, settings)) continue;
       const access = accessAt(subscriber, now, settings);
       const due =
         access.kind === "deletion-due" ||

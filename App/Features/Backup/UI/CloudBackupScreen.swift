@@ -397,6 +397,11 @@ private struct CloudSignInSection: View {
             }
             Text(CloudAccountText.signInIntro())
                 .foregroundStyle(.secondary)
+            #if DEBUG
+            if let user = model.cloud.devTestUser {
+                DevTestSignInRows(user: user)
+            }
+            #endif
             VStack(spacing: Space.s) {
                 if signIn.availableProviders.contains(.apple) {
                     AppleSignInButton(dark: colorScheme == .dark) { model.signIn(with: .apple, anchor: anchor) }
@@ -436,6 +441,52 @@ private struct CloudSignInSection: View {
         }
     }
 }
+
+#if DEBUG
+/// Debug builds with dev sign-in only: says plainly that the buttons below are the development
+/// sign-in (the `dev` Worker's test issuer, not Apple or Google), and names the test user they
+/// sign in as, which the developer can change here without rebuilding.
+private struct DevTestSignInRows: View {
+    let user: DevTestUser
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Label {
+                Text(DevTestSignInText.caption).font(.headline)
+            } icon: {
+                Image(systemName: "hammer.fill").foregroundStyle(Color.orange)
+            }
+            Text(DevTestSignInText.explanation(name: user.name))
+                .font(Typeface.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AccessibilityID.CloudBackup.devSignInCaption)
+        LabeledContent(DevTestSignInText.fieldLabel) {
+            TextField(user.buildName, text: Binding(get: { draft }, set: { draft = $0; user.setName($0) }))
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .accessibilityIdentifier(AccessibilityID.CloudBackup.devSignInUser)
+        }
+        .onAppear { draft = user.chosenName ?? "" }
+    }
+}
+
+/// Words for the development sign-in rows (debug builds only; not localized).
+enum DevTestSignInText {
+    static let caption = "Development sign-in"
+    static let fieldLabel = "Test user"
+
+    static func explanation(name: String) -> String {
+        "Both buttons sign in to the development service as the test user “\(name)”, not with Apple or Google. "
+            + "The same name on another simulator is the same account."
+    }
+}
+#endif
 
 /// The system's Sign in with Apple button (`ASAuthorizationAppleIDButton`), which starts the
 /// app's own flow (the nonce comes from the service first).

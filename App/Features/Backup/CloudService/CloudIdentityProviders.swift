@@ -234,21 +234,40 @@ final class DevTestCloudIdentityProvider: CloudIdentityProviding {
 
     private let secret: String
     private let audience: String
-    /// The test identity's subject, the same for both stand-ins (they are kept apart by the Worker).
-    let subject: String
+    private let subjectSource: () -> String
+    private let emailSource: (CloudSignInProvider) -> String
     private let now: () -> Date
+    /// The named test user signing in, when the provider follows one (the app's debug build).
+    let user: DevTestUser?
 
+    /// The test identity's subject, the same for both stand-ins (they are kept apart by the Worker).
+    var subject: String { subjectSource() }
+
+    /// A fixed subject (the end-to-end tests).
     init(secret: String, audience: String, subject: String, now: @escaping () -> Date = { Date() }) {
         self.secret = secret
         self.audience = audience
-        self.subject = subject
+        subjectSource = { subject }
+        emailSource = { "\($0.rawValue)-dev-test@example.invalid" }
         self.now = now
+        user = nil
+    }
+
+    /// Signs in as `user`, whatever its name is at the moment of signing in: the same name on
+    /// any simulator is the same account. The email shown on this device is `<name>@dev-test.invalid`.
+    init(secret: String, audience: String, user: DevTestUser, now: @escaping () -> Date = { Date() }) {
+        self.secret = secret
+        self.audience = audience
+        subjectSource = { user.subject }
+        emailSource = { _ in "\(user.name)@dev-test.invalid" }
+        self.now = now
+        self.user = user
     }
 
     var availableProviders: [CloudSignInProvider] { [.apple, .google] }
 
     func credential(_ provider: CloudSignInProvider, nonce: String, anchor: ASPresentationAnchor?) async throws -> CloudIdentityCredential {
-        let email = "\(provider.rawValue)-dev-test@example.invalid"
+        let email = emailSource(provider)
         return CloudIdentityCredential(provider: provider, idToken: token(nonce: nonce, email: email),
                                        authorizationCode: provider == .apple ? Self.authorizationCode : nil,
                                        email: email, appleUserID: nil)

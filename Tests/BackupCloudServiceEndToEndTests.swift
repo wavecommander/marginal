@@ -209,6 +209,200 @@ struct BackupCloudServiceEndToEndTests {
         try await cloud.deleteAccount(anchor: nil)
     }
 
+    // MARK: A named dev user on two devices, no purchase (the dev test entitlement)
+
+    /// Opt-in, with the three above and `TEST_RUNNER_TACTILE_BACKUP_SERVICE_DEV_USER=<name prefix>`
+    /// against a `wrangler dev` whose `.dev.vars` sets `DEV_TEST_ENTITLEMENT` (what
+    /// `scripts/dev-cloud.sh` sets up). Two devices in one process sign in as the same named dev
+    /// user (a fresh name per run), with no App Store purchase and no StoreKit test session: the
+    /// Worker's dev test entitlement grants the session. The first backs up and syncs; the second
+    /// is the same account, needs the recovery key (each device has its own key store, as two
+    /// simulators do), takes it, and its sync round brings the book over. Everything written to
+    /// the development bucket is removed again, and the account is deleted.
+    nonisolated static let devUserPrefix = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE_DEV_USER"]
+
+    /// One simulated device: its own sign-in, key store, App Attest state and library.
+    struct Device {
+        let cloud: TactileCloudBackup
+        let keyStore: InMemoryBackupKeyStore
+        let store: LibraryStore
+        let sync: SyncService
+    }
+
+    func device(_ label: String, user name: String, configuration: BackupServiceConfiguration, scratch: URL,
+                defaults: UserDefaults, suite: String) throws -> Device {
+        let user = DevTestUser(buildName: name, defaults: defaults)
+        let identity = DevTestCloudIdentityProvider(secret: try #require(Self.devSignInSecret), audience: "software.tactile.texts",
+                                                    user: user)
+        let keyStore = InMemoryBackupKeyStore()
+        let cloud = TactileCloudBackup.make(configuration: configuration, store: AppStoreBackupStore(),
+                                            attest: DeviceAppAttestClient(defaultsSuiteName: "\(suite)-\(label)"),
+                                            keyStore: keyStore, sessionStore: InMemoryCloudDeviceSessionStore(),
+                                            identity: identity, temporaryDirectory: scratch.appendingPathComponent("enc-\(label)"),
+                                            defaults: defaults, deviceName: { "E2E \(label)" })
+        let store = try LibraryStore.ephemeral()
+        let connection = try #require(cloud.account.connection)
+        let signIn = cloud.signIn
+        let access = TactileCloudSyncAccess(connection: connection, accountID: { await MainActor.run { signIn.accountID } },
+                                            temporaryDirectory: scratch.appendingPathComponent("sync-tmp-\(label)"))
+        let sync = SyncService(library: LibrarySyncCore(store: store), access: access,
+                               root: scratch.appendingPathComponent("sync-\(label)"), deviceName: { "E2E \(label)" })
+        return Device(cloud: cloud, keyStore: keyStore, store: store, sync: sync)
+    }
+
+    @Test(.enabled(if: serviceHost != nil && bypassSecret != nil && devSignInSecret != nil && devUserPrefix != nil))
+    func aNamedDevUserBacksUpAndSyncsTwoDevicesWithNoPurchase() async throws {
+        let host = try #require(Self.serviceHost)
+        let bypass = try #require(Self.bypassSecret)
+        let configuration = try #require(BackupServiceConfiguration(host: host, productIDs: Self.productID, attestBypass: bypass))
+        let scratch = try BackupTestSupport.scratch("CloudDevUser")
+        let suite = "CloudDevUser-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let prefix = try #require(Self.devUserPrefix)
+        let name = "\(prefix)-\(UUID().uuidString.prefix(8).lowercased())"
+        let a = try device("A", user: name, configuration: configuration, scratch: scratch, defaults: defaults, suite: suite)
+        let b = try device("B", user: name, configuration: configuration, scratch: scratch, defaults: defaults, suite: suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            for url in [scratch, a.store.rootDirectory, b.store.rootDirectory] { try? FileManager.default.removeItem(at: url) }
+        }
+        let accountA = a.cloud.account
+        let connectionA = try #require(accountA.connection)
+        #expect(try await connectionA.client.health() == "dev")
+        #expect(a.cloud.devTestUser?.name == name)
+
+        // A signs in as the dev user: a new account, entitled by the Worker with no purchase here.
+        try await a.cloud.signIn.signIn(with: .apple, anchor: nil)
+        let accountID = try #require(a.cloud.signIn.accountID)
+        #expect(a.cloud.signIn.session?.email == "\(name)@dev-test.invalid")
+        await accountA.refresh()
+        #expect(await a.cloud.subscription.signedTransaction() == nil, "no purchase on this device")
+        if case .subscribed = a.cloud.subscription.state { Issue.record("StoreKit says subscribed: \(a.cloud.subscription.state)") }
+        let session = try #require(connectionA.latestSession, "no session: \(String(describing: accountA.lastError))")
+        #expect(session.mode == .readWrite)
+        #expect(session.subscription.environment == "Xcode" && session.subscription.state == .active,
+                "the dev test entitlement, not a purchase")
+        #expect(session.storage.prefix.hasPrefix("sandbox/"))
+        #expect(accountA.status == .active)
+        let raw = S3Client(endpoint: try #require(session.storage.s3Endpoint), credentialsProvider: connectionA.credentials)
+        #expect(try await raw.list().isEmpty, "a new dev user's folder is empty")
+
+        // A backs up one book, then syncs it.
+        let book = try #require(try await ImportService(store: a.store).importPDF(at: BackupTestSupport.small).book)
+        // A note and a bookmark (seedRecords' stand-in ink bytes are not real PencilKit data, and
+        // sync leaves ink it cannot read alone, as for an editor in progress).
+        try a.store.notes.save(Note(bookID: book.id, target: .page(2), text: "A dev user’s note", createdAt: Date()))
+        try a.store.bookmarks.setBookmarked(true, bookID: book.id, pageIndex: 3)
+        let backup = try await BackupTestSupport.makeService(a.store, scratch: scratch).backUp(to: a.cloud.destination, includePDFs: true)
+        #expect(backup.uploadedPDFs == 1)
+        #expect(accountA.hasKeyOnThisDevice == true)
+        await a.sync.syncNow(joinConfirmed: true)
+        guard case .upToDate = a.sync.status else {
+            Issue.record("A's sync round: \(a.sync.status)")
+            try await cleanUp(raw, a)
+            return
+        }
+        let afterSync = try await raw.list().map(\.key)
+        #expect(afterSync.contains { $0.contains("Sync/v1/books/") }, "a book head in the account: \(afterSync.count) objects")
+        let recoveryKey = try await accountA.recoveryKey()
+
+        // B: the same dev user is the same account. Its key store is empty: the recovery key is needed.
+        try await b.cloud.signIn.signIn(with: .google, anchor: nil)
+        let google = try #require(b.cloud.signIn.accountID)
+        #expect(google != accountID, "Apple and Google stand-ins are two accounts, as for real sign-ins")
+        try await b.cloud.deleteAccount(anchor: nil)
+        try await b.cloud.signIn.signIn(with: .apple, anchor: nil)
+        #expect(b.cloud.signIn.accountID == accountID, "same name, same account")
+        await b.cloud.account.refresh()
+        #expect(b.cloud.account.status == .needsRecoveryKey(.noKeyOnThisDevice))
+        #expect(SyncAvailability.showsSection(b.cloud.account.status), "the Sync section shows, to ask for the key")
+        await b.sync.syncNow(joinConfirmed: true)
+        #expect(b.sync.status == .needsKey(.noKeyOnThisDevice))
+        await #expect(throws: TactileCloudError.recoveryKeyDoesNotMatch) {
+            try await b.cloud.account.adoptRecoveryKey(BackupEncryptionKey.generate().recoveryKey.formatted)
+        }
+        try await b.cloud.account.adoptRecoveryKey(recoveryKey.formatted)
+        #expect(b.cloud.account.status == .active)
+
+        // B's first round joins and brings the book over; A's next round has nothing new.
+        await b.sync.syncNow(joinConfirmed: true)
+        #expect({ if case .upToDate = b.sync.status { true } else { false } }(), "B's sync round: \(b.sync.status)")
+        let synced = try b.store.books.allBooks()
+        #expect(synced.map(\.title) == [book.title])
+        if let bookB = synced.first, let archive = try b.store.archive(bookID: bookB.id) {
+            #expect(archive.notes.map(\.text) == ["A dev user’s note"])
+            #expect(archive.bookmarks.map(\.pageIndex) == [3])
+        }
+        #expect(try await b.cloud.destination.listSnapshots().count == 1, "and sees A's backup")
+        await a.sync.syncNow()
+        #expect({ if case .upToDate = a.sync.status { true } else { false } }(), "A again: \(a.sync.status)")
+
+        // A different name is a different account.
+        let third = try device("C", user: "\(name)-other", configuration: configuration, scratch: scratch, defaults: defaults,
+                               suite: suite)
+        try await third.cloud.signIn.signIn(with: .apple, anchor: nil)
+        #expect(third.cloud.signIn.accountID != accountID)
+        try await third.cloud.deleteAccount(anchor: nil)
+        try? FileManager.default.removeItem(at: third.store.rootDirectory)
+
+        let tokenB = try #require(b.cloud.signIn.sessionToken)
+        try await cleanUp(raw, a)
+        // B's session ended with the account.
+        await #expect(throws: CloudServiceError.sessionInvalid) { _ = try await b.cloud.signIn.client.account(sessionToken: tokenB) }
+    }
+
+    // MARK: Removing a dev user from the development bucket
+
+    /// Opt-in with `TEST_RUNNER_TACTILE_BACKUP_SERVICE_DELETE_DEV_USER=<name>` (and the service,
+    /// bypass and dev sign-in variables): signs in as that dev user with each stand-in (Apple,
+    /// Google), removes every object in the account's folder from the real development bucket
+    /// with the folder's own credentials (`wrangler dev`'s own deletion only empties its local
+    /// bucket), then deletes the account. `scripts/dev-cloud.sh --delete-dev-user NAME` runs it.
+    nonisolated static let deleteDevUser = ProcessInfo.processInfo.environment["TACTILE_BACKUP_SERVICE_DELETE_DEV_USER"]
+
+    @Test(.enabled(if: serviceHost != nil && bypassSecret != nil && devSignInSecret != nil && deleteDevUser != nil))
+    func deleteADevUserAndItsObjects() async throws {
+        let host = try #require(Self.serviceHost)
+        let bypass = try #require(Self.bypassSecret)
+        let configuration = try #require(BackupServiceConfiguration(host: host, productIDs: Self.productID, attestBypass: bypass))
+        let name = try #require(Self.deleteDevUser.flatMap(DevTestUser.normalized))
+        let scratch = try BackupTestSupport.scratch("CloudDeleteDevUser")
+        let suite = "CloudDeleteDevUser-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: scratch)
+        }
+        for provider in [CloudSignInProvider.apple, .google] {
+            let device = try device(provider.rawValue, user: name, configuration: configuration, scratch: scratch,
+                                    defaults: defaults, suite: suite)
+            defer { try? FileManager.default.removeItem(at: device.store.rootDirectory) }
+            try await device.cloud.signIn.signIn(with: provider, anchor: nil)
+            let connection = try #require(device.cloud.account.connection)
+            // A dev test account is served by the dev test entitlement; without one (the switch
+            // off) its folder cannot be reached, and only the account is deleted.
+            if let session = try? await connection.currentSession(forceNew: true), let endpoint = session.storage.s3Endpoint {
+                let raw = S3Client(endpoint: endpoint, credentialsProvider: connection.credentials)
+                let objects = try await raw.list()
+                for object in objects { try await raw.delete(key: object.key) }
+                #expect(try await raw.list().isEmpty)
+                print("dev user \(name) (\(provider.rawValue) stand-in): removed \(objects.count) objects")
+            }
+            try await device.cloud.deleteAccount(anchor: nil)
+            #expect(!device.cloud.signIn.isSignedIn)
+        }
+    }
+
+    /// Removes this run's objects from the real development bucket with the folder's own
+    /// credentials (`wrangler dev`'s delete only empties its local bucket), checks the folder is
+    /// empty, then deletes the account.
+    func cleanUp(_ raw: S3Client, _ device: Device) async throws {
+        for object in try await raw.list() { try await raw.delete(key: object.key) }
+        #expect(try await raw.list().isEmpty, "nothing left in the development bucket")
+        try await device.cloud.deleteAccount(anchor: nil)
+        #expect(!device.cloud.signIn.isSignedIn)
+    }
+
     static func base64URLDecoded(_ text: String) -> Data? {
         var base64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while base64.count % 4 != 0 { base64 += "=" }

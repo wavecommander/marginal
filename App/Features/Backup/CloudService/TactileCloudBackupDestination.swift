@@ -98,6 +98,14 @@ struct TactileCloudBackup {
     let account: CloudBackupAccount
     let destination: TactileCloudBackupDestination
 
+    #if DEBUG
+    /// Debug builds with dev sign-in only: the named test user both sign-in buttons sign in as
+    /// (the signed-out page lets the developer change it). `nil` otherwise.
+    var devTestUser: DevTestUser? {
+        (signIn.identity as? DevTestCloudIdentityProvider)?.user
+    }
+    #endif
+
     /// The service for this build, or `nil` when `BackupServiceConfiguration` finds no host or
     /// product IDs (the default): then nothing is created and nothing changes for the reader.
     /// With neither way of signing in configured the service is created but reports itself not
@@ -110,28 +118,19 @@ struct TactileCloudBackup {
     }
 
     /// Apple and Google as this build is configured (in a debug build with
-    /// `BACKUP_SERVICE_DEV_SIGNIN`, the `dev` Worker's test issuer stands in for both).
-    static func identityProvider(for configuration: BackupServiceConfiguration) -> any CloudIdentityProviding {
+    /// `BACKUP_SERVICE_DEV_SIGNIN`, the `dev` Worker's test issuer stands in for both, signing in
+    /// as the named test user `BACKUP_SERVICE_DEV_USER`, or the name chosen on this device).
+    static func identityProvider(for configuration: BackupServiceConfiguration,
+                                 defaults: UserDefaults = .standard) -> any CloudIdentityProviding {
         #if DEBUG
         if let secret = configuration.devSignInSecret {
             return DevTestCloudIdentityProvider(secret: secret, audience: Bundle.main.bundleIdentifier ?? "software.tactile.texts",
-                                                subject: devTestSubject())
+                                                user: DevTestUser(buildName: configuration.devUser, defaults: defaults))
         }
         #endif
         return SystemCloudIdentityProvider(appleEnabled: configuration.signInWithApple,
                                            google: configuration.googleClientID.flatMap { GoogleSignInConfiguration(clientID: $0) })
     }
-
-    #if DEBUG
-    /// A test identity per install, so a simulator keeps its account across launches.
-    private static func devTestSubject() -> String {
-        let key = "software.tactile.texts.cloud-backup.dev-test-subject"
-        if let subject = UserDefaults.standard.string(forKey: key) { return subject }
-        let made = "simulator-\(UUID().uuidString.lowercased())"
-        UserDefaults.standard.set(made, forKey: key)
-        return made
-    }
-    #endif
 
     /// The service with every dependency given (tests pass fakes and stubbed sessions).
     ///

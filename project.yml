@@ -260,10 +260,12 @@ targets:
           # Signing in to the service: YES when the build carries the Sign in with Apple
           # entitlement, and the Google OAuth client ID (iOS). Empty: that button is absent;
           # both empty: the service says it isn't available. DevSignIn is the `dev` Worker's
-          # test issuer secret, for development builds only (debug builds read it).
+          # test issuer secret and DevUser the named test user it signs in as, for development
+          # builds only (debug builds read them; scripts/dev-cloud.sh sets them).
           AppleSignIn: $(SIGN_IN_WITH_APPLE)
           GoogleClientID: $(GOOGLE_SIGNIN_CLIENT_ID)
           DevSignIn: $(BACKUP_SERVICE_DEV_SIGNIN)
+          DevUser: $(BACKUP_SERVICE_DEV_USER)
           # The subscription's Terms of Use and Privacy Policy, shown on the offer; written
           # without "https://" in an xcconfig. Empty by default: that link is not shown.
           TermsURL: $(BACKUP_TERMS_URL)

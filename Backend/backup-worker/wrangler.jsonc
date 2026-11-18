@@ -21,6 +21,14 @@
 //   DEV_TEST_SIGNIN_SECRET                                 `dev` only, optional: the dev test issuer's
 //                                                          key, so the simulator can sign in without
 //                                                          Apple or Google. Same production refusal.
+//   DEV_TEST_ENTITLEMENT                                   `dev` only, optional: a product ID from
+//                                                          PRODUCT_ALLOWANCES. Accounts signed in through
+//                                                          the dev test issuer get an active sandbox
+//                                                          entitlement with no App Store purchase (README,
+//                                                          "Testing sync in development without Apple,
+//                                                          Google or the App Store"). Not a secret, but
+//                                                          kept out of this file so production can never
+//                                                          inherit it. Same production refusal.
 //
 // The Worker makes outbound requests to four fixed addresses only: Apple's and Google's sign-in
 // key sets, and Apple's token and revoke endpoints (see README, "Configuration").
