@@ -437,6 +437,34 @@ the dev secrets: keep them on your own devices.
       from the other devices too, and it is.
 - [ ] **Real R2.** Rounds against the development bucket through the Worker's temporary
       credentials: conditional head writes, a 412 race between two devices, ETags in listings.
+      (One process with two libraries passed against the development bucket through `wrangler
+      dev` on 18 November 2026; two real devices and the deployed Worker are still to check.)
+
+### Recently Deleted, earlier versions and housekeeping (C5)
+
+- [ ] **Recently Deleted on two devices.** Delete a synced book on the iPad (the confirmation
+      mentions Recently Deleted and 30 days). On the iPhone, the Sync section's Recently Deleted
+      lists it "Deleted on <the iPad's name>" with 30 days left; Restore asks, then the book is in
+      the iPhone's Library at once (its PDF downloads on Wi-Fi) and returns to the iPad with its
+      notes, highlights and ink at its next round. The iPad's own list said "Deleted on this iPad".
+- [ ] **Restore offline or pull-only.** With no network, Restore says it couldn't and changes
+      nothing; with an ended subscription (read-only), it says changes can't be sent.
+- [ ] **Earlier Versions.** After editing a synced book over a few sessions (with pauses of more
+      than 15 minutes), its context menu's Earlier Versions… lists the versions with device names
+      and counts. Restore one while the book is open in another window on a page with no stroke in
+      progress: the window reloads to the restored notes and ink without closing; the other device
+      shows the same after its next round; Undo Last Restore on the Backup screen puts it back on
+      both. With a note being edited in another window, it refuses and says why.
+- [ ] **Housekeeping, on a test account.** On a development account, after a day (or with the
+      `last-run` file removed), the Console shows one `housekeeping:` line per device per day with
+      nothing removed on a fresh account; a book deleted over 30 days earlier (left on a device
+      that stayed offline) no longer appears in Recently Deleted, and the offline device, back
+      online, deletes its unchanged copy (or, if edited, puts it back).
+- [ ] **Background.** Put the app away right after a sync round that housekeeping follows: the
+      round's background time is not exceeded (housekeeping stops cleanly when cut off, and runs
+      again after a later round).
+- [ ] **Two clocks.** On a device whose clock is set a week ahead, housekeeping still removes
+      nothing fresh (it judges ages by the account's dates), and its pushes still work.
 
 ## Scanned books
 

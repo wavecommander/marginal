@@ -670,7 +670,10 @@ the PDFs. This is backup, not sync: two iPads do not merge, and a restore replac
 - **Two layouts.** A *single file* (PDFs embedded or not) for saving anywhere in Files. A
   *folder layout* for every folder-like destination: `Backups/<UTC time> <device>.ttbackup`
   (never with PDFs, so it stays small) and `PDFs/<sha256>.pdf`, written once per PDF and skipped
-  when present. The newest 10 snapshots are kept; PDFs are never removed automatically. In a
+  when present. The newest 10 snapshots are kept; PDFs are never removed automatically, except in
+  Tactile Texts Cloud, where sync's housekeeping removes a PDF that no snapshot and no synced book
+  refers to after seven days (a backup checks, after its snapshot is stored, that the PDFs it
+  found already there still are, and uploads any that went). In a
   folder the reader picked the snapshot folder is `Tactile Texts Backups/` (owner decision,
   16 November 2026), so it reads as the app's in Files; snapshots already in `Backups/` there
   still list, restore and delete, and new ones are never written to it. S3 and Tactile Texts
@@ -1030,9 +1033,50 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
     nothing. There are no per-conflict prompts anywhere.
   - *Restore and delete with sync on*: the Replace with Backup and Undo Last Restore
     confirmations add that the change is also carried to the reader's other devices; Delete Book
-    adds that the book is also removed from the other devices. Nothing promises it can be brought
-    back from the account: Recently Deleted is a later package (C5); until then a snapshot backup
-    is the way back.
+    adds that the book is also removed from the other devices and stays in Recently Deleted on the
+    Tactile Texts Cloud page for 30 days, restorable from any of them (C5, 18 November 2026).
+- **Bringing a book back** (as built 18 November 2026, package C5 of `docs/CLOUD_SYNC_PLAN.md`;
+  owner decision 3 of that plan).
+  - *Recently Deleted* is a row in the Sync section (while the switch is on). It lists the books
+    deleted on any of the account's devices in the last 30 days: the title, "Deleted on this
+    iPad/iPhone" or on the named device with the date, and the days left; with none, it says so.
+    Restore asks first ("It comes back on this iPad now with its notes, highlights, bookmarks and
+    ink, and on your other devices when they next sync"), then makes the book live again in the
+    account and here at once, without its PDF, which downloads as Download PDFs says. If any of the
+    book's content is no longer in the account, Restore says so and changes nothing. A pull-only
+    session cannot restore.
+  - *After 30 days* a deleted book cannot be restored: housekeeping turns its record in the
+    account into a tombstone (the deletion and its dates, no content) and its content is then
+    removed. A device that was away for longer and still has the book deletes its copy, unless it
+    was edited there, when that copy goes back to the account as it is (the edit wins, as before).
+  - *Earlier Versions…* is in a synced book's context menu in the Library while sync is on. It
+    lists the book's versions from the last 30 days that the account keeps (one per pause in the
+    editing, newest first, at most 60): when, on which device, and how many notes, highlights,
+    bookmarks and pages with ink. Choosing one asks first, saying what the book holds now and then,
+    that anything added since is removed, that the change reaches the other devices, and that Undo
+    Last Restore puts it back. Restoring keeps a restore safety copy of the book first (so Undo Last
+    Restore on the Backup screen works as after any restore), then writes the version's notes,
+    highlights, bookmarks, headings, title and ink into the book as one ordinary change (the
+    reading position stays); open windows on the book reload what they show, as for a change from
+    another window. It is never done while the reader is working in the book (a note being edited
+    or ink not yet saved: it says to finish first), during a backup or restore, or during a round
+    (which is stopped first). The next round carries it to the account and the other devices like
+    any edit, removals included; history is not rewritten. If any of the version's content is gone,
+    it says so and changes nothing.
+- **Housekeeping** (C5). After a full round that ran to the end, at most once a day per device,
+  never in a pull-only session and never with the switch off, sync tidies the account: history
+  older than 30 days is removed; a book deleted more than 30 days ago becomes a tombstone; content
+  nothing refers to (no current book, no book still in Recently Deleted, no kept history) is
+  removed once it is at least seven days old; and a PDF goes only when, in addition, no snapshot
+  backup in the account refers to it (when the snapshots cannot all be read, no PDF goes). Ages
+  are the account's own dates, never a device's clock. If anything in the account cannot be read
+  (damage, another key, a newer version of the app), nothing at all is removed that day. Work is
+  bounded per run and carries on the next day; it can be cut off anywhere. A device whose push
+  needs content stored more than a day ago writes it again rather than relying on it, and checks
+  once a day that what it keeps from the account is still there, putting back what it holds; a
+  device that meets missing content leaves that book as it is and says it couldn't sync it. The
+  reader is told nothing of housekeeping except through Recently Deleted's days left and Earlier
+  Versions' 30 days.
   - *Tests*: `-syncTestFolder <path>` with `-cloudBackupUITest active` runs sync against a folder
     (its account follows the fake service's sign-in), and `-syncTestSeedBook <pdf>` (repeatable)
     has a second "device" with its own temporary library put those books in that account through

@@ -159,9 +159,10 @@ public enum SyncStep: Hashable, Sendable {
     case uploadedContent(bookKey: String)
     /// The intent record is on disk; the head not yet written.
     case wroteIntent(bookKey: String)
-    /// The head write won; history not yet written.
+    /// The head write won (the superseded head went to history before it); nothing applied
+    /// here yet.
     case wroteHead(bookKey: String)
-    /// The superseded head is in history; nothing applied here yet.
+    /// Right after `wroteHead` (kept as its own step since C5 writes history first).
     case wroteHistory(bookKey: String)
     /// The change is applied here; the base has not moved.
     case appliedLocally(bookKey: String)

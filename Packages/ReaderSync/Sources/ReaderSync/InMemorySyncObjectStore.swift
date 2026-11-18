@@ -7,6 +7,10 @@ import Foundation
 /// ETags are like S3's for a single `PutObject`: a quoted hash of the bytes, so writing equal
 /// bytes again keeps the ETag and any change of bytes changes it.
 ///
+/// **Time.** Every write stamps the object with the store's clock (`now`, settable, starting at
+/// a fixed date), and `list` and `head` report it as `lastModified`, as S3 does. Tests move the
+/// clock with `advance(by:)` to make objects old.
+///
 /// **Faults.** `injectFault(_:on:keyPrefix:count:error:)` makes the next matching call(s) throw:
 /// `.beforeEffect` throws without doing anything (a request that never arrived), `.afterEffect`
 /// does the call (a write takes effect) and then throws (an answer that was lost, as with a put
@@ -17,7 +21,12 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
         public var data: Data
         public var eTag: String
         public var metadata: [String: String]
+        /// The store's clock when it was last written.
+        public var lastModified: Date = InMemorySyncObjectStore.epoch
     }
+
+    /// Where the clock starts: 1 November 2026, 00:00 UTC.
+    public static let epoch = Date(timeIntervalSince1970: 1_793_491_200)
 
     /// The store's operations, for faults and the call log.
     public enum Operation: String, Hashable, Sendable, CaseIterable {
@@ -64,17 +73,37 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
         var error: any Error
     }
 
+    /// A step another test actor takes just before a matching call takes effect.
+    private struct PendingHook {
+        var operation: Operation
+        var keyPrefix: String
+        var action: @Sendable () async throws -> Void
+    }
+
     private let lock = NSLock()
     private var objects: [String: StoredObject] = [:]
     private var faults: [PendingFault] = []
+    private var hooks: [PendingHook] = []
     private var log: [Call] = []
+    private var clock = InMemorySyncObjectStore.epoch
 
     /// A store holding `objects` (key → bytes, no metadata).
     public init(objects: [String: Data] = [:]) {
-        for (key, data) in objects { self.objects[key] = Self.stored(data, metadata: [:]) }
+        for (key, data) in objects { self.objects[key] = Self.stored(data, metadata: [:], at: clock) }
     }
 
     // MARK: Test controls
+
+    /// The store's clock: what the next write is stamped with.
+    public var now: Date {
+        get { lock.withLock { clock } }
+        set { lock.withLock { clock = newValue } }
+    }
+
+    /// Moves the clock on.
+    public func advance(by interval: TimeInterval) {
+        lock.withLock { clock = clock.addingTimeInterval(interval) }
+    }
 
     /// Makes the next `count` calls of `operation` on a key starting with `keyPrefix` throw
     /// `error` at `timing`.
@@ -84,6 +113,15 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
             faults.append(PendingFault(timing: timing, operation: operation, keyPrefix: keyPrefix,
                                        remaining: max(1, count), error: error))
         }
+    }
+
+    /// Runs `action` once, just before the next call of `operation` on a key starting with
+    /// `keyPrefix` takes effect (the call waits for it). For deterministic interleavings: another
+    /// device's work slipped in between two calls of the one under test. An error `action`
+    /// throws is ignored.
+    public func beforeNextCall(_ operation: Operation, keyPrefix: String = "",
+                               _ action: @escaping @Sendable () async throws -> Void) {
+        lock.withLock { hooks.append(PendingHook(operation: operation, keyPrefix: keyPrefix, action: action)) }
     }
 
     /// Every call so far, in order.
@@ -101,9 +139,15 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
     /// Every object's bytes, without logging a call.
     public var contents: [String: Data] { lock.withLock { objects.mapValues(\.data) } }
 
-    /// Stores bytes directly (seeding, tampering, renaming), without conditions or logging.
-    public func setObject(_ data: Data, at key: String, metadata: [String: String] = [:]) {
-        lock.withLock { objects[key] = Self.stored(data, metadata: metadata) }
+    /// Stores bytes directly (seeding, tampering, renaming), without conditions or logging,
+    /// stamped `lastModified` (default: the clock).
+    public func setObject(_ data: Data, at key: String, metadata: [String: String] = [:], lastModified: Date? = nil) {
+        lock.withLock { objects[key] = Self.stored(data, metadata: metadata, at: lastModified ?? clock) }
+    }
+
+    /// Changes an object's last-modified time directly (making it older or newer).
+    public func setLastModified(_ date: Date, of key: String) {
+        lock.withLock { objects[key]?.lastModified = date }
     }
 
     /// Removes an object directly, without logging a call.
@@ -116,7 +160,8 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
     public func list(prefix: String) async throws -> [SyncObjectInfo] {
         try await perform(.list, key: prefix) {
             .init(objects.filter { $0.key.hasPrefix(prefix) }
-                .map { SyncObjectInfo(key: $0.key, eTag: $0.value.eTag, size: Int64($0.value.data.count)) }
+                .map { SyncObjectInfo(key: $0.key, eTag: $0.value.eTag, size: Int64($0.value.data.count),
+                                      lastModified: $0.value.lastModified) }
                 .sorted { Array($0.key.utf8).lexicographicallyPrecedes(Array($1.key.utf8)) })
         }
     }
@@ -146,7 +191,7 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
             case nil:
                 break
             }
-            let stored = Self.stored(data, metadata: metadata)
+            let stored = Self.stored(data, metadata: metadata, at: clock)
             objects[key] = stored
             return .init(stored.eTag)
         }
@@ -155,7 +200,7 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
     public func upload(fileAt file: URL, to key: String, metadata: [String: String]) async throws {
         let data = try Data(contentsOf: file)
         try await perform(.upload, key: key) {
-            objects[key] = Self.stored(data, metadata: metadata)
+            objects[key] = Self.stored(data, metadata: metadata, at: clock)
             return .init(())
         }
     }
@@ -173,7 +218,8 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
     public func head(_ key: String) async throws -> SyncObjectHead? {
         try await perform(.head, key: key) {
             guard let object = objects[key] else { return .init(nil, .notFound) }
-            return .init(SyncObjectHead(size: Int64(object.data.count), eTag: object.eTag, metadata: object.metadata))
+            return .init(SyncObjectHead(size: Int64(object.data.count), eTag: object.eTag, metadata: object.metadata,
+                                        lastModified: object.lastModified))
         }
     }
 
@@ -208,6 +254,13 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
                             _ body: () -> CallResult<T>) async throws -> T {
         // Lets concurrent callers interleave between calls, as requests to a real service do.
         await Task.yield()
+        let hook: PendingHook? = lock.withLock {
+            guard let index = hooks.firstIndex(where: { $0.operation == operation && key.hasPrefix($0.keyPrefix) }) else {
+                return nil
+            }
+            return hooks.remove(at: index)
+        }
+        if let hook { try? await hook.action() }
         try Task.checkCancellation()
         let (result, fault): (CallResult<T>?, PendingFault?) = lock.withLock {
             var fault: PendingFault?
@@ -231,8 +284,8 @@ public final class InMemorySyncObjectStore: SyncObjectStore, @unchecked Sendable
         return result.value!
     }
 
-    private static func stored(_ data: Data, metadata: [String: String]) -> StoredObject {
+    private static func stored(_ data: Data, metadata: [String: String], at date: Date) -> StoredObject {
         let hex = SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
-        return StoredObject(data: data, eTag: "\"\(hex)\"", metadata: metadata)
+        return StoredObject(data: data, eTag: "\"\(hex)\"", metadata: metadata, lastModified: date)
     }
 }

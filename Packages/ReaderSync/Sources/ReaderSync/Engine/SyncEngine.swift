@@ -25,12 +25,15 @@ import ReaderCore
 ///    the base ink fetched from the account, or as a union when it is gone). Busy surfaces keep
 ///    this device's version here, the account's version in the head, and the old base's in the
 ///    base, so the next round sees both sides' changes to them.
-/// 4. To push: new blobs are uploaded (a new book's PDF once), an intent record is written, the
-///    head is written with `ifMatch` the ETag read (`ifAbsent` for a new book) and a fresh write
-///    ID. On a refusal or an ambiguous failure the write ID is reconciled: if the head is not
-///    ours, the intent is dropped and the book starts again from scratch (a fresh snapshot of
-///    the untouched local copy and the old base). Once it is ours, the superseded head goes to
-///    history.
+/// 4. To push: new blobs are uploaded (a new book's PDF once) under the reuse rule (an existing
+///    blob older than a day is written again, `SyncHousekeeping`), the blobs kept from the head
+///    being replaced are checked at most once a day (and any missing one this device holds is
+///    uploaded), the superseded head goes to history, an intent record is written, and the head
+///    is written with `ifMatch` the ETag read (`ifAbsent` for a new book) and a fresh write ID
+///    (after checking the uploads again if more than an hour has passed). On a refusal or an
+///    ambiguous failure the write ID is reconciled: if the head is not ours, the intent is
+///    dropped and the book starts again from scratch (a fresh snapshot of the untouched local
+///    copy and the old base).
 /// 5. The change is applied here (guarded by the snapshot: if the book changed meanwhile, the
 ///    book is computed again, and the intent record says what base to use), then the base
 ///    moves, then the intent record is removed.
@@ -43,6 +46,12 @@ import ReaderCore
 ///
 /// **Modes.** `.pullOnly` writes nothing to the account: changes from the account are applied,
 /// this device's changes wait. A book written by a newer app is treated so in every mode.
+///
+/// **Deleted books** (C5). A deleted head keeps the book's content for 30 days: Recently Deleted
+/// lists it and `restoreDeleted` brings it back (`SyncRecovery.swift`); then housekeeping makes it
+/// a tombstone (`SyncHead.isTombstone`), which still deletes an unchanged copy here, while an
+/// edited copy goes back up as it is. History, earlier versions and housekeeping are in
+/// `SyncRecovery.swift` and `SyncHousekeeping.swift`; none of them runs during a round.
 public actor SyncEngine {
     /// The device as heads name it.
     public struct Device: Hashable, Sendable {
@@ -69,8 +78,16 @@ public actor SyncEngine {
     /// before it is reported as failed for this round.
     let maxAttempts: Int
 
-    private var running = false
+    var running = false
     private var stepHook: (@Sendable (SyncStep) async throws -> Void)?
+    private var housekeepingHook: (@Sendable (SyncHousekeepingStep) async throws -> Void)?
+    /// The latest last-modified time any listing has shown: the store's clock is at least this,
+    /// so a device whose own clock is behind still judges a blob's age conservatively.
+    var storeTimeHint: Date?
+    /// Blobs this engine checked are in the account, by SHA-256, with when (this device's
+    /// clock): a push re-checks the ones it relies on without uploading at most once a day
+    /// (`SyncHousekeeping.verifyInterval`), and uploads any that went missing.
+    var verifiedBlobs: [String: Date] = [:]
     /// The bases on disk by book key (normally one each), kept in step during a round.
     private var baseIDs: [String: Set<UUID>] = [:]
     /// The bases on disk, read once and then kept in step (only this engine writes them).
@@ -94,6 +111,27 @@ public actor SyncEngine {
     /// (tests use it to cut a round off between steps).
     func setStepHook(_ hook: (@Sendable (SyncStep) async throws -> Void)?) {
         stepHook = hook
+    }
+
+    /// Called between housekeeping's steps (tests interleave another device's work there, or
+    /// cut the run off by throwing).
+    func setHousekeepingHook(_ hook: (@Sendable (SyncHousekeepingStep) async throws -> Void)?) {
+        housekeepingHook = hook
+    }
+
+    func housekeepingStep(_ step: SyncHousekeepingStep) async throws {
+        try Task.checkCancellation()
+        try await housekeepingHook?(step)
+    }
+
+    /// The store's time as well as this device can tell it: its own clock, or the latest date a
+    /// listing showed when that is later.
+    func estimatedStoreTime() -> Date {
+        max(now(), storeTimeHint ?? .distantPast)
+    }
+
+    func noteListing(_ dates: [Date?]) {
+        if let latest = dates.compactMap({ $0 }).max(), latest > (storeTimeHint ?? .distantPast) { storeTimeHint = latest }
     }
 
     // MARK: Join
@@ -147,7 +185,17 @@ public actor SyncEngine {
         running = true
         defer { running = false }
         do {
-            return try await round(mode: mode, joinConfirmed: joinConfirmed)
+            return try await round(mode: mode, joinConfirmed: joinConfirmed, only: nil)
+        } catch let abort as HookAbort {
+            throw abort.error
+        }
+    }
+
+    /// A round limited to the books `keys` (after restoring one from Recently Deleted). The
+    /// caller holds `running`.
+    func roundForBooks(_ keys: Set<String>, mode: SyncMode) async throws -> SyncReport {
+        do {
+            return try await round(mode: mode, joinConfirmed: false, only: keys)
         } catch let abort as HookAbort {
             throw abort.error
         }
@@ -171,7 +219,7 @@ public actor SyncEngine {
         let error: any Error
     }
 
-    private func step(_ step: SyncStep) async throws {
+    func step(_ step: SyncStep) async throws {
         try Task.checkCancellation()
         guard let hook = stepHook else { return }
         do {
@@ -181,7 +229,7 @@ public actor SyncEngine {
         }
     }
 
-    private func round(mode: SyncMode, joinConfirmed: Bool) async throws -> SyncReport {
+    private func round(mode: SyncMode, joinConfirmed: Bool, only: Set<String>?) async throws -> SyncReport {
         try await step(.roundStarted)
         let books = try await library.books()
         var localByKey: [String: [UUID]] = [:]
@@ -189,7 +237,9 @@ public actor SyncEngine {
         for key in localByKey.keys { localByKey[key]!.sort { $0.uuidString < $1.uuidString } }
         let basesByKey = try loadBases(localByKey: localByKey)
         let intentKeys = try state.intentKeys()
-        let listing = Dictionary(try await store.listHeads().map { ($0.bookKey, $0) }, uniquingKeysWith: { a, _ in a })
+        let listed = try await store.listHeads()
+        noteListing(listed.map(\.lastModified))
+        let listing = Dictionary(listed.map { ($0.bookKey, $0) }, uniquingKeysWith: { a, _ in a })
 
         if basesByKey.isEmpty && !state.hasJoined {
             if localByKey.isEmpty && listing.isEmpty && intentKeys.isEmpty { return SyncReport(mode: mode) }
@@ -203,7 +253,7 @@ public actor SyncEngine {
 
         // Every head that changed since this device last agreed with it, before anything changes:
         // a newer format stops the round here.
-        for (key, listed) in listing.sorted(by: { $0.key < $1.key }) {
+        for (key, listed) in listing.sorted(by: { $0.key < $1.key }) where only?.contains(key) ?? true {
             let known = basesByKey[key]?.headETag ?? context.seen[key]
             guard known != listed.eTag || intentKeys.contains(key) else { continue }
             try Task.checkCancellation()
@@ -220,7 +270,7 @@ public actor SyncEngine {
 
         var report = SyncReport(mode: mode)
         let keys = Set(localByKey.keys).union(basesByKey.keys).union(listing.keys).union(intentKeys).sorted()
-        for key in keys {
+        for key in keys where only?.contains(key) ?? true {
             try Task.checkCancellation()
             let ids = localByKey[key] ?? []
             for duplicate in ids.dropFirst() {
@@ -397,9 +447,17 @@ public actor SyncEngine {
                 report.skipped = [hold]
                 return .done(report)
             }
-            remote = try await records(of: read.head)
-            remoteFiles = read.head.references.fileDigests
-            mergeBase = base
+            if let content = try await contentOfDeletedHead(read.head) {
+                remote = content
+                remoteFiles = read.head.references.fileDigests
+                mergeBase = base
+            } else {
+                // Deleted so long ago that its content is gone (a tombstone): there is nothing
+                // to merge with, so this device's copy goes back up as it is, add-only.
+                remote = BookArchive(book: snapshot.archive.book)
+                remoteFiles = [:]
+                mergeBase = nil
+            }
             forcePush = true
             condition = .ifMatch(eTag: read.eTag)
             report.action = .keptOverDeletionInAccount
@@ -502,17 +560,21 @@ public actor SyncEngine {
         let version: Int
         let eTag: String
         if pushing {
-            if read == nil || read?.head.isDeleted == true, let file = snapshot.pdfFile {
-                try await store.uploadPDF(fileAt: file, content: snapshot.pdf)
-            }
             let recordsData = try SyncRecords.encode(BookMerge.canonicalOrder(plan.push))
             let recordsContent = ContentDigest(of: recordsData)
-            if recordsContent != read?.head.references.records { try await store.putBlob(recordsData) }
-            let inAccount = Set(remoteFiles.values)
-            for content in Set(pushFiles.values).subtracting(inAccount).sorted(by: { $0.sha256 < $1.sha256 }) {
-                try await store.putBlob(try await bytes(content, snapshot: snapshot, cache: &cache))
-            }
+            // The content the head will name, uploaded (or confirmed fresh) shortly before the
+            // head is written; if the push is held up for long (the app suspended mid-round), it
+            // is checked again just before the head write, so housekeeping cannot have taken it.
+            try await uploadContent(key: key, read: read, snapshot: snapshot, recordsData: recordsData,
+                                    recordsContent: recordsContent, pushFiles: pushFiles, remoteFiles: remoteFiles,
+                                    cache: &cache)
+            let uploadedAt = now()
             try await step(.uploadedContent(bookKey: key))
+            // The superseded head goes to history before it is replaced, so that whenever a head
+            // is seen replaced its predecessor is already in history (housekeeping lists heads,
+            // then history, and keeps what either refers to). A lost race leaves a history entry
+            // equal to the live head, which is harmless and listed nowhere.
+            if let superseded = read?.head, !superseded.isTombstone { try await store.writeHistory(superseded, bookKey: key) }
 
             version = max(try versions.highestVersion(bookKey: key) ?? 0, read?.head.version ?? 0) + 1
             let head = SyncHead(version: version, previousVersion: read?.head.version, deviceID: device.id,
@@ -527,6 +589,11 @@ public actor SyncEngine {
                                      newBaseIsPartial: baseIsWhole ? nil : true)
             try state.save(intent)
             try await step(.wroteIntent(bookKey: key))
+            if !Self.isRecent(uploadedAt, now: now()) {
+                try await uploadContent(key: key, read: read, snapshot: snapshot, recordsData: recordsData,
+                                        recordsContent: recordsContent, pushFiles: pushFiles, remoteFiles: remoteFiles,
+                                        cache: &cache)
+            }
             do {
                 eTag = try await store.writeHead(head, bookKey: key, condition: condition)
             } catch let error where !(error is CancellationError) && !(error is HookAbort) {
@@ -545,7 +612,6 @@ public actor SyncEngine {
             try state.save(intent)
             try versions.record(bookKey: key, version: version)
             try await step(.wroteHead(bookKey: key))
-            if let superseded = read?.head { try await store.writeHistory(superseded, bookKey: key) }
             try await step(.wroteHistory(bookKey: key))
         } else {
             // Not pushing means a live head was read (every other case pushes or returned).
@@ -619,7 +685,7 @@ public actor SyncEngine {
         let version = max(try versions.highestVersion(bookKey: key) ?? 0, read.head.version) + 1
         var head = read.head
         head.formatVersion = SyncFormat.formatVersion
-        head.writerLevel = SyncFormat.writerLevel
+        head.writerLevel = SyncFormat.ordinaryHeadLevel
         head.version = version
         head.previousVersion = read.head.version
         head.writeID = SyncHead.makeWriteID()
@@ -627,6 +693,8 @@ public actor SyncEngine {
         head.deviceName = device.name
         head.modifiedAt = now()
         head.deletedAt = now()
+        // History first, as for every write (see `syncPresent`).
+        try await store.writeHistory(read.head, bookKey: key)
         do {
             _ = try await store.writeHead(head, bookKey: key, condition: .ifMatch(eTag: read.eTag))
         } catch let error where !(error is CancellationError) && !(error is HookAbort) {
@@ -636,7 +704,6 @@ public actor SyncEngine {
         }
         try versions.record(bookKey: key, version: version)
         try await step(.wroteHead(bookKey: key))
-        try await store.writeHistory(read.head, bookKey: key)
         try await step(.wroteHistory(bookKey: key))
         try removeBases(key)
         try await step(.movedBase(bookKey: key))
@@ -687,7 +754,9 @@ public actor SyncEngine {
                 return intent.oldBase
             }
         }
-        if mode == .full, let superseded = intent.supersededHead { try await store.writeHistory(superseded, bookKey: key) }
+        if mode == .full, let superseded = intent.supersededHead, !superseded.isTombstone {
+            try await store.writeHistory(superseded, bookKey: key)
+        }
         let snapshot = try await library.snapshot(bookID: intent.bookID)
         let base = SyncPlanning.effectiveBase(intent, local: snapshot)
         if let base { try saveBase(base) } else { try removeBases(key) }
@@ -697,7 +766,77 @@ public actor SyncEngine {
 
     // MARK: Content
 
-    private func records(of head: SyncHead) async throws -> BookArchive {
+    /// Puts in the account everything a new head will name: a new book's PDF, the records blob
+    /// and every file blob the head being replaced does not already name, each under the reuse
+    /// rule (an existing blob older than `SyncHousekeeping.reuseAge` is written again, so its
+    /// date is fresh); and checks, at most once a day each, that the blobs it keeps from the head
+    /// being replaced are still there, uploading from this device any that went missing (the
+    /// repair after a blob was lost).
+    private func uploadContent(key: String, read: SyncHeadRead?, snapshot: SyncLocalSnapshot, recordsData: Data,
+                               recordsContent: ContentDigest, pushFiles: SyncFileDigests, remoteFiles: SyncFileDigests,
+                               cache: inout [ContentDigest: Data]) async throws {
+        let reuseAfter = estimatedStoreTime().addingTimeInterval(-SyncHousekeeping.reuseAge)
+        if read == nil || read?.head.isDeleted == true, let file = snapshot.pdfFile {
+            try await store.uploadPDF(fileAt: file, content: snapshot.pdf, reuseIfWrittenAfter: reuseAfter)
+        }
+        if recordsContent != read?.head.references.records {
+            try await store.putBlob(recordsData, reuseIfWrittenAfter: reuseAfter)
+            verifiedBlobs[recordsContent.sha256] = now()
+        }
+        let inAccount = Set(remoteFiles.values)
+        for content in Set(pushFiles.values).subtracting(inAccount).sorted(by: { $0.sha256 < $1.sha256 }) {
+            try await store.putBlob(try await bytes(content, snapshot: snapshot, cache: &cache), reuseIfWrittenAfter: reuseAfter)
+            verifiedBlobs[content.sha256] = now()
+        }
+        // Kept from the head being replaced: still there? (Never trusted for more than a day.)
+        var kept = Set(pushFiles.values).intersection(inAccount)
+        if recordsContent == read?.head.references.records { kept.insert(recordsContent) }
+        for content in kept.sorted(by: { $0.sha256 < $1.sha256 }) {
+            if let checked = verifiedBlobs[content.sha256], Self.isRecent(checked, now: now(), within: SyncHousekeeping.verifyInterval) {
+                continue
+            }
+            if try await !store.hasBlob(content) {
+                let data: Data?
+                if content == recordsContent {
+                    data = recordsData
+                } else if snapshot.files.values.contains(content) {
+                    data = try? await bytes(content, snapshot: snapshot, cache: &cache)
+                } else {
+                    data = nil
+                }
+                // Missing, and not held here: the head being replaced already names it; the
+                // device that holds it puts it back.
+                guard let data else { continue }
+                try await store.putBlob(data, reuseIfWrittenAfter: reuseAfter)
+            }
+            verifiedBlobs[content.sha256] = now()
+        }
+    }
+
+    /// Whether `date` is within `interval` before `now` (and not after it: a clock that went
+    /// back counts as stale).
+    static func isRecent(_ date: Date, now: Date, within interval: TimeInterval = SyncHousekeeping.maximumPushSpan) -> Bool {
+        let elapsed = now.timeIntervalSince(date)
+        return elapsed >= 0 && elapsed <= interval
+    }
+
+    /// A deleted head's records, if its content is all still in the account; `nil` for a
+    /// tombstone, or when any of it is gone (collected after 30 days).
+    private func contentOfDeletedHead(_ head: SyncHead) async throws -> BookArchive? {
+        guard !head.isTombstone else { return nil }
+        let archive: BookArchive
+        do {
+            archive = try await records(of: head)
+        } catch SyncError.objectNotFound {
+            return nil
+        }
+        for content in head.references.fileDigests.values {
+            if try await !store.hasBlob(content) { return nil }
+        }
+        return archive
+    }
+
+    func records(of head: SyncHead) async throws -> BookArchive {
         let data = try await store.blob(head.references.records)
         return try SyncRecords.decode(data, key: try store.blobKey(sha256: head.references.records.sha256))
     }

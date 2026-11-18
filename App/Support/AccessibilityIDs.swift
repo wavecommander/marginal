@@ -180,6 +180,25 @@ nonisolated enum AccessibilityID {
         static func download(_ title: String) -> String { "library.book.\(title).download" }
         /// A book that is not yet up to date: `library.book.<title>.syncState`.
         static func bookState(_ title: String) -> String { "library.book.\(title).syncState" }
+        // Recently Deleted (C5)
+        /// The row on the Tactile Texts Cloud page that opens Recently Deleted.
+        static let recentlyDeletedOpen = "sync.recentlyDeleted.open"
+        static let recentlyDeletedList = "sync.recentlyDeleted.list"
+        static let recentlyDeletedEmpty = "sync.recentlyDeleted.empty"
+        /// A deleted book's row: `sync.recentlyDeleted.<title>`.
+        static func recentlyDeletedRow(_ title: String) -> String { "sync.recentlyDeleted.\(title)" }
+        /// Its Restore button: `sync.recentlyDeleted.<title>.restore`.
+        static func recentlyDeletedRestore(_ title: String) -> String { "sync.recentlyDeleted.\(title).restore" }
+        /// The confirmation's Restore.
+        static let recentlyDeletedConfirm = "sync.recentlyDeleted.confirm"
+        // Earlier Versions (C5)
+        static let earlierVersionsMenu = "library.book.earlierVersions"
+        static let earlierVersionsSheet = "sync.versions"
+        static let earlierVersionsEmpty = "sync.versions.empty"
+        static let earlierVersionsDone = "sync.versions.done"
+        /// A version's row: `sync.versions.<version>`.
+        static func earlierVersion(_ version: Int) -> String { "sync.versions.\(version)" }
+        static let earlierVersionConfirm = "sync.versions.confirm"
         // The reader (a synced book opened without its PDF)
         static let readerDownload = "reader.syncDownload"
         static let readerDownloadCancel = "reader.syncDownload.cancel"

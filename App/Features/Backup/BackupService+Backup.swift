@@ -132,6 +132,7 @@ extension BackupService {
 
             // Which PDFs the destination still needs (one per distinct hash).
             var uploads: [(digest: ContentDigest, url: URL)] = []
+            var reused: [(digest: ContentDigest, url: URL)] = []
             var alreadyPresent = 0
             if includePDFs {
                 var seen = Set<String>()
@@ -139,6 +140,7 @@ extension BackupService {
                     guard seen.insert(pdf.digest.sha256).inserted else { continue }
                     if try await destination.hasPDF(sha256: pdf.digest.sha256, size: pdf.digest.size) {
                         alreadyPresent += 1
+                        reused.append(pdf)
                     } else {
                         uploads.append(pdf)
                     }
@@ -170,6 +172,15 @@ extension BackupService {
 
             job.set(phase: .uploadingBackup)
             let stored = try await destination.uploadSnapshot(from: url, name: name, progress: job.reporter(from: position, to: 1))
+            // The PDFs this snapshot relied on without uploading are still there? In Tactile
+            // Texts Cloud, sync's housekeeping removes a PDF nothing refers to once it is seven
+            // days old, and it may have decided so just before this snapshot appeared. Any that
+            // went is uploaded again (one small request per PDF; usually none).
+            for pdf in reused {
+                if try await destination.hasPDF(sha256: pdf.digest.sha256, size: pdf.digest.size) { continue }
+                backupLog.notice("a PDF this backup relied on was removed meanwhile; uploading it again")
+                try await destination.uploadPDF(from: pdf.url, sha256: pdf.digest.sha256, size: pdf.digest.size, progress: nil)
+            }
             recordSuccess(destinationID: destination.id, at: Date())
 
             job.set(phase: .removingOldBackups)

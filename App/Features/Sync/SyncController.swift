@@ -47,6 +47,18 @@ final class SyncController {
     /// Whether sync is on for the signed-in account (the switch).
     var isOn: Bool { settings.isEnabled }
 
+    /// The books here the account's engine has agreed with (they have earlier versions to show),
+    /// read again after every round and whenever a book is made or deleted.
+    private(set) var syncedBooks: Set<UUID> = []
+
+    /// Whether the Library offers Earlier Versions… for the book: sync is on and it is synced.
+    func offersEarlierVersions(_ bookID: UUID) -> Bool { isOn && syncedBooks.contains(bookID) }
+
+    private func refreshSyncedBooks() async {
+        let synced = await service.syncedBookIDs()
+        if synced != syncedBooks { syncedBooks = synced }
+    }
+
     /// Each book that is not yet up to date after the last round (sync on).
     var bookStates: [UUID: SyncBookState] {
         isOn ? SyncBookState.all(service.lastReport) : [:]
@@ -61,6 +73,7 @@ final class SyncController {
     /// Reads who is signed in, and the synced books without their PDFs.
     func start() async {
         settings.setAccount(await service.access.currentAccountID())
+        await refreshSyncedBooks()
         await pdfs.refresh(thenDownload: false)
         // The app's activation may have come before the account was known.
         if settings.isEnabled, scheduler.isInForeground { await scheduler.run(.appActivated) }
@@ -138,7 +151,27 @@ final class SyncController {
     private func roundEnded(_ status: SyncStatus, trigger: SyncTrigger) {
         // Downloads only while the app is in front, not in a background run's short time.
         let download = scheduler.isInForeground && trigger != .wentToBackground && trigger != .backgroundTask
-        Task { await pdfs.refresh(thenDownload: download) }
+        Task {
+            await refreshSyncedBooks()
+            await pdfs.refresh(thenDownload: download)
+        }
+    }
+
+    // MARK: Recently Deleted and earlier versions
+
+    /// Restores a book from Recently Deleted (here at once, on the other devices with their
+    /// next round), then reads the synced books again.
+    func restoreDeleted(_ book: SyncDeletedBook) async throws {
+        try await service.restoreDeleted(bookKey: book.bookKey)
+        await refreshSyncedBooks()
+        await pdfs.refresh(thenDownload: scheduler.isInForeground)
+    }
+
+    /// Restores a book to an earlier version (`SyncService.restoreEarlierVersion`).
+    @discardableResult
+    func restore(_ version: SyncBookVersion, bookID: UUID) async throws -> SyncVersionRestorePlan? {
+        try await service.restoreEarlierVersion(bookID: bookID, version: version.version,
+                                                versionDate: version.replacedAt ?? version.modifiedAt)
     }
 
     /// A book was made, deleted or got its PDF (from any window, a restore or sync): the list of
@@ -146,7 +179,10 @@ final class SyncController {
     private func noteChange(_ event: StoreChangeEvent) {
         switch event.change {
         case .bookSaved, .bookDeleted:
-            if isOn { pdfs.scheduleRefresh() }
+            if isOn {
+                pdfs.scheduleRefresh()
+                Task { await refreshSyncedBooks() }
+            }
         default:
             break
         }

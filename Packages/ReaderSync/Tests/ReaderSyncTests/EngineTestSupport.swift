@@ -330,14 +330,18 @@ final class SimDevice: @unchecked Sendable {
         faulting = FaultingStore(inner)
         syncStore = EncryptedSyncStore(store: faulting, key: simulationKey,
                                        temporaryDirectory: base.appendingPathComponent("tmp", isDirectory: true))
+        // Every simulated device's clock is the store's, so ages are deterministic.
+        clock = { [inner] in inner.now }
         engine = SyncEngine(store: syncStore, library: library, inkMerger: merger, directory: directory,
-                            device: .init(id: id, name: name))
+                            device: .init(id: id, name: name), now: clock)
     }
+
+    let clock: @Sendable () -> Date
 
     /// A crash: the engine's memory is gone; its directory, the library and the store remain.
     func restart() {
         engine = SyncEngine(store: syncStore, library: library, inkMerger: merger, directory: directory,
-                            device: .init(id: id, name: name))
+                            device: .init(id: id, name: name), now: clock)
     }
 
     func sync(_ mode: SyncMode = .full) async throws -> SyncReport {
@@ -400,6 +404,8 @@ final class SimWorld: @unchecked Sendable {
         var objects: [String: InMemorySyncObjectStore.StoredObject]
         var libraries: [FakeLibrary.State]
         var directory: URL
+        /// The store's clock.
+        var now: Date
     }
 
     func checkpoint() async throws -> Checkpoint {
@@ -412,12 +418,15 @@ final class SimWorld: @unchecked Sendable {
         for device in devices where FileManager.default.fileExists(atPath: device.directory.path) {
             try FileManager.default.copyItem(at: device.directory, to: saved.appendingPathComponent(device.name))
         }
-        return Checkpoint(objects: objects, libraries: libraries, directory: saved)
+        return Checkpoint(objects: objects, libraries: libraries, directory: saved, now: inner.now)
     }
 
     func restore(_ checkpoint: Checkpoint) async throws {
         for key in inner.keys { inner.removeObject(key) }
-        for (key, object) in checkpoint.objects { inner.setObject(object.data, at: key, metadata: object.metadata) }
+        for (key, object) in checkpoint.objects {
+            inner.setObject(object.data, at: key, metadata: object.metadata, lastModified: object.lastModified)
+        }
+        inner.now = checkpoint.now
         inner.clearCalls()
         for (device, state) in zip(devices, checkpoint.libraries) {
             await device.library.restore(state)

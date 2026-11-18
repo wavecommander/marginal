@@ -27,6 +27,11 @@ final class SyncUITests: XCTestCase {
         static let joinOnlyInAccount = "sync.join.onlyInAccount"
         static let joinInBoth = "sync.join.inBoth"
         static let joinConfirm = "sync.join.confirm"
+        static let recentlyDeletedOpen = "sync.recentlyDeleted.open"
+        static let recentlyDeletedEmpty = "sync.recentlyDeleted.empty"
+        static func recentlyDeletedRow(_ title: String) -> String { "sync.recentlyDeleted.\(title)" }
+        static func recentlyDeletedRestore(_ title: String) -> String { "sync.recentlyDeleted.\(title).restore" }
+        static let recentlyDeletedConfirm = "sync.recentlyDeleted.confirm"
         static func book(_ title: String) -> String { "library.book.\(title)" }
         static func download(_ title: String) -> String { "library.book.\(title).download" }
         static func pdfMissing(_ title: String) -> String { "library.book.\(title).pdfMissing" }
@@ -211,6 +216,66 @@ final class SyncUITests: XCTestCase {
         openCloud(app)
         XCTAssertEqual(rounds(app), before, "no rounds while off")
         XCTAssertEqual(syncSwitch(app).value as? String, "0")
+    }
+
+    /// C5: a synced book deleted here is in Recently Deleted (the Delete confirmation says so);
+    /// Restore brings it back to the Library.
+    func testADeletedSyncedBookIsInRecentlyDeletedAndRestoringBringsItBack() {
+        let app = launch()
+        openCloud(app)
+        flipSwitch(app)
+        let confirm = app.buttons[ID.joinConfirm].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 20), "the join sheet: \(app.debugDescription)")
+        confirm.tap()
+        XCTAssertTrue(waitFor(status(app), "value == %@", "upToDate", timeout: 30), "joined: \(status(app).debugDescription)")
+
+        // Nothing deleted yet: the empty state.
+        let open = app.buttons[ID.recentlyDeletedOpen].firstMatch
+        scrollTo(open, in: app)
+        open.tap()
+        XCTAssertTrue(any(app, ID.recentlyDeletedEmpty).waitForExistence(timeout: 20), app.debugDescription)
+        app.navigationBars["Recently Deleted"].buttons.element(boundBy: 0).tap()
+        closeSettings(app)
+
+        // Delete the synced book "small", reading what the confirmation says.
+        let cell = app.buttons[ID.book("small")].firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 15))
+        cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.93)).press(forDuration: 1.0)
+        let delete = app.buttons["Delete…"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), app.debugDescription)
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Recently Deleted'")).firstMatch.exists,
+                      app.debugDescription)
+        alert.buttons["Delete"].tap()
+        XCTAssertTrue(cell.waitForNonExistence(timeout: 10))
+
+        // Sync the deletion, then find it in Recently Deleted and restore it.
+        openCloud(app)
+        let now = app.buttons[ID.syncNow].firstMatch
+        scrollTo(now, in: app)
+        now.tap()
+        XCTAssertTrue(waitFor(status(app), "value == %@", "upToDate", timeout: 30), "\(status(app).debugDescription)")
+        scrollTo(open, in: app)
+        open.tap()
+        let row = any(app, ID.recentlyDeletedRow("small"))
+        XCTAssertTrue(row.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(row.label.contains("Deleted on this iPad"), row.label)
+        XCTAssertTrue(row.label.contains("days left") || row.label.contains("Last day"), row.label)
+        app.buttons[ID.recentlyDeletedRestore("small")].firstMatch.tap()
+        let confirmAlert = app.alerts.firstMatch
+        XCTAssertTrue(confirmAlert.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(confirmAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'other devices'")).firstMatch.exists,
+                      app.debugDescription)
+        let byID = confirmAlert.buttons[ID.recentlyDeletedConfirm].firstMatch
+        (byID.exists ? byID : confirmAlert.buttons["Restore"].firstMatch).tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 30), "restored: \(app.debugDescription)")
+
+        // Back in the Library.
+        app.navigationBars["Recently Deleted"].buttons.element(boundBy: 0).tap()
+        closeSettings(app)
+        XCTAssertTrue(app.buttons[ID.book("small")].firstMatch.waitForExistence(timeout: 20), app.debugDescription)
     }
 
     /// Not Now on the join sheet leaves the switch off and changes nothing.

@@ -1,17 +1,21 @@
 import Foundation
 
-/// An object in a listing: its key, ETag and size.
+/// An object in a listing: its key, ETag, size and when it was last written.
 public struct SyncObjectInfo: Hashable, Sendable {
     /// The key relative to the account folder (`Sync/v1/books/<book key>`).
     public var key: String
     /// As the service sent it, quotes included. Compared only for equality.
     public var eTag: String
     public var size: Int64
+    /// When the object was last written, by the store's clock (S3 `LastModified`), or `nil` when
+    /// the store did not say. Housekeeping removes nothing whose age it cannot tell.
+    public var lastModified: Date?
 
-    public init(key: String, eTag: String, size: Int64) {
+    public init(key: String, eTag: String, size: Int64, lastModified: Date? = nil) {
         self.key = key
         self.eTag = eTag
         self.size = size
+        self.lastModified = lastModified
     }
 }
 
@@ -21,11 +25,14 @@ public struct SyncObjectHead: Hashable, Sendable {
     public var eTag: String
     /// Plaintext user metadata, names lower-case (`write-id`).
     public var metadata: [String: String]
+    /// When the object was last written, by the store's clock (S3 `Last-Modified`), or `nil`.
+    public var lastModified: Date?
 
-    public init(size: Int64, eTag: String, metadata: [String: String]) {
+    public init(size: Int64, eTag: String, metadata: [String: String], lastModified: Date? = nil) {
         self.size = size
         self.eTag = eTag
         self.metadata = metadata
+        self.lastModified = lastModified
     }
 }
 
@@ -68,6 +75,9 @@ public enum SyncWriteCondition: Hashable, Sendable {
 ///   `SyncError.objectNotFound(key:)`; `delete` succeeds.
 /// - `get` refuses an object larger than `maxBytes` with `SyncError.objectTooLarge`.
 /// - Metadata names are lower-case ASCII tokens and values printable ASCII.
+/// - `list` and `head` report each object's last-modified time by the store's own clock when the
+///   store keeps one (S3 does). Every write, writing the same bytes again included, makes it the
+///   time of that write. Housekeeping and the blob-reuse rule depend on it (`SyncHousekeeping`).
 /// - Cancellation of the calling task throws `CancellationError`. The store's own failures throw
 ///   its own errors, which callers pass on. A write whose answer was lost may or may not have
 ///   taken effect; callers reconcile (see `EncryptedSyncStore`).
