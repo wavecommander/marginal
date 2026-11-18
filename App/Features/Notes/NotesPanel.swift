@@ -11,8 +11,9 @@ import SwiftUI
 /// Laid out as the design's "Notes panel layout" rule says:
 /// - **Header:** the tab picker, Delete Note, and the shrink button while the pane is wider than
 ///   its default; then the title and the "Saved" status. A narrow panel on a compact screen
-///   (which can cover the toolbar) adds Markup and, while it is on, ink Undo and Redo; a narrow
-///   panel with lists under or beside the note adds a button that hides and shows them.
+///   adds Markup and, while it is on, ink Undo and Redo only when expanded to full screen
+///   (covering the toolbar); a narrow panel with lists under or beside the note adds a button
+///   that hides and shows them.
 /// - **Page note:** "Page 312", the note editor, and "Highlights on this page" only while the page
 ///   has any (with none, the note takes the whole panel).
 /// - **Section note:** the heading's title and pages, the note editor, then the collapsible level
@@ -53,12 +54,19 @@ struct NotesPanel: View {
     /// Presented inside the iOS 26+ system `.sheet`: blends the sheet's translucent Liquid Glass
     /// top smoothly into `NotePageStyle.paperColor` instead of leaving a sharp cut around the editor.
     private let isSystemSheet: Bool
+    /// Whether the notes panel has been expanded to full screen (the large sheet detent on a
+    /// compact screen, or compact vertical size class where a system sheet always fills the screen).
+    private let isExpandedToFullScreen: Bool
 
-    init(session: ReaderSession, isCompactWindow: Bool = false, isSystemSheet: Bool = false) {
+    init(session: ReaderSession,
+         isCompactWindow: Bool = false,
+         isSystemSheet: Bool = false,
+         isExpandedToFullScreen: Bool = false) {
         self.session = session
         self.controller = session.notesPanel
         self.isCompactWindow = isCompactWindow
         self.isSystemSheet = isSystemSheet
+        self.isExpandedToFullScreen = isExpandedToFullScreen
     }
 
     var body: some View {
@@ -104,9 +112,19 @@ struct NotesPanel: View {
                                                          set: { if !$0 { deleteCandidate = nil } }),
                presenting: deleteCandidate) { model in
             Button("Delete", role: .destructive) {
-                Task { await controller.delete(model) }
+                Task {
+                    if await controller.delete(model) {
+                        session.finishMarkup()
+                    } else if session.isMarkupMode {
+                        session.markup.reassertToolPicker()
+                    }
+                }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                if session.isMarkupMode {
+                    session.markup.reassertToolPicker()
+                }
+            }
         } message: { model in
             Text(Self.deleteMessage(hasInk: model.hasInk))
         }
@@ -237,11 +255,13 @@ struct NotesPanel: View {
         }
     }
 
-    /// A narrow panel on a compact screen can cover the toolbar (an iPhone in landscape: the sheet
-    /// takes the whole screen) or sit under a toolbar whose Markup button has gone into the
-    /// overflow menu, so the panel carries the switch itself.
+    /// Only when a narrow panel on a compact screen is expanded to full screen (the large sheet
+    /// detent, or landscape on an iPhone where the sheet takes the whole screen) does it cover the
+    /// toolbar, so only then does the panel carry the Markup switch and ink Undo / Redo itself.
     private var showsMarkupControls: Bool {
-        session.isNarrowLayout && isCompactWindow
+        NotesPanelMarkupControls.isShown(presentation: session.isNarrowLayout ? .narrow : .pane,
+                                         isCompactWindow: isCompactWindow,
+                                         isExpandedToFullScreen: isExpandedToFullScreen)
     }
 
     /// Markup, as in the toolbar (outlined while off, filled while on), and ink Undo / Redo

@@ -259,4 +259,13 @@ struct NotesPanelRulesTests {
         #expect(NotesHeadingAnchorRepair.apply(store: store, bookID: book.id, outline: outline, origin: nil) == 0)
         #expect(try store.notes.note(id: stale.id)?.target == stale.target)
     }
+
+    // MARK: Markup controls
+
+    @Test func markupControlsShowOnlyWhenCompactNarrowPanelIsExpandedToFullScreen() {
+        #expect(!NotesPanelMarkupControls.isShown(presentation: .pane, isCompactWindow: true, isExpandedToFullScreen: true))
+        #expect(!NotesPanelMarkupControls.isShown(presentation: .narrow, isCompactWindow: false, isExpandedToFullScreen: true))
+        #expect(!NotesPanelMarkupControls.isShown(presentation: .narrow, isCompactWindow: true, isExpandedToFullScreen: false))
+        #expect(NotesPanelMarkupControls.isShown(presentation: .narrow, isCompactWindow: true, isExpandedToFullScreen: true))
+    }
 }

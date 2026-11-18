@@ -46,6 +46,17 @@ nonisolated enum NotesPanelAccessibilityID {
     static let openNotebook = "notesPanel.openNotebook"
 }
 
+/// When the notes panel header carries its own Markup switch (and ink Undo/Redo while markup is on):
+/// only when a narrow panel on a compact screen has been expanded to full screen, covering the
+/// reader's toolbar.
+nonisolated enum NotesPanelMarkupControls {
+    static func isShown(presentation: NotesPanelPresentation,
+                        isCompactWindow: Bool,
+                        isExpandedToFullScreen: Bool) -> Bool {
+        presentation == .narrow && isCompactWindow && isExpandedToFullScreen
+    }
+}
+
 // MARK: - Section note: which heading
 
 /// Which heading the Section note tab shows, and how the level picker's choice sticks.

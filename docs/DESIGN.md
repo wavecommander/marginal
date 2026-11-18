@@ -248,11 +248,12 @@ ones even where the mockup draws an approximation.
     is widened, then the title (the page number, or the heading's title and page range) and the
     save status. No zoom button, and no level picker here.
   - *Header, narrow panel on a compact screen* (an iPhone, or a compact-width iPad window;
-    owner decision, 17 November 2026): the sheet can cover the toolbar (in landscape on an
-    iPhone it takes the whole screen) or sit under a toolbar whose Markup button is in the
-    overflow menu, so the header also has the Markup switch and, while markup is on, ink Undo
-    and Redo. They do what the toolbar's do. The toolbar's Markup button is otherwise still the
-    only switch for the mode.
+    owner decision, 17 November 2026): only when the sheet is expanded to full screen (the large
+    detent on a compact screen, or landscape on an iPhone where the sheet takes the whole screen)
+    — covering the reader's toolbar — does the header show the Markup switch and, while markup is
+    on, ink Undo and Redo. At the medium detent (and in the side pane), those markup controls stay
+    hidden on the notes panel. They do what the toolbar's do. The toolbar's Markup button is
+    otherwise still the only switch for the mode.
   - *Hiding the lists* (narrow panels; owner decision, 17 November 2026): when there is
     anything under or beside the note, a header button hides it and shows it again, and the
     choice is remembered. Hidden in a two-column sheet, the note has the whole width and its
@@ -307,10 +308,10 @@ ones even where the mockup draws an approximation.
   note it is showing, page note or section note: a Delete Note action in the note's header,
   disabled while the note is empty. It asks for confirmation, saying what will go (the typed
   text and any handwriting on the note; ink on the PDF page and highlights are not touched), then
-  removes the note and its ink and leaves the empty placeholder, and shows a brief Undo pill
-  button that restores the note and its ink. The same action and Undo pill are offered on a
-  note's row in the Notebook and Library search results. The change shows in every
-  window.
+  removes the note and its ink and leaves the empty placeholder, ends markup mode if it was on,
+  and shows a brief Undo pill button that restores the note and its ink. The same action and
+  Undo pill are offered on a note's row in the Notebook and Library search results. The change
+  shows in every window.
 - **Autosave** everywhere, debounced. There is no Save button; the inspector shows "Saved".
 - **Deleting a book** removes its file and all of its notes, ink and highlights after a
   confirmation that states those counts, and its exported marked-up PDFs (counted as "exported

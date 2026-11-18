@@ -14,6 +14,8 @@ final class NotesPanelUITests: XCTestCase {
         static let shrink = "notesPanel.shrink"
         static let lowerRegionToggle = "notesPanel.lowerRegionToggle"
         static let markup = "notesPanel.markup"
+        static let undo = "notesPanel.undo"
+        static let redo = "notesPanel.redo"
         static let levelToggle = "notesPanel.levelToggle"
         static let level = "notesPanel.level"
         static let highlight = "notesPanel.highlight"
@@ -367,6 +369,50 @@ final class NotesPanelUITests: XCTestCase {
         XCTAssertTrue(levelToggle(app).waitForExistence(timeout: 5), "and shown again")
     }
 
+    /// On a phone, the notes sheet hides its own Markup and ink Undo/Redo buttons at the medium
+    /// detent and shows them only when expanded to full screen (the large detent in portrait, or
+    /// landscape where the sheet takes the whole screen).
+    func testPhoneNotesSheetShowsMarkupControlsOnlyWhenFullScreen() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("full-screen sheet markup controls are for compact windows")
+        }
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = launch(fresh: true, page: 3, orientation: .portrait)
+        let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "notes sheet at medium detent")
+        let markup = app.buttons[ID.markup].firstMatch
+        let undo = app.buttons[ID.undo].firstMatch
+        let redo = app.buttons[ID.redo].firstMatch
+        XCTAssertFalse(markup.exists, "Markup button is hidden at medium detent")
+        XCTAssertFalse(undo.exists, "Undo is hidden at medium detent")
+        XCTAssertFalse(redo.exists, "Redo is hidden at medium detent")
+
+        // Drag the sheet up to the large (full-screen) detent.
+        let tabs = app.segmentedControls[ID.tabs].firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        let topGrab = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -0.4))
+        topGrab.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)))
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "Markup button appears when expanded to full screen")
+
+        markup.tap()
+        XCTAssertTrue(wait(markup, "label == %@", "Done with Markup"))
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "Undo appears in markup mode at full screen")
+        XCTAssertTrue(redo.exists, "Redo appears in markup mode at full screen")
+
+        // Collapse back to the medium detent: markup controls hide again.
+        let expandedGrab = tabs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -0.4))
+        expandedGrab.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)))
+        XCTAssertTrue(markup.waitForNonExistence(timeout: 5), "Markup button hides at medium detent")
+        XCTAssertFalse(undo.exists, "Undo hides at medium detent")
+        XCTAssertFalse(redo.exists, "Redo hides at medium detent")
+
+        // In landscape the sheet always takes the full screen, so the controls appear.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(markup.waitForExistence(timeout: 5), "Markup button appears in full-screen landscape sheet")
+        XCTAssertTrue(undo.exists, "Undo appears in landscape markup mode")
+        XCTAssertTrue(redo.exists, "Redo appears in landscape markup mode")
+    }
+
     /// Delete Note: disabled on an empty note; deleting asks first, leaves the placeholder, and the
     /// note is still gone after a relaunch.
     func testDeleteNoteFromTheHeader() {
@@ -416,6 +462,35 @@ final class NotesPanelUITests: XCTestCase {
         app.terminate()
         let again = launch(fresh: false, page: 3)
         XCTAssertTrue(wait(textView(again), "value == %@", "Keep me"), "still restored after relaunch")
+    }
+
+    /// Deleting a note while in markup mode ends markup mode so the toolbar button looks inactive;
+    /// cancelling keeps markup mode active.
+    func testDeletingNoteInMarkupModeUpdatesMarkupButtonToInactive() {
+        let app = launch(fresh: true, page: 3, extra: ["-markup", "-inkAnyInput"])
+        let toolbarMarkup = app.buttons["reader.toolbar.markup"].firstMatch
+        XCTAssertTrue(toolbarMarkup.waitForExistence(timeout: 10))
+        XCTAssertTrue(wait(toolbarMarkup, "label == %@", "Done with Markup"), "markup active initially")
+
+        drawLine(app, y: 160)
+        let delete = app.buttons["notes.deleteNote"].firstMatch
+        XCTAssertTrue(waitForEnabled(delete))
+
+        // Cancelling keeps markup mode active.
+        delete.tap()
+        let cancelAlert = app.alerts.firstMatch
+        XCTAssertTrue(cancelAlert.waitForExistence(timeout: 5))
+        cancelAlert.buttons["Cancel"].tap()
+        XCTAssertTrue(wait(toolbarMarkup, "label == %@", "Done with Markup"), "cancelling keeps markup active")
+
+        // Confirming delete ends markup mode so the button looks inactive.
+        delete.tap()
+        let deleteAlert = app.alerts.firstMatch
+        XCTAssertTrue(deleteAlert.waitForExistence(timeout: 5))
+        deleteAlert.buttons["Delete"].tap()
+        XCTAssertTrue(wait(status(app), "label == %@", "Empty"), "note cleared on delete")
+        XCTAssertTrue(wait(toolbarMarkup, "label == %@", "Markup"), "markup button looks inactive after delete")
+        XCTAssertFalse(toolbarMarkup.isSelected, "no selected state on inactive markup button")
     }
 
     /// Swiping right on the notes pane (its header, the note page), as when a drag meant for the

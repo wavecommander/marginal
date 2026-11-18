@@ -65,8 +65,12 @@ struct ReaderScreen: View {
     @State private var searchAnchor = CGRect.zero
     /// `searchAnchor` has been measured since search last opened.
     @State private var isSearchAnchored = false
+    /// Current detent of the narrow notes sheet, so the panel knows when it covers the whole screen.
+    @State private var notesSheetDetent: PresentationDetent = .medium
 
     var body: some View {
+        let isCompactWindow = horizontalSizeClass == .compact || verticalSizeClass == .compact
+        let isNotesSheetFullScreen = isCompactWindow && (notesSheetDetent == .large || verticalSizeClass == .compact)
         GeometryReader { geometry in
             let wide = ReaderLayout.isWide(width: geometry.size.width, horizontalSizeClass: horizontalSizeClass)
             Group {
@@ -166,13 +170,17 @@ struct ReaderScreen: View {
         .animation(.default, value: session.isMaximized)
         .sheet(isPresented: notesSheetBinding) {
             NotesPanel(session: session,
-                       isCompactWindow: horizontalSizeClass == .compact || verticalSizeClass == .compact,
-                       isSystemSheet: true)
-                .presentationDetents([.medium, .large])
+                       isCompactWindow: isCompactWindow,
+                       isSystemSheet: true,
+                       isExpandedToFullScreen: isNotesSheetFullScreen)
+                .presentationDetents([.medium, .large], selection: $notesSheetDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
                 .paneContainer(AccessibilityID.Reader.notesSheet)
                 .environment(session)
+        }
+        .onChange(of: session.isNotesVisible) { _, visible in
+            if !visible { notesSheetDetent = .medium }
         }
         .markedUpExportPresentation(session)
         .environment(session)
