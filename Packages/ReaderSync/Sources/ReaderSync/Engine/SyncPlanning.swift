@@ -342,7 +342,7 @@ enum SyncPlanning {
         }
         // Only a base that is wholly the new one may say it is the head's: one that is partly the
         // old base must not let the next round skip the book as up to date.
-        let whole = files == newFiles && sameContent(archive, newBase)
+        let whole = files == newFiles && sameContent(archive, newBase) && intent.newBaseIsPartial != true
         return SyncBase(bookKey: intent.bookKey, headVersion: intent.headVersion, headETag: whole ? eTag : unmatchedETag,
                         archive: archive, files: SyncBaseFiles(digests: files))
     }

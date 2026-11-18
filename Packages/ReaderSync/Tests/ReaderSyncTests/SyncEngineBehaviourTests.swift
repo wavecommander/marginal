@@ -538,6 +538,25 @@ struct SyncEngineBehaviourTests {
         try await world.settle(&rng, "busy note")
     }
 
+    /// A page busy here that only the account changed: once the reader stops, the account's
+    /// version arrives (the base kept for the busy page must not pass for the head's).
+    @Test func aBusyPageChangedOnlyInTheAccountArrivesOnceItIsFree() async throws {
+        let world = try await sharedWorld()
+        let (a, b) = (world.devices[0], world.devices[1])
+        await edit(a) { addStroke(&$0, page: 3, "fromA") }
+        _ = try await a.sync()
+        let id = try #require(await find(b)?.0)
+        await b.library.setBusy(id, [.page(3)])
+        let busy = try await b.sync()
+        #expect(busy.books.contains { $0.skipped.contains(.busy([.page(3)])) })
+        #expect(await find(b)?.1.files[.pageInk(3)] == nil)
+        await b.library.clearBusy()
+        _ = try await b.sync()
+        #expect(TokenInk.decode(await find(b)?.1.files[.pageInk(3)]) == ["fromA"])
+        var rng = SeededGenerator(state: 3)
+        try await world.settle(&rng, "after the busy page")
+    }
+
     @Test func aBusyPageIsLeftAloneThenMergedNextRoundWithNothingLost() async throws {
         let world = try await sharedWorld()
         let (a, b) = (world.devices[0], world.devices[1])
