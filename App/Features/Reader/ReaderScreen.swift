@@ -90,6 +90,11 @@ struct ReaderScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        // The sidebar's model follows the session from the start, so its lists (bookmarks
+        // above all) are loaded before Contents first opens. Started only when the sidebar
+        // appeared, the first frame of its slide-in showed an empty tab and the loaded list
+        // then appeared outside the animation, drawn over everything.
+        .onAppear { session.sidebarModel.start() }
         .overlay(alignment: .topTrailing) {
             if session.isMaximized {
                 MaximizedPageControls(session: session)
