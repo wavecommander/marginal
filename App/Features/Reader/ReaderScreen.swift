@@ -265,7 +265,16 @@ struct ReaderScreen: View {
                 // A maximized page has the whole window, without the pill (owner decision,
                 // 17 November 2026).
                 if !session.isMaximized {
-                    PagePill(session: session, isFaded: isPillFaded)
+                    if session.isGoToPageVisible, UIDevice.current.userInterfaceIdiom == .pad {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                session.isGoToPageVisible = false
+                                session.markup.reassertToolPicker()
+                            }
+                            .accessibilityHidden(true)
+                    }
+                    PagePill(session: session, isFaded: isPillFaded, pillAtTop: pillAtTop)
                         .padding(pillAtTop ? .top : .bottom, 14)
                         .transition(.opacity)
                 }
@@ -796,40 +805,70 @@ private struct NotesSidePane: View {
 private struct PagePill: View {
     @Bindable var session: ReaderSession
     let isFaded: Bool
+    let pillAtTop: Bool
     @State private var text = ""
-    @State private var isFieldFocused = false
     /// The field has held focus since it appeared (losing focus before that, e.g. while a menu
     /// that opened it is still closing, must not close it).
     @State private var hasHadFocus = false
 
+    private var showsPadKeypad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     var body: some View {
         let number = PageNumbering.displayNumber(forPageIndex: session.currentPageIndex)
+        VStack(spacing: 10) {
+            if session.isGoToPageVisible, showsPadKeypad, !pillAtTop {
+                PageNumberPad(text: $text)
+            }
+            pillCapsule(number: number)
+            if session.isGoToPageVisible, showsPadKeypad, pillAtTop {
+                PageNumberPad(text: $text)
+            }
+        }
+        .pillIdleFade(isFaded)
+        .onAppear { session.revealPagePill() }
+        .onChange(of: session.isGoToPageVisible) { _, visible in
+            if !visible { session.revealPagePill() }  // count the idle time from closing the field
+        }
+    }
+
+    private func pillCapsule(number: Int) -> some View {
         Group {
             if session.isGoToPageVisible {
                 HStack(spacing: 8) {
-                    GoToPageTextField(text: $text, isFocused: $isFieldFocused, onSubmit: submit)
-                        .frame(width: 90, height: 34)
-                        .accessibilityLabel("Go to page")
-                        .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
+                    GoToPageTextField(
+                        text: $text,
+                        usesSystemKeyboard: !showsPadKeypad,
+                        onBeginEditing: { hasHadFocus = true },
+                        onEndEditing: {
+                            if hasHadFocus {
+                                hasHadFocus = false
+                                session.isGoToPageVisible = false
+                                session.markup.reassertToolPicker()
+                            }
+                        },
+                        onSubmit: submit
+                    )
+                    .frame(width: 90, height: 34)
+                    .accessibilityLabel("Go to page")
+                    .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
                     Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
                     Button("Go", action: submit)
                         .foregroundStyle(.white.opacity(text.isEmpty ? 0.45 : 1))
                         .disabled(text.isEmpty)
                         .accessibilityIdentifier(AccessibilityID.Reader.goToPageGo)
-                    Button("Cancel") { session.isGoToPageVisible = false }
-                        .foregroundStyle(.white)
+                    Button("Cancel") {
+                        session.isGoToPageVisible = false
+                        session.markup.reassertToolPicker()
+                    }
+                    .foregroundStyle(.white)
                 }
                 .padding(.horizontal, 12)
                 .frame(minHeight: 44)
                 .onAppear {
                     text = ""
                     hasHadFocus = false
-                    isFieldFocused = true
-                }
-                .task {
-                    // Retry once the presenting menu or popover has finished dismissing.
-                    try? await Task.sleep(for: .milliseconds(400))
-                    if !isFieldFocused { isFieldFocused = true }
                 }
             } else {
                 Button { session.isGoToPageVisible = true } label: {
@@ -846,20 +885,6 @@ private struct PagePill: View {
         }
         .font(.subheadline.weight(.medium))
         .background(Capsule().fill(Color.black.opacity(0.78)))
-        .pillIdleFade(isFaded)
-        .onAppear { session.revealPagePill() }
-        .onChange(of: session.isGoToPageVisible) { _, visible in
-            if !visible { session.revealPagePill() }  // count the idle time from closing the field
-        }
-        .onChange(of: isFieldFocused) { _, focused in
-            if focused {
-                hasHadFocus = true
-            } else if hasHadFocus {
-                hasHadFocus = false
-                session.isGoToPageVisible = false
-                session.markup.reassertToolPicker()
-            }
-        }
     }
 
     private func submit() {
@@ -867,7 +892,77 @@ private struct PagePill: View {
             session.jump(toDisplayNumber: number)
         }
         session.isGoToPageVisible = false
-        isFieldFocused = false
+        session.markup.reassertToolPicker()
+    }
+}
+
+private struct PageNumberPad: View {
+    @Binding var text: String
+
+    private let rows: [[Key]] = [
+        [.digit("1"), .digit("2"), .digit("3")],
+        [.digit("4"), .digit("5"), .digit("6")],
+        [.digit("7"), .digit("8"), .digit("9")],
+        [.blank, .digit("0"), .backspace]
+    ]
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(rows.indices, id: \.self) { rowIndex in
+                HStack(spacing: 8) {
+                    ForEach(rows[rowIndex].indices, id: \.self) { colIndex in
+                        keyView(rows[rowIndex][colIndex])
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.black.opacity(0.84)))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AccessibilityID.Reader.goToPageNumPad)
+    }
+
+    @ViewBuilder
+    private func keyView(_ key: Key) -> some View {
+        switch key {
+        case .blank:
+            Color.clear.frame(width: 60, height: 46)
+        case .digit(let digit):
+            Button {
+                text.append(digit)
+            } label: {
+                Text(verbatim: digit)
+                    .font(.title3.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .frame(width: 60, height: 46)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.18)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(digit)
+            .accessibilityIdentifier(AccessibilityID.Reader.goToPageKey(digit))
+        case .backspace:
+            Button {
+                if !text.isEmpty { text.removeLast() }
+            } label: {
+                Image(systemName: "delete.left")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 60, height: 46)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .disabled(text.isEmpty)
+            .opacity(text.isEmpty ? 0.45 : 1)
+            .accessibilityLabel("Delete")
+            .accessibilityIdentifier(AccessibilityID.Reader.goToPageKey("delete"))
+        }
+    }
+
+    private enum Key {
+        case digit(String)
+        case backspace
+        case blank
     }
 }
 
@@ -1032,7 +1127,9 @@ private struct SearchAnchorReader: UIViewRepresentable {
 
 private struct GoToPageTextField: UIViewRepresentable {
     @Binding var text: String
-    @Binding var isFocused: Bool
+    let usesSystemKeyboard: Bool
+    let onBeginEditing: () -> Void
+    let onEndEditing: () -> Void
     let onSubmit: () -> Void
 
     func makeUIView(context: Context) -> FocusableTextField {
@@ -1040,11 +1137,17 @@ private struct GoToPageTextField: UIViewRepresentable {
         field.placeholder = "Page"
         field.borderStyle = .roundedRect
         field.font = UIFont.preferredFont(forTextStyle: .subheadline)
-        field.keyboardType = .numberPad
+        field.keyboardType = .asciiCapableNumberPad
         field.returnKeyType = .go
-        if #available(iOS 26.0, *) {
-            field.allowsNumberPadPopover = true
+        if !usesSystemKeyboard {
+            // iPadOS maps `.numberPad` / `.asciiCapableNumberPad` either to the full-width
+            // keyboard or to a system popover that blocks the pill's Go/Cancel buttons; suppress
+            // the system software keyboard so `PageNumberPad` is the only keypad shown.
+            field.inputView = UIView()
+            field.inputAssistantItem.leadingBarButtonGroups = []
+            field.inputAssistantItem.trailingBarButtonGroups = []
         }
+
         field.delegate = context.coordinator
         field.addTarget(context.coordinator, action: #selector(Coordinator.textChanged(_:)), for: .editingChanged)
         field.accessibilityLabel = "Go to page"
@@ -1054,29 +1157,25 @@ private struct GoToPageTextField: UIViewRepresentable {
 
     func updateUIView(_ uiView: FocusableTextField, context: Context) {
         context.coordinator.parent = self
-        uiView.wantsFocus = isFocused
         if uiView.text != text {
             uiView.text = text
-        }
-        if !isFocused, uiView.isFirstResponder {
-            uiView.resignFirstResponder()
-        } else {
-            uiView.focusIfNeeded()
         }
     }
 
     final class FocusableTextField: UITextField {
-        var wantsFocus = false
+        private var didRequestInitialFocus = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            focusIfNeeded()
-        }
-
-        func focusIfNeeded() {
-            guard wantsFocus, window != nil, !isFirstResponder else { return }
+            guard window != nil, !didRequestInitialFocus else { return }
+            didRequestInitialFocus = true
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.wantsFocus, self.window != nil, !self.isFirstResponder else { return }
+                guard let self, self.window != nil, !self.isFirstResponder else { return }
+                self.becomeFirstResponder()
+            }
+            // Retry once any presenting menu or popover has finished dismissing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(400)) { [weak self] in
+                guard let self, self.window != nil, !self.isFirstResponder else { return }
                 self.becomeFirstResponder()
             }
         }
@@ -1110,11 +1209,11 @@ private struct GoToPageTextField: UIViewRepresentable {
         }
 
         func textFieldDidBeginEditing(_ textField: UITextField) {
-            parent.isFocused = true
+            parent.onBeginEditing()
         }
 
         func textFieldDidEndEditing(_ textField: UITextField) {
-            parent.isFocused = false
+            parent.onEndEditing()
         }
 
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {

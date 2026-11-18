@@ -884,26 +884,36 @@ final class ReaderUITests: XCTestCase {
         pill(app).tap()
         let field = app.textFields[ReaderID.goToPageField]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        sleep(1)
-        let shotDir = Fixtures.repoRoot.appendingPathComponent("build/shots", isDirectory: true)
-        try? FileManager.default.createDirectory(at: shotDir, withIntermediateDirectories: true)
-        try? XCUIScreen.main.screenshot().pngRepresentation
-            .write(to: shotDir.appendingPathComponent("numpad-ipad-uitextfield.png"))
-        let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "number pad appears")
-        XCTAssertTrue(keyboard.keys["1"].exists || keyboard.buttons["1"].exists, "num pad has digit keys")
-        XCTAssertFalse(keyboard.keys["A"].exists || keyboard.keys["a"].exists || keyboard.keys["Q"].exists || keyboard.keys["q"].exists,
-                       "num pad does not show letter keys")
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            XCTAssertFalse(keyboard.keys["."].exists || keyboard.keys["-"].exists || keyboard.keys["/"].exists,
-                           "num pad does not show punctuation keys")
-        }
-
         let goButton = app.buttons[ReaderID.goToPageGo].firstMatch
         XCTAssertTrue(goButton.exists)
         XCTAssertFalse(goButton.isEnabled, "Go is disabled while the field is empty")
 
-        field.typeText("1")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            let keyboard = app.keyboards.firstMatch
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "number pad appears")
+            XCTAssertTrue(keyboard.keys["1"].exists || keyboard.buttons["1"].exists, "num pad has digit keys")
+            XCTAssertFalse(keyboard.keys["A"].exists || keyboard.keys["a"].exists || keyboard.keys["Q"].exists || keyboard.keys["q"].exists,
+                           "num pad does not show letter keys")
+            XCTAssertFalse(keyboard.keys["."].exists || keyboard.keys["-"].exists || keyboard.keys["/"].exists,
+                           "num pad does not show punctuation keys")
+        } else {
+            let numPad = app.otherElements[ReaderID.goToPageNumPad].firstMatch
+            XCTAssertTrue(numPad.waitForExistence(timeout: 5), "in-app number pad appears on iPad")
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "full system keyboard does not appear on iPad")
+            for digit in 0...9 {
+                XCTAssertTrue(app.buttons[ReaderID.goToPageKey("\(digit)")].exists, "num pad has \(digit)")
+            }
+            XCTAssertTrue(app.buttons[ReaderID.goToPageKey("delete")].exists, "num pad has delete")
+
+            app.buttons[ReaderID.goToPageKey("1")].tap()
+            app.buttons[ReaderID.goToPageKey("3")].tap()
+            app.buttons[ReaderID.goToPageKey("delete")].tap()
+            XCTAssertEqual(field.value as? String, "1")
+        }
+
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            field.typeText("1")
+        }
         field.typeText("a")
         field.typeText("-")
         field.typeText("2")
@@ -928,6 +938,8 @@ enum ReaderID {
     static let pagePill = "reader.pagePill"
     static let goToPageField = "reader.goToPageField"
     static let goToPageGo = "reader.goToPageGo"
+    static let goToPageNumPad = "reader.goToPageNumPad"
+    static func goToPageKey(_ key: String) -> String { "reader.goToPageNumPad.\(key)" }
     static let contentsPane = "reader.pane.contents"
     static let contentsOverlay = "reader.pane.contentsOverlay"
     static let notesPane = "reader.pane.notes"

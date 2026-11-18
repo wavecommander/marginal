@@ -227,6 +227,8 @@ nonisolated enum AccessibilityID {
         static let pagePill = "reader.pagePill"
         static let goToPageField = "reader.goToPageField"
         static let goToPageGo = "reader.goToPageGo"
+        static let goToPageNumPad = "reader.goToPageNumPad"
+        static func goToPageKey(_ key: String) -> String { "reader.goToPageNumPad.\(key)" }
 
         // Panes
         static let contentsPane = "reader.pane.contents"
