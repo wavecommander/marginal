@@ -379,4 +379,7 @@ nonisolated struct ReaderOverrides: Sendable, Equatable {
     /// A heading whose note the notes panel shows on the Section tab (a Notebook heading-note
     /// row); applied with `ReaderSession.showNotes(.section, heading:)`.
     var notesHeading: HeadingAnchor?
+    /// Force the notes panel closed on open (e.g. opening a highlight or handwriting page from the
+    /// Notebook).
+    var hideNotesPanel = false
 }

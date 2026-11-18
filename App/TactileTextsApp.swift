@@ -40,7 +40,10 @@ struct TactileTextsApp: App {
 
         WindowGroup(id: WindowID.reader, for: ReaderWindowValue.self) { $value in
             WindowRootView(kind: .reader, initialRoute: value.map { .reader(bookID: $0.bookID) },
-                           initialPageIndex: value?.pageIndex, initialNotesHeading: value?.notesHeading)
+                           initialPageIndex: value?.pageIndex,
+                           initialNotesTab: value?.notesTab,
+                           initialNotesHeading: value?.notesHeading,
+                           initialHideNotesPanel: value?.hideNotesPanel ?? false)
                 .environment(environment)
                 .environment(\.launchOptions, environment.launchOptions)
         }

@@ -474,9 +474,13 @@ private struct NotebookContent: View {
         let bookID = model.bookID
         let store = environment.store
         return NotebookRowActions(
-            open: { page, heading in window.openReader(bookID: bookID, pageIndex: page, notesHeading: heading) },
-            openInNewWindow: { page, heading in
-                NotebookNavigation.openInNewWindow(bookID: bookID, pageIndex: page, notesHeading: heading,
+            open: { page, notesTab, heading in
+                window.openReader(bookID: bookID, pageIndex: page, notesTab: notesTab,
+                                  notesHeading: heading, hideNotesPanel: notesTab == nil)
+            },
+            openInNewWindow: { page, notesTab, heading in
+                NotebookNavigation.openInNewWindow(bookID: bookID, pageIndex: page, notesTab: notesTab,
+                                                   notesHeading: heading, hideNotesPanel: notesTab == nil,
                                                    store: store, window: window)
             },
             deleteNote: { note in deleteCandidate = note })
@@ -632,9 +636,11 @@ private struct NotebookContent: View {
 enum NotebookNavigation {
     /// Opens a new reader window on the book at `pageIndex` (the shell applies the page once,
     /// when the window is created; the book's stored last-read page is left alone).
-    static func openInNewWindow(bookID: UUID, pageIndex: Int, notesHeading: HeadingAnchor? = nil,
+    static func openInNewWindow(bookID: UUID, pageIndex: Int, notesTab: ReaderSession.NotesTab? = nil,
+                                notesHeading: HeadingAnchor? = nil, hideNotesPanel: Bool = false,
                                 store: LibraryStore, window: WindowContext) {
-        window.openReaderInNewWindow(bookID: bookID, pageIndex: pageIndex, notesHeading: notesHeading)
+        window.openReaderInNewWindow(bookID: bookID, pageIndex: pageIndex, notesTab: notesTab,
+                                     notesHeading: notesHeading, hideNotesPanel: hideNotesPanel)
     }
 }
 

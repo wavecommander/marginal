@@ -52,11 +52,12 @@ nonisolated enum NotebookHighlightStyle {
     static func name(_ color: HighlightColor) -> String { HighlightPalette.name(color) }
 }
 
-/// What a row does when tapped or chosen from its context menu. `heading` is set for a heading
-/// note's row: the reader then opens with the notes panel on the Section tab at that heading.
+/// What a row does when tapped or chosen from its context menu. `notesTab` is set for note rows
+/// (`.page` for a page note, `.section` with `heading` for a heading note); `nil` opens the PDF
+/// page without the notes panel.
 struct NotebookRowActions {
-    var open: (_ page: Int, _ heading: HeadingAnchor?) -> Void
-    var openInNewWindow: (_ page: Int, _ heading: HeadingAnchor?) -> Void
+    var open: (_ page: Int, _ notesTab: ReaderSession.NotesTab?, _ heading: HeadingAnchor?) -> Void
+    var openInNewWindow: (_ page: Int, _ notesTab: ReaderSession.NotesTab?, _ heading: HeadingAnchor?) -> Void
     /// Asks to delete a note (the screen confirms first, with the notes panel's wording).
     var deleteNote: (Note) -> Void
 }
@@ -83,12 +84,13 @@ struct NotebookRowView: View {
 
     var body: some View {
         let target = row.targetPage
+        let notesTab = row.notesTab
         let heading = row.noteHeading
         Button {
             if selection != nil {
                 toggle()
             } else if let target {
-                actions.open(target, heading)
+                actions.open(target, notesTab, heading)
             }
         } label: {
             HStack(alignment: row.isHeader ? .bottom : .top, spacing: 12) {
@@ -108,9 +110,11 @@ struct NotebookRowView: View {
             if selection != nil {
                 // Choosing what to export: no row actions.
             } else if let target {
-                Button("Open", systemImage: "book") { actions.open(target, heading) }
+                Button("Open", systemImage: "book") { actions.open(target, notesTab, heading) }
                 if supportsMultipleWindows {
-                    Button("Open in New Window", systemImage: "macwindow.badge.plus") { actions.openInNewWindow(target, heading) }
+                    Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                        actions.openInNewWindow(target, notesTab, heading)
+                    }
                 }
             }
             if selection == nil, let note = row.note {
@@ -343,6 +347,16 @@ extension NotebookFeedRow {
     var noteHeading: HeadingAnchor? {
         if case .headingNote(_, let header) = kind, case .section(let anchor) = header.kind { return anchor }
         return nil
+    }
+
+    /// The notes panel tab to open for this row (`nil` for highlights, handwriting and headers,
+    /// which open the PDF page without the notes panel).
+    var notesTab: ReaderSession.NotesTab? {
+        switch kind {
+        case .headingNote: .section
+        case .pageNote: .page
+        case .unfiledHeadingNote, .header, .highlight, .handwriting: nil
+        }
     }
 }
 

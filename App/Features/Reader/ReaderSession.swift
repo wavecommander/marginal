@@ -88,6 +88,9 @@ final class ReaderSession: Identifiable {
         var startMaximized = false
         /// Open the notes panel on this tab (`-notesPanel`).
         var openNotesTab: NotesTab?
+        /// Force the notes panel closed on open, ignoring saved state (used when opening a
+        /// highlight, handwriting page or heading from the Notebook).
+        var hideNotesPanel = false
         #if DEBUG
         /// `-inkAnyInput`: canvases draw with any input.
         var inkAnyInput = false
@@ -377,6 +380,8 @@ final class ReaderSession: Identifiable {
         if let tab = configuration.openNotesTab {
             isNotesVisible = true
             notesTab = tab
+        } else if configuration.hideNotesPanel {
+            isNotesVisible = false
         }
 
         let policy: PKCanvasViewDrawingPolicy = if configuration.inkAnyInput { .anyInput }

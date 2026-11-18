@@ -87,6 +87,7 @@ final class ReaderSlot {
             configuration.startInMarkup = overrides.startInMarkup
             configuration.startMaximized = overrides.startMaximized
             configuration.openNotesTab = overrides.notesTab
+            configuration.hideNotesPanel = overrides.hideNotesPanel
         }
         PerfMarks.mark("readerHost")
         let session = ReaderSession(book: book, store: environment.store, configuration: configuration)

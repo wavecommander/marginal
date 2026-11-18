@@ -276,9 +276,13 @@ struct LibraryScreen: View {
                 query: query,
                 isMissingPDF: { showsPDFMissing($0, model) },
                 openBook: { open($0) },
-                openAt: { book, page, heading in open(book, pageIndex: page, notesHeading: heading) },
-                openInNewWindow: { book, page, heading in
-                    window.openReaderInNewWindow(bookID: book.id, pageIndex: page, notesHeading: heading)
+                openAt: { book, page, notesTab, heading in
+                    open(book, pageIndex: page, notesTab: notesTab, notesHeading: heading,
+                         hideNotesPanel: notesTab == nil)
+                },
+                openInNewWindow: { book, page, notesTab, heading in
+                    window.openReaderInNewWindow(bookID: book.id, pageIndex: page, notesTab: notesTab,
+                                                 notesHeading: heading, hideNotesPanel: notesTab == nil)
                 },
                 openNotebook: { window.openNotebook(bookID: $0.id) },
                 onDeleteNote: { snapshot in
@@ -546,15 +550,18 @@ struct LibraryScreen: View {
 
     /// Opens the book in place (at `pageIndex`, with `notesHeading`'s note in the notes panel,
     /// when given), or, when its PDF is missing, offers Locate PDF… and the Notebook.
-    private func open(_ book: Book, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
+    private func open(_ book: Book, pageIndex: Int? = nil, notesTab: ReaderSession.NotesTab? = nil,
+                      notesHeading: HeadingAnchor? = nil, hideNotesPanel: Bool = false) {
         if model?.isMissingPDF(book) == true, environment.sync?.pdfs.isSyncedWithoutPDF(book.id) == true {
             // A synced book: the reader downloads its PDF first (with Cancel), then opens it.
             environment.sync?.pdfs.requestNow(book.id)
-            window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
+            window.openReader(bookID: book.id, pageIndex: pageIndex, notesTab: notesTab,
+                              notesHeading: notesHeading, hideNotesPanel: hideNotesPanel)
         } else if model?.isMissingPDF(book) == true {
             missingPrompt = book
         } else {
-            window.openReader(bookID: book.id, pageIndex: pageIndex, notesHeading: notesHeading)
+            window.openReader(bookID: book.id, pageIndex: pageIndex, notesTab: notesTab,
+                              notesHeading: notesHeading, hideNotesPanel: hideNotesPanel)
         }
     }
 

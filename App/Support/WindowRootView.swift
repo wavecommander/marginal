@@ -19,9 +19,13 @@ struct WindowRootView: View {
     /// The page a new reader window opens at (`ReaderWindowValue.pageIndex`); used only when the
     /// window has no restored state.
     var initialPageIndex: Int? = nil
+    /// The notes panel tab a new reader window opens on (`ReaderWindowValue.notesTab`).
+    var initialNotesTab: ReaderSession.NotesTab? = nil
     /// The heading whose note a new reader window shows (`ReaderWindowValue.notesHeading`);
     /// used only when the window has no restored state.
     var initialNotesHeading: HeadingAnchor? = nil
+    /// Forces the notes panel closed when a new reader window opens (`ReaderWindowValue.hideNotesPanel`).
+    var initialHideNotesPanel: Bool = false
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow
@@ -79,8 +83,11 @@ struct WindowRootView: View {
             path = [initialRoute]
         }
         let opensAt: (bookID: UUID, overrides: ReaderOverrides)? =
-            if storedPath == nil, initialPageIndex != nil || initialNotesHeading != nil, case .reader(let bookID)? = initialRoute {
-                (bookID, ReaderOverrides(pageIndex: initialPageIndex, notesHeading: initialNotesHeading))
+            if storedPath == nil,
+               initialPageIndex != nil || initialNotesTab != nil || initialNotesHeading != nil || initialHideNotesPanel,
+               case .reader(let bookID)? = initialRoute {
+                (bookID, ReaderOverrides(pageIndex: initialPageIndex, notesTab: initialNotesTab,
+                                         notesHeading: initialNotesHeading, hideNotesPanel: initialHideNotesPanel))
             } else { nil }
         // A restored window never shows a reader or Notebook of a book that is gone: those
         // screens are dropped (a reader/Notebook window left empty shows the Library).

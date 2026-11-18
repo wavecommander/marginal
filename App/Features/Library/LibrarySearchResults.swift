@@ -72,8 +72,8 @@ struct LibrarySearchResultsView: View {
     let query: String
     let isMissingPDF: (Book) -> Bool
     let openBook: (Book) -> Void
-    let openAt: (Book, Int, HeadingAnchor?) -> Void
-    let openInNewWindow: (Book, Int, HeadingAnchor?) -> Void
+    let openAt: (Book, Int, ReaderSession.NotesTab?, HeadingAnchor?) -> Void
+    let openInNewWindow: (Book, Int, ReaderSession.NotesTab?, HeadingAnchor?) -> Void
     let openNotebook: (Book) -> Void
     var onDeleteNote: ((DeletedNoteSnapshot) -> Void)? = nil
 
@@ -345,8 +345,8 @@ struct LibrarySearchResultsView: View {
 
     private func actions(for book: Book) -> NotebookRowActions {
         NotebookRowActions(
-            open: { page, heading in openAt(book, page, heading) },
-            openInNewWindow: { page, heading in openInNewWindow(book, page, heading) },
+            open: { page, notesTab, heading in openAt(book, page, notesTab, heading) },
+            openInNewWindow: { page, notesTab, heading in openInNewWindow(book, page, notesTab, heading) },
             deleteNote: { note in deleteCandidate = (book.id, note) })
     }
 }

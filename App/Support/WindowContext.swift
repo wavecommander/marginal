@@ -24,9 +24,13 @@ nonisolated struct ReaderWindowValue: Codable, Hashable, Sendable {
     /// Zero-based page to open at, applied once when the window is first created (a restored
     /// window keeps its own page). `nil`: the book's last-read page.
     var pageIndex: Int?
+    /// Notes panel tab to open, applied once like `pageIndex`.
+    var notesTab: ReaderSession.NotesTab? = nil
     /// A heading whose note the new window shows in the notes panel (Section tab), applied once
     /// like `pageIndex`.
     var notesHeading: HeadingAnchor?
+    /// Force the notes panel closed when the window opens.
+    var hideNotesPanel: Bool = false
 }
 
 /// A page of the Settings sheet that can be opened directly.
@@ -112,14 +116,16 @@ final class WindowContext {
     // MARK: In place
 
     /// Opens the reader on `bookID` in this window (pushing it), optionally at a page, and
-    /// optionally with the notes panel on the Section tab showing `notesHeading`'s note.
-    func openReader(bookID: UUID, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
-        if pageIndex != nil || notesHeading != nil {
-            pendingOverrides[bookID] = ReaderOverrides(pageIndex: pageIndex, notesHeading: notesHeading)
+    /// optionally opening or hiding the notes panel.
+    func openReader(bookID: UUID, pageIndex: Int? = nil, notesTab: ReaderSession.NotesTab? = nil,
+                    notesHeading: HeadingAnchor? = nil, hideNotesPanel: Bool = false) {
+        if pageIndex != nil || notesTab != nil || notesHeading != nil || hideNotesPanel {
+            pendingOverrides[bookID] = ReaderOverrides(pageIndex: pageIndex, notesTab: notesTab,
+                                                       notesHeading: notesHeading, hideNotesPanel: hideNotesPanel)
         }
         if case .reader(let current)? = path.last, current == bookID {
             // Already showing it: the host picks up the override.
-            if pageIndex != nil || notesHeading != nil { readerJumpRequests += 1 }
+            if pageIndex != nil || notesTab != nil || notesHeading != nil || hideNotesPanel { readerJumpRequests += 1 }
             return
         }
         path.append(.reader(bookID: bookID))
@@ -290,9 +296,12 @@ final class WindowContext {
     /// Opens a new reader window on the book (always a new window, even for the same book), at
     /// `pageIndex` when given (applied once; not a section-history jump), else at the book's
     /// last-read page.
-    func openReaderInNewWindow(bookID: UUID, pageIndex: Int? = nil, notesHeading: HeadingAnchor? = nil) {
+    func openReaderInNewWindow(bookID: UUID, pageIndex: Int? = nil, notesTab: ReaderSession.NotesTab? = nil,
+                               notesHeading: HeadingAnchor? = nil, hideNotesPanel: Bool = false) {
         openWindowAction?(id: WindowID.reader,
-                          value: ReaderWindowValue(bookID: bookID, pageIndex: pageIndex, notesHeading: notesHeading))
+                          value: ReaderWindowValue(bookID: bookID, pageIndex: pageIndex,
+                                                   notesTab: notesTab, notesHeading: notesHeading,
+                                                   hideNotesPanel: hideNotesPanel))
     }
 
     /// Opens (or focuses) the Notebook window of the book.

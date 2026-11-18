@@ -83,6 +83,8 @@ struct ReaderHost: View {
             guard let session, isOnTop, let overrides = window.takeReaderOverrides(for: bookID) else { return }
             if let page = overrides.pageIndex { session.jump(toPage: page) }
             if let heading = overrides.notesHeading { session.showNotes(.section, heading: heading) }
+            else if let tab = overrides.notesTab { session.showNotes(tab) }
+            else if overrides.hideNotesPanel { session.isNotesVisible = false }
         }
     }
 

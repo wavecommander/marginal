@@ -364,6 +364,61 @@ final class NotesPanelUITests: XCTestCase {
                       "notes sheet restored on returning to the reader")
     }
 
+    /// Opening a handwriting page or a highlight from the Notebook keeps the notes panel closed
+    /// even when it was open before; opening a page note opens the notes panel on Page note.
+    func testNotebookRowsOpenNotesPanelOnlyForNotes() {
+        defer { XCUIDevice.shared.orientation = .landscapeLeft }
+        let app = launchSeeded(page: 17, tab: "section", orientation: .portrait)
+        let sheet = app.descendants(matching: .any)[ID.notesSheet].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "notes sheet shown initially")
+
+        func openNotebookFromReader() {
+            let more = app.buttons["reader.toolbar.more"].firstMatch
+            XCTAssertTrue(more.waitForExistence(timeout: 5), "More menu")
+            more.tap()
+            let item = app.buttons["Notebook"].firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "Notebook in More menu")
+            item.tap()
+            XCTAssertTrue(app.segmentedControls["notebook.typeFilter"].firstMatch.waitForExistence(timeout: 10),
+                          "Notebook screen shown")
+        }
+
+        func goBackToNotebook() {
+            let back = app.navigationBars.buttons["BackButton"].firstMatch
+            if back.exists { back.tap() } else { app.navigationBars.buttons.element(boundBy: 0).tap() }
+            XCTAssertTrue(app.segmentedControls["notebook.typeFilter"].firstMatch.waitForExistence(timeout: 10),
+                          "returned to Notebook")
+        }
+
+        // 1. Open a handwriting page from the Notebook -> notes panel does NOT appear.
+        openNotebookFromReader()
+        let filter = app.segmentedControls["notebook.typeFilter"]
+        filter.buttons["Handwriting"].tap()
+        let handwriting = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'notebook.handwriting.'")).firstMatch
+        XCTAssertTrue(handwriting.waitForExistence(timeout: 10), "handwriting row")
+        handwriting.tap()
+        XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 10), "reader opened")
+        XCTAssertFalse(sheet.waitForExistence(timeout: 2), "notes panel stays closed for handwriting")
+
+        // 2. Open a highlight from the Notebook -> notes panel does NOT appear.
+        goBackToNotebook()
+        filter.buttons["Highlights"].tap()
+        let highlight = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'notebook.highlight.'")).firstMatch
+        XCTAssertTrue(highlight.waitForExistence(timeout: 10), "highlight row")
+        highlight.tap()
+        XCTAssertTrue(app.buttons[ID.pagePill].firstMatch.waitForExistence(timeout: 10), "reader opened")
+        XCTAssertFalse(sheet.waitForExistence(timeout: 2), "notes panel stays closed for highlight")
+
+        // 3. Open a page note from the Notebook -> notes panel DOES appear on Page note.
+        goBackToNotebook()
+        filter.buttons["Page Notes"].tap()
+        let pageNote = app.buttons["notebook.pageNote.17"].firstMatch
+        XCTAssertTrue(pageNote.waitForExistence(timeout: 10), "page note row")
+        pageNote.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "notes panel opens for page note")
+        XCTAssertTrue(wait(title(app), "label == %@", "Page 17"))
+    }
+
     /// Narrow sheet: the header's button hides the lists under the note and shows them again,
     /// and the choice is still there after a relaunch. A regular-size iPad window keeps Markup
     /// in the toolbar only (the header's own Markup button is for compact screens). The note

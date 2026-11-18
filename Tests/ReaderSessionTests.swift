@@ -214,6 +214,15 @@ struct ReaderSessionTests {
         #expect(fromLaunch.startPosition == nil)
         #expect(fromLaunch.isMarkupMode)
         #expect(fromLaunch.isNotesVisible && fromLaunch.notesTab == .page)
+
+        // Opening a highlight or handwriting page from the Notebook hides the notes panel even
+        // when the restored state had it open.
+        configuration.openNotesTab = nil
+        configuration.hideNotesPanel = true
+        configuration.restoredState = ReaderSession.RestorableState(isContentsVisible: false, isNotesVisible: true,
+                                                                     notesTab: .section)
+        let hidden = ReaderSession(book: stored, store: fixture.store, configuration: configuration)
+        #expect(!hidden.isNotesVisible)
     }
 
     // MARK: Change filtering
