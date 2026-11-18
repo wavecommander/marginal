@@ -387,9 +387,13 @@ private struct Merger {
                 continue
             }
             let text = ParagraphMerge.mergeText(local: localNote.text, incoming: other.text)
-            let changed = text.text != localNote.text
+            let richData = NoteRichText.mergeTwoWay(local: (localNote, text.localIndices),
+                                                    incoming: (other, text.incomingIndices),
+                                                    mergedText: text.text)
+            let changed = text.text != localNote.text || richData != localNote.richTextData
             var merged = localNote
             merged.text = text.text
+            merged.richTextData = richData
             merged.createdAt = min(localNote.createdAt, other.createdAt)
             merged.modifiedAt = max(localNote.modifiedAt, other.modifiedAt)
             merged.hasInk = localNote.hasInk || other.hasInk

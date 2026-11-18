@@ -1,4 +1,5 @@
 import ReaderCore
+import SwiftUI
 import UIKit
 
 /// The fixed geometry and typography of a note page (design: "Note page", "Note text").
@@ -219,5 +220,46 @@ nonisolated enum NotePageStyle {
         textView.adjustsFontForContentSizeCategory = false
         textView.smartInsertDeleteType = .default
         textView.dataDetectorTypes = []
+    }
+
+    /// SwiftUI `AttributedString` for read-only Notebook previews, preserving inline formatting
+    /// while respecting Dynamic Type `.body`.
+    static func swiftUIAttributedText(for note: Note) -> AttributedString {
+        let raw = note.text
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let rich = NoteRichText.decoded(from: note.richTextData)?.clamped(toUTF16Length: raw.utf16.count),
+              !rich.spans.isEmpty else {
+            return AttributedString(trimmed)
+        }
+        // Shift UTF-16 span offsets by the number of leading trimmed UTF-16 code units.
+        let leadingCount = raw.prefix(while: { $0.isWhitespace || $0.isNewline }).utf16.count
+        let trimmedUTF16Count = trimmed.utf16.count
+        var result = AttributedString(trimmed)
+
+        for span in rich.spans {
+            let start = max(0, span.location - leadingCount)
+            let end = min(trimmedUTF16Count, span.location + span.length - leadingCount)
+            guard start < end else { continue }
+            guard let stringRange = Range(NSRange(location: start, length: end - start), in: trimmed),
+                  let attrRange = Range(stringRange, in: result) else { continue }
+            let attrs = span.attributes
+            if attrs.isCode || attrs.isBold || attrs.isItalic {
+                var font: Font = attrs.isCode ? .system(.body, design: .monospaced) : .body
+                if attrs.isBold { font = font.bold() }
+                if attrs.isItalic { font = font.italic() }
+                result[attrRange].font = font
+            }
+            if attrs.isUnderline {
+                result[attrRange].underlineStyle = .single
+            }
+            if attrs.isStrikethrough {
+                result[attrRange].strikethroughStyle = .single
+            }
+            if let highlight = attrs.highlight {
+                result[attrRange].backgroundColor = Color(uiColor: highlightUIColor(for: highlight))
+            }
+        }
+        return result
     }
 }

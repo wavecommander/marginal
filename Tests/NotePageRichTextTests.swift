@@ -81,4 +81,19 @@ struct NotePageRichTextTests {
         editor.clearFormatting()
         #expect(editor.currentFormattingAttributes == .default)
     }
+
+    @Test func swiftUIAttributedTextTrimsAndShiftsFormattingOffsets() {
+        let richData = NoteRichText(spans: [
+            NoteTextSpan(location: 2, length: 4, attributes: NoteTextAttributes(isBold: true, isUnderline: true)),
+            NoteTextSpan(location: 7, length: 4, attributes: NoteTextAttributes(isStrikethrough: true, highlight: .blue))
+        ]).encoded()
+        let note = Note(bookID: UUID(), target: .page(0), text: "\n Bold text\n", richTextData: richData)
+        let attr = NotePageStyle.swiftUIAttributedText(for: note)
+        #expect(String(attr.characters) == "Bold text")
+        let runs = Array(attr.runs)
+        #expect(runs.count == 3)
+        #expect(runs[0].underlineStyle == .single)
+        #expect(runs[2].strikethroughStyle == .single)
+        #expect(runs[2].backgroundColor != nil)
+    }
 }
