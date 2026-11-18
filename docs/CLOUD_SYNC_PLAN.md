@@ -351,71 +351,46 @@ cannot silently roll a book back.
 
 ## Packages
 
-**Status, 17 November 2026:** C0, C1 and C3 are done and merged into `reader-markup-subtitle`
-(C1 with the fixes from an independent security review: one medium and three low findings, all
-closed). On the merged branch all five packages' tests and the Worker's 210 tests pass. C4
-and C5 are not started. C0's answers are in `docs/CLOUD_SYNC_FINDINGS.md`.
+**Status, 18 November 2026: every package is built and merged into `reader-markup-subtitle`.**
+What each built is in the table and the "Done when" list below and, as behaviour, in
+`docs/DESIGN.md`; C0's answers are in `docs/CLOUD_SYNC_FINDINGS.md`.
 
-**C2, 17 November 2026: built, on its own branch, not yet merged.** Sign-in with Apple and
-Google (`GoogleSignInKit`, a sixth package), the device session in the Keychain, the account
-screen with Change, devices, Sign Out, Sign Out of All Devices and Delete Account, the backup
-key per account, purchases with `appAccountToken`, automatic backup on by default for a
-signed-in subscriber, the Sign in with Apple entitlements file and the build settings, and
-`-cloudBackupUITest` states for signed-out and an ended session. `ReaderSync` is now in the app
-target, for `SyncKeys` only (device names). The Worker gained a `dev`-only test issuer
-(`DEV_TEST_SIGNIN_SECRET`) so the simulator and `BackupCloudServiceEndToEndTests` can sign in;
-the end-to-end test was rewritten for accounts but has not been run against `wrangler dev`.
-Nothing has been checked on a real iPad, against real Apple or Google sign-in (Google's nonce
-included), or against R2 through the Swift code; those are in `docs/DEVICE_CHECKLIST.md`.
+| Package | Merged | Notes |
+| --- | --- | --- |
+| C0 | 17 Nov | Findings; conditional writes measured on the real development bucket. |
+| C1 | 17 Nov | With the fixes from an independent security review (one medium, three low findings, all closed) and a one-hour purge margin for a deleted account's folder. |
+| C2 | 17 Nov | Plus a revision for iPhone as well as iPad (owner decision 9). |
+| C3 | 17 Nov | Three-way merge, `S3Kit` conditional writes, `ReaderSync` and the engine. |
+| C4 | 17 and 18 Nov | In two halves: the data layer (with one book per PDF), then the Sync UI, scheduling and PDF downloads. |
+| C5 | 18 Nov | Recently Deleted, earlier versions, housekeeping. The app's writer level is now 2 (tombstones only; ordinary heads stay level 1). |
 
-**C4a, 17 November 2026: built, on its own branch, not yet merged.** The engine wired to the
-library (`App/Features/Sync/`): `SyncLibrary` over `LibraryStore` (revision tokens from the
-change hub, busy surfaces from open editors, changes written record by record with a sync
-origin under `BookWriteGate`), `SyncInkMerger` over `StrokeMerge`, the content-version rule,
-the S3 store over `S3Kit`, the key check, `SyncService` (one engine per account, pull-only,
-one job at a time, sign-in changes) and `-syncTestFolder`; one book per PDF on every road and
-the launch merge of duplicates. Two engine changes in `ReaderSync` (a note ink merge names its
-notes; a base keeping a busy surface never passes for the head's). Not run on a device or
-against R2.
+**Also built, outside the original plan (18 November 2026):** a development sign-in for testing
+before Sign in with Apple, Sign in with Google and the App Store product exist: a named dev test
+user, a `dev`-only entitlement with no storage cap, and `scripts/dev-cloud.sh`
+(`Backend/backup-worker/README.md`, "Testing sync in development without Apple, Google or the App
+Store"). The `dev` Worker is deployed at `tactile-backup-dev.me-32e.workers.dev` with its own D1
+database, on the development bucket only. Production is not deployed and its settings are empty.
 
-**C4b, 17 November 2026: built, on its own branch, not yet merged.** The Sync section on the
-Tactile Texts Cloud page (the switch per account, a status line for every state, Sync Now,
-Download PDFs), the join sheet, `SyncScheduler` (after a change settles, on going to the
-background inside an assertion, on activation of the app or a window, every two minutes in
-front, in the backup's background processing task, with a back-off), PDF downloads
-(automatically on a network that is neither expensive nor constrained, one at a time, or when a
-book is opened, with Cancel), the Library's download state and per-book mark, the sync sentences
-in the restore and delete confirmations, and `-syncTestSeedBook` for UI tests. No engine change;
-`SyncService` gained a round count, the synced books (from the bases) and the newer-format
-status. Device checks are in `docs/DEVICE_CHECKLIST.md`. C4 is done apart from those; C5 is
-next.
+**Verified** (on the merged branch unless said otherwise): all six packages' tests, including the
+engine's multi-device simulations and fault injection at every step; the Worker's tests and
+typecheck; the app build with every integration setting empty; the sync, account and Recently
+Deleted unit tests and the account and sync UI tests on the iOS 27 iPad simulator; the app's
+end-to-end test against a local Worker and the real development bucket (C5 and the dev sign-in
+agents' runs) and, for the dev sign-in path, against the deployed `dev` Worker.
 
-**C5, 18 November 2026: built, on its own branch, not yet merged.** In `ReaderSync`: last-modified
-times on every object listing and head (S3's own; the folder store's file dates; a settable clock
-in the in-memory store); Recently Deleted (`recentlyDeleted`, `restoreDeleted`: the head becomes
-live one version above the highest seen and the book is made here at once; refused cleanly when
-content is gone); earlier versions (`versions`, `restoreVersion`: the version becomes an ordinary
-local change that the next round pushes, removals included); housekeeping (`housekeep`: history
-past 30 days, tombstones for deletions past 30 days, blobs and PDFs nothing refers to past seven
-days, PDFs only after every snapshot was read, nothing at all when anything is unreadable, ages by
-the store's clock, bounded per run, resumable, repairs of missing blobs this device holds). Format
-and engine changes: tombstones carry writer level 2 (the app's level is now 2; ordinary heads stay
-level 1, so a level-1 app keeps syncing them); history is written before the head that replaces
-it; a push rewrites a stored blob older than a day instead of relying on it, re-checks its uploads
-when more than an hour passes before the head write, and checks once a day that the blobs it keeps
-are there; a backup checks, after its snapshot is stored, that the PDFs it relied on are still
-there and uploads any that went (rewriting every old PDF on each daily backup would cost too
-much). In the app:
-the Recently Deleted list on the Tactile Texts Cloud page, Earlier Versions… in the Library with a
-restore safety copy (Undo Last Restore), the Delete Book confirmation's 30 days, and housekeeping
-after a full round at most once a day. **Verified**: the six packages' tests (fault injection at
-every store call and every step of housekeeping, the race with a push as deterministic
-interleavings), the app tests with two real libraries, the UI test, and the end-to-end test against
-`wrangler dev` and the real development bucket (two libraries in one process: a note, a highlight,
-page ink and a deletion cross; Recently Deleted restores; housekeeping removes nothing; R2 moves an
-object's date when it is written again; every object opaque; all removed). **Still needs real
-devices**: the C5 entries in `docs/DEVICE_CHECKLIST.md` (two devices, background time, a device
-clock that is wrong), and the deployed Worker. The plan's sync packages are done apart from those.
+**Not verified.** Nothing has run on a real iPad or iPhone, and no account or sync UI test has
+passed on an iPhone simulator (the reader's notes panel could not be opened in portrait or
+closed in landscape there when C2 tried; a reader matter, not a sync one). Real Sign in with
+Apple and Sign in with Google (Google's nonce included), real App Attest, a real purchase with
+`appAccountToken`, the key arriving by iCloud Keychain on a second device, two real devices
+syncing, an iPhone with an iPad, ink across different iPadOS versions, background time, and the
+30-day and seven-day housekeeping rules on real R2 (objects there cannot be made old) are all
+open; each is in `docs/DEVICE_CHECKLIST.md`. iPadOS 17 has not been run. The full test gate has
+not been run since this work began (owner rule: targeted tests only).
+
+**Decisions made while building that the owner has not yet confirmed** are listed in each
+package's report; the ones that change what a reader meets are in `docs/DESIGN.md` with their
+dates.
 
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`
