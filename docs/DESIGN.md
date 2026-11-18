@@ -1229,10 +1229,11 @@ and AZW3, DjVu, CBR, fixed-layout EPUB, spreadsheets). The store layout should n
    changes line heights mid-note and makes ink anchoring harder; is plain text acceptable?
    *Experiment (`exp/rich-text-notes`, 18 November 2026):* inline bold, italic, underline and
    strikethrough at the fixed font size and line height, stored as spans beside the plain text
-   (`Note.richTextData`, schema version 4). Open for the owner: a version without it (an older
-   build, or one restored from a newer backup) keeps the text but drops the formatting of any
-   note it saves, and once such a build syncs, its unformatted notes win the merge and the
-   formatting is lost on every device. Acceptable, or must older builds be kept off sync first?
+   (`Note.richTextData`, schema version 4). A version without it keeps the text but drops the
+   formatting of any note it saves, and if such a build synced, its unformatted notes would win
+   the merge and the formatting would be lost on every device. Not a concern (owner decision,
+   18 November 2026): the app has not been published or shared, so no build without rich text
+   is in readers' hands. Once a build is released, a new note field needs the same check.
 3. ~~Exporting an annotated PDF copy of the book.~~ Settled: in version 1 (owner request
    TSOFT-229, 16 November 2026), built as "Export Marked-Up PDF" (see "Export").
 4. The Quick Guide mockup shows handwritten words in the seeded note ("like this!"). The build
