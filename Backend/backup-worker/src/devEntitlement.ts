@@ -23,8 +23,11 @@
 // - deleting the account leaves nothing of it behind: there is nothing to delete.
 // It is the account's `sandbox/` folder (the presented transaction environment is `Xcode`,
 // local development) with the sandbox allowance, always active (its `expiresAt` is a day from
-// now, every time). A real purchase the account presents binds and is served exactly as without
-// the switch; without a transaction, the best access wins and a stored entitlement wins a tie.
+// now, every time). A real purchase the account presents binds exactly as without the switch
+// (its refusals, such as another account's purchase, still apply); the session is then served
+// from the better of the two, so an old StoreKit Testing purchase on a simulator cannot make a
+// dev test account read-only. Without a transaction, the best access wins. A stored entitlement
+// wins a tie either way.
 
 import type * as db from "./db";
 import type { Settings } from "./env";

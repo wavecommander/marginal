@@ -8,7 +8,7 @@ import { attestPolicy, verifyAttestation } from "./appAttest";
 import { fromBase64, hex, randomBytes, sha256, toBase64 } from "./bytes";
 import type { AttestResponse, ChallengeResponse, DeleteMyDataResponse, HealthResponse, SessionResponse } from "./contract";
 import * as db from "./db";
-import { devTestEntitlementApplies, withDevTestEntitlement } from "./devEntitlement";
+import { devTestEntitlement, devTestEntitlementApplies, withDevTestEntitlement } from "./devEntitlement";
 import { bindSubscription, recordNotification } from "./entitlement";
 import { readSettings, type Env, type Settings } from "./env";
 import { Refusal, json, optionalStringField, problem, readJsonBody, stringField } from "./http";
@@ -177,6 +177,10 @@ async function session(request: Request, env: Env, settings: Settings, deps: Dep
   if (fields.signedTransaction !== undefined) {
     const { transaction, renewal } = await verifySubscription(fields.signedTransaction, fields.signedRenewalInfo, settings, deps);
     subscriber = await bindSubscription(env.DB, settings, account, transaction, renewal, now);
+    // `dev` only: a dev test account is served from the better of the two (an old StoreKit
+    // Testing purchase on the simulator must not make it read-only).
+    devTest = devTestEntitlement(account, settings, now, [subscriber]);
+    if (devTest) subscriber = primaryOf([subscriber, devTest], now, settings);
   } else {
     // `dev` only: a dev test account may have the dev test entitlement (devEntitlement.ts).
     const choice = withDevTestEntitlement(await db.listSubscribers(env.DB, account.accountId), account, settings, now);

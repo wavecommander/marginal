@@ -206,9 +206,17 @@ describe("App Store notifications and the lapse cron are not confused by it", ()
     const after = await env.DB.prepare("SELECT account_id, namespace, revoked_at FROM subscribers WHERE account_id = ?").bind(reader.accountId).all<{ revoked_at: number | null }>();
     expect(after.results.length).toBe(before.results.length);
     expect(after.results[0]!.revoked_at).toBe(NOW - DAY);
-    // With the refunded transaction: refused, as for anyone. Without one: the dev entitlement.
-    expect(await errorCode(await session(dev, reader, await sign(dev, refunded)))).toBe("subscription-revoked");
+    // With the refunded transaction or without one: the dev entitlement serves, the refund stays recorded.
+    expect((await sessionOk(dev, reader, await sign(dev, refunded))).subscription).toMatchObject({ environment: "Xcode", state: "active" });
     expect((await sessionOk(dev, reader)).subscription.environment).toBe("Xcode");
+    expect((await env.DB.prepare("SELECT revoked_at FROM subscribers WHERE account_id = ?").bind(reader.accountId).first<{ revoked_at: number }>())!.revoked_at).toBe(NOW - DAY);
+    // A real account's refunded purchase is refused as ever.
+    const realReader = await signedIn(dev, "apple", realToken(dev, "apple", newSubject("apple")));
+    const realPurchase = sandboxTransaction();
+    await sessionOk(dev, realReader, await sign(dev, realPurchase));
+    const realRefund = { ...realPurchase, revocationDate: NOW - DAY, revocationReason: 0, signedDate: NOW - DAY };
+    expect((await postJson(dev, "/v1/apple/notifications", { signedPayload: await signedNotification(dev.chain, "REFUND", undefined, realRefund, undefined) })).status).toBe(200);
+    expect(await errorCode(await session(dev, realReader))).toBe("subscription-revoked");
 
     // A notification for a subscription nobody presented is still ignored.
     const stranger = sandboxTransaction();
@@ -221,9 +229,11 @@ describe("App Store notifications and the lapse cron are not confused by it", ()
     const reader = await signedIn(dev, "google", devToken(dev, newSubject("google")));
     const prefix = (await sessionOk(dev, reader)).storage.prefix;
     await putObjects(prefix, 3);
-    // A Sandbox purchase that ended long ago is stored for the same folder.
+    // A Sandbox purchase that ended long ago is stored for the same folder; the session is still
+    // the dev entitlement's (an old StoreKit Testing purchase must not lock a dev test account out).
     const old = sandboxTransaction({ signedDate: NOW - 200 * DAY, purchaseDate: NOW - 200 * DAY, expiresDate: NOW - 170 * DAY });
-    expect(await errorCode(await session(dev, reader, await sign(dev, old)))).toBe("data-deleted");
+    const withOld = await sessionOk(dev, reader, await sign(dev, old));
+    expect(withOld).toMatchObject({ mode: "read-write", storage: { prefix }, subscription: { environment: "Xcode" } });
     expect((await rowsFor(reader.accountId)).subscribers).toBe(1);
 
     dev.clock.now = new Date(NOW + 400 * DAY);
