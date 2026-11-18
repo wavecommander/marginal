@@ -914,6 +914,9 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   every request for credentials with it, so a copied subscription transaction alone cannot be
   used from a script. The simulator has no App Attest; only the Worker's `dev` deployment
   accepts a bypass, and the production deployment refuses to serve if the bypass is configured.
+  A debug build configured with the bypass sends it on every device, so a real iPad can test
+  against the `dev` deployment before App Attest is set up (owner request, 18 November 2026);
+  release builds never hold it.
 - **Encrypted on the iPad** (owner decision). Everything is encrypted before upload; the owner
   and Cloudflare hold only unreadable data. `EncryptedBackupDestination` (ReaderBackup) wraps a
   plain object store, so the engine is unchanged. Files are AES-256-GCM in 4 MiB chunks with the
@@ -1065,7 +1068,13 @@ whose `BACKUP_SERVICE_HOST` and `BACKUP_PRODUCT_IDS` settings are empty, which i
   ended session, every other state signed in. None of it is in a release build. The Worker's
   `dev` deployment has a test issuer (`DEV_TEST_SIGNIN_SECRET`) so a debug build
   (`BACKUP_SERVICE_DEV_SIGNIN`) and the end-to-end test can sign in without Apple or Google;
-  production refuses it.
+  production refuses it. A debug build signs in through it as a named dev user
+  (`BACKUP_SERVICE_DEV_USER`, changeable on the signed-out page, marked "Development sign-in"),
+  so two simulators or devices with one name share an account; and the `dev` deployment's dev
+  test entitlement (`DEV_TEST_ENTITLEMENT`) serves such accounts as subscribed with no purchase,
+  never stored and never for a real Apple or Google account (owner request, 18 November 2026;
+  `scripts/dev-cloud.sh`, Backend README "Testing sync in development without Apple, Google or
+  the App Store").
 
 ## Keeping data openable across versions
 

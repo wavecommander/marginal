@@ -170,6 +170,137 @@ bucket while the credentials reach the real one: usage always counts 0, and
 once), so a test removes the real objects itself with the folder's credentials. Test purchases
 land under `sandbox/<folder key>/`.
 
+## Testing sync in development without Apple, Google or the App Store
+
+Until Sign in with Apple, Sign in with Google and the App Store subscription exist, backup and
+sync can be tried end to end with **named dev users**: debug builds sign in through the dev
+test issuer (above) as a test user you name, and the `dev` Worker counts such accounts as
+subscribed. Development builds and the `dev` deployment only.
+
+### On simulators, with a local Worker (one command)
+
+```sh
+scripts/dev-cloud.sh              # --user NAME to pick the build's dev user (default: dev)
+```
+
+It needs `Backend/backup-worker/.dev.vars` to hold a **development** bucket and an R2 token
+limited to it (`R2_PARENT_ACCESS_KEY_ID`, `R2_PARENT_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`,
+`R2_S3_HOST`); it says so plainly and stops if any is missing. Then it:
+
+1. creates `.dev.vars` from `.dev.vars.example` if there is none, and fills in only the
+   development values that are missing, with fresh random ones: `IDENTITY_KEY_SECRET`,
+   `APP_ATTEST_BYPASS_SECRET`, `DEV_TEST_SIGNIN_SECRET`, `DEV_TEST_ENTITLEMENT` (the product ID)
+   and a placeholder `APPLE_TEAM_ID`. Values already there are never changed or printed;
+2. runs `npm ci` if needed and `npm run migrate:local`;
+3. writes, between marked begin and end lines in the git-ignored `Config/Local.xcconfig` (the
+   rest of the file is left alone), Debug-only (`[config=Debug]`) values:
+   `BACKUP_SERVICE_HOST = 127.0.0.1:8797`, `BACKUP_PRODUCT_IDS`, `BACKUP_SERVICE_ATTEST_BYPASS`,
+   `BACKUP_SERVICE_DEV_SIGNIN`, `BACKUP_SERVICE_DEV_USER`, and simulator signing ("sign to run
+   locally": an unsigned simulator app has no Keychain and cannot keep its session or key);
+4. starts `npx wrangler dev` on `127.0.0.1:8797` in the foreground.
+
+Then, in another terminal:
+
+```sh
+TACTILE_SIM="<simulator 1>" scripts/build.sh          # or Run in Xcode, Debug
+```
+
+Run the app on two simulators (install the same build on both: `xcrun simctl install <udid>
+build/DerivedData/Build/Products/Debug-iphonesimulator/TactileTexts.app`). On each: Settings ›
+Backup & Restore › Tactile Texts Cloud. Signed out, the page says **Development sign-in** and
+names the test user; either button signs in as that user (the name can be changed there
+without rebuilding; it is kept per simulator and `-resetState` clears it). The same name is the
+same account on every simulator; another name is another account; Apple's and Google's
+stand-ins are two accounts, as for real sign-ins.
+
+1. Simulator 1: sign in, Back Up Now (or turn Sync on). The page offers the recovery key: keep it.
+2. Simulator 2, same dev user: the page says the backups need the recovery key (iCloud Keychain
+   does not sync between simulators). Enter it, then turn Sync on. Both now sync.
+
+No purchase is needed and none is offered: the Worker serves the account from the dev test
+entitlement (below). If the App Store has no product (always, until the product exists), the
+Plan row shows "Tactile Texts Cloud" and no price; a signed-in account the Worker does **not**
+entitle shows "That subscription isn't available from the App Store right now." with Try Again,
+never a spinner.
+
+```sh
+scripts/dev-cloud.sh --e2e-test        # with the Worker running: the end-to-end proof
+scripts/dev-cloud.sh --delete-dev-user NAME   # remove a dev user and its objects afterwards
+scripts/dev-cloud.sh --remove          # take the lines out of Config/Local.xcconfig
+```
+
+`--e2e-test` runs `BackupCloudServiceEndToEndTests/aNamedDevUserBacksUpAndSyncsTwoDevicesWithNoPurchase`:
+two devices as one fresh dev user, no purchase, a backup, the recovery key on the second device,
+a sync round each way against the real development bucket, then it removes what it wrote and
+deletes the account. **Clean up with `--delete-dev-user`**: under `wrangler dev` the app's own
+Delete Account and Delete My Cloud Backups empty only the Worker's *local* bucket (see "The
+app against `wrangler dev`"), so a dev user's objects would otherwise stay in the development
+bucket. `--remove` leaves `.dev.vars` and the local D1 database (`.wrangler/`) as they are;
+delete `.wrangler/` to forget every local account. `scripts/dev-cloud.sh --help` explains
+everything; running it again changes nothing that is already set.
+
+### On real iPads and iPhones, with the deployed `dev` Worker
+
+A real device cannot reach `127.0.0.1` on the Mac, and the app speaks plain HTTP only to a
+loopback host, so real devices use the `dev` deployment over HTTPS
+(`https://tactile-backup-dev.<subdomain>.workers.dev`). Once it is deployed with its secrets
+(`scripts/dev-cloud.sh --deploy-settings` lists what it needs, names only;
+`scripts/dev-cloud.sh --push-secrets` copies them from `.dev.vars` with `wrangler secret put`,
+the value on standard input only; `--push-secrets --dry-run` lists what it would set):
+
+```sh
+scripts/dev-cloud.sh --host tactile-backup-dev.<subdomain>.workers.dev [--user NAME]
+curl -s https://tactile-backup-dev.<subdomain>.workers.dev/v1/health    # {"ok":true,"environment":"dev"}
+TACTILE_CONFIG=Debug scripts/device.sh ["iPad or iPhone name"]
+```
+
+Debug builds send the App Attest bypass on every device when one is configured (App Attest is
+not set up for the app yet), so a real device uses it too; release builds never hold or send
+it. The two-device steps are the same; a real device's iCloud Keychain may bring the key over
+from another device on the same Apple Account, otherwise it asks for the recovery key.
+
+**Warnings.** The deployed dev Worker is on the internet, protected only by the dev secrets
+(the bypass and the dev sign-in secret), and those secrets are readable inside any debug build
+configured this way (and in the build logs under `build/`): such builds stay on the owner's own
+devices and simulators, never TestFlight, never anyone else. The `dev` deployment uses only the
+development bucket (`tactile-texts-backups-dev`) and its own D1 database. To tear it down:
+`npx wrangler delete` (top level, never `--env production`), delete the `tactile-backup-dev`
+D1 database, and empty the development bucket's `sandbox/` and `users/` folders; rotate the dev
+secrets if a configured build ever left your hands.
+
+### What differs from production
+
+| | Production | Development (this setup) |
+| --- | --- | --- |
+| Who you are | Apple's or Google's signed ID token | A dev test token the app mints for the named user; hashed in its own `dev-test:` namespace, so it can never reach a real Apple or Google account |
+| Subscription | A verified App Store transaction | The dev test entitlement, with no transaction |
+| Genuine app | App Attest | Bypassed with `APP_ATTEST_BYPASS_SECRET` |
+| Storage | `users/` (App Store) or `sandbox/` | `sandbox/` with the sandbox allowance (100 MB) |
+
+**`DEV_TEST_ENTITLEMENT`** (`dev` only, optional; `src/devEntitlement.ts`): a product ID from
+`PRODUCT_ALLOWANCES`. With it, and with the dev test issuer on, every account whose sign-in is a
+dev test identity is served by `/v1/session` and `/v1/account` as subscribed: `state` `active`,
+`environment` `Xcode`, its `sandbox/` folder, the sandbox allowance, `expiresAt` a day ahead,
+always (`read-delete` over the allowance). A real Apple or Google account never gets it. Whether
+an account's identity is a dev test one is `accounts.identity_dev_test` (migration `0005`), set
+with the identity at sign-in and whenever the sign-in changes. The entitlement is **never
+stored**: App Store notifications cannot find it, the lapse cron never sees it, deleting the
+account leaves nothing of it, and turning the switch off simply ends it (`not-subscribed`;
+the data stays until the account is deleted). A real purchase the account presents still binds
+(and is still refused when it belongs to another account); the session is then served from the
+better of the two, so an old StoreKit Testing purchase on a simulator cannot make a dev account
+read-only. While the switch is on, the cron does not empty a dev account's `sandbox/` folder for
+a stored Sandbox or Xcode purchase that lapsed. In production, `readSettings` refuses to serve if
+`DEV_TEST_ENTITLEMENT` exists at all (even empty), and the environment, the issuer and the
+identity are checked again at use. A `session` log line served by it says
+`"entitlement": "dev-test"`. A dev account made before migration `0005` does not get it: sign in
+with another name, or delete `.wrangler/`.
+
+**Not covered.** Real devices against the Mac's local Worker (a LAN address is not loopback, so
+the app would need HTTPS to it; use the deployed `dev` Worker instead). Real Sign in with Apple
+or Google, App Attest, StoreKit purchases, renewals, refunds and App Store notifications: none of
+them is exercised here.
+
 ## HTTP contract
 
 All request and response bodies are JSON (`Content-Type: application/json`, UTF-8). Times are

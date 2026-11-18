@@ -42,7 +42,8 @@ CODE_SIGNING_REQUIRED = NO
 //   Worker's host, without a scheme) and its App Store subscription product IDs, comma-separated.
 //   Not secrets. Both must be set for the service to appear; empty leaves it out of the app.
 // - BACKUP_SERVICE_ATTEST_BYPASS: development only, optional. The `dev` Worker's
-//   APP_ATTEST_BYPASS_SECRET, which lets the simulator (no App Attest) use the service. Debug
+//   APP_ATTEST_BYPASS_SECRET, which lets the simulator (no App Attest) use the service. A debug
+//   build with it sends it on every device, real ones included, instead of App Attest. Debug
 //   builds only read it, and it is readable in the built app: never set it for a build that
 //   talks to the production Worker or leaves the developer's hands. Empty: no bypass.
 // - BACKUP_TERMS_URL and BACKUP_PRIVACY_URL: the Terms of Use and Privacy Policy pages the

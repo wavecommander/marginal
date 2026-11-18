@@ -158,6 +158,14 @@ there changes with the package that builds each one.
   `TACTILE_ENTITLEMENTS` names (the repository has had none since 17 November 2026), and
   `GOOGLE_SIGNIN_CLIENT_ID`. With either missing that button is absent; with both missing the
   service reports itself not available.
+- **Testing before Apple, Google and the App Store product exist** (development only).
+  `scripts/dev-cloud.sh` sets up the `dev` Worker and debug builds so that both sign-in buttons
+  sign in as a *named dev user* (the same name on two simulators or devices is one account) and
+  the Worker's dev test entitlement stands in for the subscription, App Attest bypassed. See
+  `Backend/backup-worker/README.md`, "Testing sync in development without Apple, Google or the
+  App Store", for the steps, what differs from production, real devices against the deployed
+  `dev` Worker, and the warnings (those builds carry the dev secrets and stay on the owner's
+  devices).
 
 ### Changing the sign-in and signing out
 

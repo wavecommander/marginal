@@ -29,6 +29,7 @@ CODE_SIGNING_REQUIRED = YES
 // BACKUP_PRODUCT_IDS = software.tactile.texts.backup.standard
 // Development only: the simulator has no App Attest, so against a local or `dev` Worker it sends
 // this value (the Worker's APP_ATTEST_BYPASS_SECRET in Backend/backup-worker/.dev.vars) instead.
+// A debug build with it set sends it on a real device too, instead of App Attest.
 // Debug builds only; it is readable in the built app. Never with the production Worker.
 // BACKUP_SERVICE_ATTEST_BYPASS = <the dev Worker's APP_ATTEST_BYPASS_SECRET>
 // Signing in to Tactile Texts Cloud. Sign in with Apple needs a paid team whose App ID has the
@@ -43,6 +44,13 @@ CODE_SIGNING_REQUIRED = YES
 // issuer (the Worker's DEV_TEST_SIGNIN_SECRET in Backend/backup-worker/.dev.vars). Both buttons
 // then use it. Debug builds only; it is readable in the built app. Never with the production Worker.
 // BACKUP_SERVICE_DEV_SIGNIN = <the dev Worker's DEV_TEST_SIGNIN_SECRET>
+// The named test user dev sign-in signs in as (default "dev"): the same name on every simulator
+// or device is the same account. The signed-out Tactile Texts Cloud page can change it too.
+// BACKUP_SERVICE_DEV_USER = dev
+// scripts/dev-cloud.sh writes all of the development values above (Debug builds only, between
+// marked lines, for a local `wrangler dev` or, with --host, the deployed `dev` Worker), and
+// scripts/dev-cloud.sh --remove takes them out again. See Backend/backup-worker/README.md,
+// "Testing sync in development without Apple, Google or the App Store".
 // The Terms of Use and Privacy Policy the subscription offer links to (App Review requires both
 // for an auto-renewable subscription). Without "https://" ("//" starts a comment in this file);
 // the app adds it. A link left empty is not shown.

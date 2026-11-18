@@ -381,6 +381,12 @@ Needs two devices on one account (an iPad and an iPhone where possible), each wi
 a build with the service configured (`Config/Local.xcconfig`). Turn Sync on from Settings ›
 Backup & Restore › Tactile Texts Cloud.
 
+Before Sign in with Apple, Sign in with Google and the App Store product exist, the same checks
+run on Debug builds against the deployed `dev` Worker as a named dev user, with no purchase:
+`scripts/dev-cloud.sh --host <dev host>`, then `TACTILE_CONFIG=Debug scripts/device.sh` (Backend
+README, "Testing sync in development without Apple, Google or the App Store"). Such builds hold
+the dev secrets: keep them on your own devices.
+
 - [ ] **Ink from a newer system.** One device on a newer iPadOS draws with an ink only it has
       (Reed Pen on iPadOS 26) on a page and in a note; the older device shows that page and note
       without the strokes or as unreadable, cannot draw on them, and after several rounds the
