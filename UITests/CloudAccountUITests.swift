@@ -123,6 +123,7 @@ final class CloudAccountUITests: XCTestCase {
     private func signIn(_ app: XCUIApplication, _ button: String) {
         let element = any(app, button)
         XCTAssertTrue(element.waitForExistence(timeout: 15), app.debugDescription)
+        scrollTo(element, in: app)
         element.tap()
         XCTAssertTrue(any(app, ID.signInApple).waitForNonExistence(timeout: 15), "signed in: \(app.debugDescription)")
     }
@@ -137,6 +138,8 @@ final class CloudAccountUITests: XCTestCase {
     /// The signed-out offer: both sign-in buttons, no Subscribe or Restore Purchases.
     private func expectSignedOut(_ app: XCUIApplication) {
         XCTAssertTrue(any(app, ID.offer).waitForExistence(timeout: 15), app.debugDescription)
+        // On an iPhone the signed-out notice can push the buttons below the fold.
+        scrollTo(app.buttons[ID.signInGoogle].firstMatch, in: app)
         XCTAssertTrue(any(app, ID.signInApple).waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons[ID.signInGoogle].exists, "both sign-ins at equal weight")
         let apple = any(app, ID.signInApple).frame, google = app.buttons[ID.signInGoogle].firstMatch.frame
@@ -164,8 +167,17 @@ final class CloudAccountUITests: XCTestCase {
         if !before.isEmpty, before != "Write a note…" {
             XCTAssertTrue((note.value as? String)?.contains(before) == true, "what was there is still there")
         }
+        // In a narrow window (an iPhone) the notes are a sheet over the reader: close it first.
+        if Fixtures.deviceName == "iPhone", app.isShown(.notes) {
+            // The keyboard and the sheet cover the toolbar: drag the sheet down by its top edge.
+            let top = note.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -40))
+            top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99)))
+            if app.isShown(.notes) { _ = app.setPanel(.notes, shown: false) }
+            XCTAssertTrue(app.toggle(of: .notes).wait(until: "label != %@", ReaderPanel.notes.shownLabel, timeout: 10),
+                          "notes sheet closes: \(app.debugDescription)")
+        }
         app.navigationBars.buttons["Library"].firstMatch.tap()
-        XCTAssertTrue(cell.waitForExistence(timeout: 10))
+        XCTAssertTrue(cell.waitForExistence(timeout: 10), "back in the Library: \(app.debugDescription)")
     }
 
     private func backUpNow(_ app: XCUIApplication) {
