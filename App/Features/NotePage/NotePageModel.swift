@@ -19,6 +19,9 @@ protocol NotePageEditing: AnyObject {
     /// Hand the model any input the editor has not reported yet (canvas strokes, text), before
     /// the model reconciles with the store.
     func commitPendingInput(to model: NotePageModel)
+    /// Waits if a stroke has just ended on the canvas and PencilKit has not yet delivered its
+    /// drawing change.
+    func waitForPendingStrokeCommit() async
     /// `true` while the text view holds uncommitted marked text (an input method composing).
     var isComposingText: Bool { get }
 }
@@ -278,15 +281,21 @@ final class NotePageModel {
         scheduleSave()
     }
 
-    /// A stroke began on the canvas: remote changes wait until it ends.
+    /// A stroke began on the canvas: remote changes and autosaves wait until it ends.
     func strokeDidBegin() {
         strokeInProgress = true
+        debounceTask?.cancel()
+        debounceTask = nil
     }
 
     /// The stroke ended; applies a deferred remote change and schedules a save.
     func strokeDidEnd() {
         strokeInProgress = false
-        if remoteChangePending { scheduleSave(after: .milliseconds(50)) }
+        if remoteChangePending {
+            scheduleSave(after: .milliseconds(50))
+        } else if hasUnsavedChanges && debounceTask == nil {
+            scheduleSave()
+        }
     }
 
     /// The editor's text view began (`true`) or ended (`false`) editing this note.
@@ -308,6 +317,7 @@ final class NotePageModel {
     func flush() async {
         let backgroundTask = BackgroundTaskAssertion(name: "Save note")
         defer { backgroundTask.end() }
+        await editor?.waitForPendingStrokeCommit()
         debounceTask?.cancel()
         debounceTask = nil
         editor?.commitPendingInput(to: self)
@@ -469,11 +479,16 @@ final class NotePageModel {
         guard !saveToken.isRevoked else { return }
         if isLoaded { saveState = hasUnsavedChanges ? .edited : saveState }
         debounceTask?.cancel()
+        guard !strokeInProgress else {
+            debounceTask = nil
+            return
+        }
         let delay = delay ?? autosaveDelay
         debounceTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             self.debounceTask = nil
+            if self.strokeInProgress { return }
             self.editor?.commitPendingInput(to: self)
             await self.enqueue { await self.performSave() }
         }

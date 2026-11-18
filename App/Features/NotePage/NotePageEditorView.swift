@@ -28,13 +28,15 @@ nonisolated enum NotePageAccessibilityID {
 ///
 /// ## Touch routing
 /// - **Markup mode:** the canvas takes touches. The Pencil inks (text area and blank space
-///   alike). A finger *tap* places the text cursor (and brings up the keyboard), so typing and
-///   inking alternate without leaving markup mode. One finger scrolls, two fingers pinch-zoom.
-///   When the drawing policy lets a finger draw (`.anyInput`, or `.default` with the system's
-///   "Only Draw with Apple Pencil" off), a finger *drag* draws instead, scrolling takes two
-///   fingers, and a finger tap still places the cursor without leaving a dot (the canvas waits
-///   for the tap to fail before it starts a finger stroke). Finger text selection (drag handles,
-///   double-tap) needs reading mode; hardware-keyboard selection works in both.
+///   alike). When only the Pencil draws, a finger *tap* places the text cursor (and brings up
+///   the keyboard), so typing and inking alternate without leaving markup mode, one finger
+///   scrolls, and two fingers pinch-zoom. When the reader's fingers draw (`.default` with the
+///   system's "Only Draw with Apple Pencil" off, or on iPhone), fingers ink directly—including
+///   short strokes and dots—without placing the cursor, and scrolling takes two fingers. Under
+///   `.anyInput` (`-inkAnyInput` in UI tests, where synthetic touches stand in for the Pencil),
+///   a finger drag draws and a finger tap places the cursor (the canvas waits for the tap to
+///   fail before starting a stroke). Finger text selection (drag handles, double-tap) needs
+///   reading mode; hardware-keyboard selection works in both.
 /// - **Reading mode:** the canvas takes no input and its ink is read-only; the text view gets
 ///   every touch, so Scribble, selection and the edit menu work as in any text view.
 /// - Scribble is off in markup mode (the Pencil inks there) and on in reading mode.
@@ -116,7 +118,13 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     private var pendingModel: NotePageModel??
     private var isMarkup = false
     private var isApplyingDrawing = false
-    private var strokeActive = false
+    private var isUsingTool = false
+    /// The tool ended, but PencilKit may not have committed the stroke to `noteCanvas.drawing`
+    /// yet (`canvasViewDidEndUsingTool` runs before `canvasViewDrawingDidChange`).
+    private var isAwaitingCommit = false
+    private var commitTimeout: Task<Void, Never>?
+    private var commitWaiters: [CheckedContinuation<Void, Never>] = []
+    private var strokeActive: Bool { isUsingTool || isAwaitingCommit }
     /// The stroke in progress changed the drawing: end typing when it ends (`endTypingForInk`).
     private var endsTypingAfterStroke = false
     private var needsInkRedisplay = false
@@ -228,8 +236,12 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         } else {
             unregisterSurface()
             if let model = currentModel {
-                commitPendingInput(to: model)
-                Task { await model.flush() }
+                if !isAwaitingCommit { commitPendingInput(to: model) }
+                Task { [self] in
+                    await self.waitForPendingStrokeCommit()
+                    self.commitPendingInput(to: model)
+                    await model.flush()
+                }
             }
         }
     }
@@ -344,7 +356,6 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         let loaded = currentModel?.isLoaded == true
         noteCanvas.isUserInteractionEnabled = markup && loaded
         noteCanvas.drawingGestureRecognizer.isEnabled = markup && loaded
-        fingerTap.isEnabled = markup
         if !markup && noteCanvas.isFirstResponder { noteCanvas.resignFirstResponder() }
         updateFingerRouting()
     }
@@ -370,6 +381,10 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         if scrollView.panGestureRecognizer.minimumNumberOfTouches != touches {
             scrollView.panGestureRecognizer.minimumNumberOfTouches = touches
         }
+        let tapEnabled = isMarkup && (currentModel?.isLoaded == true) && fingerTapPlacesCursor
+        if fingerTap.isEnabled != tapEnabled {
+            fingerTap.isEnabled = tapEnabled
+        }
     }
 
     /// Whether a finger tap in markup mode places the text cursor (and so brings up the
@@ -386,6 +401,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
 
     @objc private func handleFingerTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, currentModel?.isLoaded == true, fingerTapPlacesCursor else { return }
+        if isAwaitingCommit { finishStrokeCommit() }
         placeCursor(at: recognizer.location(in: textView))
     }
 
@@ -500,6 +516,17 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
         if !isApplyingDrawing { model.applyUserDrawing(noteCanvas.drawing) }
     }
 
+    func waitForPendingStrokeCommit() async {
+        guard isAwaitingCommit else { return }
+        await withCheckedContinuation { continuation in commitWaiters.append(continuation) }
+    }
+
+    private func resumeCommitWaiters() {
+        let waiters = commitWaiters
+        commitWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
     var isComposingText: Bool { textView.markedTextRange != nil }
 
     // MARK: MarkupSurface
@@ -513,6 +540,7 @@ final class NotePageEditorView: UIView, MarkupSurface, NotePageEditing {
     }
 
     func flushPendingMarkup() async {
+        if isAwaitingCommit { await waitForPendingStrokeCommit() }
         guard let model = currentModel else { return }
         commitPendingInput(to: model)
         await model.flush()
@@ -606,28 +634,35 @@ extension NotePageEditorView: UITextViewDelegate {
 
 extension NotePageEditorView: PKCanvasViewDelegate {
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
-        strokeActive = true
+        let wasActive = strokeActive
+        isUsingTool = true
+        isAwaitingCommit = false
+        commitTimeout?.cancel()
+        commitTimeout = nil
+        resumeCommitWaiters()
         endsTypingAfterStroke = false
         updatePlaceholder()
-        currentModel?.strokeDidBegin()
+        if !wasActive { currentModel?.strokeDidBegin() }
         session?.markup.surfaceDidBeginStroke(self)
     }
 
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-        strokeActive = false
-        if let model = currentModel {
-            // Take the finished stroke before anything replaces the canvas's drawing.
-            commitPendingInput(to: model)
-            model.strokeDidEnd()
-        }
+        isUsingTool = false
         session?.markup.surfaceDidEndStroke(self)
-        if needsInkRedisplay { redisplayInk() }
-        if let pending = pendingModel { switchModel(to: pending) }
-        updatePlaceholder()
-        layoutPage()
         if endsTypingAfterStroke {
-            endsTypingAfterStroke = false
-            endTypingForInk()
+            finishStrokeCommit()
+        } else {
+            // PencilKit may still be waiting for the stroke's final values
+            // (`canvasViewDidEndUsingTool` runs before `canvasViewDrawingDidChange`);
+            // keep the stroke active until `canvasViewDrawingDidChange` delivers the
+            // stroke (or a short timeout expires for a cancelled touch).
+            isAwaitingCommit = true
+            commitTimeout?.cancel()
+            commitTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                self?.finishStrokeCommit()
+            }
         }
     }
 
@@ -640,9 +675,34 @@ extension NotePageEditorView: PKCanvasViewDelegate {
         // A stroke really inked (or erased) the note. A finger tap that places the cursor also
         // begins and ends a "stroke" when fingers can draw, but it is cancelled and changes
         // nothing, so it must not end the typing it just started.
-        if strokeActive {
+        if isUsingTool {
             endsTypingAfterStroke = true
         } else {
+            endsTypingAfterStroke = true
+            if isAwaitingCommit {
+                finishStrokeCommit()
+            } else {
+                endTypingForInk()
+            }
+        }
+    }
+
+    private func finishStrokeCommit() {
+        isAwaitingCommit = false
+        commitTimeout?.cancel()
+        commitTimeout = nil
+        resumeCommitWaiters()
+        if let model = currentModel {
+            // Take the finished stroke before anything replaces the canvas's drawing.
+            commitPendingInput(to: model)
+            model.strokeDidEnd()
+        }
+        if needsInkRedisplay { redisplayInk() }
+        if let pending = pendingModel { switchModel(to: pending) }
+        updatePlaceholder()
+        layoutPage()
+        if endsTypingAfterStroke {
+            endsTypingAfterStroke = false
             endTypingForInk()
         }
     }
@@ -663,8 +723,10 @@ extension NotePageEditorView: PKCanvasViewDelegate {
 extension NotePageEditorView: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        // When a finger can draw, a finger stroke waits until the touch is clearly not a tap.
-        gestureRecognizer === fingerTap && otherGestureRecognizer === noteCanvas.drawingGestureRecognizer && fingerDraws
+        // When a finger can both draw and tap to place the cursor (-inkAnyInput), a finger
+        // stroke waits until the touch is clearly not a tap.
+        gestureRecognizer === fingerTap && otherGestureRecognizer === noteCanvas.drawingGestureRecognizer
+            && fingerDraws && fingerTapPlacesCursor
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,

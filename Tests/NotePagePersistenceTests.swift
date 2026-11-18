@@ -299,4 +299,93 @@ struct NotePagePersistenceTests {
         #expect(windowB.text == "From A")
         #expect(try store.notes.notes(bookID: book.id).count == 1)
     }
+
+    // MARK: Stroke commit and finger drawing
+
+    @Test func aStrokeIsNotSavedWhileAnotherStrokeIsInProgress() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let model = NotePageModel(store: store, bookID: book.id, target: .page(3), origin: ChangeOrigin(label: "test"),
+                                  autosaveDelay: .milliseconds(80))
+        await model.load()
+        Support.draw(Support.stroke(from: CGPoint(x: 20, y: 120), to: CGPoint(x: 180, y: 120)), on: model)
+        model.strokeDidBegin()
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(try store.notes.note(bookID: book.id, target: .page(3)) == nil, "autosave waits for the active stroke")
+        #expect(model.saveState == .edited)
+        Support.draw(Support.stroke(from: CGPoint(x: 20, y: 160), to: CGPoint(x: 180, y: 160)), on: model)
+        model.strokeDidEnd()
+        #expect(await Support.waitUntil { model.saveState == .saved })
+        let stored = try #require(try store.notes.note(bookID: book.id, target: .page(3)))
+        let data = try #require(try await store.noteInk(bookID: book.id, noteID: stored.id))
+        #expect(try NoteInkArchive.decode(data, fallbackLayout: model.ink.layout).strokes.count == 2)
+    }
+
+    @Test func editorWaitsForStrokeCommitAfterEndUsingToolBeforeRedisplaySwitchOrFlush() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let modelA = makeModel(store, book, target: .page(3))
+        let modelB = makeModel(store, book, target: .page(4))
+        await modelA.load()
+        await modelB.load()
+
+        let editor = NotePageEditorView(session: nil)
+        editor.frame = CGRect(x: 0, y: 0, width: 360, height: 600)
+        editor.model = modelA
+        editor.isMarkupStandalone = true
+        editor.layoutIfNeeded()
+
+        // 1. Redisplay requested during a stroke waits until canvasViewDrawingDidChange after
+        //    canvasViewDidEndUsingTool, so the canvas is not overwritten before PencilKit commits.
+        let s1 = Support.stroke(from: CGPoint(x: 30, y: 140), to: CGPoint(x: 200, y: 140))
+        editor.canvasViewDidBeginUsingTool(editor.canvasView)
+        editor.noteModelDidChangeInk(modelA)
+        editor.canvasViewDidEndUsingTool(editor.canvasView)
+        editor.canvasView.drawing = PKDrawing(strokes: [s1])
+        editor.canvasViewDrawingDidChange(editor.canvasView)
+        #expect(modelA.strokeCount == 1)
+        #expect(editor.canvasView.drawing.strokes.count == 1)
+
+        // 2. Switching models between canvasViewDidEndUsingTool and canvasViewDrawingDidChange
+        //    waits for the stroke to commit to the old model and flushes it.
+        let s2 = Support.stroke(from: CGPoint(x: 30, y: 180), to: CGPoint(x: 200, y: 180))
+        editor.canvasViewDidBeginUsingTool(editor.canvasView)
+        editor.canvasViewDidEndUsingTool(editor.canvasView)
+        editor.model = modelB
+        #expect(editor.model === modelA, "model switch waits for the stroke commit")
+        editor.canvasView.drawing = PKDrawing(strokes: [s1, s2])
+        editor.canvasViewDrawingDidChange(editor.canvasView)
+        #expect(editor.model === modelB)
+        #expect(modelA.strokeCount == 2)
+        #expect(await Support.waitUntil { modelA.saveState == .saved })
+        let stored = try #require(try store.notes.note(bookID: book.id, target: .page(3)))
+        let data = try #require(try await store.noteInk(bookID: book.id, noteID: stored.id))
+        #expect(try NoteInkArchive.decode(data, fallbackLayout: modelA.ink.layout).strokes.count == 2)
+    }
+
+    @Test func fingerTapDoesNotBlockFingerStrokesWhenFingersDrawUnderDefaultPolicy() async throws {
+        let (store, book) = try Support.makeStore()
+        defer { try? FileManager.default.removeItem(at: store.rootDirectory) }
+        let model = makeModel(store, book)
+        await model.load()
+
+        let editor = NotePageEditorView(session: nil)
+        editor.frame = CGRect(x: 0, y: 0, width: 360, height: 600)
+        editor.model = model
+        editor.canvasView.drawingPolicy = .default
+        editor.isMarkupStandalone = true
+
+        let tapRecognizers = (editor.canvasView.gestureRecognizers ?? []).compactMap { $0 as? UITapGestureRecognizer }
+            .filter { $0.delegate === editor }
+        let fingerTap = try #require(tapRecognizers.first)
+        if !UIPencilInteraction.prefersPencilOnlyDrawing {
+            #expect(!fingerTap.isEnabled)
+            #expect(!editor.gestureRecognizer(fingerTap, shouldBeRequiredToFailBy: editor.canvasView.drawingGestureRecognizer))
+        }
+
+        editor.canvasView.drawingPolicy = .anyInput
+        editor.markupModeDidChange(true)
+        #expect(fingerTap.isEnabled)
+        #expect(editor.gestureRecognizer(fingerTap, shouldBeRequiredToFailBy: editor.canvasView.drawingGestureRecognizer))
+    }
 }
