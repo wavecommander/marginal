@@ -343,6 +343,11 @@ ones even where the mockup draws an approximation.
   - VoiceOver reads "Map of the book" with the item count and the busiest heading; swiping up
     or down moves from item to item and scrolls the feed to each.
   - With nothing to show (no items, or none matching the filter and search) there is no strip.
+  - *Hiding the map* (owner decision, 18 November 2026). A button at the end of the type
+    filter's row hides the strip and shows it again; the feed takes the room. The button has
+    one glyph in both states, and its label says which ("Hide Map" while the map shows, "Show
+    Map" while hidden). The choice is remembered on the device for every book and window. The
+    button is there only when there is a strip to show.
 - **Library search** ("Search titles and notes") matches book titles, and the text of notes and
   highlights, case- and diacritic-insensitively (the Notebook's own search; handwriting has no
   text and is not searched). *Owner decision, 17 November 2026 (mockup option B): the results

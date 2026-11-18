@@ -26,6 +26,8 @@ nonisolated enum NotebookAccessibilityID {
     static let openBook = "notebook.openBook"
     /// The map of the whole book above the feed (`NotebookMapStrip`).
     static let map = "notebook.map"
+    /// "Hide Map" / "Show Map", at the end of the type filter's row.
+    static let mapToggle = "notebook.mapToggle"
     static let empty = "notebook.empty"
     /// "Delete Note" in a note row's context menu.
     static let deleteNote = "notebook.deleteNote"

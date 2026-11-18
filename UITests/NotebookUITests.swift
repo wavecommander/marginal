@@ -19,6 +19,7 @@ final class NotebookUITests: XCTestCase {
         static let scopeMenu = "notebook.scopeMenu"
         static let feed = "notebook.feed"
         static let map = "notebook.map"
+        static let mapToggle = "notebook.mapToggle"
         static func header(_ title: String) -> String { "notebook.header.\(title)" }
         static func headingNote(_ title: String) -> String { "notebook.headingNote.\(title)" }
         static func pageNote(_ page: Int) -> String { "notebook.pageNote.\(page)" }
@@ -183,6 +184,26 @@ final class NotebookUITests: XCTestCase {
         tapMark()
         XCTAssertTrue(target.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(waitUntil { target.isHittable })
+    }
+
+    /// The button at the end of the type filter's row hides the map and shows it again; its
+    /// label says which it will do (design: "Hiding the map").
+    func testMapCanBeHiddenAndShownAgain() {
+        let app = launch()
+        let map = app.descendants(matching: .any)[ID.map].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 10), "the map shows at first")
+        let toggle = app.buttons[ID.mapToggle].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.label, "Hide Map")
+
+        toggle.tap()
+        XCTAssertTrue(waitForAbsence(map), "the map is hidden")
+        XCTAssertTrue(waitUntil { toggle.label == "Show Map" }, toggle.label)
+        XCTAssertTrue(row(app, ID.header("3 Matrices and Linear Maps")).isHittable, "the feed is still there")
+
+        toggle.tap()
+        XCTAssertTrue(map.waitForExistence(timeout: 5), "the map is back")
+        XCTAssertTrue(waitUntil { toggle.label == "Hide Map" }, toggle.label)
     }
 
     /// A second Notebook of the same book in the window (Notebook, a row's reader, its More menu's

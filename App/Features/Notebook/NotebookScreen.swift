@@ -121,6 +121,9 @@ private struct NotebookContent: View {
     /// An item chosen on the map that is outside the chosen heading: the feed scrolls to it
     /// once it shows the whole book again.
     @State private var pendingMapTarget: String?
+    /// The reader hid the map. Remembered for every book and window, like the notes panel's
+    /// collapsed lists.
+    @AppStorage(NotebookMapStrip.hiddenKey) private var isMapHidden = false
 
     /// Below this window width (or in a compact size class) the filter column collapses into a
     /// toolbar menu.
@@ -291,7 +294,7 @@ private struct NotebookContent: View {
 
     @ViewBuilder
     private var mapStrip: some View {
-        if let map, !map.marks.isEmpty {
+        if let map, !map.marks.isEmpty, !isMapHidden {
             NotebookMapStrip(map: map, inView: pagesInView, choose: scrollToMapItem)
                 .frame(maxWidth: 780)
                 .padding(.horizontal, isWide ? 36 : 16)
@@ -299,6 +302,25 @@ private struct NotebookContent: View {
                 .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
                 .zIndex(1)
+                .transition(.opacity)
+        }
+    }
+
+    /// Hides the map and shows it again, at the end of the type filter's row. Only there when
+    /// there is a map to show.
+    @ViewBuilder
+    private var mapToggle: some View {
+        if let map, !map.marks.isEmpty {
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { isMapHidden.toggle() }
+            } label: {
+                // One glyph either way, like the reader's notes button; the label says the state.
+                Label(isMapHidden ? "Show Map" : "Hide Map", systemImage: "rectangle.topthird.inset.filled")
+                    .labelStyle(.iconOnly)
+                    .frame(minWidth: 40, minHeight: 36)
+            }
+            .tint(Color.primary)
+            .accessibilityIdentifier(NotebookAccessibilityID.mapToggle)
         }
     }
 
@@ -367,14 +389,17 @@ private struct NotebookContent: View {
         VStack(spacing: 0) {
             MarkedUpExportsSection(book: model.book, bookID: model.bookID, library: environment.markedUpExports,
                                    store: environment.store, isWide: isWide)
-            typePicker
-            .frame(maxWidth: 640)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                typePicker
+                    .frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(NotebookAccessibilityID.typeFilter)
+                mapToggle
+            }
             .padding(.horizontal, isWide ? 36 : 16)
             .padding(.top, 12)
             .padding(.bottom, 8)
             .frame(maxWidth: 780 + 72)
-            .accessibilityIdentifier(NotebookAccessibilityID.typeFilter)
 
             mapStrip
 

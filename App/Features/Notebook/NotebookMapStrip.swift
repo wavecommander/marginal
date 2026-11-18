@@ -24,6 +24,8 @@ struct NotebookMapStrip: View {
     /// VoiceOver's position among the marks.
     @State private var accessibilityIndex: Int?
 
+    /// `UserDefaults` key: the reader hid the map (the Notebook's Hide Map button).
+    static let hiddenKey = "notebook.mapHidden"
     static let barHeight: CGFloat = 28
     private static let markHeight: CGFloat = 38
     private static let markWidth: CGFloat = 4
