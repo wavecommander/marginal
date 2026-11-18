@@ -372,10 +372,11 @@ Restore › Tactile Texts Cloud.
       next backup makes a new key), and the subscription is still active in Manage
       Subscription.
 
-### Sync (C4a: data layer; the UI comes with C4b)
+### Sync (C4a data layer, C4b switch, scheduling and PDFs)
 
-Needs two devices on one account (an iPad and an iPhone where possible), each with the key,
-and a build where C4b's Sync switch exists. Until then these wait.
+Needs two devices on one account (an iPad and an iPhone where possible), each with the key, and
+a build with the service configured (`Config/Local.xcconfig`). Turn Sync on from Settings ›
+Backup & Restore › Tactile Texts Cloud.
 
 - [ ] **Ink from a newer system.** One device on a newer iPadOS draws with an ink only it has
       (Reed Pen on iPadOS 26) on a page and in a note; the older device shows that page and note
@@ -393,7 +394,38 @@ and a build where C4b's Sync switch exists. Until then these wait.
       stroke and gets the other device's strokes on the next round; the reader is not moved by a
       synced reading position, and the book opens at it next time.
 - [ ] **Background time.** How much of one note and one page of ink reaches the account in the
-      time after the app is put away (`docs/CLOUD_SYNC_FINDINGS.md` §6).
+      time after the app is put away (`docs/CLOUD_SYNC_FINDINGS.md` §6). Write a note, then at
+      once press the Home gesture and lock the device; on the other device, after two minutes, is
+      the note there? Repeat with a page of ink, and with a large note. Check Console for "round
+      (wentToBackground)" and, if the time ran out, "background time for sync ran out", and that
+      the next launch finishes the round.
+- [ ] **The background processing task.** With Sync on and the device left on charge, locked,
+      overnight: does the system run the task (Console: "round (backgroundTask)")? Turn Sync off
+      and check that no task is submitted when no backup is due.
+- [ ] **Two real devices.** Turn Sync on on the first device (books there, empty account: no
+      sheet), then on the second with books of its own: the join sheet's three counts are right,
+      Not Now leaves the switch off and nothing changes, Join merges with nothing removed on
+      either side. Then a note, a highlight, a bookmark, page ink and a deletion each cross within
+      a few seconds of the change settling while both are open, and the status lines say "Up to
+      date" with the time.
+- [ ] **iPhone with iPad.** The same on an iPhone and an iPad on one account: the Sync section,
+      the join sheet and the Library's download badges fit on the iPhone in both orientations and
+      at large Dynamic Type; a book opened on the iPhone without its PDF shows the downloading
+      state with Cancel, then opens.
+- [ ] **PDFs on Wi‑Fi, cellular and Low Data Mode.** With "Automatically on Wi‑Fi": on Wi‑Fi the
+      PDFs of books from the other device download one at a time after a round; on cellular none
+      download automatically (the covers say Not downloaded) but opening a book downloads it; on
+      Wi‑Fi with Low Data Mode on, none download automatically; switching from Wi‑Fi to cellular
+      mid-download stops it and it carries on back on Wi‑Fi. With "Only when I open a book":
+      nothing downloads until a book is opened. Check the cellular data used in Settings ›
+      Cellular.
+- [ ] **No network.** In Airplane Mode the status line says it is waiting for the network and
+      changes are kept; leaving Airplane Mode syncs within seconds without Sync Now.
+- [ ] **Sign out and back in.** Signed out, the Sync section is gone and every book stays; signing
+      back in to the same account shows the switch as it was and carries on without a join.
+- [ ] **Restore with Sync on.** Replace with Backup says the change reaches the other devices,
+      and it does; Undo Last Restore likewise. Delete a book: the confirmation says it is removed
+      from the other devices too, and it is.
 - [ ] **Real R2.** Rounds against the development bucket through the Worker's temporary
       credentials: conditional head writes, a 412 race between two devices, ETags in listings.
 

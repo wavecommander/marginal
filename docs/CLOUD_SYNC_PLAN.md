@@ -359,9 +359,20 @@ origin under `BookWriteGate`), `SyncInkMerger` over `StrokeMerge`, the content-v
 the S3 store over `S3Kit`, the key check, `SyncService` (one engine per account, pull-only,
 one job at a time, sign-in changes) and `-syncTestFolder`; one book per PDF on every road and
 the launch merge of duplicates. Two engine changes in `ReaderSync` (a note ink merge names its
-notes; a base keeping a busy surface never passes for the head's). C4b (the Sync switch and
-status, scheduling, PDF download policy, the Library's per-book state) is next. Not run on a
-device or against R2.
+notes; a base keeping a busy surface never passes for the head's). Not run on a device or
+against R2.
+
+**C4b, 17 November 2026: built, on its own branch, not yet merged.** The Sync section on the
+Tactile Texts Cloud page (the switch per account, a status line for every state, Sync Now,
+Download PDFs), the join sheet, `SyncScheduler` (after a change settles, on going to the
+background inside an assertion, on activation of the app or a window, every two minutes in
+front, in the backup's background processing task, with a back-off), PDF downloads
+(automatically on a network that is neither expensive nor constrained, one at a time, or when a
+book is opened, with Cancel), the Library's download state and per-book mark, the sync sentences
+in the restore and delete confirmations, and `-syncTestSeedBook` for UI tests. No engine change;
+`SyncService` gained a round count, the synced books (from the bases) and the newer-format
+status. Device checks are in `docs/DEVICE_CHECKLIST.md`. C4 is done apart from those; C5 is
+next.
 
 C0 runs first and alone. C1 and C3 can then run in parallel (Worker and Swift packages share
 nothing); C2 follows C1; C4 follows C2 and C3; C5 follows C4. Standing rules in `AGENTS.md`

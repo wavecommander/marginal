@@ -62,6 +62,8 @@ final class SyncController {
     func start() async {
         settings.setAccount(await service.access.currentAccountID())
         await pdfs.refresh(thenDownload: false)
+        // The app's activation may have come before the account was known.
+        if settings.isEnabled, scheduler.isInForeground { await scheduler.run(.appActivated) }
     }
 
     /// The sign-in changed (`SyncService.signInChanged()` has stopped the round): the switch of

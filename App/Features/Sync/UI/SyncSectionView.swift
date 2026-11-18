@@ -30,6 +30,16 @@ struct SyncSectionView: View {
             Toggle(String(localized: "Sync", comment: "Tactile Texts Cloud ▸ Sync: the switch."), isOn: switchBinding)
                 .disabled(isWorking || settings.accountID == nil)
                 .accessibilityIdentifier(AccessibilityID.Sync.toggle)
+                // On a row: a sheet on a Section in a Form is not presented.
+                .sheet(item: joinBinding) { preview in
+                    SyncJoinSheet(preview: preview.value, join: {
+                        joinPreview = nil
+                        Task { await sync.confirmJoin() }
+                    }, notNow: {
+                        joinPreview = nil
+                        Task { await sync.turnOff() }
+                    })
+                }
             statusRow
             if settings.isEnabled {
                 if let action = line.action { actionButton(action) }
@@ -59,15 +69,6 @@ struct SyncSectionView: View {
         } footer: {
             Text("Sync keeps your books, notes, highlights, bookmarks and ink the same on every device signed in to this account. Like your backups, everything is encrypted on this device first.",
                  comment: "Tactile Texts Cloud ▸ Sync: the section's footer.")
-        }
-        .sheet(item: joinBinding) { preview in
-            SyncJoinSheet(preview: preview.value, join: {
-                joinPreview = nil
-                Task { await sync.confirmJoin() }
-            }, notNow: {
-                joinPreview = nil
-                Task { await sync.turnOff() }
-            })
         }
     }
 
