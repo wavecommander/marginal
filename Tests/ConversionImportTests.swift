@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import ReaderBackup
 import ReaderCore
 import ReaderStore
 import Testing
@@ -300,7 +301,10 @@ struct ConversionImportTests {
         let pdf = env.store.documentURL(for: book)
         let original = env.store.url(forRelativePath: BookStorageLayout.originalPath(bookID: book.id, extension: "epub"))
         let record = directory.appendingPathComponent(ImportPipeline.conversionRecordFileName)
-        #expect(Set(entries(of: directory)) == ["f3-small.pdf", "original.epub", "cover.jpg", "conversion.json"])
+        // The PDF's hash is recorded at import (one book per PDF).
+        #expect(Set(entries(of: directory)) == ["f3-small.pdf", "original.epub", "cover.jpg", "conversion.json",
+                                                BookStorageLayout.contentHashFileName])
+        #expect(DocumentDigest.readSidecar(at: env.store.contentHashURL(bookID: book.id)) == (try ContentHash.digest(ofFileAt: pdf)))
         #expect(PDFDocument(url: pdf)?.pageCount == 3)
         #expect(try Data(contentsOf: original) == (try Data(contentsOf: Self.epub)))
         let stored = try JSONDecoder().decode(ConversionRecord.self, from: Data(contentsOf: record))

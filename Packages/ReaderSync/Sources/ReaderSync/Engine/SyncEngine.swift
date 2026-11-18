@@ -460,6 +460,10 @@ public actor SyncEngine {
         let newBaseArchive = SyncPlanning.baseArchive(accountAfter: accountArchive, oldBase: mergeBase?.archive,
                                                       slice: plan.slice, localBook: snapshot.archive.book)
         let newBaseFiles = SyncPlanning.replacingBusy(accountFiles, pages: busyPages, notes: sliceNotes, with: baseFiles)
+        // A base that keeps a busy surface as the old base had it is not the head's as a whole:
+        // it must not let a later round skip the book as up to date (the account's version of
+        // that surface would then never arrive).
+        let baseIsWhole = newBaseFiles == accountFiles && SyncPlanning.sameContent(newBaseArchive, accountArchive)
 
         // What changes here, with every byte in hand before anything is written.
         var toWrite: [SyncFileKey: Data] = [:]
@@ -486,7 +490,8 @@ public actor SyncEngine {
         guard pushing || applying else {
             // Nothing to write anywhere; the base may still move (a head that changes nothing here).
             if let read {
-                let newBase = SyncBase(bookKey: key, headVersion: read.head.version, headETag: read.eTag,
+                let newBase = SyncBase(bookKey: key, headVersion: read.head.version,
+                                       headETag: baseIsWhole ? read.eTag : SyncPlanning.unmatchedETag,
                                        archive: newBaseArchive, files: SyncBaseFiles(digests: newBaseFiles))
                 if newBase != base { try saveBase(newBase) }
             }
@@ -518,7 +523,8 @@ public actor SyncEngine {
                                      supersededHead: read?.head, oldBase: base,
                                      newBase: SyncContent(archive: newBaseArchive, files: newBaseFiles),
                                      oldLocal: SyncContent(archive: snapshot.archive, files: snapshot.files),
-                                     target: SyncContent(archive: plan.target, files: targetFiles))
+                                     target: SyncContent(archive: plan.target, files: targetFiles),
+                                     newBaseIsPartial: baseIsWhole ? nil : true)
             try state.save(intent)
             try await step(.wroteIntent(bookKey: key))
             do {
@@ -550,7 +556,8 @@ public actor SyncEngine {
                                      supersededHead: nil, oldBase: base,
                                      newBase: SyncContent(archive: newBaseArchive, files: newBaseFiles),
                                      oldLocal: SyncContent(archive: snapshot.archive, files: snapshot.files),
-                                     target: SyncContent(archive: plan.target, files: targetFiles))
+                                     target: SyncContent(archive: plan.target, files: targetFiles),
+                                     newBaseIsPartial: baseIsWhole ? nil : true)
             try state.save(intent)
             try await step(.wroteIntent(bookKey: key))
         }
@@ -564,8 +571,8 @@ public actor SyncEngine {
             }
             try await step(.appliedLocally(bookKey: key))
         }
-        try saveBase(SyncBase(bookKey: key, headVersion: version, headETag: eTag, archive: newBaseArchive,
-                              files: SyncBaseFiles(digests: newBaseFiles)))
+        try saveBase(SyncBase(bookKey: key, headVersion: version, headETag: baseIsWhole ? eTag : SyncPlanning.unmatchedETag,
+                              archive: newBaseArchive, files: SyncBaseFiles(digests: newBaseFiles)))
         try await step(.movedBase(bookKey: key))
         try state.removeIntent(bookKey: key)
         return .done(report)
@@ -748,7 +755,7 @@ public actor SyncEngine {
             }
         }
         let result = try await inkMerger.merge(SyncInkMergeRequest(kind: job.kind, local: local, remote: remote, base: base,
-                                                                   absorbed: absorbed))
+                                                                   absorbed: absorbed, notes: job.notes))
         guard let result, !result.isEmpty else { return nil }
         let content = ContentDigest(of: result)
         cache[content] = result

@@ -26,9 +26,12 @@ struct TokenInkMerger: SyncInkMerger {
     let calls = Collected<SyncInkMergeRequest.Kind>()
     /// Merges that had a base to merge against.
     let threeWay = Collected<SyncInkMergeRequest.Kind>()
+    /// The notes each note merge named.
+    let notes = Collected<SyncInkNotes>()
 
     func merge(_ request: SyncInkMergeRequest) async throws -> Data? {
         calls.append(request.kind)
+        if let notes = request.notes { self.notes.append(notes) }
         if case .ink = request.base { threeWay.append(request.kind) }
         let l = TokenInk.decode(request.local), r = TokenInk.decode(request.remote)
         var result: Set<String>

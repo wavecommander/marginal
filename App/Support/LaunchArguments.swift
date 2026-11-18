@@ -150,6 +150,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
     /// settings, so its screens, signing in included, work without a Worker, Apple, Google or the
     /// App Store (`CloudBackupUITestMode`).
     var cloudBackupUITest: String?
+    /// `-syncTestFolder <absolute path>` (DEBUG, tests): a sync service runs against a folder
+    /// standing in for the account (`FolderSyncObjectStore`, created if missing), with a fixed
+    /// test key, read-write and signed in as `sync-test`, with no network (`LocalSyncAccess`).
+    /// Several launches, or two simulators, sharing the folder sync through it.
+    var syncTestFolder: URL?
     #endif
 
     /// `-exposeAccent`: test-only. Adds a `settings.accentProbe` element to every window whose
@@ -351,6 +356,11 @@ nonisolated struct LaunchOptions: Equatable, Sendable {
             #if DEBUG
             case "-cloudBackupUITest":
                 if let state = value(after: index) { cloudBackupUITest = state; index += 1 }
+            case "-syncTestFolder":
+                if let path = value(after: index) {
+                    index += 1
+                    if path.hasPrefix("/") { syncTestFolder = URL(fileURLWithPath: path, isDirectory: true) }
+                }
             #endif
             case "-accent":
                 if let text = value(after: index) { accent = AccentChoice(rawValue: text); index += 1 }

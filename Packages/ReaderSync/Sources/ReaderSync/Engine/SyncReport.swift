@@ -39,7 +39,7 @@ public enum SyncEngineError: Error, Hashable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .joinConfirmationRequired: "Confirm how this iPad’s books join your synced library."
+        case .joinConfirmationRequired: "Confirm how the books on this device join your synced library."
         case .formatTooNew: SyncError.newerFormatVersion(0).errorDescription
         case .roundInProgress: "Sync is already running."
         }

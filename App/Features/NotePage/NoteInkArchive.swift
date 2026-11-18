@@ -75,6 +75,20 @@ nonisolated enum NoteInkArchive {
         return anchoredByGeometry(drawing.strokes, layout: fallbackLayout)
     }
 
+    /// The drawing stored in note ink data and how many strokes its band list declares (`nil`
+    /// for a plain drawing, which declares none), without anchoring anything; `nil` when the data
+    /// is neither, or is an archive from a newer version. For the content-version rule
+    /// (`InkContentSupport`): a band list longer than the strokes PencilKit read means strokes
+    /// were dropped.
+    static func inspect(_ data: Data) -> (drawing: PKDrawing, declaredStrokes: Int?)? {
+        if let payload = try? PropertyListDecoder().decode(Payload.self, from: data), payload.format == formatIdentifier {
+            guard payload.version <= currentVersion, let drawing = try? PKDrawing(data: payload.drawing) else { return nil }
+            return (drawing, payload.bands.count)
+        }
+        guard let drawing = try? PKDrawing(data: data) else { return nil }
+        return (drawing, nil)
+    }
+
     private static func anchoredByGeometry(_ strokes: [PKStroke], layout: NoteBandLayout) -> NoteInk {
         NoteInk(layout: layout, strokes: strokes.map { stroke in
             let band = layout.band(for: stroke.renderBounds)

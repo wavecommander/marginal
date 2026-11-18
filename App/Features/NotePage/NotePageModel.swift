@@ -451,6 +451,20 @@ final class NotePageModel {
         text != baseText || inkGeneration != baseInkGeneration
     }
 
+    /// `true` while sync must leave this note alone (`SyncSurface.note`): a stroke in progress,
+    /// text being composed, edits not yet stored or a save scheduled, or stored ink this system
+    /// cannot read in full.
+    var isBusyForSync: Bool {
+        strokeInProgress || editor?.isComposingText == true || hasUnsavedChanges || debounceTask != nil
+            || hasUnreadableInk
+    }
+
+    /// `true` while flushing would end something the reader is in the middle of (a stroke, a
+    /// text composition): sync then leaves the note to its own autosave.
+    var isMidInput: Bool {
+        strokeInProgress || editor?.isComposingText == true
+    }
+
     private func scheduleSave(after delay: Duration? = nil) {
         guard !saveToken.isRevoked else { return }
         if isLoaded { saveState = hasUnsavedChanges ? .edited : saveState }
@@ -603,6 +617,9 @@ final class NotePageModel {
         if let inkData {
             let fallback = record?.bandLayout ?? layout(for: remoteText)
             do {
+                // Ink this system cannot show in full (`InkContentSupport`: from a newer system)
+                // is unreadable here: never overwritten or deleted.
+                guard !InkContentSupport.needsNewerSystem(noteInk: inkData) else { throw NoteInkArchive.DecodingFailure.unreadable }
                 remoteInk = try NoteInkArchive.decode(inkData, fallbackLayout: fallback)
             } catch {
                 hasUnreadableInk = true

@@ -181,6 +181,16 @@ public class InMemoryRecordStore: RecordStore {
         }
     }
 
+    public func storeBookmarkRecord(_ bookmark: Bookmark) throws -> [Bookmark] {
+        try requireBook(bookmark.bookID)
+        let replaced = bookmarksByID.values.filter {
+            $0.id == bookmark.id || ($0.bookID == bookmark.bookID && $0.pageIndex == bookmark.pageIndex)
+        }
+        for old in replaced { bookmarksByID[old.id] = nil }
+        bookmarksByID[bookmark.id] = bookmark
+        return replaced
+    }
+
     // MARK: Headings
 
     public func userHeadings(bookID: UUID) throws -> [UserHeading] {

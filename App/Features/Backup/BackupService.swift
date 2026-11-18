@@ -251,6 +251,9 @@ final class BackupService {
     /// Awaited before every job (`AppEnvironment` sets it to its launch work, which finishes
     /// interrupted restores and removes their leftovers).
     @ObservationIgnored var waitUntilReady: @MainActor () async -> Void
+    /// Awaited at the start of every job, after `waitUntilReady`: sync stops its round and waits
+    /// for it to end (one job at a time; `SyncService.stopForBackupJob`).
+    @ObservationIgnored var beforeJob: (@MainActor () async -> Void)?
     /// Free bytes on the volume holding a URL (`nil`: unknown, the check is skipped). Tests inject it.
     @ObservationIgnored var availableCapacity: @Sendable (URL) -> Int64? = BackupService.volumeAvailableCapacity
     /// Who made the backup (recorded in the manifest and the snapshot name).
@@ -295,8 +298,10 @@ final class BackupService {
         self.job = job
         defer { if self.job === job { self.job = nil } }
         let waitUntilReady = waitUntilReady
+        let beforeJob = beforeJob
         let task = Task { @MainActor in
             await waitUntilReady()
+            await beforeJob?()
             try Task.checkCancellation()
             return try await body(job)
         }

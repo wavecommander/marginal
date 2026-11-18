@@ -31,7 +31,7 @@ These apply to every change, alongside the build, test and convention rules belo
   - `ReaderStore`: SwiftData models and ink files.
   - `ReaderBackup`, `S3Kit`: Foundation and CryptoKit only.
   - `GoogleSignInKit`: Sign in with Google for Tactile Texts Cloud, sign-in only (PKCE, `state`, `nonce`, one code exchange for the ID token; no token storage). Foundation and CryptoKit only.
-  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores, and the sync engine (`SyncEngine`, with the `SyncLibrary` and `SyncInkMerger` seams the app implements) (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`). The app uses only its `SyncKeys` so far (device names on the Tactile Texts Cloud account screen).
+  - `ReaderSync`: sync formats, the encrypted object store, base and rollback stores, and the sync engine (`SyncEngine`, with the `SyncLibrary` and `SyncInkMerger` seams the app implements) (Foundation and CryptoKit, on `ReaderCore` and `ReaderBackup`). The app implements the seams in `App/Features/Sync/` (`LibrarySyncCore`, `AppSyncInkMerger`, `SyncService`); C4a, 17 November 2026.
 - `Tests/` app-hosted unit tests (Swift Testing). `UITests/` XCTest UI tests.
 - `Backend/backup-worker/` Cloudflare Worker (TypeScript, D1, R2), separate npm project.
 - No third-party Swift dependencies. Do not add one.

@@ -189,6 +189,37 @@ struct SyncEngineBehaviourTests {
         try await world.settle(&rng, "after the touch")
     }
 
+    /// The app anchors merged note ink to the merged text, and reads each side's ink against
+    /// that side's text: a note ink merge names all of them.
+    @Test func aNoteInkMergeNamesTheMergedTextAndEachSidesNote() async throws {
+        let world = try await sharedWorld()
+        let (a, b) = (world.devices[0], world.devices[1])
+        func ink(_ token: String, _ text: String) -> (inout FakeLibrary.Book) -> Void {
+            { book in
+                var tokens = TokenInk.decode(book.files[.noteInk(noteN)])
+                tokens.insert(token)
+                book.files[.noteInk(noteN)] = TokenInk.encode(tokens)
+                setText(&book, noteN, text)
+                if let k = book.archive.notes.firstIndex(where: { $0.id == noteN }) {
+                    book.archive.notes[k].hasInk = true
+                    book.archive.notes[k].bandLayout = testLayout
+                }
+            }
+        }
+        await edit(a, ink("ka", "n0\na"))
+        await edit(b, ink("kb", "n0\nb"))
+        _ = try await a.sync()
+        _ = try await b.sync()
+        let named = try #require(b.merger.notes.values.last)
+        #expect(named.merged.id == noteN)
+        #expect(named.merged.text == "n0\nb\na" || named.merged.text == "n0\na\nb")
+        #expect(named.local?.text == "n0\nb")
+        #expect(named.remote?.text == "n0\na")
+        #expect(named.base?.text == "n0")
+        var rng = SeededGenerator(state: 9)
+        try await world.settle(&rng, "after the note merge")
+    }
+
     @Test func aSecondRoundWhileOneRunsIsRefused() async throws {
         let world = try await sharedWorld()
         let a = world.devices[0]
@@ -505,6 +536,25 @@ struct SyncEngineBehaviourTests {
         #expect(NoteBandLayout.paragraphs(of: merged).contains("b") && NoteBandLayout.paragraphs(of: merged).contains("a typing"))
         var rng = SeededGenerator(state: 11)
         try await world.settle(&rng, "busy note")
+    }
+
+    /// A page busy here that only the account changed: once the reader stops, the account's
+    /// version arrives (the base kept for the busy page must not pass for the head's).
+    @Test func aBusyPageChangedOnlyInTheAccountArrivesOnceItIsFree() async throws {
+        let world = try await sharedWorld()
+        let (a, b) = (world.devices[0], world.devices[1])
+        await edit(a) { addStroke(&$0, page: 3, "fromA") }
+        _ = try await a.sync()
+        let id = try #require(await find(b)?.0)
+        await b.library.setBusy(id, [.page(3)])
+        let busy = try await b.sync()
+        #expect(busy.books.contains { $0.skipped.contains(.busy([.page(3)])) })
+        #expect(await find(b)?.1.files[.pageInk(3)] == nil)
+        await b.library.clearBusy()
+        _ = try await b.sync()
+        #expect(TokenInk.decode(await find(b)?.1.files[.pageInk(3)]) == ["fromA"])
+        var rng = SeededGenerator(state: 3)
+        try await world.settle(&rng, "after the busy page")
     }
 
     @Test func aBusyPageIsLeftAloneThenMergedNextRoundWithNothingLost() async throws {

@@ -75,6 +75,8 @@ struct SyncInkJob: Hashable, Sendable {
     var base: Base
     /// For a note: the ink of each of the decision's absorbed notes, in order.
     var absorbed: [Absorbed]
+    /// For a note: the notes the inks belong to.
+    var notes: SyncInkNotes? = nil
 }
 
 /// The pure parts of a round, apart from the engine's I/O.
@@ -226,7 +228,7 @@ enum SyncPlanning {
                 return .content(nil)
             }
             return .merge(SyncInkJob(kind: .note(decision), local: l, remote: r, base: baseFor(decision.base),
-                                     absorbed: absorbed))
+                                     absorbed: absorbed, notes: inkNotes(note, decision, plan)))
         }
 
         // The note is one side's as it is. Its ink is that side's too, unless the other side
@@ -260,7 +262,22 @@ enum SyncPlanning {
                                            needsBandLayout: note.hasInk && note.bandLayout == nil)
         let jobBase: SyncInkJob.Base = base == nil ? .unavailable : (baseNote == nil ? .none : (inBase.map { .content($0) } ?? .none))
         return .merge(SyncInkJob(kind: .note(synthesized), local: content(.local, note.id), remote: content(.remote, note.id),
-                                 base: jobBase, absorbed: []))
+                                 base: jobBase, absorbed: [], notes: inkNotes(note, synthesized, plan)))
+    }
+
+    /// The notes behind a note ink merge, from the archives the merge saw.
+    static func inkNotes(_ merged: Note, _ decision: NoteSyncDecision, _ plan: SyncRecordPlan) -> SyncInkNotes {
+        func note(_ source: NoteSyncDecision.InkSource?) -> Note? {
+            guard let source else { return nil }
+            let archive: BookArchive? = switch source.side {
+            case .local: plan.neutralLocal
+            case .remote: plan.neutralRemote
+            case .base: plan.base
+            }
+            return archive?.notes.first { $0.id == source.noteID }
+        }
+        return SyncInkNotes(merged: merged, local: note(decision.local), remote: note(decision.remote),
+                            base: note(decision.base), absorbed: decision.absorbed.map { note($0) })
     }
 
     static func identity(_ text: String) -> [Int?] {
@@ -325,7 +342,7 @@ enum SyncPlanning {
         }
         // Only a base that is wholly the new one may say it is the head's: one that is partly the
         // old base must not let the next round skip the book as up to date.
-        let whole = files == newFiles && sameContent(archive, newBase)
+        let whole = files == newFiles && sameContent(archive, newBase) && intent.newBaseIsPartial != true
         return SyncBase(bookKey: intent.bookKey, headVersion: intent.headVersion, headETag: whole ? eTag : unmatchedETag,
                         archive: archive, files: SyncBaseFiles(digests: files))
     }

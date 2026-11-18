@@ -35,6 +35,9 @@ nonisolated enum ImportPipeline {
         /// Scan detection found the book scanned (S3: `ScanDetector`, sampled from this staged
         /// file's own document).
         var isScanned = false
+        /// The staged PDF's full SHA-256 and size, also written beside it as `document.sha256`
+        /// (one book per PDF, owner decision 8: the import goes to a book that already holds it).
+        var digest: ContentDigest? = nil
     }
 
     static let copyChunkSize = 4 * 1024 * 1024
@@ -141,7 +144,17 @@ nonisolated enum ImportPipeline {
         let size = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
         try Task.checkCancellation()
         let isScanned = ScanDetector.isScanned(document)
-        return Staged(pageCount: pageCount, fileSize: size, hasCover: hasCover, isScanned: isScanned)
+        // The full hash, cached beside the PDF so the committed book has its sidecar from the
+        // start (`DocumentDigest`).
+        let digest: ContentDigest
+        do {
+            digest = try ContentHash.digest(ofFileAt: destination)
+        } catch {
+            throw ImportError.unreadable(fileName: fileName, reason: error.localizedDescription)
+        }
+        try? DocumentDigest.writeSidecar(digest, to: directory.appendingPathComponent(BookStorageLayout.contentHashFileName))
+        try Task.checkCancellation()
+        return Staged(pageCount: pageCount, fileSize: size, hasCover: hasCover, isScanned: isScanned, digest: digest)
     }
 
     // MARK: Convert

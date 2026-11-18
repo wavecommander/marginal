@@ -75,7 +75,7 @@ extension BackupService {
             do {
                 let reader = try await BackupWork.openArchive(url)
                 job.set(fraction: 0.5)
-                let plan = RestorePlan(manifest: reader.manifest, localLibrary: await self.localSummaries(),
+                let plan = RestorePlan(manifest: reader.manifest, localLibrary: await self.localSummaries(for: reader.manifest),
                                        destinationPDFHashes: [])
                 return RestoreSession(source: .file(url), reader: reader, plan: plan, destinationPDFHashes: [],
                                       destination: nil, ownedDirectory: nil, scopedURL: scoped ? url : nil)
@@ -106,7 +106,7 @@ extension BackupService {
                         held.insert(entry.pdf.sha256)
                     }
                 }
-                let plan = RestorePlan(manifest: reader.manifest, localLibrary: await self.localSummaries(),
+                let plan = RestorePlan(manifest: reader.manifest, localLibrary: await self.localSummaries(for: reader.manifest),
                                        destinationPDFHashes: held)
                 return RestoreSession(source: .destination(id: destination.id, name: destination.displayName, snapshot: snapshot),
                                       reader: reader, plan: plan, destinationPDFHashes: held, destination: destination,
@@ -120,7 +120,7 @@ extension BackupService {
 
     /// Rebuilds the session's preview against the Library as it is now.
     func refreshPlan(of session: RestoreSession) async {
-        let local = await localSummaries()
+        let local = await localSummaries(for: session.manifest)
         session.update(plan: RestorePlan(manifest: session.manifest, localLibrary: local,
                                          destinationPDFHashes: session.destinationPDFHashes))
     }
@@ -128,8 +128,12 @@ extension BackupService {
     /// Every local book as the restore preview needs it: counts, last change, whether its PDF is
     /// on disk, and the sidecar's hash. The hash is not computed here, except for a converted
     /// book that has none yet: the preview must know whether its PDF is the backup's
-    /// (`RestorePlan.Item.hasDifferentConversion`), and only the full hash says so.
-    func localSummaries() async -> [LocalBookSummary] {
+    /// (`RestorePlan.Item.hasDifferentConversion`), and only the full hash says so; and for a
+    /// book with no hash yet whose PDF is the size of one of `manifest`'s PDFs, which may be
+    /// the same PDF (one book per PDF, owner decision 8: only a same-size PDF can be, so nothing
+    /// else is hashed).
+    func localSummaries(for manifest: BackupManifest? = nil) async -> [LocalBookSummary] {
+        let backupSizes = Set(manifest?.books.map(\.pdf.size) ?? [])
         let books = (try? store.books.allBooks()) ?? []
         var archives: [BookArchive] = []
         for book in books {
@@ -145,7 +149,8 @@ extension BackupService {
                                                      bookmarks: archive.bookmarks.count,
                                                      userHeadings: archive.userHeadings.count, inkedPages: inked)
             var sha256 = files[id]?.sha256
-            if sha256 == nil, archive.book.isConverted, files[id]?.hasPDF == true {
+            let sameSize = files[id]?.pdfSize.map(backupSizes.contains) ?? false
+            if sha256 == nil, archive.book.isConverted || sameSize, files[id]?.hasPDF == true {
                 sha256 = (try? await store.contentDigest(of: archive.book))?.sha256
             }
             summaries.append(LocalBookSummary(book: archive.book, hasPDF: files[id]?.hasPDF ?? false,
@@ -246,7 +251,7 @@ extension BackupService {
                 // A replaced book keeps its recognised text when its PDF is the restored one
                 // (`RestoreCommit.keptRecognition`): its hash must be recorded before the commit,
                 // which never hashes.
-                for id in currentMatches(for: item.entry.book) where Self.hasRecognisedText(store, bookID: id) {
+                for id in currentMatches(for: item.entry) where Self.hasRecognisedText(store, bookID: id) {
                     if let local = try store.books.book(id: id) { _ = try? await store.contentDigest(of: local) }
                 }
             }
@@ -308,7 +313,7 @@ extension BackupService {
             var affected = Set<UUID>()
             for book in staged {
                 affected.insert(book.item.id)
-                affected.formUnion(currentMatches(for: book.item.entry.book))
+                affected.formUnion(currentMatches(for: book.item.entry))
                 affected.formUnion(book.item.replacedBookIDs)
             }
             let pause = await BookWriteGate.shared.pause(affected)
@@ -320,7 +325,7 @@ extension BackupService {
             if safety == .protect, !staged.isEmpty {
                 job.set(phase: .savingSafetyCopy)
                 var protected = Set<UUID>()
-                for book in staged { protected.formUnion(currentMatches(for: book.item.entry.book)) }
+                for book in staged { protected.formUnion(currentMatches(for: book.item.entry)) }
                 safetyCopy = try await makeSafetyCopy(protecting: protected, sourceName: session.sourceName)
                 try Task.checkCancellation()
                 job.set(phase: .committing)
@@ -364,7 +369,7 @@ extension BackupService {
                     }
                 }
                 let entryBook = book.item.entry.book
-                let current = currentMatches(for: entryBook)
+                let current = currentMatches(for: book.item.entry)
                 guard Set(current).isSubset(of: Set(book.item.replacedBookIDs)) else {
                     summary.failures.append(.init(id: entryBook.id, title: entryBook.title,
                                                   message: BackupServiceError.libraryChanged(bookTitle: entryBook.title).localizedDescription))
@@ -431,13 +436,19 @@ extension BackupService {
         }
     }
 
-    /// Local books a restore of `book` replaces now: the one with its ID and the one with its
-    /// fingerprint (the Library holds one book per fingerprint).
-    func currentMatches(for book: Book) -> [UUID] {
+    /// Local books a restore of `entry` replaces now: the one with its ID, the one with its
+    /// fingerprint (the Library holds one book per fingerprint), and any whose PDF has its full
+    /// SHA-256 by the hash sidecar (one book per PDF, owner decision 8, 17 November 2026; the
+    /// restore preview hashes local books first, `localSummaries`).
+    func currentMatches(for entry: BackupManifest.BookEntry) -> [UUID] {
+        let book = entry.book
         var ids: [UUID] = []
         if let byID = try? store.books.book(id: book.id) { ids.append(byID.id) }
         if let byPrint = try? store.books.book(fingerprint: book.fingerprint), !ids.contains(byPrint.id) {
             ids.append(byPrint.id)
+        }
+        for id in LibraryPDFIndex.bookIDs(withSidecarSHA256: entry.pdf.sha256, in: store) where !ids.contains(id) {
+            ids.append(id)
         }
         return ids
     }
@@ -449,7 +460,7 @@ extension BackupService {
         let expected = entry.pdf.digest
         if restorePDFs, entry.pdf.embedded, session.reader.embeddedPDFHashes.contains(expected.sha256) { return .embedded }
         if restorePDFs, session.destination != nil, session.destinationPDFHashes.contains(expected.sha256) { return .destination }
-        let replaced = currentMatches(for: entry.book)
+        let replaced = currentMatches(for: entry)
         for id in replaced {
             guard let local = try store.books.book(id: id), store.hasDocument(local) else { continue }
             if try await store.contentDigest(of: local) == expected {
@@ -467,12 +478,13 @@ extension BackupService {
 }
 
 extension BackupWork {
-    /// Whether each book's PDF is on disk, and its sidecar hash.
+    /// Whether each book's PDF is on disk, its sidecar hash, and the PDF's size.
     @concurrent
-    static func localFileInfo(_ probes: [(UUID, URL, URL)]) async -> [UUID: (hasPDF: Bool, sha256: String?)] {
-        var result: [UUID: (hasPDF: Bool, sha256: String?)] = [:]
+    static func localFileInfo(_ probes: [(UUID, URL, URL)]) async -> [UUID: (hasPDF: Bool, sha256: String?, pdfSize: Int64?)] {
+        var result: [UUID: (hasPDF: Bool, sha256: String?, pdfSize: Int64?)] = [:]
         for (id, document, sidecar) in probes {
-            result[id] = (FileManager.default.fileExists(atPath: document.path), DocumentDigest.readSidecar(at: sidecar)?.sha256)
+            let size = DocumentDigest.regularFileSize(document)
+            result[id] = (size != nil, DocumentDigest.readSidecar(at: sidecar)?.sha256, size)
         }
         return result
     }

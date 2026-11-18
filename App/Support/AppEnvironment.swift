@@ -46,6 +46,13 @@ final class AppEnvironment {
     /// Every marked-up PDF export and the files they made, kept until the user deletes them
     /// (`<store root>/Marked-Up Exports`).
     let markedUpExports: MarkedUpExportLibrary
+    /// Sync with Tactile Texts Cloud (`SyncService`), `nil` when the build has no service (and no
+    /// `-syncTestFolder`). C4b's Sync switch, status line and scheduler drive it.
+    @ObservationIgnored let syncService: SyncService?
+    /// The library side of sync, shared by every account's engine (`nil` with `syncService`).
+    @ObservationIgnored let syncLibrary: LibrarySyncCore?
+    /// The change origin of the launch-time merge of books with one PDF.
+    @ObservationIgnored let duplicateMergeOrigin = ChangeOrigin(label: "duplicate books")
     /// The one text-recognition queue for scanned books (started after launch work). The
     /// search status (S3) calls its entry points; progress reaches windows through the hub.
     @ObservationIgnored let textRecognition: TextRecognitionEngine
@@ -113,6 +120,31 @@ final class AppEnvironment {
         #endif
         if cloudBackup == nil { cloudBackup = TactileCloudBackup.make(infoDictionary: infoDictionary) }
         self.cloudBackup = cloudBackup
+        InkContentSupport.prepare()
+        // Sync, over the service when the build has it (C4b decides when it runs).
+        var syncAccess: (any SyncAccountProvider)?
+        #if DEBUG
+        if let folder = launchOptions.syncTestFolder { syncAccess = SyncTestAccess.make(folder: folder) }
+        #endif
+        if syncAccess == nil, let cloudBackup, let connection = cloudBackup.account.connection {
+            let signIn = cloudBackup.signIn
+            syncAccess = TactileCloudSyncAccess(connection: connection, accountID: { [weak signIn] in
+                await MainActor.run { signIn?.accountID }
+            })
+        }
+        if let syncAccess, libraryRecovery == nil {
+            let core = LibrarySyncCore(store: store)
+            let service = SyncService(library: core, access: syncAccess,
+                                      root: SyncService.defaultRoot(storeRoot: store.rootDirectory))
+            service.backupService = backupService
+            backupService.beforeJob = { [weak service] in await service?.stopForBackupJob() }
+            cloudBackup?.account.onSignInChanged = { [weak service] in service?.signInChanged() }
+            self.syncLibrary = core
+            self.syncService = service
+        } else {
+            self.syncLibrary = nil
+            self.syncService = nil
+        }
         if let cloudBackup {
             backupDestinations.register(cloudBackup.destination)
             // Automatic backup is on by default for a signed-in subscriber (unless the reader
@@ -125,6 +157,7 @@ final class AppEnvironment {
         // Jobs wait for launch work: it finishes interrupted restores and removes their leftovers.
         backupService.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
         backupScheduler.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
+        syncService?.waitUntilReady = { [weak self] in _ = await self?.launchPlan() }
     }
 
     /// Saves every open reader's and note editor's pending text and ink, and waits for it (the
@@ -233,6 +266,11 @@ final class AppEnvironment {
         }
         _ = try? await store.sweepOrphanedBookDirectories()
         PerfMarks.mark("sweepDone")
+        // One book per PDF: books that hold one PDF are merged into the oldest, before sync or
+        // any import can run (idempotent, so a crash part-way is finished here next time).
+        if libraryRecovery == nil {
+            _ = await LibraryDuplicateMerge.run(store: store, origin: duplicateMergeOrigin)
+        }
         var imported: [Book] = []
         for url in launchOptions.importFixtures {
             let result = await fixtureImporter.importFixture(at: url, confirmConversions: launchOptions.confirmConversions)
