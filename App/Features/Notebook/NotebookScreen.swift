@@ -15,7 +15,8 @@ import SwiftUI
 /// Shown in place in any window (pushed on the window's navigation stack, so the system back
 /// button returns to the Library) and as the first screen of a Notebook window
 /// (`WindowID.notebook`, keyed by book ID). Filter, search and scroll position belong to the
-/// window (scene storage keyed by book), so two windows on one Notebook are independent.
+/// window (scene storage keyed by book), so two windows on one Notebook are independent. The
+/// scroll position is saved as the feed scrolls and read back once, when the screen loads.
 ///
 /// Rows open the reader at their page (a heading: its start page) in this window through
 /// `WindowContext.openReader(bookID:pageIndex:)`; their context menu also opens a new window.
@@ -91,6 +92,12 @@ private struct NotebookContent: View {
     @State private var entries: [NotebookScopeEntry] = []
     @State private var feedVersion = 0
     @State private var didRestoreScroll = false
+    /// The row at the top of the feed: what the scroll view reads and writes. Kept apart from
+    /// `scrollAnchor` (scene storage), which is only written from here and read once, when the
+    /// feed first loads. Scene storage is shared by every Notebook screen of the book in the
+    /// window (Notebook, a row's reader, its Notebook again), and a scroll view bound to it
+    /// straight was pulled back by the screen underneath while it scrolled.
+    @State private var topRowID: String?
     @State private var isWide = true
     @State private var export = NotebookExportController()
     /// The note whose deletion is being confirmed.
@@ -267,7 +274,7 @@ private struct NotebookContent: View {
 
     /// The pages the feed has on screen, for the map's box.
     private var pagesInView: ClosedRange<Int>? {
-        let ids = visibleRowIDs.isEmpty ? Set([scrollAnchor ?? rows.first?.id].compactMap { $0 }) : visibleRowIDs
+        let ids = visibleRowIDs.isEmpty ? Set([topRowID ?? rows.first?.id].compactMap { $0 }) : visibleRowIDs
         return NotebookMap.pageRange(ofRows: ids, in: rows)
     }
 
@@ -275,7 +282,7 @@ private struct NotebookContent: View {
     /// widens the feed to the whole book.
     private func scrollToMapItem(_ mark: NotebookMap.Mark) {
         if rows.contains(where: { $0.id == mark.id }) {
-            withAnimation(.snappy(duration: 0.3)) { scrollAnchor = mark.id }
+            withAnimation(.snappy(duration: 0.3)) { topRowID = mark.id }
         } else {
             pendingMapTarget = mark.id
             scopeKey = NotebookScope.all.storageKey
@@ -418,7 +425,11 @@ private struct NotebookContent: View {
                 .padding(.bottom, 32)
                 .frame(maxWidth: .infinity)
             }
-            .scrollPosition(id: $scrollAnchor, anchor: rowAnchor)
+            .scrollPosition(id: $topRowID, anchor: rowAnchor)
+            .onChange(of: topRowID) { _, id in
+                // Not before the saved place has been read back (below).
+                if didRestoreScroll, id != scrollAnchor { scrollAnchor = id }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { feedHeight = $0 }
             .modifier(NotebookVisibleRows(ids: $visibleRowIDs))
             .accessibilityIdentifier(NotebookAccessibilityID.feed)
@@ -430,6 +441,7 @@ private struct NotebookContent: View {
                 if !didRestoreScroll {
                     didRestoreScroll = true
                     if let anchor = scrollAnchor, rows.contains(where: { $0.id == anchor }) {
+                        topRowID = anchor
                         proxy.scrollTo(anchor, anchor: rowAnchor)
                     }
                 }

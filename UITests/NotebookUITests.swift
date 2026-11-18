@@ -185,6 +185,36 @@ final class NotebookUITests: XCTestCase {
         XCTAssertTrue(waitUntil { target.isHittable })
     }
 
+    /// A second Notebook of the same book in the window (Notebook, a row's reader, its More menu's
+    /// Notebook) scrolls on its own. Both screens save their place under one scene-storage key,
+    /// and the one underneath used to pull the one on top back as it scrolled.
+    func testNotebookOpenedFromARowsReaderScrolls() {
+        let app = launch()
+        let note = row(app, ID.pageNote(12))
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.tap()
+        let more = app.buttons["reader.toolbar.more"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 30), "reader shown")
+        more.tap()
+        // Not the back button, which is also called "Notebook" here.
+        let notebookItem = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@",
+                                                            "Notebook", "BackButton")).firstMatch
+        XCTAssertTrue(notebookItem.waitForExistence(timeout: 5), "Notebook in More menu")
+        notebookItem.tap()
+        XCTAssertTrue(waitForAbsence(more, timeout: 10), "the reader's toolbar gave way to the Notebook's")
+
+        let feed = app.scrollViews[ID.feed].firstMatch
+        XCTAssertTrue(feed.waitForExistence(timeout: 10), "second Notebook shown")
+        let last = row(app, ID.highlight(29, 0))
+        XCTAssertTrue(row(app, ID.header("3 Matrices and Linear Maps")).waitForExistence(timeout: 10))
+        XCTAssertFalse(last.exists && last.isHittable, "the last row starts off screen")
+        for _ in 0..<3 where !(last.exists && last.isHittable) {
+            feed.swipeUp()
+            usleep(600_000)  // a pull back came just after the scroll settled
+        }
+        XCTAssertTrue(waitUntil { last.exists && last.isHittable }, "the feed scrolled to its end and stayed there")
+    }
+
     private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
