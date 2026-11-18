@@ -862,17 +862,20 @@ private struct PagePill: View {
                     .accessibilityLabel("Go to page")
                     .accessibilityIdentifier(AccessibilityID.Reader.goToPageField)
                     Text(verbatim: "of \(session.pageCount)").foregroundStyle(.white)
-                    Button("Go", action: submit)
-                        .foregroundStyle(.white.opacity(text.isEmpty ? 0.45 : 1))
-                        .disabled(text.isEmpty)
-                        .accessibilityIdentifier(AccessibilityID.Reader.goToPageGo)
-                    Button("Cancel") {
-                        session.isGoToPageVisible = false
-                        session.markup.reassertToolPicker()
+                    HStack(spacing: 16) {
+                        Button("Go", action: submit)
+                            .foregroundStyle(.white.opacity(text.isEmpty ? 0.45 : 1))
+                            .disabled(text.isEmpty)
+                            .accessibilityIdentifier(AccessibilityID.Reader.goToPageGo)
+                        Button("Cancel") {
+                            session.isGoToPageVisible = false
+                            session.markup.reassertToolPicker()
+                        }
+                        .foregroundStyle(.white)
                     }
-                    .foregroundStyle(.white)
+                    .padding(.leading, 8)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
                 .frame(minHeight: 44)
                 .onAppear {
                     text = ""
